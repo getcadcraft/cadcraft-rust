@@ -1,0 +1,19 @@
+[package]
+name = "cc-ui-egui"
+description = "CadCraft L6: the egui frontend."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 6
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-engine.workspace = true

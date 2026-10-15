@@ -1,0 +1,20 @@
+[package]
+name = "cc-mcp"
+description = "CadCraft L6: MCP server over the engine."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 6
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-engine.workspace = true
+serde_json.workspace = true

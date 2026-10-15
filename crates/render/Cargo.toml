@@ -1,0 +1,20 @@
+[package]
+name = "cc-render"
+description = "CadCraft L3: drawing to display lists (pure function of document, view, options)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-geom.workspace = true
+cc-drawing.workspace = true

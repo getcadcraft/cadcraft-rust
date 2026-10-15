@@ -1,0 +1,19 @@
+[package]
+name = "cc-geom"
+description = "CadCraft L0: points, vectors, transforms, tolerances."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 0
+
+[lints]
+workspace = true
+
+[dependencies]
+

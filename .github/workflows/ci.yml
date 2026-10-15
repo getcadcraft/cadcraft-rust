@@ -1,0 +1,51 @@
+name: CI
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "17 3 * * *"   # nightly: longer fuzzing
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (pinned by rust-toolchain.toml) + nightly for fuzzing
+        run: |
+          rustup show
+          rustup toolchain install nightly --profile minimal
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+      - name: Tools
+        run: |
+          command -v cargo-deny || cargo install --locked cargo-deny
+          command -v cargo-fuzz || cargo install --locked cargo-fuzz
+      - name: cargo xtask ci
+        run: cargo xtask ci
+  fuzz-nightly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --profile minimal && cargo install --locked cargo-fuzz
+      - run: cargo xtask fuzz --secs 900
+  platforms:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test --workspace --locked --quiet

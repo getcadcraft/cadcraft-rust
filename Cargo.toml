@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask"]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "Apache-2.0"
+repository = "https://github.com/getcadcraft/cadcraft-rust"
+authors = ["CadCraft <ddgconsultant@getcadcraft.com>"]
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "allow"
+
+[workspace.lints.clippy]
+# The per-crate deny list (AGENTS.md section 4) sits at the top of each lib.rs/main.rs.
+dbg_macro = "deny"
+print_stderr = "allow"
+
+[workspace.dependencies]
+cc-geom = { path = "crates/geom" }
+cc-drawing = { path = "crates/drawing" }
+cc-io-dwg = { path = "crates/io-dwg" }
+cc-render = { path = "crates/render" }
+cc-tools = { path = "crates/tools" }
+cc-engine = { path = "crates/engine" }
+cc-ui-egui = { path = "crates/ui-egui" }
+cc-mcp = { path = "crates/mcp" }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+thiserror = "2"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+panic = "unwind"
+
+[profile.release.package.cc-io-dwg]
+overflow-checks = true
+
+[profile.bench]
+inherits = "release"

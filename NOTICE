@@ -1,0 +1,7 @@
+CadCraft Rust test version
+Copyright 2026 CadCraft
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+cc-dwg (crates/io-dwg) is a port of CadCraft's own clean-room DWG reader (lib/dwg, Apache-2.0), written from the
+Open Design Alliance "Open Design Specification for .dwg files". No DWG library's source was read.

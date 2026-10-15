@@ -1,0 +1,19 @@
+[package]
+name = "cc-drawing"
+description = "CadCraft L1: the 2D drawing document model (pure data)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 1
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-geom.workspace = true

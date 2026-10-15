@@ -1,0 +1,8 @@
+/target
+/fuzz/target
+/fuzz/corpus/*/
+!/fuzz/corpus/.keep
+/fuzz/artifacts
+/dist
+/corpus
+*.profraw
