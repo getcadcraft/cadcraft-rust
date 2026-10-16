@@ -127,7 +127,7 @@ pub fn scene_of(v: &IfcView, id: u64, max_edge_tris: usize) -> Scene3D {
                 *h = h.max(x);
             }
         }
-        instances.push(Instance3 { mesh: mi, m: p.matrix, tint: None });
+        instances.push(Instance3 { mesh: mi, m: p.matrix, tint: None, hidden: false });
     }
     if !lo[0].is_finite() {
         lo = [-5.0, -5.0, 0.0];

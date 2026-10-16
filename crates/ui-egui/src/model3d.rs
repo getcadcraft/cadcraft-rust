@@ -120,7 +120,7 @@ pub fn scene_of(model: &Model, id: u64, dark: bool) -> Scene3D {
             ];
             grow(&mut lo, &mut hi, w);
         }
-        instances.push(Instance3 { mesh: mi, m: *m, tint: None });
+        instances.push(Instance3 { mesh: mi, m: *m, tint: None, hidden: false });
         true
     });
     if !lo[0].is_finite() {

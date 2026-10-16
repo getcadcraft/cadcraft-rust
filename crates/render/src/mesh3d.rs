@@ -377,6 +377,8 @@ pub struct Instance3 {
     pub mesh: usize,
     pub m: [f64; 16],
     pub tint: Option<[u8; 4]>,
+    /// left out of drawing (hidden by the person: a storey, a class)
+    pub hidden: bool,
 }
 
 /// How faces and edges are drawn (ModelCraft's styles: shaded, hidden line, wireframe, x-ray).
@@ -491,7 +493,7 @@ pub fn relative(m: &[f64; 16], origin: [f64; 3], mesh_origin: [f64; 3]) -> [f32;
 impl InstanceSet {
     /// Upload `instances` of `meshes`, relative to `origin` (the scene's box centre is a good one).
     pub fn new(device: &wgpu::Device, meshes: &[GpuMesh], instances: &[Instance3], origin: [f64; 3]) -> InstanceSet {
-        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < meshes.len()).collect();
+        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < meshes.len() && !i.hidden).collect();
         order.sort_by_key(|i| i.mesh);
         let mut ib: Vec<u8> = Vec::with_capacity(order.len() * ISTRIDE as usize);
         let mut ranges: Vec<(usize, std::ops::Range<u32>)> = Vec::new();
@@ -991,7 +993,7 @@ mod tests {
         };
         let r = Renderer3::new(&device);
         let meshes = [mesh];
-        let set = InstanceSet::new(&device, &meshes, &[Instance3 { mesh: 0, m: IDENT, tint: None }], c);
+        let set = InstanceSet::new(&device, &meshes, &[Instance3 { mesh: 0, m: IDENT, tint: None, hidden: false }], c);
         let st = r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &set }, &cam, &Style3::default());
         assert_eq!(st.triangles, 12);
         assert_eq!(st.segments, 12);

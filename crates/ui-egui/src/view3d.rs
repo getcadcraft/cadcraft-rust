@@ -26,6 +26,12 @@ impl Scene3D {
     pub fn new(id: u64, meshes: Vec<MeshData>, instances: Vec<Instance3>, min: [f64; 3], max: [f64; 3]) -> Scene3D {
         Scene3D { id, version: 0, meshes: Arc::new(meshes), instances: Arc::new(instances), min, max, picker: Arc::default() }
     }
+    /// Hide some instances (a storey, a class): not drawn, not picked.
+    pub fn set_hidden(&mut self, hidden: &dyn Fn(usize) -> bool) {
+        let list: Vec<Instance3> = self.instances.iter().enumerate().map(|(i, x)| Instance3 { hidden: hidden(i), ..*x }).collect();
+        self.instances = Arc::new(list);
+        self.version = self.version.wrapping_add(1);
+    }
     /// Paint some instances (selection) and leave the rest as they are: the GPU instance data is made again, the
     /// meshes stay.
     pub fn set_tints(&mut self, tint: &dyn Fn(usize) -> Option<[u8; 4]>) {
@@ -103,7 +109,7 @@ pub fn pick(scene: &Scene3D, cam: &Cam3, sx: f64, sy: f64) -> Option<Hit> {
     let tmax = std::cell::Cell::new(f64::INFINITY);
     let mut best: Option<Hit> = None;
     picker.tree.ray(o, d, &tmax, |i| {
-        let Some(inst) = scene.instances.get(i) else { return false };
+        let Some(inst) = scene.instances.get(i).filter(|x| !x.hidden) else { return false };
         let Some(mesh) = scene.meshes.get(inst.mesh) else { return false };
         let full = cc_render::mesh3d::mmul(&inst.m, &cc_render::mesh3d::translation(mesh.origin));
         let Some(inv) = cc_render::mesh3d::invert(&full) else { return false };
@@ -286,13 +292,18 @@ pub fn demo_scene(n: usize, origin: [f64; 3]) -> Scene3D {
     let span = n as f64 * 2.0;
     let meshes = vec![boxm(1.2, 1.2, 1.0, [214, 196, 160, 255]), boxm(span + 2.0, span + 2.0, 0.2, [150, 160, 150, 255])];
     let mut inst = Vec::with_capacity(n * n + 1);
-    inst.push(Instance3 { mesh: 1, m: cc_render::mesh3d::translation([origin[0] - 1.0, origin[1] - 1.0, origin[2] - 0.2]), tint: None });
+    inst.push(Instance3 {
+        mesh: 1,
+        m: cc_render::mesh3d::translation([origin[0] - 1.0, origin[1] - 1.0, origin[2] - 0.2]),
+        tint: None,
+        hidden: false,
+    });
     for i in 0..n {
         for j in 0..n {
             let h = 1.0 + ((i * 7 + j * 3) % 5) as f64 * 0.5;
             let mut m = cc_render::mesh3d::translation([origin[0] + i as f64 * 2.0, origin[1] + j as f64 * 2.0, origin[2]]);
             m[10] = h;
-            inst.push(Instance3 { mesh: 0, m, tint: None });
+            inst.push(Instance3 { mesh: 0, m, tint: None, hidden: false });
         }
     }
     Scene3D::new(

@@ -123,6 +123,9 @@ pub struct UiApp {
     scene_seq: u64,
     /// the IFC file shown (for properties) and each scene instance's product line
     ifc3: Option<(std::sync::Arc<Vec<u8>>, Vec<f64>)>,
+    /// each scene instance's (storey, class) for the Model panel, and what is hidden there ("s:<storey>", "c:<class>")
+    ifc_groups: Vec<(String, String)>,
+    pub hidden3: HashSet<String>,
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
     pub sel3: Option<usize>,
     pub sel_props: Vec<cc_io_ifc::props::PropGroup>,
@@ -168,6 +171,8 @@ impl Default for UiApp {
             model3: None,
             scene_seq: 0,
             ifc3: None,
+            ifc_groups: Vec::new(),
+            hidden3: HashSet::new(),
             sel3: None,
             sel_props: Vec::new(),
             doc: None,
@@ -277,6 +282,8 @@ impl UiApp {
                 self.sel3 = None;
                 self.sel_props.clear();
                 self.ifc3 = Some((std::sync::Arc::new(f.bytes.clone()), v.pieces.iter().map(|p| p.product).collect()));
+                self.ifc_groups = v.pieces.iter().map(|p| (p.storey.clone(), p.ty.clone())).collect();
+                self.hidden3.clear();
             }
             Err(e) => self.error = Some(format!("{}: {}", f.name, e.0)),
         }
@@ -300,8 +307,75 @@ impl UiApp {
         self.scene3 = Some((scene, view));
         self.model3 = Some(model);
         self.ifc3 = None;
+        self.ifc_groups.clear();
+        self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
+    }
+
+    /// Hide or show a storey ("s:<name>") or class ("c:<name>") of the IFC model; "*" shows everything.
+    pub fn toggle3(&mut self, key: &str) {
+        if key == "*" {
+            self.hidden3.clear();
+        } else if !self.hidden3.remove(key) {
+            self.hidden3.insert(key.to_string());
+        }
+        let groups = &self.ifc_groups;
+        let hidden = &self.hidden3;
+        if let Some((scene, _)) = self.scene3.as_mut() {
+            scene.set_hidden(&|i| {
+                groups.get(i).is_some_and(|(st, ty)| hidden.contains(&format!("s:{st}")) || hidden.contains(&format!("c:{ty}")))
+            });
+        }
+    }
+
+    fn model_panel(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens;
+        if self.ifc_groups.is_empty() {
+            return;
+        }
+        // first-seen order, with counts of pieces
+        let mut storeys: Vec<(String, usize)> = Vec::new();
+        let mut classes: Vec<(String, usize)> = Vec::new();
+        for (st, ty) in &self.ifc_groups {
+            match storeys.iter_mut().find(|x| &x.0 == st) {
+                Some(x) => x.1 += 1,
+                None => storeys.push((st.clone(), 1)),
+            }
+            match classes.iter_mut().find(|x| &x.0 == ty) {
+                Some(x) => x.1 += 1,
+                None => classes.push((ty.clone(), 1)),
+            }
+        }
+        classes.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut toggle: Option<String> = None;
+        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+        egui::Panel::left("model3").default_size(230.0).size_range(160.0..=380.0).resizable(true).frame(frame).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new("Model").strong().color(t.text_strong));
+                if ui.small_button("Show all").clicked() {
+                    toggle = Some("*".into());
+                }
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                for (title, list, prefix) in [("Storeys", &storeys, "s:"), ("Classes", &classes, "c:")] {
+                    egui::CollapsingHeader::new(RichText::new(title).color(t.text_strong)).default_open(true).show(ui, |ui| {
+                        for (name, n) in list.iter() {
+                            let key = format!("{prefix}{name}");
+                            let mut on = !self.hidden3.contains(&key);
+                            let label = if name.is_empty() { "(none)".to_string() } else { name.clone() };
+                            if ui.checkbox(&mut on, RichText::new(format!("{label}  ({n})")).color(t.text)).changed() {
+                                toggle = Some(key);
+                            }
+                        }
+                    });
+                }
+            });
+        });
+        if let Some(k) = toggle {
+            self.toggle3(&k);
+        }
     }
 
     /// Select what is under a pixel of the 3D view (None = clear): the whole product (IFC) or placement is tinted.
@@ -525,6 +599,10 @@ impl UiApp {
                 if let Some((_, v)) = self.scene3.as_mut() {
                     v.fit_pending = true;
                 }
+            }
+            "model.toggle" => {
+                let n = params.name.clone().ok_or("model.toggle: name is required")?;
+                self.toggle3(&n);
             }
             "file.sample.ifc" => {
                 self.open_bytes("bimcraft-house.ifc", SAMPLE_IFC);
@@ -770,6 +848,7 @@ impl UiApp {
         }
         self.tabs(ui);
         if self.scene3.is_some() {
+            self.model_panel(ui);
             self.props_panel(ui);
             let mut clicked: Option<Option<(f64, f64)>> = None;
             if let Some((scene, view)) = self.scene3.as_mut() {
