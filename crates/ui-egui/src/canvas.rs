@@ -192,6 +192,16 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     let n_draws = draws.len();
     let cb = CanvasCallback { id: f.id, geometry: Arc::clone(f.geometry), draws, visible: Arc::new(visible) };
     painter.add(egui_wgpu::Callback::new_paint_callback(rect, cb));
+    // raster images: their frame (the picture files are not loaded yet — as the JS viewer shows a missing one)
+    for im in &space.images {
+        if f.hidden.contains(&im.layer) {
+            continue;
+        }
+        let m = im.m;
+        let corner = |u: f64, v: f64| to_pt(&view, m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5]);
+        let pts = vec![corner(0.0, 0.0), corner(im.w, 0.0), corner(im.w, im.h), corner(0.0, im.h), corner(0.0, 0.0)];
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, ink)));
+    }
     // viewport frames
     for (_, x0, y0, x1, y1) in &vp_views {
         let r = Rect::from_min_max(

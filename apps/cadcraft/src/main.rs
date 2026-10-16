@@ -9,11 +9,19 @@ use cc_ui_egui::{ImportedFile, Services, UiApp};
 
 struct App {
     app: UiApp,
+    /// --bench: print the result and quit
+    bench_exit: bool,
 }
 
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
+        if self.bench_exit
+            && let Some(r) = self.app.bench_result.take()
+        {
+            eprintln!("{r}");
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
     }
 }
 
@@ -36,7 +44,9 @@ fn read_xref(dir: &str, name: &str) -> Option<Vec<u8>> {
 }
 
 fn main() -> eframe::Result {
-    let start = std::env::args().nth(1);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let bench = args.iter().any(|a| a == "--bench");
+    let start = args.into_iter().find(|a| !a.starts_with("--"));
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("CadCraft (Rust test version)").with_inner_size([1280.0, 800.0]),
         renderer: eframe::Renderer::Wgpu,
@@ -46,6 +56,7 @@ fn main() -> eframe::Result {
         "CadCraft (Rust test version)",
         options,
         Box::new(move |cc| {
+            let start_is_none = start.is_none();
             if let Some(rs) = &cc.wgpu_render_state {
                 cc_ui_egui::install_gpu(rs);
             }
@@ -57,7 +68,13 @@ fn main() -> eframe::Result {
                     Err(e) => app.error = Some(e),
                 }
             }
-            Ok(Box::new(App { app }))
+            if bench {
+                if start_is_none {
+                    let _ = app.run("file.sample", &cc_ui_egui::Params::default());
+                }
+                app.start_bench(240);
+            }
+            Ok(Box::new(App { app, bench_exit: bench }))
         }),
     )
 }

@@ -97,6 +97,9 @@ pub struct UiApp {
     pub show_layers: bool,
     pending_fit: bool,
     fonts_done: bool,
+    /// frame benchmark: remaining frames and the measured intervals (ms)
+    bench: Option<(u32, Vec<f64>)>,
+    pub bench_result: Option<String>,
 }
 
 impl Default for UiApp {
@@ -119,6 +122,8 @@ impl Default for UiApp {
             show_layers: true,
             pending_fit: false,
             fonts_done: false,
+            bench: None,
+            bench_result: None,
         }
     }
 }
@@ -160,6 +165,38 @@ impl UiApp {
                 self.pending_fit = true;
             }
             Err(e) => self.error = Some(e),
+        }
+    }
+
+    /// Start the frame benchmark: `frames` frames of continuous zooming; the result goes to `bench_result`
+    /// (and the message line): best / median / p95 frame interval in ms.
+    pub fn start_bench(&mut self, frames: u32) {
+        self.bench = Some((frames.clamp(10, 10_000), Vec::new()));
+    }
+
+    fn bench_step(&mut self, ctx: &egui::Context) {
+        let Some((left, times)) = self.bench.as_mut() else { return };
+        let dt = f64::from(ctx.input(|i| i.unstable_dt)) * 1000.0;
+        if !times.is_empty() || *left > 0 {
+            times.push(dt);
+        }
+        let zoom = if *left % 40 < 20 { 1.03 } else { 1.0 / 1.03 };
+        *left = left.saturating_sub(1);
+        let done = *left == 0;
+        let (w, h) = self.canvas_px;
+        if let Some(Some(v)) = self.views.get_mut(self.space) {
+            v.zoom_at(w / 2.0, h / 2.0, zoom);
+        }
+        if done {
+            let mut t = times.split_off(times.len().min(2)); // the first frames include start-up
+            t.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let at = |q: f64| t.get(((t.len() as f64 - 1.0) * q).round() as usize).copied().unwrap_or(f64::NAN);
+            let r = format!("frame bench: {} frames · best {:.2} ms · median {:.2} ms · p95 {:.2} ms", t.len(), at(0.0), at(0.5), at(0.95));
+            self.message = r.clone();
+            self.bench_result = Some(r);
+            self.bench = None;
+        } else {
+            ctx.request_repaint();
         }
     }
 
@@ -275,6 +312,9 @@ impl UiApp {
         }
         self.tabs(ui);
         egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+        if self.bench.is_some() && self.doc.is_some() {
+            self.bench_step(&ctx);
+        }
         self.frame_ms = t0.elapsed().as_secs_f64() * 1000.0;
     }
 

@@ -52,7 +52,8 @@ mod web {
         }
         let search = window.location().search().unwrap_or_default();
         let sample = search.split(['?', '&']).any(|p| p == "sample");
-        if search.split(['?', '&']).any(|p| p == "bench") {
+        let bench_frames = search.split(['?', '&']).any(|p| p == "bench");
+        if bench_frames {
             bench();
         }
         let Some(canvas) =
@@ -128,8 +129,11 @@ mod web {
                             read_xref: None,
                         };
                         let mut app = UiApp::new(services);
-                        if sample {
+                        if sample || bench_frames {
                             let _ = app.run("file.sample", &Params::default());
+                        }
+                        if bench_frames {
+                            app.start_bench(120);
                         }
                         Ok(Box::new(App { app }))
                     }),
