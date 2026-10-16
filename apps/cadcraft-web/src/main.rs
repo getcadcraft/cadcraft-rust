@@ -58,6 +58,7 @@ mod web {
         let bench_frames = search.split(['?', '&']).any(|p| p == "bench");
         let new_drawing = search.split(['?', '&']).any(|p| p == "new");
         let demo3d = search.split(['?', '&']).any(|p| p == "demo3d");
+        let model3 = search.split(['?', '&']).any(|p| p == "model");
         if bench_frames {
             bench();
         }
@@ -105,7 +106,10 @@ mod web {
                                 let inbox = Arc::clone(&open_inbox);
                                 let ctx = open_ctx.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
-                                    let Some(f) = rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"]).pick_file().await
+                                    let Some(f) = rfd::AsyncFileDialog::new()
+                                        .add_filter("Drawings and models", &["dwg", "dxf", "modelcraft"])
+                                        .pick_file()
+                                        .await
                                     else {
                                         return;
                                     };
@@ -146,6 +150,9 @@ mod web {
                         }
                         if demo3d {
                             let _ = app.run("view.demo3d", &Params::default());
+                        }
+                        if model3 {
+                            let _ = app.run("view.model.sample", &Params::default());
                         }
                         Ok(Box::new(App { app }))
                     }),

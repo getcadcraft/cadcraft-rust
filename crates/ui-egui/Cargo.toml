@@ -16,6 +16,7 @@ layer = 6
 workspace = true
 
 [dependencies]
+cc-m3d.workspace = true
 cc-drawing.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true

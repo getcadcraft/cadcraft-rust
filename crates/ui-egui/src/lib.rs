@@ -18,6 +18,7 @@
 pub mod canvas;
 pub mod document;
 pub mod edit;
+pub mod model3d;
 pub mod theme;
 pub mod view3d;
 
@@ -113,6 +114,10 @@ pub struct UiApp {
     pub services: Services,
     /// a 3D scene shown instead of the drawing (the 3D viewport, M6)
     pub scene3: Option<(view3d::Scene3D, view3d::View3)>,
+    /// the ModelCraft model open (shown through `scene3`)
+    pub model3: Option<cc_m3d::model::Model>,
+    /// scene ids: a new id = new GPU meshes
+    scene_seq: u64,
     pub doc: Option<Loaded>,
     pub space: usize,
     /// one view per space (physical pixels)
@@ -152,6 +157,8 @@ impl Default for UiApp {
         UiApp {
             services: Services::default(),
             scene3: None,
+            model3: None,
+            scene_seq: 0,
             doc: None,
             space: 0,
             views: Vec::new(),
@@ -192,6 +199,10 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
+        if f.name.to_ascii_lowercase().ends_with(".modelcraft") {
+            self.open_model(f);
+            return;
+        }
         let dir = f.dir.clone();
         let reader = &mut self.services.read_xref;
         let mut resolve = |x: &str| -> Option<Vec<u8>> {
@@ -206,6 +217,49 @@ impl UiApp {
         if ok {
             self.source = Some(f.clone());
         }
+    }
+
+    /// A ModelCraft model file (`.modelcraft`: Model.toJSON) → the 3D view.
+    fn open_model(&mut self, f: &ImportedFile) {
+        let parsed = std::str::from_utf8(&f.bytes).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
+        let Some(j) = parsed else {
+            self.error = Some(format!("{}: not a ModelCraft model (JSON expected)", f.name));
+            return;
+        };
+        let mut model = cc_m3d::model::Model::new();
+        match model.load(&j, false) {
+            Ok(()) => self.show_model(model, &f.name),
+            Err(e) => self.error = Some(format!("{}: {e:?}", f.name)),
+        }
+    }
+
+    /// Show a model in the 3D view (any drawing open is closed).
+    fn show_model(&mut self, model: cc_m3d::model::Model, name: &str) {
+        self.scene_seq = self.scene_seq.wrapping_add(1);
+        let scene = model3d::scene_of(&model, self.scene_seq, self.preset == Preset::Dark);
+        let mut view = view3d::View3::default();
+        self.style3(&mut view);
+        let (defs, faces) = (model.defs.len(), model.defs.values().map(|d| d.faces.len()).sum::<usize>());
+        self.message = format!(
+            "{name}: {defs} definitions, {faces} faces, {} placements shown · middle / right drag orbits, Shift pans, wheel zooms",
+            scene.instances.len()
+        );
+        self.doc = None;
+        self.editor = None;
+        self.source = None;
+        self.error = None;
+        self.scene3 = Some((scene, view));
+        self.model3 = Some(model);
+    }
+
+    /// The 3D view's colours from the theme (view3d.js's paper / model colours).
+    fn style3(&self, view: &mut view3d::View3) {
+        let dark = self.preset == Preset::Dark;
+        let t = self.tokens;
+        let c = t.canvas_bg;
+        view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
+        view.style.edge = if dark { [0.85, 0.87, 0.9, 1.0] } else { [0.09, 0.13, 0.17, 1.0] };
+        view.style.back = if dark { model3d::BACK_MODEL } else { model3d::BACK_PAPER };
     }
 
     /// The open file imported into an editable drawing (dwg-import.js / dxf.js readDxf → Doc.load).
@@ -262,6 +316,7 @@ impl UiApp {
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
         self.scene3 = None;
+        self.model3 = None;
         match res {
             Ok(l) => {
                 self.editor = None;
@@ -344,6 +399,9 @@ impl UiApp {
                     v.fit_pending = true;
                 }
             }
+            "view.model.sample" => {
+                self.show_model(model3d::sample_model(), "Sample model");
+            }
             "view.demo3d" => {
                 let n = params.factor.filter(|f| f.is_finite() && *f >= 1.0).map_or(12, |f| f.min(400.0) as usize);
                 self.scene3 = Some((view3d::demo_scene(n, [500_000.0, 4_000_000.0, 120.0]), view3d::View3::default()));
@@ -354,6 +412,8 @@ impl UiApp {
             }
             "file.new" => {
                 self.scene3 = None;
+                self.model3 = None;
+                self.model3 = None;
                 self.source = None;
                 self.editor = Some(edit::Editor::new(cc_cad::Doc::new(), "Drawing1"));
                 self.doc = None;
@@ -416,6 +476,15 @@ impl UiApp {
                 self.preset = if self.preset == Preset::Dark { Preset::Light } else { Preset::Dark };
                 self.tokens = Tokens::preset(self.preset);
                 self.theme_dirty = true;
+                if let Some(model) = self.model3.take() {
+                    let view = self.scene3.as_ref().map(|(_, v)| *v);
+                    self.show_model(model, "Model");
+                    if let (Some(v), Some((_, nv))) = (view, self.scene3.as_mut()) {
+                        let style = nv.style;
+                        *nv = v;
+                        nv.style = style;
+                    }
+                }
             }
             other => return Err(format!("unknown command {other}")),
         }
@@ -599,6 +668,9 @@ impl UiApp {
                     }
                     if ui.button("Sample").on_hover_text("Open the built-in sample drawing").clicked() {
                         self.run_ui("file.sample", &Params::default());
+                    }
+                    if ui.button("3D sample").on_hover_text("Open a sample 3D model (ModelCraft's model kernel)").clicked() {
+                        self.run_ui("view.model.sample", &Params::default());
                     }
                     if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
                         self.run_ui("file.new", &Params::default());
