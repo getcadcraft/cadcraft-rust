@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed 2026-10-16 · Change: the viewer (M3).
+Last reviewed 2026-10-16 · Change: drafting (M4): cc-cad, cc-cad-geom, the command engine, the DWG writer, cc-io-cad.
 
 ## Toolchain and pins
 
@@ -17,10 +17,11 @@ Last reviewed 2026-10-16 · Change: the viewer (M3).
 | Layer | Crates |
 |---|---|
 | L0 | `cc-geom` |
-| L1 | `cc-drawing` |
-| L3 | `cc-io-dwg` (DWG reader, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu) |
-| L4 | `cc-tools` |
-| L5 | `cc-engine` |
+| L1 | `cc-drawing` (display model), `cc-cad` (CadCraft's editable Doc, doc.js) |
+| L2 | `cc-cad-geom` (geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch; `display` = Doc → `cc-drawing`) |
+| L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu) |
+| L4 | `cc-tools`, `cc-io-cad` (CadCraft's DWG import, DXF R12 read/write, DWG save, DXF 2000; L4 because it uses `cc-io-dwg`) |
+| L5 | `cc-engine` (prompt Runner, command line, drafting commands) |
 | L6 | `cc-ui-egui`, `cc-mcp` |
 | L7 | `cadcraft`, `cadcraft-cli`, `cadcraft-web`, `cadcraft-shot` |
 
@@ -64,3 +65,15 @@ per visible batch, texts as egui shapes.
   sheet's own entities. Per-viewport frozen layers are not applied yet (as in the JS viewer).
 - **Web:** WebGPU only (`Backends::BROWSER_WEBGPU`; egui-wgpu's WebGL feature is off), `profile.web` = fat LTO, one
   codegen unit, opt-level 3, `+simd128`; trunk + wasm-opt -O3; no inline script.
+
+## Drafting (M4)
+
+`cc-cad::Doc` is doc.js: typed entities in spaces (model + one per sheet), blocks, layouts, layers, `change(label, f)`
+= one undo step (snapshots of what changed), events drained by the host. `cc-engine` runs commands as async blocks that
+ask questions (`Prompter::ask`), answered by a runtime-free `Runner` (the host feeds clicks and typed text). The UI
+(`cc-ui-egui::edit`) owns the Editor: pick, window, object snap (view.js priorities), ortho, preview; after each
+change the canvas rebuilds its display model with `cc_cad_geom::display::doc_drawing`.
+
+Files: `cc_io_cad::import_dwg` (dwg-import.js over `read_dwg`) / `read_dxf` → `Doc::load`; `write_dxf` (R12),
+`write_dxf2000`, `dwg_save::save_dwg` (dwg-save.js → `cc_io_dwg::write_dwg_opts`). All byte-identical to the 0.5 JS
+(harnesses outside the repo: gdiff, kdiff, wdiff, idiff). V8's sin/cos are fdlibm's: `cc-cad-geom::jsmath` ports them.

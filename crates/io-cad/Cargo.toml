@@ -1,0 +1,23 @@
+[package]
+name = "cc-io-cad"
+description = "CadCraft L4: the drafting app's drawing import/export (dwg-import.js, dxf.js): a cc-dwg model or DXF text → doc.load input, a Doc → DXF R12."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 4
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-io-dwg.workspace = true
+cc-cad.workspace = true
+cc-cad-geom.workspace = true
+cc-geom.workspace = true
+serde_json.workspace = true

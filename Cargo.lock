@@ -505,6 +505,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-engine",
  "cc-geom",
+ "cc-io-cad",
  "cc-io-dwg",
  "serde_json",
 ]
@@ -620,6 +621,17 @@ dependencies = [
 [[package]]
 name = "cc-geom"
 version = "0.0.1"
+
+[[package]]
+name = "cc-io-cad"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
+ "cc-geom",
+ "cc-io-dwg",
+ "serde_json",
+]
 
 [[package]]
 name = "cc-io-dwg"

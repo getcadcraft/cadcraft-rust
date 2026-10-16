@@ -14,3 +14,12 @@ Prefer art generated in code.
 | apps/cadcraft-web/favicon.svg | CadCraft | drawn for this repo (a pick box on the brand blue) | Apache-2.0 |
 | assets/lang/cadcraft/en.json | CadCraft | CadCraft 0.5's own language catalog (`public_html/assets/apps/cadcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
 | assets/lang/cadcraft/es-MX.json | CadCraft | CadCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
+
+Test data and fuzz seeds (outside `assets/`, listed for the record):
+
+| File | Author | Source | Licence |
+|---|---|---|---|
+| crates/io-cad/tests/data/base-plan.dxf | CadCraft | CadCraft's own public test fixture (getcadcraft.com `fixtures/dwg/base-plan.dxf`); also the `cad_dxf_read` fuzz seed `fuzz/seeds/cad_dxf_read/base-plan.dxf` | Apache-2.0 |
+| crates/io-cad/tests/data/save-fixture.json | CadCraft | generated from the synthetic drawing in CadCraft's `tools/cadcraft-test/dwg-save-check.mjs` (no client data) | Apache-2.0 |
+| fuzz/seeds/cad_dxf_read/save-fixture-2000.dxf | CadCraft | that fixture saved as DXF 2000 by cc-io-cad | Apache-2.0 |
+| fuzz/seeds/dwg_roundtrip/sink-AC10{15,21,32}.dwg | CadCraft | written by cc-io-dwg's writer from public fixture content | Apache-2.0 |

@@ -14,6 +14,7 @@ cc-io-dwg = { path = "../crates/io-dwg" }
 cc-cad = { path = "../crates/cad" }
 cc-cad-geom = { path = "../crates/cad-geom" }
 serde_json = "1"
+cc-io-cad = { path = "../crates/io-cad" }
 
 [[bin]]
 name = "dwg_read"
@@ -43,6 +44,13 @@ overflow-checks = true
 [[bin]]
 name = "cad_load"
 path = "fuzz_targets/cad_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cad_dxf_read"
+path = "fuzz_targets/cad_dxf_read.rs"
 test = false
 doc = false
 bench = false

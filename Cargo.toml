@@ -27,6 +27,7 @@ cc-drawing = { path = "crates/drawing" }
 cc-cad = { path = "crates/cad" }
 cc-cad-geom = { path = "crates/cad-geom" }
 cc-io-dwg = { path = "crates/io-dwg" }
+cc-io-cad = { path = "crates/io-cad" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }
 cc-engine = { path = "crates/engine" }

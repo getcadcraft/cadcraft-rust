@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 cc-io-dwg.workspace = true
+cc-io-cad.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
 cc-engine.workspace = true

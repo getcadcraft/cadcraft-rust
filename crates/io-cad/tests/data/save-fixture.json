@@ -1,0 +1,830 @@
+{
+ "meta": {
+  "name": "Drawing1",
+  "units": "millimeters",
+  "source": "",
+  "version": "",
+  "lunits": 4,
+  "luprec": 3
+ },
+ "layers": [
+  {
+   "name": "0",
+   "color": 7,
+   "on": true,
+   "frozen": false,
+   "locked": false,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Walls",
+   "color": 1,
+   "on": true,
+   "frozen": false,
+   "locked": false,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Orange",
+   "color": "#ff7f00",
+   "on": true,
+   "frozen": false,
+   "locked": false,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Off",
+   "color": 3,
+   "on": false,
+   "frozen": false,
+   "locked": false,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Frozen",
+   "color": 4,
+   "on": true,
+   "frozen": true,
+   "locked": false,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Locked",
+   "color": 5,
+   "on": true,
+   "frozen": false,
+   "locked": true,
+   "plot": true,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "NoPlot",
+   "color": 8,
+   "on": true,
+   "frozen": false,
+   "locked": false,
+   "plot": false,
+   "linetype": "Continuous",
+   "lineweight": -3
+  },
+  {
+   "name": "Hidden",
+   "color": 2,
+   "on": true,
+   "frozen": false,
+   "locked": false,
+   "plot": true,
+   "linetype": "HIDDEN",
+   "lineweight": 0.35,
+   "newVpFrozen": true
+  }
+ ],
+ "blocks": [
+  {
+   "name": "Table 30x72",
+   "base": {
+    "x": 10,
+    "y": 5
+   },
+   "entities": [
+    {
+     "type": "poly",
+     "layer": "0",
+     "color": 0,
+     "closed": true,
+     "pts": [
+      {
+       "x": 0,
+       "y": 0,
+       "b": 0
+      },
+      {
+       "x": 72,
+       "y": 0,
+       "b": 0
+      },
+      {
+       "x": 72,
+       "y": 30,
+       "b": 0
+      },
+      {
+       "x": 0,
+       "y": 30,
+       "b": 0
+      }
+     ]
+    },
+    {
+     "type": "circle",
+     "layer": "0",
+     "color": 0,
+     "cx": 6,
+     "cy": 6,
+     "r": 2
+    },
+    {
+     "type": "circle",
+     "layer": "0",
+     "color": 0,
+     "cx": 66,
+     "cy": 6,
+     "r": 2
+    }
+   ],
+   "attdefs": [
+    {
+     "tag": "ITEM",
+     "prompt": "Item number",
+     "def": "1",
+     "x": 36,
+     "y": 15,
+     "h": 4,
+     "rot": 0,
+     "ha": "center",
+     "va": "middle",
+     "wf": 1,
+     "layer": "0",
+     "color": null
+    },
+    {
+     "tag": "MAKER",
+     "prompt": "Maker",
+     "def": "",
+     "x": 2,
+     "y": 25,
+     "h": 2,
+     "rot": 0,
+     "ha": "left",
+     "va": "baseline",
+     "wf": 1,
+     "layer": "0",
+     "color": null,
+     "invisible": true
+    }
+   ]
+  },
+  {
+   "name": "Outer",
+   "base": {
+    "x": 0,
+    "y": 0
+   },
+   "entities": [
+    {
+     "type": "insert",
+     "layer": "0",
+     "color": null,
+     "block": "Table 30x72",
+     "x": 0,
+     "y": 0,
+     "sx": 1,
+     "sy": 1,
+     "rot": 0,
+     "attrs": {
+      "ITEM": "99"
+     }
+    },
+    {
+     "type": "line",
+     "layer": "0",
+     "color": null,
+     "x1": 0,
+     "y1": 0,
+     "x2": 100,
+     "y2": 0
+    }
+   ]
+  },
+  {
+   "name": "Site",
+   "base": {
+    "x": 0,
+    "y": 0
+   },
+   "entities": [],
+   "xref": {
+    "path": "X-Refs\\Site.dwg",
+    "loaded": false
+   }
+  }
+ ],
+ "entities": [
+  {
+   "color": 3,
+   "type": "line",
+   "layer": "Walls",
+   "x1": 0,
+   "y1": 0,
+   "x2": 500,
+   "y2": 0,
+   "th": 3,
+   "tr": 40,
+   "url": "https://getcadcraft.com/",
+   "mat": "Steel"
+  },
+  {
+   "color": null,
+   "type": "line",
+   "layer": "Off",
+   "x1": 0,
+   "y1": 10,
+   "x2": 500,
+   "y2": 10
+  },
+  {
+   "color": null,
+   "type": "line",
+   "layer": "Frozen",
+   "x1": 0,
+   "y1": 20,
+   "x2": 500,
+   "y2": 20
+  },
+  {
+   "color": null,
+   "type": "line",
+   "layer": "Locked",
+   "x1": 0,
+   "y1": 30,
+   "x2": 500,
+   "y2": 30
+  },
+  {
+   "color": null,
+   "type": "line",
+   "layer": "NoPlot",
+   "x1": 0,
+   "y1": 40,
+   "x2": 500,
+   "y2": 40
+  },
+  {
+   "color": null,
+   "type": "line",
+   "layer": "Hidden",
+   "lt": "DASHED",
+   "lw": 0.5,
+   "x1": 0,
+   "y1": 45,
+   "x2": 500,
+   "y2": 45
+  },
+  {
+   "color": "#00ff00",
+   "type": "line",
+   "layer": "Orange",
+   "x1": 0,
+   "y1": 50,
+   "x2": 500,
+   "y2": 50
+  },
+  {
+   "color": null,
+   "type": "circle",
+   "layer": "Walls",
+   "cx": 100,
+   "cy": 100,
+   "r": 25
+  },
+  {
+   "color": null,
+   "type": "arc",
+   "layer": "Walls",
+   "cx": 200,
+   "cy": 100,
+   "r": 25,
+   "a0": 0,
+   "a1": 1.5707963267948966
+  },
+  {
+   "color": null,
+   "type": "poly",
+   "layer": "Walls",
+   "closed": false,
+   "pts": [
+    {
+     "x": 300,
+     "y": 100,
+     "b": 0.5
+    },
+    {
+     "x": 350,
+     "y": 100,
+     "b": 0
+    },
+    {
+     "x": 350,
+     "y": 150,
+     "b": 0
+    }
+   ]
+  },
+  {
+   "color": null,
+   "type": "poly",
+   "layer": "Walls",
+   "closed": true,
+   "w": 2,
+   "pts": [
+    {
+     "x": 400,
+     "y": 100,
+     "b": 0
+    },
+    {
+     "x": 450,
+     "y": 100,
+     "b": 0
+    },
+    {
+     "x": 450,
+     "y": 150,
+     "b": 0
+    }
+   ]
+  },
+  {
+   "color": null,
+   "type": "ellipse",
+   "layer": "Walls",
+   "cx": 100,
+   "cy": 200,
+   "mx": 40,
+   "my": 0,
+   "ratio": 0.5,
+   "t0": 0,
+   "t1": 6.283185307179586
+  },
+  {
+   "color": null,
+   "type": "ellipse",
+   "layer": "Walls",
+   "cx": 200,
+   "cy": 200,
+   "mx": 20,
+   "my": 0,
+   "ratio": 1.5,
+   "t0": 0,
+   "t1": 3.141592653589793
+  },
+  {
+   "color": null,
+   "type": "point",
+   "layer": "Walls",
+   "x": 300,
+   "y": 200
+  },
+  {
+   "color": null,
+   "type": "text",
+   "layer": "Walls",
+   "x": 0,
+   "y": 300,
+   "h": 5,
+   "rot": 0,
+   "s": "Left baseline",
+   "ha": "left",
+   "va": "baseline",
+   "style": "Notes",
+   "obl": 0.2617993877991494,
+   "ann": true
+  },
+  {
+   "color": null,
+   "type": "text",
+   "layer": "Walls",
+   "x": 100,
+   "y": 300,
+   "h": 5,
+   "rot": 0.5235987755982988,
+   "s": "Centred middle",
+   "ha": "center",
+   "va": "middle",
+   "wf": 0.8
+  },
+  {
+   "color": null,
+   "type": "text",
+   "layer": "Walls",
+   "x": 200,
+   "y": 300,
+   "h": 5,
+   "rot": 0,
+   "s": "Right top",
+   "ha": "right",
+   "va": "top"
+  },
+  {
+   "color": null,
+   "type": "text",
+   "layer": "Walls",
+   "x": 300,
+   "y": 300,
+   "h": 5,
+   "rot": 0,
+   "s": "First line\nSecond line {braces} \\ backslash",
+   "ha": "left",
+   "va": "baseline"
+  },
+  {
+   "color": null,
+   "type": "text",
+   "layer": "Walls",
+   "x": 400,
+   "y": 300,
+   "h": 5,
+   "rot": 0,
+   "s": "A wrapped paragraph of text that is longer than its box",
+   "ha": "center",
+   "va": "middle",
+   "ww": 40
+  },
+  {
+   "color": null,
+   "type": "insert",
+   "layer": "Walls",
+   "block": "Table 30x72",
+   "x": 100,
+   "y": 400,
+   "sx": 2,
+   "sy": 2,
+   "rot": 1.5707963267948966,
+   "attrs": {
+    "ITEM": "12",
+    "MAKER": "Acme Ø ±"
+   }
+  },
+  {
+   "color": null,
+   "type": "insert",
+   "layer": "Walls",
+   "block": "Table 30x72",
+   "x": 300,
+   "y": 400,
+   "sx": 1,
+   "sy": 1,
+   "rot": 0,
+   "attrs": {
+    "ITEM": "13"
+   },
+   "clip": {
+    "pts": [
+     {
+      "x": 0,
+      "y": 0
+     },
+     {
+      "x": 10,
+      "y": 0
+     },
+     {
+      "x": 10,
+      "y": 20
+     },
+     {
+      "x": 0,
+      "y": 20
+     }
+    ]
+   }
+  },
+  {
+   "color": null,
+   "type": "insert",
+   "layer": "Walls",
+   "block": "Outer",
+   "x": 0,
+   "y": 500,
+   "sx": 1,
+   "sy": 1,
+   "rot": 0
+  },
+  {
+   "color": null,
+   "type": "hatch",
+   "layer": "Walls",
+   "solid": true,
+   "loops": [
+    [
+     0,
+     600,
+     10,
+     600,
+     5,
+     610,
+     0,
+     600
+    ]
+   ]
+  },
+  {
+   "color": null,
+   "type": "hatch",
+   "layer": "Walls",
+   "solid": true,
+   "loops": [
+    [
+     100,
+     600,
+     150,
+     600,
+     150,
+     650,
+     125,
+     670,
+     100,
+     650,
+     100,
+     600
+    ],
+    [
+     110,
+     610,
+     120,
+     610,
+     120,
+     620,
+     110,
+     620,
+     110,
+     610
+    ]
+   ]
+  },
+  {
+   "color": null,
+   "type": "hatch",
+   "layer": "Walls",
+   "solid": false,
+   "pattern": "ANSI31",
+   "pscale": 2,
+   "pangle": 0.2617993877991494,
+   "piso": true,
+   "loops": [
+    [
+     200,
+     600,
+     250,
+     600,
+     250,
+     650,
+     200,
+     650,
+     200,
+     600
+    ]
+   ],
+   "island": "outer",
+   "bg": 3,
+   "ox": 5,
+   "oy": 7
+  },
+  {
+   "color": null,
+   "type": "dim",
+   "layer": "Walls",
+   "kind": "linear",
+   "p1": {
+    "x": 0,
+    "y": 700
+   },
+   "p2": {
+    "x": 100,
+    "y": 700
+   },
+   "loc": {
+    "x": 100,
+    "y": 720
+   },
+   "rot": 0,
+   "text": "",
+   "st": {
+    "txt": 3.5,
+    "lunit": 4,
+    "dec": 3,
+    "blk1": "ARCHTICK",
+    "blk2": "ARCHTICK",
+    "tih": true,
+    "pre": "L=",
+    "tol": "sym",
+    "tp": 0.5,
+    "tm": 0.5
+   },
+   "dimstyle": "Arch",
+   "trot": 0.2617993877991494
+  },
+  {
+   "color": null,
+   "type": "mleader",
+   "layer": "Walls",
+   "pts": [
+    {
+     "x": 600,
+     "y": 0
+    },
+    {
+     "x": 650,
+     "y": 50
+    }
+   ],
+   "dir": 1,
+   "s": "Note",
+   "h": 5
+  },
+  {
+   "color": null,
+   "type": "xline",
+   "layer": "Walls",
+   "x": 0,
+   "y": 1000,
+   "dx": 0.7071067811865476,
+   "dy": 0.7071067811865476
+  },
+  {
+   "color": null,
+   "type": "ray",
+   "layer": "Walls",
+   "x": 10,
+   "y": 1000,
+   "dx": 1,
+   "dy": 0
+  },
+  {
+   "color": null,
+   "type": "insert",
+   "layer": "Walls",
+   "block": "Site",
+   "x": 0,
+   "y": 900,
+   "sx": 1,
+   "sy": 1,
+   "rot": 0
+  }
+ ],
+ "layouts": [
+  {
+   "name": "A3 sheet",
+   "paper": {
+    "w": 420,
+    "h": 297,
+    "unit": "mm",
+    "x0": 0,
+    "y0": 0,
+    "key": "iso-a3"
+   },
+   "entities": [
+    {
+     "type": "viewport",
+     "layer": "0",
+     "color": null,
+     "x": 200,
+     "y": 150,
+     "w": 200,
+     "h": 150,
+     "cx": 250,
+     "cy": 350,
+     "s": 0.5,
+     "locked": true,
+     "frz": [
+      "Hidden"
+     ],
+     "lov": {
+      "Walls": {
+       "color": 5,
+       "lw": 0.7,
+       "tr": 40
+      }
+     }
+    },
+    {
+     "type": "text",
+     "layer": "0",
+     "color": null,
+     "x": 300,
+     "y": 20,
+     "h": 5,
+     "rot": 0,
+     "s": "Title",
+     "ha": "left",
+     "va": "baseline"
+    }
+   ]
+  },
+  {
+   "name": "Detail",
+   "paper": {
+    "w": 11,
+    "h": 8.5,
+    "unit": "in",
+    "x0": 0,
+    "y0": 0,
+    "key": "letter"
+   },
+   "entities": [
+    {
+     "type": "viewport",
+     "layer": "0",
+     "color": null,
+     "x": 5.5,
+     "y": 4.25,
+     "w": 8,
+     "h": 6,
+     "cx": 100,
+     "cy": 100,
+     "s": 0.02,
+     "tw": 0.3
+    }
+   ]
+  }
+ ],
+ "views": [
+  {
+   "name": "Kitchen",
+   "cx": 250,
+   "cy": 350,
+   "w": 500,
+   "h": 300
+  }
+ ],
+ "textStyles": [
+  [
+   "Notes",
+   {
+    "font": "romans.shx",
+    "h": 0,
+    "wf": 0.9,
+    "obl": 0
+   }
+  ]
+ ],
+ "dimStyles": [
+  [
+   "Arch",
+   {
+    "txt": 3.5,
+    "asz": 2.5,
+    "exe": 1.25,
+    "exo": 0.625,
+    "gap": 0.625,
+    "dli": 3.75,
+    "dec": 3,
+    "adec": 0,
+    "scale": 1,
+    "tad": 1,
+    "zin": 8,
+    "lunit": 4
+   }
+  ]
+ ],
+ "vports": {
+  "layout": "3r",
+  "fx": 0.6,
+  "fy": 0.25,
+  "active": 2,
+  "list": [
+   {
+    "cx": 250,
+    "cy": 350,
+    "h": 300
+   },
+   {
+    "cx": 100,
+    "cy": 100,
+    "h": 50
+   },
+   {
+    "cx": 600,
+    "cy": 25,
+    "h": 120,
+    "tw": 0.5235987755982988
+   }
+  ]
+ },
+ "ucs": {
+  "current": {
+   "x": 10,
+   "y": 20,
+   "ang": 0.5235987755982988
+  },
+  "named": [
+   {
+    "name": "Tilted",
+    "x": 5,
+    "y": 5,
+    "ang": 0.7853981633974483
+   }
+  ]
+ }
+}

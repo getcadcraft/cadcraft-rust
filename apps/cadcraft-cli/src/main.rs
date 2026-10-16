@@ -18,12 +18,17 @@
 //!                                                time and the GUIDs (the parity harness does the same in the JS);
 //!                                                --bench N: best-of-N write time after one warm-up
 //!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
+//!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
+//!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
+//!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
+//!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
 //! Exit codes: 0 ok, 1 refused file / error, 2 usage, 3 engine not ported yet.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 mod cmds;
+mod iocad;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -53,6 +58,9 @@ fn main() -> ExitCode {
         "write" => write(&rest),
         "dynvis" => dynvis(&rest),
         "cmds" => cmds::cmds(&rest),
+        "import" => iocad::import(&rest),
+        "dxf-out" => iocad::dxf_out(&rest),
+        "save" => iocad::save(&rest),
         _ => usage(),
     }
 }
