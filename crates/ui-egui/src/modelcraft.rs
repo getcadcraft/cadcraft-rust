@@ -20,6 +20,20 @@ use crate::model3d;
 use crate::theme::Tokens;
 use crate::view3d::{self, Scene3D};
 
+static EN: &str = include_str!("../../../assets/lang/modelcraft/en.json");
+
+/// A word of ModelCraft's own catalog (English), `{name}` fills from `vars`; the key itself when missing.
+pub fn mt(key: &str, vars: &[(&str, &str)]) -> String {
+    static CAT: std::sync::OnceLock<serde_json::Map<String, serde_json::Value>> = std::sync::OnceLock::new();
+    let cat =
+        CAT.get_or_init(|| serde_json::from_str::<serde_json::Value>(EN).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default());
+    let mut s = cat.get(key).and_then(serde_json::Value::as_str).unwrap_or(key).to_string();
+    for (k, v) in vars {
+        s = s.replace(&format!("{{{k}}}"), v);
+    }
+    s
+}
+
 /// The tools on the palette: (tools.js name, label).
 pub const PALETTE: &[(&str, &str)] = &[
     ("select", "Select"),
@@ -390,6 +404,33 @@ impl ModelView {
                             }
                         }
                     }
+                    "i" => {
+                        // a group or component: its box, in the placement's frame
+                        if let Some(inst) = def.insts.get(s.id)
+                            && let Some(bb) = self.tools.host.model.bbox(&inst.def, &cc_m3d::vec::IDENT)
+                        {
+                            let m = cc_m3d::vec::mmul(&ctx.m, &inst.m);
+                            let wp = |p: P3| -> P3 {
+                                [
+                                    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+                                    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+                                    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+                                ]
+                            };
+                            let c = |i: usize| -> P3 {
+                                [
+                                    if i & 1 == 0 { bb.min[0] } else { bb.max[0] },
+                                    if i & 2 == 0 { bb.min[1] } else { bb.max[1] },
+                                    if i & 4 == 0 { bb.min[2] } else { bb.max[2] },
+                                ]
+                            };
+                            for (a, b) in [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)] {
+                                if let (Some(pa), Some(pb)) = (to(wp(c(a))), to(wp(c(b)))) {
+                                    painter.line_segment([pa, pb], Stroke::new(width.min(2.0), col));
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -458,6 +499,173 @@ impl ModelView {
             if let Some(tip) = o.tip.as_deref().filter(|s| !s.is_empty()) {
                 painter.text(p + egui::vec2(12.0, 12.0), egui::Align2::LEFT_TOP, tip, egui::FontId::proportional(12.0), c);
             }
+        }
+    }
+
+    /// Show or hide a tag (modelcraft.js showTag): one undo step; what hides cannot stay selected, and a group being
+    /// edited inside closes above the first hidden one.
+    pub fn show_tag(&mut self, name: &str, on: bool) {
+        let _ = self.tools.escape();
+        let label = mt(if on { "app.undo.tag_show" } else { "app.undo.tag_hide" }, &[]);
+        let n = name.to_string();
+        let _ = self.tools.host.model.change(&label, |m| {
+            m.set_tag_hidden(&n, !on);
+            Ok(())
+        });
+        if !on {
+            let mut k = 0;
+            let mut def = "root".to_string();
+            while k < self.tools.host.path.len() {
+                let Some(iid) = self.tools.host.path.get(k).copied() else { break };
+                let Some(inst) = self.tools.host.model.def(&def).and_then(|d| d.insts.get(iid)) else { break };
+                if inst.tag.as_deref() == Some(name) {
+                    break;
+                }
+                def = inst.def.clone();
+                k += 1;
+            }
+            while self.tools.host.path.len() > k {
+                self.tools.host.close_context();
+            }
+            let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
+            let d = self.tools.host.model.def(&ctx.def);
+            self.tools
+                .host
+                .sel
+                .retain(|s| !(s.t == "i" && d.and_then(|d| d.insts.get(s.id)).is_some_and(|i| i.tag.as_deref() == Some(name))));
+        }
+        self.message = mt(if on { "app.tag.shown" } else { "app.tag.hidden" }, &[("name", name)]);
+    }
+
+    /// The right-hand panel: Entity Info, Outliner, Tags.
+    pub fn side_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        use egui::RichText;
+        let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
+        let mut select: Option<Vec<Sel>> = None;
+        let mut open: Option<f64> = None;
+        let mut close = false;
+        let mut tag_toggle: Option<(String, bool)> = None;
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            // Entity Info
+            egui::CollapsingHeader::new(RichText::new("Entity Info").color(t.text_strong)).default_open(true).show(ui, |ui| {
+                let sel = &self.tools.host.sel;
+                let model = &self.tools.host.model;
+                let def = model.def(&ctx.def);
+                if sel.is_empty() {
+                    ui.label(RichText::new("Nothing selected").color(t.text_dim));
+                } else if sel.len() > 1 {
+                    let count = |k: &str| sel.iter().filter(|s| s.t == k).count();
+                    ui.label(format!(
+                        "{} selected: {} faces, {} edges, {} groups or components",
+                        sel.len(),
+                        count("f"),
+                        count("e"),
+                        count("i")
+                    ));
+                } else if let (Some(s), Some(d)) = (sel.first(), def) {
+                    let scale = |v: f64| self.tools.host.fmt(v);
+                    match s.t.as_str() {
+                        "f" => {
+                            if let Some(f) = d.faces.get(s.id) {
+                                ui.label(RichText::new("Face").strong());
+                                let area = cc_m3d::def::face_area(d, f);
+                                ui.label(format!("Area: {}", cc_m3d_tools::units::format_area(area, &self.tools.host.units)));
+                                if let Some(c) = &f.color {
+                                    ui.label(format!("Paint: {c}"));
+                                }
+                            }
+                        }
+                        "e" => {
+                            if let Some(e) = d.edges.get(s.id) {
+                                let (a, b) = (d.v(e.a), d.v(e.b));
+                                let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
+                                ui.label(RichText::new("Edge").strong());
+                                ui.label(format!("Length: {}", scale(len)));
+                                if e.soft {
+                                    ui.label("Soft");
+                                }
+                            }
+                        }
+                        "i" => {
+                            if let Some(inst) = d.insts.get(s.id) {
+                                let sub = model.def(&inst.def);
+                                let kind = sub.map_or("group", |x| x.kind.as_str());
+                                let name =
+                                    inst.name.clone().filter(|n| !n.is_empty()).or_else(|| sub.map(|x| x.name.clone())).unwrap_or_default();
+                                ui.label(RichText::new(if kind == "component" { "Component" } else { "Group" }).strong());
+                                ui.label(format!("Name: {name}"));
+                                if let Some(tag) = inst.tag.as_deref().filter(|x| !x.is_empty()) {
+                                    ui.label(format!("Tag: {tag}"));
+                                }
+                                if let Some(x) = sub {
+                                    ui.label(format!("{} faces, {} edges", x.faces.len(), x.edges.len()));
+                                }
+                            }
+                        }
+                        other => {
+                            ui.label(format!("Selected: {other}"));
+                        }
+                    }
+                }
+            });
+            // Outliner: the open context's groups and components
+            egui::CollapsingHeader::new(RichText::new("Outliner").color(t.text_strong)).default_open(true).show(ui, |ui| {
+                if !self.tools.host.path.is_empty() && ui.small_button("Close group").clicked() {
+                    close = true;
+                }
+                let model = &self.tools.host.model;
+                if let Some(d) = model.def(&ctx.def) {
+                    if d.insts.is_empty() {
+                        ui.label(RichText::new("No groups or components here").color(t.text_dim));
+                    }
+                    for (iid, inst) in d.insts.iter() {
+                        let sub = model.def(&inst.def);
+                        let kind = sub.map_or("group", |x| x.kind.as_str());
+                        let name = inst.name.clone().filter(|n| !n.is_empty()).or_else(|| sub.map(|x| x.name.clone())).unwrap_or_default();
+                        let label = format!(
+                            "{} {}",
+                            if kind == "component" { "◆" } else { "▢" },
+                            if name.is_empty() { "(unnamed)".into() } else { name }
+                        );
+                        let on = self.tools.host.sel.iter().any(|s| s.t == "i" && s.id == iid);
+                        let r = ui.selectable_label(on, RichText::new(label).color(if inst.hidden { t.text_dim } else { t.text }));
+                        if r.clicked() {
+                            select = Some(vec![Sel::new("i", iid)]);
+                        }
+                        if r.double_clicked() {
+                            open = Some(iid);
+                        }
+                    }
+                }
+            });
+            // Tags
+            egui::CollapsingHeader::new(RichText::new("Tags").color(t.text_strong)).default_open(false).show(ui, |ui| {
+                let counts = self.tools.host.model.tag_counts();
+                if self.tools.host.model.tags.is_empty() {
+                    ui.label(RichText::new("No tags").color(t.text_dim));
+                }
+                for g in &self.tools.host.model.tags {
+                    let n = counts.iter().find(|c| c.0 == g.name).map_or(0.0, |c| c.1);
+                    let mut on = !g.hidden;
+                    if ui.checkbox(&mut on, format!("{}  ({n})", g.name)).changed() {
+                        tag_toggle = Some((g.name.clone(), on));
+                    }
+                }
+            });
+        });
+        if let Some(s) = select {
+            self.tools.host.set_sel(s);
+        }
+        if let Some(iid) = open {
+            let mut p = self.tools.host.path.clone();
+            p.push(iid);
+            self.tools.host.open_context(p);
+        }
+        if close {
+            self.tools.host.close_context();
+        }
+        if let Some((n, on)) = tag_toggle {
+            self.show_tag(&n, on);
         }
     }
 

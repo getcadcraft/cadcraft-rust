@@ -15,6 +15,8 @@ Prefer art generated in code.
 | apps/cadcraft-web/favicon.svg | CadCraft | drawn for this repo (a pick box on the brand blue) | Apache-2.0 |
 | assets/lang/cadcraft/en.json | CadCraft | CadCraft 0.5's own language catalog (`public_html/assets/apps/cadcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
 | assets/lang/cadcraft/es-MX.json | CadCraft | CadCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
+| assets/lang/modelcraft/en.json | CadCraft | ModelCraft 0.5's own language catalog (`public_html/assets/apps/modelcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
+| assets/lang/modelcraft/es-MX.json | CadCraft | ModelCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 
 Test data and fuzz seeds (outside `assets/`, listed for the record):
 

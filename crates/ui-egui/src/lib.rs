@@ -1036,6 +1036,10 @@ impl UiApp {
             self.tool_palette(ui);
             let t = self.tokens;
             if let Some(mc) = self.mc.as_mut() {
+                let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+                egui::Panel::right("mc_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+                    mc.side_panel(ui, &t);
+                });
                 mc.set_dark(self.preset == Preset::Dark);
                 egui::CentralPanel::no_frame().show(ui, |ui| {
                     let rect = ui.max_rect();
