@@ -11,6 +11,9 @@ struct Frame {
     edge: vec4<f32>,
     // x: ambient, y: diffuse, z: x-ray alpha (1 = opaque), w: clip-space depth nudge for edges
     shade: vec4<f32>,
+    // section cut: xyz = normal, w = offset, in the scene-origin frame; what lies where dot(n, p) > w is not drawn
+    // (a zero normal: no cut)
+    clip: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> fr: Frame;
 
@@ -30,14 +33,21 @@ struct FaceOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) n: vec3<f32>,
     @location(1) col: vec4<f32>,
+    @location(2) rel: vec3<f32>,
 };
+
+fn cut(rel: vec3<f32>) -> bool {
+    return dot(fr.clip.xyz, fr.clip.xyz) > 0.0 && dot(fr.clip.xyz, rel) > fr.clip.w;
+}
 
 @vertex
 fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c: vec4<f32>, i: Inst) -> FaceOut {
     let m = mat4x4<f32>(i.m0, i.m1, i.m2, i.m3);
     let nm = mat3x3<f32>(i.n0.xyz, i.n1.xyz, i.n2.xyz);
     var o: FaceOut;
-    o.pos = fr.pv * (m * vec4<f32>(p, 1.0));
+    let w = m * vec4<f32>(p, 1.0);
+    o.pos = fr.pv * w;
+    o.rel = w.xyz;
     o.n = nm * n;
     o.col = select(c, i.tint, i.tint.a > 0.0);
     return o;
@@ -45,6 +55,9 @@ fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c:
 
 @fragment
 fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    if cut(v.rel) {
+        discard;
+    }
     let len_n = length(v.n);
     var n = select(vec3<f32>(0.0, 0.0, 1.0), v.n / len_n, len_n > 1e-12);
     if !front {
@@ -57,19 +70,25 @@ fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<
 
 struct EdgeOut {
     @builtin(position) pos: vec4<f32>,
+    @location(0) rel: vec3<f32>,
 };
 
 @vertex
 fn vs_edge(@location(0) p: vec3<f32>, i: Inst) -> EdgeOut {
     let m = mat4x4<f32>(i.m0, i.m1, i.m2, i.m3);
     var o: EdgeOut;
-    let c = fr.pv * (m * vec4<f32>(p, 1.0));
+    let w = m * vec4<f32>(p, 1.0);
+    let c = fr.pv * w;
+    o.rel = w.xyz;
     // reversed Z: nearer is larger; nudge edges towards the eye so they win over their own faces
     o.pos = vec4<f32>(c.xy, c.z + fr.shade.w * c.w, c.w);
     return o;
 }
 
 @fragment
-fn fs_edge() -> @location(0) vec4<f32> {
+fn fs_edge(v: EdgeOut) -> @location(0) vec4<f32> {
+    if cut(v.rel) {
+        discard;
+    }
     return fr.edge;
 }

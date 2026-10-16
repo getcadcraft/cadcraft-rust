@@ -127,7 +127,8 @@ fn shot(args: &[String]) -> Result<(), String> {
             "--run" => {
                 // any UI command: --run "model.toggle=c:IFCSLAB" (name after '=')
                 let (id, name) = v.split_once('=').map_or((v.as_str(), None), |(a, b)| (a, Some(b.to_string())));
-                hs.state_mut().run(id, &Params { name, ..Default::default() })?;
+                let factor = name.as_deref().and_then(|n| n.parse::<f64>().ok());
+                hs.state_mut().run(id, &Params { name, factor, ..Default::default() })?;
                 hs.run_steps(2);
             }
             "--mouse-click" => {

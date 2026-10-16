@@ -126,6 +126,8 @@ pub struct UiApp {
     /// each scene instance's (storey, class) for the Model panel, and what is hidden there ("s:<storey>", "c:<class>")
     ifc_groups: Vec<(String, String)>,
     pub hidden3: HashSet<String>,
+    /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
+    pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
     pub sel3: Option<usize>,
     pub sel_props: Vec<cc_io_ifc::props::PropGroup>,
@@ -173,6 +175,7 @@ impl Default for UiApp {
             ifc3: None,
             ifc_groups: Vec::new(),
             hidden3: HashSet::new(),
+            cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),
             doc: None,
@@ -349,6 +352,7 @@ impl UiApp {
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         let mut toggle: Option<String> = None;
+        let mut cut = self.cut3;
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
         egui::Panel::left("model3").default_size(230.0).size_range(160.0..=380.0).resizable(true).frame(frame).show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -357,6 +361,10 @@ impl UiApp {
                     toggle = Some("*".into());
                 }
             });
+            ui.checkbox(&mut cut.0, RichText::new("Section cut").color(t.text)).on_hover_text("Cut the model with a horizontal plane");
+            if cut.0 {
+                ui.add(egui::Slider::new(&mut cut.1, 0.0..=1.0).show_value(false).text("height"));
+            }
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 for (title, list, prefix) in [("Storeys", &storeys, "s:"), ("Classes", &classes, "c:")] {
@@ -375,6 +383,18 @@ impl UiApp {
         });
         if let Some(k) = toggle {
             self.toggle3(&k);
+        }
+        if cut != self.cut3 {
+            self.cut3 = cut;
+            self.apply_cut3();
+        }
+    }
+
+    /// The section cut on the 3D view's style (a horizontal plane at the chosen fraction of the model's height).
+    fn apply_cut3(&mut self) {
+        let (on, f) = self.cut3;
+        if let Some((scene, view)) = self.scene3.as_mut() {
+            view.style.section = on.then(|| ([0.0, 0.0, 1.0], scene.min[2] + (scene.max[2] - scene.min[2]) * f));
         }
     }
 
@@ -599,6 +619,13 @@ impl UiApp {
                 if let Some((_, v)) = self.scene3.as_mut() {
                     v.fit_pending = true;
                 }
+            }
+            "view.cut" => {
+                self.cut3 = match params.factor.filter(|f| f.is_finite()) {
+                    Some(f) => (true, f.clamp(0.0, 1.0)),
+                    None => (false, self.cut3.1),
+                };
+                self.apply_cut3();
             }
             "model.toggle" => {
                 let n = params.name.clone().ok_or("model.toggle: name is required")?;

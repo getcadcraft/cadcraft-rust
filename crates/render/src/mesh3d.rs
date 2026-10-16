@@ -330,7 +330,7 @@ impl MeshData {
 
 const VSTRIDE: u64 = 28; // pos 12 + normal 12 + colour 4
 const ISTRIDE: u64 = 128; // m 64 + normal matrix 48 + tint 16
-const FRAME: u64 = 128;
+const FRAME: u64 = 144;
 
 /// A mesh on the GPU.
 #[derive(Debug)]
@@ -393,6 +393,8 @@ pub struct Style3 {
     pub background: [f32; 4],
     pub edge: [f32; 4],
     pub back: [f32; 3],
+    /// a section cut (world): normal and offset; what lies where n · p > d is not drawn
+    pub section: Option<([f64; 3], f64)>,
 }
 
 impl Default for Style3 {
@@ -405,6 +407,7 @@ impl Default for Style3 {
             background: [0.93, 0.94, 0.95, 1.0],
             edge: [0.08, 0.09, 0.1, 1.0],
             back: [0.62, 0.66, 0.74],
+            section: None,
         }
     }
 }
@@ -678,6 +681,15 @@ impl Renderer3 {
         fb.extend_from_slice(&[style.back[0], style.back[1], style.back[2], 0.25]);
         fb.extend_from_slice(&style.edge);
         fb.extend_from_slice(&[shade[0], shade[1], shade[2], nudge]);
+        // the cut in the scene-origin frame: n · (p_rel + origin) > d  ⇔  n · p_rel > d − n · origin
+        match style.section {
+            Some((n, d)) => {
+                let o = set.origin;
+                let w = d - (n[0] * o[0] + n[1] * o[1] + n[2] * o[2]);
+                fb.extend_from_slice(&[n[0] as f32, n[1] as f32, n[2] as f32, w as f32]);
+            }
+            None => fb.extend_from_slice(&[0.0; 4]),
+        }
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);
         let (inst_buf, ranges) = (&set.buf, &set.ranges);
