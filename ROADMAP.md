@@ -109,12 +109,18 @@ the JS's output or error. Beats both cc-skp JS and OpenSKP (OpenSKP numbers from
 | gondola_v20 | 0.74 | 46.9 | 3.31 | 14.2× | 20 |
 | CAD_furniture_set_large (31 MB, outside the corpus) | 31.2 | 942–1149 | 155–200 | ≈6× | — |
 
+**ModelCraft interaction and formats (M6)** — `tdiff.mjs --exact`: 19 sections 1,281/1,281 records, seeds 1–10
+4,708/4,708; `iodiff.mjs`: 801/801 byte-identical. Infer at 1,000 cursor positions on a 50k-face model 163 → 56 ms
+(2.9×), pick 36 → 19 ms; export GLB 403 → 37 ms (10.9×), STL 506 → 33 ms (15×), import SKP 5.2 MB 2,508 → 428 ms
+(5.9×), import OBJ 3.6 MB 1,194 → 220 ms.
+
 **3D viewport (M6 groundwork)** — `cadcraft-shot demo3d`: 1,002,264 triangles / 83,522 instances at x = 500 000,
 y = 4 000 000 draw in 284–308 ms per orbit frame on this server's software rasteriser (no GPU here); the CPU side of an
 orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-16 M6/M7 apps started: ModelCraft's tools (exact parity, 6,000 records) and formats (801/801) in Rust and in the app (edit, open SKP/OBJ/GLB/DAE, export 8 formats); BimCraft's IFC 3D view with picking, properties, storeys, section cut.
 - 2026-10-16 M5 + engines: DXF 2000 save 1.26× JS, per-object edit display cache, golden references in CI, nightly fuzz OOM fixed; cc-m3d (ModelCraft's kernel) at exact parity; cc-skp 27/27, cc-ifc 118/118 + 115/115, cc-manifold identical to the wasm on 11,093 cases; 3D viewport (cc-render mesh3d, ui view3d) on desktop and web.
 
 - 2026-10-16 M4: drafting (Doc, geometry, command line, commands, undo), DWG writer, CadCraft's DWG/DXF import and DWG/DXF save at byte parity; Edit + Save as in the app; deployed.
