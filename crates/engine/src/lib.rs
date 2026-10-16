@@ -1,4 +1,7 @@
-//! CadCraft L5: Session, command registry, history, recovery.
+//! CadCraft L5: the session's command engine (port of the CadCraft app's commands.js, in progress — M4).
+//!
+//! [`prompt`] is the question machinery the commands are written in: `async` command bodies awaiting answers,
+//! driven by [`prompt::Runner`] without a runtime (desktop and wasm alike).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -12,4 +15,4 @@
 )]
 #![deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
-// Built from milestone M3 on (docs/roadmap.md).
+pub mod prompt;
