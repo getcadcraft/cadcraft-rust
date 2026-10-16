@@ -24,6 +24,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-skp",
+ "cc-m3d",
  "cc-manifold",
  "libfuzzer-sys",
  "serde_json",
@@ -115,6 +116,14 @@ dependencies = [
  "memchr",
  "rayon",
  "zlib-rs",
+]
+
+[[package]]
+name = "cc-m3d"
+version = "0.0.1"
+dependencies = [
+ "libm",
+ "serde_json",
 ]
 
 [[package]]

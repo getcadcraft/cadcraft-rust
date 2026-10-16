@@ -25,3 +25,10 @@ Version 2.0. Manifold's own notices are kept in the headers of the ported files.
 - the union-find of src/disjoint_sets.h, from https://github.com/wjakob/dset, Copyright (c) 2015 Wenzel Jakob, zlib
   licence (the full notice is in crates/manifold/src/disjoint.rs; this is an altered version).
 - the vector and matrix operations of Manifold's linalg.h, based on linalg.h 2.2 by Sterling Orsten (public domain).
+
+cc-m3d (crates/m3d/src/jsmath.rs) carries a copy of the same fdlibm 5.3 sin/cos kernels (notice above).
+
+cc-m3d (crates/m3d/src/earcut.rs) is a port of ModelCraft's earcut.js, which follows mapbox/earcut:
+ISC License — Copyright (c) 2016, Mapbox. Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice
+appear in all copies. THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE.

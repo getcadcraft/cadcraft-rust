@@ -1,0 +1,1 @@
+{"format":"modelcraft","version":1,"defs":[{"id":"root","verts":[[1,0,0,0],[2,1,0,0],[3,0,1,0]],"edges":[[4,1,2],[5,2,3,1,"arc:9",1]],"faces":[{"id":6,"loops":[[1,2,3]],"color":"#ABCDEF"}],"insts":[]}],"dims":[{"id":9,"kind":"rad","c":{"p":[0,0,0],"n":[0,0,1],"r":1,"path":[],"curve":"arc:9"},"off":[0,0,0]}]}

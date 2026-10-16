@@ -1,0 +1,21 @@
+[package]
+name = "cc-m3d"
+description = "CadCraft L1: the 3D model kernel (ModelCraft's model.js, vec.js, earcut.js and the parts of units.js it needs)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 1
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true
+# FreeBSD msun (fdlibm) in Rust: the same atan2 V8 uses, bit for bit (sin / cos are ported in jsmath.rs)
+libm = "0.2.16"
