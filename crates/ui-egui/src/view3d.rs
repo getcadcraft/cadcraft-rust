@@ -7,15 +7,125 @@ use std::sync::Arc;
 use cc_render::mesh3d::{Blit, Cam3, GpuMesh, Instance3, InstanceSet, MeshData, Renderer3, Scene3, Stats3, Style3, Target3};
 use egui::{Rect, Sense};
 
-/// A scene to show: meshes (one per shared definition) and their placements. `id` changes when the meshes do.
+/// A scene to show: meshes (one per shared definition) and their placements. `id` changes when the meshes do;
+/// `version` when only the placements (or their tints: selection) do.
 #[derive(Clone, Debug)]
 pub struct Scene3D {
     pub id: u64,
+    pub version: u64,
     pub meshes: Arc<Vec<MeshData>>,
     pub instances: Arc<Vec<Instance3>>,
     /// the box of everything (world), for Zoom Extents
     pub min: [f64; 3],
     pub max: [f64; 3],
+    /// the picking tree, made on the first pick
+    pub picker: Arc<std::sync::OnceLock<Picker>>,
+}
+
+impl Scene3D {
+    pub fn new(id: u64, meshes: Vec<MeshData>, instances: Vec<Instance3>, min: [f64; 3], max: [f64; 3]) -> Scene3D {
+        Scene3D { id, version: 0, meshes: Arc::new(meshes), instances: Arc::new(instances), min, max, picker: Arc::default() }
+    }
+    /// Paint some instances (selection) and leave the rest as they are: the GPU instance data is made again, the
+    /// meshes stay.
+    pub fn set_tints(&mut self, tint: &dyn Fn(usize) -> Option<[u8; 4]>) {
+        let list: Vec<Instance3> = self.instances.iter().enumerate().map(|(i, x)| Instance3 { tint: tint(i), ..*x }).collect();
+        self.instances = Arc::new(list);
+        self.version = self.version.wrapping_add(1);
+    }
+}
+
+/// Finds what is under a pixel: a box tree over the instances' world boxes, then each candidate's triangles in its own
+/// frame (exact, nearest hit).
+#[derive(Debug)]
+pub struct Picker {
+    tree: cc_geom::bvh::BoxTree,
+}
+
+/// A hit: which instance and where (world).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hit {
+    pub instance: usize,
+    pub t: f64,
+    pub point: [f64; 3],
+}
+
+fn world_box(mesh: &MeshData, m: &[f64; 16]) -> [f64; 6] {
+    let mut lo = [f32::INFINITY; 3];
+    let mut hi = [f32::NEG_INFINITY; 3];
+    for p in &mesh.positions {
+        for ((l, h), v) in lo.iter_mut().zip(hi.iter_mut()).zip(p) {
+            *l = l.min(*v);
+            *h = h.max(*v);
+        }
+    }
+    if !lo[0].is_finite() {
+        return [f64::NAN; 6];
+    }
+    let mut out = [f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+    for k in 0..8 {
+        let c = [
+            mesh.origin[0] + f64::from(if k & 1 == 0 { lo[0] } else { hi[0] }),
+            mesh.origin[1] + f64::from(if k & 2 == 0 { lo[1] } else { hi[1] }),
+            mesh.origin[2] + f64::from(if k & 4 == 0 { lo[2] } else { hi[2] }),
+        ];
+        let w = [
+            m[0] * c[0] + m[4] * c[1] + m[8] * c[2] + m[12],
+            m[1] * c[0] + m[5] * c[1] + m[9] * c[2] + m[13],
+            m[2] * c[0] + m[6] * c[1] + m[10] * c[2] + m[14],
+        ];
+        let (lo_o, hi_o) = out.split_at_mut(3);
+        for ((l, h), v) in lo_o.iter_mut().zip(hi_o.iter_mut()).zip(w) {
+            *l = l.min(v);
+            *h = h.max(v);
+        }
+    }
+    out
+}
+
+impl Picker {
+    pub fn new(scene: &Scene3D) -> Picker {
+        let mut boxes = Vec::with_capacity(scene.instances.len() * 6);
+        for inst in scene.instances.iter() {
+            match scene.meshes.get(inst.mesh) {
+                Some(m) => boxes.extend_from_slice(&world_box(m, &inst.m)),
+                None => boxes.extend_from_slice(&[f64::NAN; 6]),
+            }
+        }
+        Picker { tree: cc_geom::bvh::BoxTree::new(boxes) }
+    }
+}
+
+/// The nearest instance under pixel (sx, sy) of the camera's drawing area.
+pub fn pick(scene: &Scene3D, cam: &Cam3, sx: f64, sy: f64) -> Option<Hit> {
+    let picker = scene.picker.get_or_init(|| Picker::new(scene));
+    let (o, d) = cam.ray(sx, sy);
+    let tmax = std::cell::Cell::new(f64::INFINITY);
+    let mut best: Option<Hit> = None;
+    picker.tree.ray(o, d, &tmax, |i| {
+        let Some(inst) = scene.instances.get(i) else { return false };
+        let Some(mesh) = scene.meshes.get(inst.mesh) else { return false };
+        let full = cc_render::mesh3d::mmul(&inst.m, &cc_render::mesh3d::translation(mesh.origin));
+        let Some(inv) = cc_render::mesh3d::invert(&full) else { return false };
+        let lo = [
+            inv[0] * o[0] + inv[4] * o[1] + inv[8] * o[2] + inv[12],
+            inv[1] * o[0] + inv[5] * o[1] + inv[9] * o[2] + inv[13],
+            inv[2] * o[0] + inv[6] * o[1] + inv[10] * o[2] + inv[14],
+        ];
+        let ld = [
+            inv[0] * d[0] + inv[4] * d[1] + inv[8] * d[2],
+            inv[1] * d[0] + inv[5] * d[1] + inv[9] * d[2],
+            inv[2] * d[0] + inv[6] * d[1] + inv[10] * d[2],
+        ];
+        if let Some(t) = cc_render::mesh3d::ray_mesh(mesh, lo, ld)
+            && t < tmax.get()
+        {
+            tmax.set(t);
+            best = Some(Hit { instance: i, t, point: [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t] });
+        }
+        false
+    });
+    best
 }
 
 /// GPU objects of the 3D view, kept in egui_wgpu's callback resources.
@@ -26,8 +136,10 @@ pub struct Gpu3 {
     scene: u64,
     meshes: Vec<GpuMesh>,
     instances: Option<InstanceSet>,
-    /// what the target shows now: (scene id, camera, style)
-    shown: Option<(u64, Cam3, Style3)>,
+    /// the scene version the instance data was made for
+    inst_version: u64,
+    /// what the target shows now: (scene id, version, camera, style)
+    shown: Option<(u64, u64, Cam3, Style3)>,
     pub last: Stats3,
 }
 
@@ -40,6 +152,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         scene: u64::MAX,
         meshes: Vec::new(),
         instances: None,
+        inst_version: u64::MAX,
         shown: None,
         last: Stats3::default(),
     };
@@ -66,11 +179,15 @@ impl egui_wgpu::CallbackTrait for Callback {
         let Some(g) = res.get_mut::<Gpu3>() else { return Vec::new() };
         if g.scene != self.scene.id {
             g.meshes = self.scene.meshes.iter().map(|m| GpuMesh::upload(device, m)).collect();
+            g.scene = self.scene.id;
+            g.inst_version = u64::MAX;
+            g.shown = None;
+        }
+        if g.inst_version != self.scene.version {
             let (lo, hi) = (self.scene.min, self.scene.max);
             let origin = if lo[0].is_finite() { [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0] } else { [0.0; 3] };
             g.instances = Some(InstanceSet::new(device, &g.meshes, &self.scene.instances, origin));
-            g.scene = self.scene.id;
-            g.shown = None;
+            g.inst_version = self.scene.version;
         }
         if g.target.as_ref().is_none_or(|(t, _)| (t.width, t.height) != self.px) {
             let t = Target3::new(device, self.px.0, self.px.1);
@@ -78,7 +195,7 @@ impl egui_wgpu::CallbackTrait for Callback {
             g.target = Some((t, b));
             g.shown = None;
         }
-        let key = (self.scene.id, self.cam, self.style);
+        let key = (self.scene.id, self.scene.version, self.cam, self.style);
         if g.shown != Some(key)
             && let (Some((t, _)), Some(set)) = (&g.target, &g.instances)
         {
@@ -178,13 +295,13 @@ pub fn demo_scene(n: usize, origin: [f64; 3]) -> Scene3D {
             inst.push(Instance3 { mesh: 0, m, tint: None });
         }
     }
-    Scene3D {
-        id: 1,
-        meshes: Arc::new(meshes),
-        instances: Arc::new(inst),
-        min: [origin[0] - 1.0, origin[1] - 1.0, origin[2] - 0.2],
-        max: [origin[0] + span, origin[1] + span, origin[2] + 3.0],
-    }
+    Scene3D::new(
+        1,
+        meshes,
+        inst,
+        [origin[0] - 1.0, origin[1] - 1.0, origin[2] - 0.2],
+        [origin[0] + span, origin[1] + span, origin[2] + 3.0],
+    )
 }
 
 #[cfg(test)]

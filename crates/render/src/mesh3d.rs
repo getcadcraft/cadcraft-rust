@@ -69,6 +69,77 @@ pub fn translation(t: [f64; 3]) -> [f64; 16] {
     [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, t[0], t[1], t[2], 1.0]
 }
 
+/// The inverse of a column-major 4×4 (None when singular).
+pub fn invert(m: &[f64; 16]) -> Option<[f64; 16]> {
+    let a = |i: usize| m.get(i).copied().unwrap_or(0.0);
+    let mut inv = [0.0; 16];
+    let c = [
+        a(5) * a(10) * a(15) - a(5) * a(11) * a(14) - a(9) * a(6) * a(15) + a(9) * a(7) * a(14) + a(13) * a(6) * a(11)
+            - a(13) * a(7) * a(10),
+        -a(1) * a(10) * a(15) + a(1) * a(11) * a(14) + a(9) * a(2) * a(15) - a(9) * a(3) * a(14) - a(13) * a(2) * a(11)
+            + a(13) * a(3) * a(10),
+        a(1) * a(6) * a(15) - a(1) * a(7) * a(14) - a(5) * a(2) * a(15) + a(5) * a(3) * a(14) + a(13) * a(2) * a(7) - a(13) * a(3) * a(6),
+        -a(1) * a(6) * a(11) + a(1) * a(7) * a(10) + a(5) * a(2) * a(11) - a(5) * a(3) * a(10) - a(9) * a(2) * a(7) + a(9) * a(3) * a(6),
+        -a(4) * a(10) * a(15) + a(4) * a(11) * a(14) + a(8) * a(6) * a(15) - a(8) * a(7) * a(14) - a(12) * a(6) * a(11)
+            + a(12) * a(7) * a(10),
+        a(0) * a(10) * a(15) - a(0) * a(11) * a(14) - a(8) * a(2) * a(15) + a(8) * a(3) * a(14) + a(12) * a(2) * a(11)
+            - a(12) * a(3) * a(10),
+        -a(0) * a(6) * a(15) + a(0) * a(7) * a(14) + a(4) * a(2) * a(15) - a(4) * a(3) * a(14) - a(12) * a(2) * a(7) + a(12) * a(3) * a(6),
+        a(0) * a(6) * a(11) - a(0) * a(7) * a(10) - a(4) * a(2) * a(11) + a(4) * a(3) * a(10) + a(8) * a(2) * a(7) - a(8) * a(3) * a(6),
+        a(4) * a(9) * a(15) - a(4) * a(11) * a(13) - a(8) * a(5) * a(15) + a(8) * a(7) * a(13) + a(12) * a(5) * a(11) - a(12) * a(7) * a(9),
+        -a(0) * a(9) * a(15) + a(0) * a(11) * a(13) + a(8) * a(1) * a(15) - a(8) * a(3) * a(13) - a(12) * a(1) * a(11)
+            + a(12) * a(3) * a(9),
+        a(0) * a(5) * a(15) - a(0) * a(7) * a(13) - a(4) * a(1) * a(15) + a(4) * a(3) * a(13) + a(12) * a(1) * a(7) - a(12) * a(3) * a(5),
+        -a(0) * a(5) * a(11) + a(0) * a(7) * a(9) + a(4) * a(1) * a(11) - a(4) * a(3) * a(9) - a(8) * a(1) * a(7) + a(8) * a(3) * a(5),
+        -a(4) * a(9) * a(14) + a(4) * a(10) * a(13) + a(8) * a(5) * a(14) - a(8) * a(6) * a(13) - a(12) * a(5) * a(10)
+            + a(12) * a(6) * a(9),
+        a(0) * a(9) * a(14) - a(0) * a(10) * a(13) - a(8) * a(1) * a(14) + a(8) * a(2) * a(13) + a(12) * a(1) * a(10) - a(12) * a(2) * a(9),
+        -a(0) * a(5) * a(14) + a(0) * a(6) * a(13) + a(4) * a(1) * a(14) - a(4) * a(2) * a(13) - a(12) * a(1) * a(6) + a(12) * a(2) * a(5),
+        a(0) * a(5) * a(10) - a(0) * a(6) * a(9) - a(4) * a(1) * a(10) + a(4) * a(2) * a(9) + a(8) * a(1) * a(6) - a(8) * a(2) * a(5),
+    ];
+    let det = a(0) * c[0] + a(1) * c[4] + a(2) * c[8] + a(3) * c[12];
+    if det.abs() < 1e-300 || !det.is_finite() {
+        return None;
+    }
+    for (o, v) in inv.iter_mut().zip(c) {
+        *o = v / det;
+    }
+    Some(inv)
+}
+
+/// The nearest hit (ray parameter t ≥ 0) of a ray with a mesh's triangles, in the mesh's own frame (positions relative
+/// to its origin): Möller–Trumbore in f64, both sides.
+pub fn ray_mesh(m: &MeshData, o: [f64; 3], d: [f64; 3]) -> Option<f64> {
+    let p = |i: u32| m.positions.get(i as usize).map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]);
+    let mut best: Option<f64> = None;
+    for t in m.indices.as_chunks::<3>().0 {
+        let (Some(a), Some(b), Some(c)) = (p(t[0]), p(t[1]), p(t[2])) else { continue };
+        let e1 = sub3(b, a);
+        let e2 = sub3(c, a);
+        let h = cross3(d, e2);
+        let det = e1[0] * h[0] + e1[1] * h[1] + e1[2] * h[2];
+        if det.abs() < 1e-18 {
+            continue;
+        }
+        let f = 1.0 / det;
+        let s = sub3(o, a);
+        let u = f * (s[0] * h[0] + s[1] * h[1] + s[2] * h[2]);
+        if !(0.0..=1.0).contains(&u) {
+            continue;
+        }
+        let q = cross3(s, e1);
+        let v = f * (d[0] * q[0] + d[1] * q[1] + d[2] * q[2]);
+        if v < 0.0 || u + v > 1.0 {
+            continue;
+        }
+        let tt = f * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]);
+        if tt >= 0.0 && best.is_none_or(|b| tt < b) {
+            best = Some(tt);
+        }
+    }
+    best
+}
+
 /// The identity, column-major.
 pub const IDENT: [f64; 16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
 

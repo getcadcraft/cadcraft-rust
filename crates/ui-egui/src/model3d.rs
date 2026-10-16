@@ -4,7 +4,6 @@
 //! placement through `walk_shown` (hidden placements and hidden tags skipped).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use cc_m3d::def::{Def, face_normal, face_tris};
 use cc_m3d::model::Model;
@@ -129,7 +128,7 @@ pub fn scene_of(model: &Model, id: u64, dark: bool) -> Scene3D {
         lo = [-5.0, -5.0, 0.0];
         hi = [5.0, 5.0, 3.0];
     }
-    Scene3D { id, meshes: Arc::new(meshes), instances: Arc::new(instances), min: lo, max: hi }
+    Scene3D::new(id, meshes, instances, lo, hi)
 }
 
 /// A sample model made in code (no file): a small building with a door and two windows pushed in, a porch slab and a

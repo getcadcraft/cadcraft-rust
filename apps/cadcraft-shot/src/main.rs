@@ -2,7 +2,7 @@
 //!
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model; then any number of --cmd "TEXT" (typed at the command line,
-//!       Enter), --click x,y and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
@@ -122,6 +122,24 @@ fn shot(args: &[String]) -> Result<(), String> {
                 if let Some((x, y)) = xy(&v) {
                     hs.state_mut().click_world(x, y);
                     hs.run_steps(1);
+                }
+            }
+            "--mouse-click" => {
+                // a real click at window coordinates (points), through egui's input like a mouse
+                if let Some((x, y)) = xy(&v) {
+                    let pos = egui::pos2(x as f32, y as f32);
+                    hs.event(egui::Event::PointerMoved(pos));
+                    hs.run_steps(1);
+                    let b = |pressed| egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    };
+                    hs.event(b(true));
+                    hs.run_steps(1);
+                    hs.event(b(false));
+                    hs.run_steps(2);
                 }
             }
             "--hover" => {

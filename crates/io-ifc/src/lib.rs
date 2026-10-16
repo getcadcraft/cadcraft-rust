@@ -26,6 +26,7 @@ pub mod engine_step;
 pub mod geo;
 pub mod jsmath;
 pub mod model;
+pub mod props;
 pub mod schema;
 pub mod step;
 pub mod util;

@@ -3,7 +3,6 @@
 //! neighbour; IfcSpace and openings are left out by cc-ifc's product list.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use cc_io_ifc::view::{IfcView, ViewMesh};
 use cc_render::mesh3d::{Instance3, MeshData};
@@ -134,7 +133,7 @@ pub fn scene_of(v: &IfcView, id: u64, max_edge_tris: usize) -> Scene3D {
         lo = [-5.0, -5.0, 0.0];
         hi = [5.0, 5.0, 3.0];
     }
-    Scene3D { id, meshes: Arc::new(meshes), instances: Arc::new(instances), min: lo, max: hi }
+    Scene3D::new(id, meshes, instances, lo, hi)
 }
 
 #[cfg(test)]

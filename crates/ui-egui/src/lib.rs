@@ -121,6 +121,11 @@ pub struct UiApp {
     pub model3: Option<cc_m3d::model::Model>,
     /// scene ids: a new id = new GPU meshes
     scene_seq: u64,
+    /// the IFC file shown (for properties) and each scene instance's product line
+    ifc3: Option<(std::sync::Arc<Vec<u8>>, Vec<f64>)>,
+    /// the instance clicked in the 3D view, and what the Properties panel shows for it
+    pub sel3: Option<usize>,
+    pub sel_props: Vec<cc_io_ifc::props::PropGroup>,
     pub doc: Option<Loaded>,
     pub space: usize,
     /// one view per space (physical pixels)
@@ -162,6 +167,9 @@ impl Default for UiApp {
             scene3: None,
             model3: None,
             scene_seq: 0,
+            ifc3: None,
+            sel3: None,
+            sel_props: Vec::new(),
             doc: None,
             space: 0,
             views: Vec::new(),
@@ -266,6 +274,9 @@ impl UiApp {
                 self.error = None;
                 self.model3 = None;
                 self.scene3 = Some((scene, view));
+                self.sel3 = None;
+                self.sel_props.clear();
+                self.ifc3 = Some((std::sync::Arc::new(f.bytes.clone()), v.pieces.iter().map(|p| p.product).collect()));
             }
             Err(e) => self.error = Some(format!("{}: {}", f.name, e.0)),
         }
@@ -288,6 +299,72 @@ impl UiApp {
         self.error = None;
         self.scene3 = Some((scene, view));
         self.model3 = Some(model);
+        self.ifc3 = None;
+        self.sel3 = None;
+        self.sel_props.clear();
+    }
+
+    /// Select what is under a pixel of the 3D view (None = clear): the whole product (IFC) or placement is tinted.
+    pub fn select3(&mut self, at: Option<(f64, f64)>) {
+        let Some((scene, view)) = self.scene3.as_mut() else { return };
+        let hit = at.and_then(|(x, y)| view3d::pick(scene, &view.cam, x, y));
+        self.sel3 = hit.map(|h| h.instance);
+        self.sel_props.clear();
+        const SEL: [u8; 4] = [70, 130, 240, 255];
+        match (&self.ifc3, hit) {
+            (Some((bytes, products)), Some(h)) => {
+                let pid = products.get(h.instance).copied();
+                scene.set_tints(&|i| (products.get(i).copied() == pid && pid.is_some()).then_some(SEL));
+                if let (Some(pid), Ok(file)) = (pid, cc_io_ifc::model::IfcFile::open(bytes)) {
+                    self.sel_props = cc_io_ifc::props::properties(&file, pid);
+                    let name =
+                        self.sel_props.first().and_then(|g| g.rows.iter().find(|r| r.0 == "Name")).map(|r| r.1.clone()).unwrap_or_default();
+                    let class = self
+                        .sel_props
+                        .first()
+                        .and_then(|g| g.rows.iter().find(|r| r.0 == "Class"))
+                        .map(|r| r.1.clone())
+                        .unwrap_or_default();
+                    self.message = format!("Selected {class} {name} (#{pid})");
+                }
+            }
+            (None, Some(h)) => {
+                scene.set_tints(&|i| (i == h.instance).then_some(SEL));
+                self.message = format!("Selected placement {} at {:.3}, {:.3}, {:.3}", h.instance, h.point[0], h.point[1], h.point[2]);
+            }
+            (_, None) => {
+                scene.set_tints(&|_| None);
+                self.message = "Nothing selected".into();
+            }
+        }
+    }
+
+    fn props_panel(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens;
+        if self.sel_props.is_empty() {
+            return;
+        }
+        let groups = self.sel_props.clone();
+        egui::Panel::right("props3").default_size(300.0).resizable(true).frame(egui::Frame::new().fill(t.panel).inner_margin(6)).show(
+            ui,
+            |ui| {
+                ui.label(RichText::new("Properties").strong().color(t.text_strong));
+                ui.separator();
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for g in &groups {
+                        egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
+                            egui::Grid::new(&g.title).num_columns(2).striped(true).show(ui, |ui| {
+                                for (k, v) in &g.rows {
+                                    ui.label(RichText::new(k).color(t.text_dim));
+                                    ui.label(RichText::new(v).color(t.text));
+                                    ui.end_row();
+                                }
+                            });
+                        });
+                    }
+                });
+            },
+        );
     }
 
     /// The 3D view's colours from the theme (view3d.js's paper / model colours).
@@ -680,11 +757,27 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        if let Some((scene, view)) = self.scene3.as_mut() {
-            egui::CentralPanel::no_frame().show(ui, |ui| {
-                let rect = ui.max_rect();
-                view3d::show(ui, rect, scene, view);
-            });
+        if self.scene3.is_some() {
+            self.props_panel(ui);
+            let mut clicked: Option<Option<(f64, f64)>> = None;
+            if let Some((scene, view)) = self.scene3.as_mut() {
+                egui::CentralPanel::no_frame().show(ui, |ui| {
+                    let rect = ui.max_rect();
+                    let resp = view3d::show(ui, rect, scene, view);
+                    if resp.clicked_by(egui::PointerButton::Primary) {
+                        let ppp = f64::from(ui.ctx().pixels_per_point());
+                        clicked = Some(
+                            resp.interact_pointer_pos().map(|p| (f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp)),
+                        );
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        clicked = Some(None);
+                    }
+                });
+            }
+            if let Some(at) = clicked {
+                self.select3(at);
+            }
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         }
