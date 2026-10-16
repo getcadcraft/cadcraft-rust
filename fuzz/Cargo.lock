@@ -24,6 +24,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-skp",
+ "cc-manifold",
  "libfuzzer-sys",
  "serde_json",
 ]
@@ -114,6 +115,10 @@ dependencies = [
  "rayon",
  "zlib-rs",
 ]
+
+[[package]]
+name = "cc-manifold"
+version = "0.0.1"
 
 [[package]]
 name = "cfg-if"

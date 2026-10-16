@@ -13,3 +13,13 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | zlib-rs | io-skp | raw-deflate inflate of SketchUp 2021+ ZIP entries (fastest pure-Rust inflater measured: 16 ms vs 21 ms for miniz_oxide on a 16 MB model.dat); `rust-allocator` feature, no C | Zlib |
 | crc32fast | io-skp | CRC-32 check of unpacked ZIP entries (SIMD at run time) | MIT OR Apache-2.0 |
 | memchr | io-skp | substring search for record markers in classic SketchUp files | Unlicense OR MIT (used under MIT) |
+
+## Ported source code (no crate dependency)
+
+| Source | Ported into | Why | Licence |
+|---|---|---|---|
+| Manifold 3.5.4 (github.com/elalish/manifold): src/boolean3, boolean_result, csg_tree, edge_op, face_op, impl, polygon, properties, sort, tree2d, collider.h, shared.h, utils.h, parallel.h (sequential paths), include/manifold/{common,mesh,math,linalg}.h | cc-manifold (crates/manifold) | the mesh boolean behind IFC openings (cc-ifc geo-bool.js) and ModelCraft's solid tools, with output identical to the manifold-3d 3.5.4 wasm the 0.5 apps use | Apache-2.0 (notices kept in each file; see NOTICE) |
+| — its math.h `acos` (FreeBSD msun via musl) | crates/manifold/src/math.rs | deterministic vertex pseudo-normals | SunPro notice (permissive), see NOTICE |
+| — its disjoint_sets.h (github.com/wjakob/dset) | crates/manifold/src/disjoint.rs | union-find | Zlib |
+| — its linalg.h (based on linalg.h 2.2, Sterling Orsten) | crates/manifold/src/linalg.rs | the vector operations, same evaluation order | Apache-2.0 / public domain |
+

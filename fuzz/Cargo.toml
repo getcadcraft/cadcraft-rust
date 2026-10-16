@@ -17,6 +17,7 @@ serde_json = "1"
 cc-io-cad = { path = "../crates/io-cad" }
 cc-io-skp = { path = "../crates/io-skp" }
 cc-io-ifc = { path = "../crates/io-ifc" }
+cc-manifold = { path = "../crates/manifold" }
 
 [[bin]]
 name = "dwg_read"
@@ -67,6 +68,13 @@ bench = false
 [[bin]]
 name = "ifc_read"
 path = "fuzz_targets/ifc_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifold_bool"
+path = "fuzz_targets/manifold_bool.rs"
 test = false
 doc = false
 bench = false

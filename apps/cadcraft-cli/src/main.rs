@@ -20,6 +20,7 @@
 //!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
 //!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
 //!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
+//!   cadcraft-cli manifold <cases.json> [--bench N]   dev: boolean scripts through cc-manifold (forks/tools/mfdiff.mjs) → JSON
 //!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
 //!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
@@ -30,6 +31,7 @@
 mod cmds;
 mod ifc;
 mod iocad;
+mod manifold;
 mod skp;
 
 use std::process::ExitCode;
@@ -63,6 +65,7 @@ fn main() -> ExitCode {
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),
         "save" => iocad::save(&rest),
+        "manifold" => manifold::manifold(&rest),
         _ => usage(),
     }
 }

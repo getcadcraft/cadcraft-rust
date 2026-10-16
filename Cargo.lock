@@ -509,6 +509,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-skp",
+ "cc-manifold",
  "flate2",
  "serde_json",
 ]
@@ -666,6 +667,13 @@ dependencies = [
  "memchr",
  "rayon",
  "zlib-rs",
+]
+
+[[package]]
+name = "cc-manifold"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

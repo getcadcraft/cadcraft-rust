@@ -1,0 +1,21 @@
+[package]
+name = "cc-manifold"
+description = "CadCraft L1: the mesh boolean of Manifold 3.5.4 ported to pure Rust (same output as the manifold-3d 3.5.4 WebAssembly build the 0.5 apps use)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 1
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+serde_json.workspace = true

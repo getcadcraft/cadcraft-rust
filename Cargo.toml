@@ -35,6 +35,7 @@ cc-tools = { path = "crates/tools" }
 cc-engine = { path = "crates/engine" }
 cc-ui-egui = { path = "crates/ui-egui" }
 cc-mcp = { path = "crates/mcp" }
+cc-manifold = { path = "crates/manifold" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"

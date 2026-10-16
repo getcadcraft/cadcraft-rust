@@ -14,3 +14,14 @@ is preserved.
 cc-io-skp (crates/io-skp) is a port of CadCraft's own SketchUp reader cc-skp (lib/skp, Apache-2.0). cc-skp's format
 knowledge comes from OpenSKP (https://github.com/iamahsanmehmood/openskp, MIT, Copyright (c) 2024-2026 Ahsan Mehmood),
 read as a map by the cc-skp authors; no OpenSKP code is copied or shipped. See crates/io-skp/NOTICE for the MIT text.
+
+cc-manifold (crates/manifold) is a Rust port of the mesh boolean of Manifold 3.5.4
+(https://github.com/elalish/manifold), Copyright 2021-2026 The Manifold Authors, licensed under the Apache License,
+Version 2.0. Manifold's own notices are kept in the headers of the ported files. It includes:
+- Manifold's deterministic acos (include/manifold/math.h), adapted from FreeBSD msun via musl libc: Copyright (C) 1993
+  by Sun Microsystems, Inc. All rights reserved. Developed at SunPro/SunSoft, a Sun Microsystems, Inc. business.
+  Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice is
+  preserved.
+- the union-find of src/disjoint_sets.h, from https://github.com/wjakob/dset, Copyright (c) 2015 Wenzel Jakob, zlib
+  licence (the full notice is in crates/manifold/src/disjoint.rs; this is an altered version).
+- the vector and matrix operations of Manifold's linalg.h, based on linalg.h 2.2 by Sterling Orsten (public domain).
