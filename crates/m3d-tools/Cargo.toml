@@ -1,0 +1,23 @@
+[package]
+name = "cc-m3d-tools"
+description = "CadCraft L4: ModelCraft's interaction layer (camera, inference, picking, collisions, tools) over cc-m3d."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 4
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-geom.workspace = true
+cc-m3d.workspace = true
+serde_json.workspace = true
+# FreeBSD msun (fdlibm) in Rust: tan / atan / atan2 / acos / exp as V8 computes them (sin / cos: cc_m3d::jsmath)
+libm = "0.2.16"

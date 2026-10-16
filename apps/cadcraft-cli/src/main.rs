@@ -23,6 +23,9 @@
 //!   cadcraft-cli manifold <cases.json> [--bench N]   dev: boolean scripts through cc-manifold (forks/tools/mfdiff.mjs) → JSON
 //!   cadcraft-cli m3d <script.json> | --cases <cases.json> | --bench <script.json> [--runs N]
 //!                                                dev: the 3D model kernel (cc-m3d) on op scripts (forks/tools/mdiff.mjs), m3d.rs
+//!   cadcraft-cli m3dtools <script.json> | --bench <bench.json> [--runs N]
+//!                                                dev: ModelCraft's tools (cc-m3d-tools) on scripted sessions
+//!                                                (forks/tools/tdiff.mjs), m3dtools.rs
 //!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
 //!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
@@ -34,6 +37,7 @@ mod cmds;
 mod ifc;
 mod iocad;
 mod m3d;
+mod m3dtools;
 mod manifold;
 mod skp;
 
@@ -70,6 +74,7 @@ fn main() -> ExitCode {
         "save" => iocad::save(&rest),
         "manifold" => manifold::manifold(&rest),
         "m3d" => m3d::m3d(&rest),
+        "m3dtools" => m3dtools::m3dtools(&rest),
         _ => usage(),
     }
 }

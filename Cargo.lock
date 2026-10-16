@@ -510,6 +510,7 @@ dependencies = [
  "cc-io-ifc",
  "cc-io-skp",
  "cc-m3d",
+ "cc-m3d-tools",
  "cc-manifold",
  "flate2",
  "serde_json",
@@ -675,6 +676,16 @@ dependencies = [
 name = "cc-m3d"
 version = "0.0.1"
 dependencies = [
+ "libm",
+ "serde_json",
+]
+
+[[package]]
+name = "cc-m3d-tools"
+version = "0.0.1"
+dependencies = [
+ "cc-geom",
+ "cc-m3d",
  "libm",
  "serde_json",
 ]

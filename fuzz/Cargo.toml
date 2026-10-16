@@ -19,6 +19,7 @@ cc-io-skp = { path = "../crates/io-skp" }
 cc-io-ifc = { path = "../crates/io-ifc" }
 cc-manifold = { path = "../crates/manifold" }
 cc-m3d = { path = "../crates/m3d" }
+cc-m3d-tools = { path = "../crates/m3d-tools" }
 
 [[bin]]
 name = "dwg_read"
@@ -83,6 +84,13 @@ bench = false
 [[bin]]
 name = "m3d_load"
 path = "fuzz_targets/m3d_load.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "m3d_tools"
+path = "fuzz_targets/m3d_tools.rs"
 test = false
 doc = false
 bench = false
