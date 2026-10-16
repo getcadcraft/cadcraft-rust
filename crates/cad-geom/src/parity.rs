@@ -394,7 +394,7 @@ pub fn run_case(name: &str, a: &Value, lookup: Lookup) -> Value {
             d.set_space(g(a, "space").and_then(Value::as_str));
             let list = d.all();
             let fz = a.get("frozenVp").map(Entity::from_value).and_then(|vp| frozen_set(&vp));
-            let opts = WalkOpts { m: g(a, "m").map(|v| m6(Some(v))), plot: b_(a, "plot"), frozen: fz.as_ref() };
+            let opts = WalkOpts { m: g(a, "m").map(|v| m6(Some(v))), plot: b_(a, "plot"), frozen: fz.as_ref(), max_dashes: None };
             let mut rec = Recorder { calls: Vec::new(), mask: b_(a, "mask"), infinite: b_(a, "infinite") };
             walk(&d, &list, &mut rec, &opts);
             json!({ "calls": rec.calls, "key": frozen_key(fz.as_ref()) })

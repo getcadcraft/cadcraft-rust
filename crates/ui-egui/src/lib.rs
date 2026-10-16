@@ -46,6 +46,14 @@ pub type ReadXref = Box<dyn FnMut(&str, &str) -> Option<Vec<u8>>>;
 /// A desktop picker: None = cancelled.
 pub type PickOpen = Box<dyn FnMut() -> Option<Result<ImportedFile, String>>>;
 
+/// web: read a dropped file asynchronously.
+#[cfg(target_arch = "wasm32")]
+pub type ReadDropped = Box<dyn FnMut(Arc<dyn egui::DroppedFile + Send + Sync>)>;
+
+/// Save a file: (suggested name, bytes) → Ok(Some(where it went)), Ok(None) = cancelled (desktop: a save dialog and
+/// a write; web: a download).
+pub type SaveFile = Box<dyn FnMut(&str, Vec<u8>) -> Result<Option<String>, String>>;
+
 /// Platform services, injected by the host (the UI never touches files or dialogs itself).
 #[derive(Default)]
 pub struct Services {
@@ -57,9 +65,11 @@ pub struct Services {
     pub inbox: Option<Arc<Mutex<Vec<ImportedFile>>>>,
     /// desktop: "<xref>.dwg" in a folder (folder, xref name) → bytes
     pub read_xref: Option<ReadXref>,
+    /// Save / Save as (desktop: dialog + write; web: download)
+    pub save: Option<SaveFile>,
     /// web: read a dropped file asynchronously into `inbox`
     #[cfg(target_arch = "wasm32")]
-    pub read_dropped: Option<Box<dyn FnMut(Arc<dyn egui::DroppedFile + Send + Sync>)>>,
+    pub read_dropped: Option<ReadDropped>,
 }
 
 /// The commands of the viewer (id, label, shortcut, params doc).
@@ -78,6 +88,13 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("edit.redo", "Redo", "Ctrl+Y", "{}"),
     ("edit.osnap", "Object snap on / off", "F3", "{}"),
     ("edit.ortho", "Ortho on / off", "F8", "{}"),
+    ("file.edit", "Edit this drawing", "", "{} → imports the open DWG / DXF into an editable drawing (CadCraft's importer)"),
+    (
+        "file.save",
+        "Save as",
+        "Ctrl+S",
+        "{name?: \"2018\"|\"2013\"|\"2010\"|\"2007\"|\"2004\"|\"2000\"|\"dxf2000\"|\"dxf12\"} → saves the drawing open for editing (default: the last format, else 2018)",
+    ),
 ];
 
 /// The built-in sample (CadCraft's own public fixture, base-plan.dwg).
@@ -113,6 +130,12 @@ pub struct UiApp {
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
     drag_from: Option<(f64, f64)>,
+    /// the file the viewer has open (for Edit)
+    pub source: Option<ImportedFile>,
+    /// the format of the last save (Ctrl+S)
+    pub save_format: String,
+    /// input events held back to the next frame (everything after an Enter: one answer per frame)
+    held: Vec<egui::Event>,
 }
 
 impl Default for UiApp {
@@ -140,6 +163,9 @@ impl Default for UiApp {
             editor: None,
             prev_views: Vec::new(),
             drag_from: None,
+            source: None,
+            save_format: "2018".into(),
+            held: Vec::new(),
         }
     }
 }
@@ -165,7 +191,63 @@ impl UiApp {
             }
         };
         let res = document::open_with(&f.name, &f.bytes, &mut resolve);
+        let ok = res.is_ok();
         self.loaded(res);
+        if ok {
+            self.source = Some(f.clone());
+        }
+    }
+
+    /// The open file imported into an editable drawing (dwg-import.js / dxf.js readDxf → Doc.load).
+    fn edit_source(&mut self) -> Result<(), String> {
+        let f = self.source.clone().ok_or("file.edit: open a DWG or DXF first")?;
+        let t0 = web_time::Instant::now();
+        let input = cc_io_cad::import_bytes(&f.name, &f.bytes).map_err(|e| format!("{}: {}", f.name, e.0))?;
+        let t1 = web_time::Instant::now();
+        let mut doc = cc_cad::Doc::new();
+        doc.load(&input);
+        drop(input);
+        let t2 = web_time::Instant::now();
+        let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(a, _)| a).to_string();
+        let keep_space = self.space;
+        let hidden = std::mem::take(&mut self.hidden);
+        self.editor = Some(edit::Editor::new(doc, &stem));
+        self.doc = None;
+        self.sync_editor();
+        let t3 = web_time::Instant::now();
+        let n = self.doc.as_ref().map_or(0, |d| d.drawing.spaces.len());
+        self.views = vec![None; n];
+        self.space = if keep_space < n { keep_space } else { 0 };
+        self.hidden = hidden;
+        self.pending_fit = true;
+        self.error = None;
+        let ms = |a: web_time::Instant, b: web_time::Instant| b.duration_since(a).as_secs_f64() * 1000.0;
+        self.message =
+            format!("Editing {} · import {:.0} ms · load {:.0} ms · display {:.0} ms", f.name, ms(t0, t1), ms(t1, t2), ms(t2, t3));
+        Ok(())
+    }
+
+    /// Save the drawing open for editing in `format` (one of `cc_io_cad::SAVE_FORMATS`) through `Services::save`.
+    fn save_as(&mut self, format: &str) -> Result<(), String> {
+        if !cc_io_cad::SAVE_FORMATS.contains(&format) {
+            return Err(format!("file.save: unknown format {format} (one of {})", cc_io_cad::SAVE_FORMATS.join(", ")));
+        }
+        let ed = self.editor.as_ref().ok_or("file.save: no drawing is open for editing")?;
+        let t0 = web_time::Instant::now();
+        let (bytes, ext, _report) = cc_io_cad::save_bytes(&ed.eng.doc(), format, None).map_err(|e| format!("file.save: {}", e.0))?;
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let name = format!("{}.{ext}", ed.name);
+        let size = bytes.len();
+        let save = self.services.save.as_mut().ok_or("file.save: saving is not available here")?;
+        if let Some(to) = save(&name, bytes)? {
+            self.save_format = format.to_string();
+            let label = if format.starts_with("dxf") { format.replace("dxf", "DXF ") } else { format!("DWG {format}") };
+            self.message = format!("Saved {to} ({label}, {:.0} KB) in {ms:.0} ms", size as f64 / 1024.0);
+            if let Some(ed) = self.editor.as_mut() {
+                ed.eng.doc_mut().mark_saved();
+            }
+        }
+        Ok(())
     }
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
@@ -238,9 +320,16 @@ impl UiApp {
                     (x.eq_ignore_ascii_case("base-plan")).then(|| SAMPLE_XREF.to_vec())
                 });
                 self.loaded(res);
+                self.source = Some(ImportedFile { name: "kitchen-equipment.dwg".into(), bytes: SAMPLE_DWG.to_vec(), dir: None });
+            }
+            "file.edit" => self.edit_source()?,
+            "file.save" => {
+                let f = params.name.clone().unwrap_or_else(|| self.save_format.clone());
+                self.save_as(&f)?;
             }
             "view.fit" => self.pending_fit = true,
             "file.new" => {
+                self.source = None;
                 self.editor = Some(edit::Editor::new(cc_cad::Doc::new(), "Drawing1"));
                 self.doc = None;
                 self.views = vec![None];
@@ -373,10 +462,34 @@ impl UiApp {
         }
     }
 
+    /// Before each frame (hosts call it from `eframe::App::raw_input_hook`): while a drawing is open for editing, a
+    /// frame takes the events up to and including the first Enter; the rest wait for the next frame. A fast typist
+    /// (or a paste, or a slow frame) can put "LINE⏎0,0⏎" into one frame, and the command line answers one question
+    /// per Enter.
+    pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        if !self.held.is_empty() {
+            let mut ev = std::mem::take(&mut self.held);
+            ev.append(&mut raw.events);
+            raw.events = ev;
+        }
+        if self.editor.is_none() {
+            return;
+        }
+        let enter = raw.events.iter().position(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. }));
+        if let Some(i) = enter
+            && i.saturating_add(1) < raw.events.len()
+        {
+            self.held = raw.events.split_off(i.saturating_add(1));
+        }
+    }
+
     /// Every frame: drain the inbox, then draw.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = web_time::Instant::now();
         let ctx = ui.ctx().clone();
+        if !self.held.is_empty() {
+            ctx.request_repaint();
+        }
         if !self.fonts_done {
             theme::install_fonts(&ctx);
             self.fonts_done = true;
@@ -420,6 +533,9 @@ impl UiApp {
         if ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::N)) {
             self.run_ui("file.new", &Params::default());
         }
+        if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
+            self.run_ui("file.save", &Params::default());
+        }
         self.app_bar(ui);
         self.status_bar(ui);
         if self.editor.is_some() {
@@ -454,6 +570,35 @@ impl UiApp {
                     }
                     if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
                         self.run_ui("file.new", &Params::default());
+                    }
+                    if self.editor.is_none()
+                        && ui
+                            .add_enabled(self.source.is_some(), egui::Button::new("Edit"))
+                            .on_hover_text("Edit this drawing: draft, then save it as DWG or DXF")
+                            .clicked()
+                    {
+                        self.run_ui("file.edit", &Params::default());
+                    }
+                    if self.editor.is_some() {
+                        let mut pick: Option<&str> = None;
+                        ui.menu_button("Save as", |ui| {
+                            for f in cc_io_cad::SAVE_FORMATS {
+                                let label = match *f {
+                                    "dxf2000" => "DXF 2000".to_string(),
+                                    "dxf12" => "DXF R12".to_string(),
+                                    v => format!("DWG {v}"),
+                                };
+                                if ui.button(label).clicked() {
+                                    pick = Some(f);
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Save the drawing as DWG (2000–2018) or DXF (Ctrl+S: the last format)");
+                        if let Some(f) = pick {
+                            self.run_ui("file.save", &Params { name: Some(f.to_string()), ..Default::default() });
+                        }
                     }
                     if ui.add_enabled(self.doc.is_some(), egui::Button::new("Fit")).on_hover_text("Zoom to the drawing (Home)").clicked() {
                         self.run_ui("view.fit", &Params::default());
@@ -809,17 +954,20 @@ impl UiApp {
                 }
                 ui.horizontal(|ui| {
                     let lab = ui.label(RichText::new(ed.prompt()).monospace().color(t.text_strong));
+                    // the field keeps the focus on Enter (no return key: Enter is read above). A text field lets go
+                    // of the focus on Enter, and on the web the keys typed in the next frame were lost with it
+                    let id = ui.make_persistent_id("cmdline.input");
+                    if ctx.memory(|m| m.focused()).is_none_or(|f| f == id) {
+                        ctx.memory_mut(|m| m.request_focus(id));
+                    }
                     let te = egui::TextEdit::singleline(&mut ed.line)
-                        .id_salt("cmdline.input")
+                        .id(id)
+                        .return_key(None)
                         .font(egui::TextStyle::Monospace)
                         .desired_width(f32::INFINITY)
                         .frame(egui::Frame::NONE);
                     let r = ui.add(te).labelled_by(lab.id);
-                    let other_focus = ctx.memory(|m| m.focused()).is_some_and(|f| f != r.id);
-                    if !other_focus {
-                        r.request_focus();
-                    }
-                    if enter && (r.has_focus() || r.lost_focus()) {
+                    if enter && r.has_focus() {
                         submit = true;
                     }
                 });
@@ -888,5 +1036,74 @@ mod tests {
         assert!(app.run("nope", &Params::default()).is_err());
         app.run("layer.toggle", &Params { name: Some("A".into()), ..Default::default() }).unwrap();
         assert!(app.hidden.contains("A"));
+    }
+
+    #[test]
+    fn one_enter_per_frame() {
+        let mut app = UiApp::default();
+        app.run("file.new", &Params::default()).unwrap();
+        let text = |s: &str| egui::Event::Text(s.into());
+        let enter =
+            egui::Event::Key { key: egui::Key::Enter, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let mut raw =
+            egui::RawInput { events: vec![text("LINE"), enter.clone(), text("0,0"), enter.clone(), text("5")], ..Default::default() };
+        app.raw_input_hook(&mut raw);
+        assert_eq!(raw.events, vec![text("LINE"), enter.clone()]);
+        let mut raw = egui::RawInput { events: vec![text("6")], ..Default::default() };
+        app.raw_input_hook(&mut raw);
+        assert_eq!(raw.events, vec![text("0,0"), enter.clone()], "held events come first, still one Enter");
+        let mut raw = egui::RawInput::default();
+        app.raw_input_hook(&mut raw);
+        assert_eq!(raw.events, vec![text("5"), text("6")]);
+    }
+
+    #[test]
+    fn edit_the_sample_then_save_every_format() {
+        type Saved = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+        let saved: Saved = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&saved);
+        let services = Services {
+            save: Some(Box::new(move |name, bytes| {
+                sink.lock().unwrap().push((name.to_string(), bytes));
+                Ok(Some(name.to_string()))
+            })),
+            ..Default::default()
+        };
+        let mut app = UiApp::new(services);
+        assert!(app.run("file.edit", &Params::default()).is_err(), "nothing open yet");
+        assert!(app.run("file.save", &Params::default()).is_err(), "nothing open for editing");
+        app.run("file.sample", &Params::default()).unwrap();
+        app.run("file.edit", &Params::default()).unwrap();
+        let before = app.editor.as_ref().unwrap().eng.doc().every_entity().count();
+        assert!(before > 100, "the sample imported: {before} objects");
+        for t in ["LINE", "0,0", "100,100", ""] {
+            app.run("cmd.line", &Params { name: Some(t.into()), ..Default::default() }).unwrap();
+        }
+        assert_eq!(app.editor.as_ref().unwrap().eng.doc().every_entity().count(), before + 1);
+        assert!(app.editor.as_ref().unwrap().eng.doc().dirty());
+        assert!(app.run("file.save", &Params { name: Some("dxf9".into()), ..Default::default() }).is_err());
+        for f in cc_io_cad::SAVE_FORMATS {
+            app.run("file.save", &Params { name: Some((*f).to_string()), ..Default::default() }).unwrap();
+        }
+        assert!(!app.editor.as_ref().unwrap().eng.doc().dirty(), "saved");
+        assert_eq!(app.save_format, "dxf12");
+        let saved = saved.lock().unwrap();
+        assert_eq!(saved.len(), cc_io_cad::SAVE_FORMATS.len());
+        for (name, bytes) in saved.iter() {
+            // what was saved opens again with the new line in it
+            let input = cc_io_cad::import_bytes(name, bytes).unwrap();
+            let mut d = cc_cad::Doc::new();
+            d.load(&input);
+            let n = d.every_entity().count();
+            // DWG: every object back; DXF R12 / 2000 write some objects as several (as the 0.5 writers do)
+            assert!(if name.ends_with(".dwg") { n == before + 1 } else { n > before }, "{name}: {n} objects");
+            let has_line = d.snapshot()["model"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["type"] == "line" && e["x1"] == 0.0 && e["y1"] == 0.0 && e["x2"] == 100.0 && e["y2"] == 100.0);
+            assert!(has_line, "{name}: the new line");
+        }
+        assert!(saved.iter().any(|(n, _)| n == "kitchen-equipment.dwg") && saved.iter().any(|(n, _)| n == "kitchen-equipment.dxf"));
     }
 }

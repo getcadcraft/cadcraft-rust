@@ -137,6 +137,15 @@ fn plen(q: &Prim) -> f64 {
     if q.is_l() { js::hypot(q.x2 - q.x1, q.y2 - q.y1) } else { q.r * sweep(q).abs() }
 }
 
+/// About how many pieces [`dash_prims`] makes of `prims` (pattern elements × periods along their length).
+pub fn dash_count(prims: &[Prim], pattern: &[f64], scale: f64) -> f64 {
+    let period = pattern.iter().fold(0.0, |s, v| s + (v * scale).abs());
+    if !(period > 1e-12) {
+        return 0.0;
+    }
+    prims.iter().fold(0.0, |s, q| s + plen(q)) / period * crate::geom::f(pattern.len())
+}
+
 /// Dashes of primitives (the pattern runs on along a run of primitives), or the primitives as they are when the
 /// pattern is too fine to show.
 pub fn dash_prims(prims: &[Prim], pattern: Option<&[f64]>, scale: f64) -> Vec<Prim> {

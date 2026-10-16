@@ -13,19 +13,29 @@ use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, Layer, Space, SpaceKind, S
 use crate::geom::{K, Prim, TAU, text_layout};
 use crate::walk::{Opts, WalkOpts, WalkOut, walk};
 
-/// Polyline points of an arc: a segment every 3.75° (96 per circle), at least 2.
+/// Linetype dashes per object on the canvas: past this the object draws continuous. A dense pattern on a long run
+/// (a 1/32" dot line along a wall) otherwise makes thousands of pieces per object, millions per drawing, and every
+/// edit rebuilds them (measured: ar1all OVERALL PLAN 2.35 M segments with the JS's 20 000 per run, vs 125 k drawn by
+/// the viewer, which draws no linetypes). Spec gap vs 0.5 (the JS canvas dashes up to 20 000 per run).
+pub const DISPLAY_MAX_DASHES: f64 = 400.0;
+
+fn display_opts() -> WalkOpts<'static> {
+    WalkOpts { max_dashes: Some(DISPLAY_MAX_DASHES), ..WalkOpts::default() }
+}
+
+/// Polyline points of an arc: a segment every 3.75° (96 per circle), at least 1 (a linetype's dash on an arc is a
+/// short piece: one chord is within a fraction of a pixel of it, and a dashed circle has thousands of them).
 fn arc_points(q: &Prim, out: &mut Vec<f64>) {
     let (from, to) = if q.rev == Some(true) { (q.a1, q.a0) } else { (q.a0, q.a1) };
+    // a0..a1 as the canvas's ctx.arc draws it: `full` is not used (a linetype's dash on a circle keeps the circle's
+    // `full` flag with its own a0 / a1)
     let mut sweep = if q.rev == Some(true) { from - to } else { to - from };
-    if q.full {
-        sweep = TAU;
-    }
     while sweep < 0.0 {
         sweep += TAU;
     }
     let sweep = if sweep > TAU { TAU } else { sweep };
     let dir = if q.rev == Some(true) { -1.0 } else { 1.0 };
-    let n = (sweep / (TAU / 96.0)).ceil().clamp(2.0, 96.0);
+    let n = (sweep / (TAU / 96.0)).ceil().clamp(1.0, 96.0);
     let mut i = 0.0;
     while i <= n {
         let a = from + dir * sweep * (i / n);
@@ -41,6 +51,8 @@ fn color_of(c: &str) -> Color {
 
 /// Collects walk's output into batches keyed by colour × line weight.
 struct Collect {
+    /// the layer the batches being filled belong to (the top-level object's layer, as the viewer's layers panel hides)
+    layer: String,
     batches: Vec<Batch>,
     bounds: Bounds,
     viewports: Vec<Viewport>,
@@ -50,10 +62,17 @@ impl Collect {
     fn batch(&mut self, color: &str, lw: f64) -> Option<&mut Batch> {
         let c = color_of(color);
         let lw = if lw.is_finite() && lw >= 0.0 { lw } else { 0.0 };
-        let i = match self.batches.iter().position(|b| b.color == c && b.lw == lw) {
+        let i = match self.batches.iter().position(|b| b.color == c && b.lw == lw && b.layer == self.layer) {
             Some(i) => i,
             None => {
-                self.batches.push(Batch { layer: String::new(), color: c, lw, lines: Vec::new(), fills: Vec::new(), texts: Vec::new() });
+                self.batches.push(Batch {
+                    layer: self.layer.clone(),
+                    color: c,
+                    lw,
+                    lines: Vec::new(),
+                    fills: Vec::new(),
+                    texts: Vec::new(),
+                });
                 self.batches.len().saturating_sub(1)
             }
         };
@@ -165,15 +184,31 @@ impl WalkOut for Collect {
 
 /// Any entities of a document (previews, a selection) walked into batches, in world coordinates.
 pub fn walk_batches(doc: &Doc, ents: &[Entity]) -> Vec<Batch> {
-    let mut out = Collect { batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
-    walk(doc, ents, &mut out, &WalkOpts::default());
+    let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
+    walk(doc, ents, &mut out, &display_opts());
     out.batches
 }
 
 fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKind, paper: Option<Bounds>) -> Space {
-    let ents: Vec<Entity> = doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))).cloned().collect();
-    let mut out = Collect { batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
-    walk(doc, &ents, &mut out, &WalkOpts::default());
+    // top-level objects grouped by layer (first-seen order), one walk per layer
+    let mut groups: Vec<(String, Vec<Entity>)> = Vec::new();
+    let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for e in doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))) {
+        let l = e.layer.as_deref().unwrap_or("0");
+        let i = *at.entry(l).or_insert_with(|| {
+            groups.push((l.to_string(), Vec::new()));
+            groups.len().saturating_sub(1)
+        });
+        if let Some((_, g)) = groups.get_mut(i) {
+            g.push(e.clone());
+        }
+    }
+    let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
+    let opts = display_opts();
+    for (l, ents) in &groups {
+        out.layer.clone_from(l);
+        walk(doc, ents, &mut out, &opts);
+    }
     out.batches.retain(|b| !(b.lines.is_empty() && b.fills.is_empty() && b.texts.is_empty()));
     let paper_unit = paper.map(|_| "mm".to_string());
     Space { key, name, kind, batches: out.batches, bounds: out.bounds, paper, paper_unit, viewports: out.viewports, images: Vec::new() }
@@ -194,7 +229,14 @@ pub fn doc_drawing(doc: &Doc) -> Drawing {
     let layers = doc
         .layers
         .values()
-        .map(|l| Layer { name: l.name.clone(), color: Color::Ink, on: l.on && !l.frozen, lw: 0.0, plot: l.plot })
+        .map(|l| {
+            let color = match &l.color {
+                cc_cad::entity::Color::Num(n) => color_of(&cc_cad::color::aci_hex(*n)),
+                cc_cad::entity::Color::Str(s) => color_of(s),
+                cc_cad::entity::Color::Null => Color::Ink,
+            };
+            Layer { name: l.name.clone(), color, on: l.on && !l.frozen, lw: 0.0, plot: l.plot }
+        })
         .collect();
     let entities = doc.every_entity().count() as u64;
     Drawing {
@@ -227,6 +269,7 @@ mod tests {
         assert_eq!(m.kind, SpaceKind::Model);
         let lines: usize = m.batches.iter().map(|b| b.lines.len()).sum();
         assert_eq!(lines, 2, "{:?}", m.batches);
+        assert!(m.batches.iter().all(|b| b.layer == "0"), "batches carry their layer");
         let circle = m.batches.iter().find(|b| b.color != Color::Ink).unwrap();
         assert_eq!(circle.lines[0].len(), 97 * 2, "a full circle: 96 segments");
         let texts: Vec<&Text> = m.batches.iter().flat_map(|b| &b.texts).collect();

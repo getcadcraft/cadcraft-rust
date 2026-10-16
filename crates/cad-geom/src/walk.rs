@@ -175,6 +175,9 @@ pub struct WalkOpts<'a> {
     pub m: Option<M>,
     pub plot: bool,
     pub frozen: Option<&'a Frozen>,
+    /// display only (not in the JS): an object whose linetype would make more dashes than this draws continuous
+    /// (None = the JS rule: up to 20 000 per run)
+    pub max_dashes: Option<f64>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -191,6 +194,7 @@ struct Walker<'a> {
     frozen: Option<&'a Frozen>,
     ltscale: f64,
     patterns: Vec<(String, Option<Vec<f64>>)>,
+    max_dashes: Option<f64>,
 }
 
 fn color_value(v: &Value) -> Color {
@@ -238,8 +242,10 @@ impl Walker<'_> {
         let pat = self.pattern(&lt);
         let lts = e.num("lts").filter(|v| *v > 0.0).unwrap_or(1.0);
         let d = match &pat {
-            Some(pp) => dash_prims(&ps, Some(pp), self.ltscale * lts),
-            None => ps,
+            Some(pp) if self.max_dashes.is_none_or(|cap| crate::linetypes::dash_count(&ps, pp, self.ltscale * lts) <= cap) => {
+                dash_prims(&ps, Some(pp), self.ltscale * lts)
+            }
+            _ => ps,
         };
         out.stroke(
             color,
@@ -491,8 +497,15 @@ pub fn walk(doc: &Doc, entities: &[Entity], out: &mut dyn WalkOut, opts: &WalkOp
         Some(v) if js::to_number(v) > 0.0 => js::to_number(v),
         _ => 1.0,
     };
-    let mut w =
-        Walker { doc, layers: override_layers(doc, opts.frozen), plot: opts.plot, frozen: opts.frozen, ltscale, patterns: Vec::new() };
+    let mut w = Walker {
+        doc,
+        layers: override_layers(doc, opts.frozen),
+        plot: opts.plot,
+        frozen: opts.frozen,
+        ltscale,
+        patterns: Vec::new(),
+        max_dashes: opts.max_dashes,
+    };
     let m = opts.m;
     for e in entities {
         if let Geo::Viewport(_) = &e.geo {

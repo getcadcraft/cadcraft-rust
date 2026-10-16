@@ -14,6 +14,9 @@ struct App {
 }
 
 impl eframe::App for App {
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.app.raw_input_hook(raw);
+    }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.app.ui(ui);
         if self.bench_exit
@@ -34,6 +37,16 @@ fn read_path(path: &std::path::Path) -> Result<ImportedFile, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let dir = path.parent().map(|p| p.to_string_lossy().into_owned());
     std::fs::read(path).map(|bytes| ImportedFile { name, bytes, dir }).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Save: a save dialog with the suggested name, then the write (None = cancelled).
+fn save_file(name: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
+    let ext = name.rsplit_once('.').map_or("dwg", |(_, e)| e).to_string();
+    let Some(path) = rfd::FileDialog::new().set_file_name(name).add_filter(ext.to_uppercase(), &[ext.as_str()]).save_file() else {
+        return Ok(None);
+    };
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(path.display().to_string()))
 }
 
 /// "<xref>.dwg" in the drawing's folder, case-insensitively (as BimCraft looks for linked drawings).
@@ -60,7 +73,12 @@ fn main() -> eframe::Result {
             if let Some(rs) = &cc.wgpu_render_state {
                 cc_ui_egui::install_gpu(rs);
             }
-            let services = Services { pick_open: Some(Box::new(pick_open)), read_xref: Some(Box::new(read_xref)), ..Default::default() };
+            let services = Services {
+                pick_open: Some(Box::new(pick_open)),
+                read_xref: Some(Box::new(read_xref)),
+                save: Some(Box::new(save_file)),
+                ..Default::default()
+            };
             let mut app = UiApp::new(services);
             if let Some(p) = start {
                 match read_path(std::path::Path::new(&p)) {

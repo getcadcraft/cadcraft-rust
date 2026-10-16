@@ -29,6 +29,9 @@ mod web {
         fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             self.app.ui(ui);
         }
+        fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+            self.app.raw_input_hook(raw);
+        }
     }
 
     fn set_status(text: &str) {
@@ -128,6 +131,7 @@ mod web {
                             })),
                             pick_open: None,
                             read_xref: None,
+                            save: Some(Box::new(download)),
                         };
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {
@@ -148,6 +152,31 @@ mod web {
                 Err(_) => set_status(NO_WEBGPU),
             }
         });
+    }
+
+    /// Save on the web: the bytes as a download (a Blob URL on a temporary link).
+    fn download(name: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
+        let fail = |e: wasm_bindgen::JsValue| format!("download: {e:?}");
+        let doc = web_sys::window().and_then(|w| w.document()).ok_or("download: no document")?;
+        let arr = js_sys::Uint8Array::from(bytes.as_slice());
+        let parts = js_sys::Array::of1(&arr);
+        let opts = web_sys::BlobPropertyBag::new();
+        opts.set_type("application/octet-stream");
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &opts).map_err(fail)?;
+        let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(fail)?;
+        let a: web_sys::HtmlAnchorElement =
+            doc.create_element("a").map_err(fail)?.dyn_into().map_err(|_| "download: no link".to_string())?;
+        a.set_href(&url);
+        a.set_download(name);
+        a.click();
+        // free the Blob once the browser has started the download
+        let free = wasm_bindgen::closure::Closure::once_into_js(move || {
+            let _ = web_sys::Url::revoke_object_url(&url);
+        });
+        if let Some(w) = web_sys::window() {
+            let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(free.unchecked_ref(), 10_000);
+        }
+        Ok(Some(name.to_string()))
     }
 
     /// `?bench`: time the reader on the built-in sample in this browser (6 runs, like the kit's JS bench) → console.

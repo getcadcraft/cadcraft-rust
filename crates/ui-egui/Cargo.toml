@@ -24,6 +24,7 @@ cc-geom.workspace = true
 serde_json.workspace = true
 cc-render.workspace = true
 cc-io-dwg.workspace = true
+cc-io-cad.workspace = true
 egui = { version = "0.37", default-features = false }
 egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm"] }
 web-time = "1"
