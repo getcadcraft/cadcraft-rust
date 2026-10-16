@@ -108,7 +108,10 @@ mod web {
                                 let ctx = open_ctx.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let Some(f) = rfd::AsyncFileDialog::new()
-                                        .add_filter("Drawings and models", &["dwg", "dxf", "modelcraft", "ifc"])
+                                        .add_filter(
+                                            "Drawings and models",
+                                            &["dwg", "dxf", "modelcraft", "ifc", "skp", "obj", "glb", "gltf", "dae"],
+                                        )
                                         .pick_file()
                                         .await
                                     else {

@@ -102,15 +102,22 @@ impl ModelView {
         Ok(v)
     }
 
-    /// Zoom to the whole model (camera.js fit).
-    pub fn fit(&mut self) {
-        let bb = cc_m3d_tools::camera::Box3 { min: self.scene.min, max: self.scene.max };
-        self.tools.host.cam.fit(Some(&bb), None);
+    /// The model's box as modelcraft.js takes it (model.bbox(): every vertex of every placement).
+    fn model_box(&self, empty: Option<cc_m3d_tools::camera::Box3>) -> Option<cc_m3d_tools::camera::Box3> {
+        match self.tools.host.model.bbox("root", &cc_m3d::vec::IDENT) {
+            Some(b) => Some(cc_m3d_tools::camera::Box3 { min: b.min, max: b.max }),
+            None => empty,
+        }
     }
-    /// A standard view (camera.js standard: iso, top, front …).
+    /// Zoom Extents (modelcraft.js zoomExtents: cam.fit(model.bbox())).
+    pub fn fit(&mut self) {
+        let bb = self.model_box(None);
+        self.tools.host.cam.fit(bb.as_ref(), None);
+    }
+    /// A standard view (modelcraft.js stdView: cam.standard(name, model.bbox() or a 10 m square)).
     pub fn standard(&mut self, name: &str) {
-        let bb = cc_m3d_tools::camera::Box3 { min: self.scene.min, max: self.scene.max };
-        self.tools.host.cam.standard(name, Some(&bb));
+        let bb = self.model_box(Some(cc_m3d_tools::camera::Box3 { min: [-5.0, -5.0, 0.0], max: [5.0, 5.0, 3.0] }));
+        self.tools.host.cam.standard(name, bb.as_ref());
     }
 
     pub fn set_dark(&mut self, dark: bool) {

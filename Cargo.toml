@@ -32,6 +32,7 @@ cc-io-dwg = { path = "crates/io-dwg" }
 cc-io-skp = { path = "crates/io-skp" }
 cc-io-ifc = { path = "crates/io-ifc" }
 cc-io-m3d = { path = "crates/io-m3d" }
+cc-m3d-files = { path = "crates/m3d-files" }
 cc-io-cad = { path = "crates/io-cad" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }

@@ -511,6 +511,7 @@ dependencies = [
  "cc-io-m3d",
  "cc-io-skp",
  "cc-m3d",
+ "cc-m3d-files",
  "cc-m3d-tools",
  "cc-manifold",
  "flate2",
@@ -693,6 +694,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-m3d-files"
+version = "0.0.1"
+dependencies = [
+ "cc-io-dwg",
+ "cc-io-m3d",
+ "cc-io-skp",
+ "cc-m3d",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-m3d-tools"
 version = "0.0.1"
 dependencies = [
@@ -749,6 +761,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-m3d",
+ "cc-m3d-files",
  "cc-m3d-tools",
  "cc-render",
  "egui",

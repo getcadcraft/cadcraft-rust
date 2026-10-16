@@ -28,6 +28,7 @@ cc-manifold.workspace = true
 cc-m3d.workspace = true
 cc-m3d-tools.workspace = true
 cc-io-m3d.workspace = true
+cc-m3d-files.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]

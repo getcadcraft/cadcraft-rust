@@ -4,7 +4,7 @@
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
-//!       (2018 … 2000, dxf2000, dxf12)
+//!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
 //!       → JSON {open_ms, first_frame_ms, frame_ms: [...], spaces, segments …}; each frame pans/zooms the view.
 //!       --edit: open for editing, then also time one LINE (typed) from Enter to the redrawn frame (edit_ms)
@@ -93,7 +93,8 @@ fn shot(args: &[String]) -> Result<(), String> {
         app.run("file.edit", &Params::default())?;
     }
     let save_to = arg(args, "--save").and_then(|v| v.split_once(':').map(|(f, p)| (f.to_string(), p.to_string())));
-    if let Some((_, path)) = &save_to {
+    let export_to = arg(args, "--export").and_then(|v| v.split_once(':').map(|(f, p)| (f.to_string(), p.to_string())));
+    if let Some((_, path)) = save_to.as_ref().or(export_to.as_ref()) {
         let path = path.clone();
         app.services.save = Some(Box::new(move |_name, bytes| {
             std::fs::write(&path, bytes).map_err(|e| format!("{path}: {e}"))?;
@@ -165,6 +166,10 @@ fn shot(args: &[String]) -> Result<(), String> {
     }
     if let Some((f, _)) = &save_to {
         hs.state_mut().run("file.save", &Params { name: Some(f.clone()), ..Default::default() })?;
+        hs.run_steps(1);
+    }
+    if let Some((f, _)) = &export_to {
+        hs.state_mut().run("file.export", &Params { name: Some(f.clone()), ..Default::default() })?;
         hs.run_steps(1);
     }
     let img = hs.render()?;

@@ -16,6 +16,7 @@ layer = 6
 workspace = true
 
 [dependencies]
+cc-m3d-files.workspace = true
 cc-m3d-tools.workspace = true
 cc-io-ifc.workspace = true
 cc-m3d.workspace = true

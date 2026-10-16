@@ -29,8 +29,12 @@ impl eframe::App for App {
 }
 
 fn pick_open() -> Option<Result<ImportedFile, String>> {
-    let path =
-        rfd::FileDialog::new().add_filter("Drawings and models", &["dwg", "dxf", "DWG", "DXF", "modelcraft", "ifc", "IFC"]).pick_file()?;
+    let path = rfd::FileDialog::new()
+        .add_filter(
+            "Drawings and models",
+            &["dwg", "dxf", "DWG", "DXF", "modelcraft", "ifc", "IFC", "skp", "SKP", "obj", "glb", "gltf", "dae"],
+        )
+        .pick_file()?;
     Some(read_path(&path))
 }
 

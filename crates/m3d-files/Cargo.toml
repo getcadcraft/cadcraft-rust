@@ -1,0 +1,23 @@
+[package]
+name = "cc-m3d-files"
+description = "CadCraft L4: ModelCraft's file open / save glue: cc-io-m3d's readers and writers with the SketchUp (cc-io-skp) and DWG (cc-io-dwg) readers and the DWG writer joined in, for the app and the CLI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 4
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-m3d.workspace = true
+cc-io-m3d.workspace = true
+cc-io-skp.workspace = true
+cc-io-dwg.workspace = true
+serde_json.workspace = true

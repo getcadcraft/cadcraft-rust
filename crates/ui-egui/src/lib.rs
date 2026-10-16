@@ -231,6 +231,10 @@ impl UiApp {
             self.open_ifc(f);
             return;
         }
+        if let Some(fmt) = cc_m3d_files::import_format(&lower).filter(|x| !matches!(x.as_str(), "dxf" | "dwg")) {
+            self.import_model(f, &fmt);
+            return;
+        }
         let dir = f.dir.clone();
         let reader = &mut self.services.read_xref;
         let mut resolve = |x: &str| -> Option<Vec<u8>> {
@@ -295,6 +299,57 @@ impl UiApp {
             }
             Err(e) => self.error = Some(format!("{}: {}", f.name, e.0)),
         }
+    }
+
+    /// A SketchUp / OBJ / glTF / Collada file → a group in the open model (modelcraft.js importFile), or a new model.
+    fn import_model(&mut self, f: &ImportedFile, fmt: &str) {
+        let t0 = web_time::Instant::now();
+        let input = match cc_m3d_files::decode_input(fmt, f.bytes.clone()) {
+            Ok(i) => i,
+            Err(e) => {
+                self.error = Some(format!("{}: {e}", f.name));
+                return;
+            }
+        };
+        let name = cc_m3d_files::import_name(&f.name);
+        let into_open = self.mc.is_some();
+        let mut model = match self.mc.as_ref() {
+            Some(mc) => mc.tools.host.model.clone(),
+            None => cc_m3d::model::Model::new(),
+        };
+        match cc_m3d_files::run_import(&mut model, fmt, &input, &name, None) {
+            Ok(_) => {
+                let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                if into_open {
+                    if let Some(mc) = self.mc.as_mut() {
+                        mc.tools.host.set_model(model);
+                        mc.message = format!("Imported {} in {ms:.0} ms", f.name);
+                    }
+                } else {
+                    self.show_model(model, &name);
+                    self.message = format!("Opened {} in {ms:.0} ms", f.name);
+                }
+            }
+            Err(e) => self.error = Some(format!("{}: {}", f.name, cc_m3d_files::err_text(&e))),
+        }
+    }
+
+    /// Export the open model in one of ModelCraft's formats (a download on the web, a save dialog on the desktop).
+    fn export_model(&mut self, format: &str) -> Result<(), String> {
+        let mc = self.mc.as_mut().ok_or("file.export: open a model first")?;
+        let ext = cc_m3d_files::EXPORT_FORMATS.iter().find(|x| x.0 == format).map(|x| x.2).ok_or("file.export: unknown format")?;
+        let t0 = web_time::Instant::now();
+        let opts = cc_m3d_files::ExportOpts { name: Some(mc.name.clone()), ..Default::default() };
+        let (bytes, _report) = cc_m3d_files::export(&mut mc.tools.host.model, format, &opts)?;
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let base = cc_m3d_files::import_name(&mc.name);
+        let name = format!("{base}.{ext}");
+        let size = bytes.len();
+        let save = self.services.save.as_mut().ok_or("file.export: saving is not available here")?;
+        if let Some(to) = save(&name, bytes)? {
+            self.message = format!("Exported {to} ({:.0} KB) in {ms:.0} ms", size as f64 / 1024.0);
+        }
+        Ok(())
     }
 
     /// Show a model in the 3D view (any drawing open is closed).
@@ -705,6 +760,10 @@ impl UiApp {
                     view.cam.persp = !view.cam.persp;
                 }
             }
+            "file.export" => {
+                let f = params.name.clone().ok_or("file.export: name is required")?;
+                self.export_model(&f)?;
+            }
             "tool.set" => {
                 let n = params.name.clone().ok_or("tool.set: name is required")?;
                 self.mc.as_mut().ok_or("tool.set: open a model first")?.set_tool(&n);
@@ -1046,6 +1105,22 @@ impl UiApp {
                             .clicked()
                     {
                         self.run_ui("file.edit", &Params::default());
+                    }
+                    if self.mc.is_some() {
+                        let mut pick: Option<&str> = None;
+                        ui.menu_button("Export", |ui| {
+                            for (f, label, _) in cc_m3d_files::EXPORT_FORMATS {
+                                if ui.button(*label).clicked() {
+                                    pick = Some(f);
+                                    ui.close();
+                                }
+                            }
+                        })
+                        .response
+                        .on_hover_text("Save the model as a ModelCraft file, glTF, OBJ, STL, Collada, IFC, DXF or DWG");
+                        if let Some(f) = pick {
+                            self.run_ui("file.export", &Params { name: Some(f.into()), ..Default::default() });
+                        }
                     }
                     if self.editor.is_some() {
                         let mut pick: Option<&str> = None;
