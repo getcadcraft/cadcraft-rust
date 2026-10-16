@@ -11,6 +11,8 @@
     clippy::indexing_slicing
 )]
 
+pub mod bvh;
+
 /// Model-space length tolerance (drawing units). One documented constant for every comparison.
 pub const TOL: f64 = 1e-9;
 
