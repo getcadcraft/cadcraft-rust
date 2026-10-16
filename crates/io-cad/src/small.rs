@@ -383,7 +383,7 @@ mod tests {
         let n = if cfg!(debug_assertions) { 20_000 } else { 200_000 };
         for i in 0..n {
             let r = next();
-            let v = if i % 2 == 0 { f64::from_bits(r) } else { (r >> 11) as f64 / 9_007_199_254_740_992.0 * 10f64.powi((i % 12) as i32) };
+            let v = if i % 2 == 0 { f64::from_bits(r) } else { (r >> 11) as f64 / 9_007_199_254_740_992.0 * 10f64.powi(i % 12) };
             if !v.is_finite() || v == 0.0 {
                 continue;
             }
