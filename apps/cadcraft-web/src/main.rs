@@ -50,7 +50,11 @@ mod web {
             set_status(NO_WEBGPU);
             return;
         }
-        let sample = window.location().search().map(|s| s.split(['?', '&']).any(|p| p == "sample")).unwrap_or(false);
+        let search = window.location().search().unwrap_or_default();
+        let sample = search.split(['?', '&']).any(|p| p == "sample");
+        if search.split(['?', '&']).any(|p| p == "bench") {
+            bench();
+        }
         let Some(canvas) =
             window.document().and_then(|d| d.get_element_by_id("cc_canvas")).and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok())
         else {
@@ -136,6 +140,19 @@ mod web {
                 Err(_) => set_status(NO_WEBGPU),
             }
         });
+    }
+
+    /// `?bench`: time the reader on the built-in sample in this browser (6 runs, like the kit's JS bench) → console.
+    fn bench() {
+        let mut t = Vec::new();
+        for _ in 0..6 {
+            let t0 = web_time::Instant::now();
+            let m = cc_io_dwg::read_dwg(cc_ui_egui::SAMPLE_DWG, &cc_io_dwg::ReadOpts::default());
+            t.push(t0.elapsed().as_secs_f64() * 1000.0);
+            drop(m);
+        }
+        let s: Vec<String> = t.iter().map(|x| format!("{x:.1}")).collect();
+        web_sys::console::log_1(&format!("Rust read_dwg ms {}", s.join(" ")).into());
     }
 
     fn js_has_webgpu(window: &web_sys::Window) -> bool {

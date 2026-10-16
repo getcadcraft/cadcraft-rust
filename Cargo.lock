@@ -519,6 +519,7 @@ dependencies = [
 name = "cadcraft-web"
 version = "0.0.1"
 dependencies = [
+ "cc-io-dwg",
  "cc-ui-egui",
  "eframe",
  "egui",
@@ -527,6 +528,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time",
  "wgpu",
 ]
 

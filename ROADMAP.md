@@ -1,6 +1,6 @@
 # CadCraft in Rust: one page
 
-Stage: M2 done (cc-dwg reader at parity), M3 next (2D viewer). Milestones: [docs/roadmap.md](docs/roadmap.md).
+Stage: M3 done (2D viewer, desktop + web, live at https://rust.getcadcraft.com, unlisted). M4 next (drafting). Milestones: [docs/roadmap.md](docs/roadmap.md).
 Session log: [docs/progress.md](docs/progress.md).
 
 ## Headline numbers
@@ -27,7 +27,19 @@ Single-threaded Rust (`RAYON_NUM_THREADS=1`, what a web build without wasm threa
 Parity: **78 / 78** corpus files match (all six versions AC1015–AC1032 + `_fixtures/objects`), plus every other DWG in
 `testfiles` (13 `orig/`, 18 others incl. the client sets): 0 differing paths.
 
+**2D viewer (M3)** — 2026-10-16. Compile step (BimCraft's `dwg-compile.js`) and DXF reader (`dxf-model.js`) at parity:
+0 differences on 78 corpus DWGs, 19 client DWGs and 106 DXFs (compile output and DXF model). Compile vs JS: 3.4 MB
+drawing 168 → 84 ms, 1.7 MB 32 → 22 ms.
+
+| Measurement | Value |
+|---|---|
+| Web (Chromium, wasm, single thread, fat LTO + SIMD): read the sample (174 KB R2018), 6 runs | Rust 38–53 ms warm (first 119–254) vs 0.5 JS 46–90 ms warm (first 117–130) in the same browser |
+| CPU side of a frame (egui + view + text layout), 3.4 MB drawing, 1600×1000 | 0.72 ms best, 0.95 ms median |
+| Whole frame incl. software GPU (lavapipe) + readback, 3.4 MB drawing | 132 ms best (no hardware GPU on this server) |
+| Kitchen sample, whole frame on lavapipe | 42 ms best |
+
 ## Progress log
 
+- 2026-10-16 M3: viewer (model + sheets with viewports, pan/zoom, layers, texts, xrefs) on desktop and web (WebGPU only), deployed.
 - 2026-10-16 M2: cc-dwg reader in Rust at full-model parity (78/78), 2.6–4.2× faster than 0.5 JS; fuzz target; CLI `info`, `convert --json`, `parity`, `bench`.
 - 2026-10-15 M1: workspace, lints, xtask gate.

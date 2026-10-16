@@ -17,6 +17,8 @@ workspace = true
 
 [dependencies]
 cc-ui-egui.workspace = true
+cc-io-dwg.workspace = true
+web-time = "1"
 egui = { version = "0.37", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -25,5 +27,5 @@ egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-s
 wgpu = { version = "30", default-features = false, features = ["webgpu", "wgsl", "std"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Document", "Window", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "Navigator", "Gpu"] }
+web-sys = { version = "0.3", features = ["Document", "Window", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "Navigator", "Gpu", "console"] }
 rfd = { version = "0.17", default-features = false }

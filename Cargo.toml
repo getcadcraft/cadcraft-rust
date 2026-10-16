@@ -54,3 +54,10 @@ inherits = "release"
 [profile.profiling]
 inherits = "release"
 debug = true
+
+# The web build: speed decides (AGENTS.md section 10): fat LTO, one codegen unit, opt-level 3.
+[profile.web]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+opt-level = 3

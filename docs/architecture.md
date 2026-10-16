@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed 2026-10-16 · Change: cc-dwg (M2).
+Last reviewed 2026-10-16 · Change: the viewer (M3).
 
 ## Toolchain and pins
 
@@ -10,7 +10,7 @@ Last reviewed 2026-10-16 · Change: cc-dwg (M2).
 | Fuzzing | nightly + cargo-fuzz |
 | Web | trunk, wasm32-unknown-unknown, WebGPU only |
 
-UI crates (egui/eframe/wgpu) are pinned when they enter in M3.
+| UI | egui / eframe / egui-wgpu / egui_kittest 0.37, wgpu 30, lyon_tessellation 1, rfd 0.17, trunk 0.21 |
 
 ## Layers
 
@@ -18,11 +18,11 @@ UI crates (egui/eframe/wgpu) are pinned when they enter in M3.
 |---|---|
 | L0 | `cc-geom` |
 | L1 | `cc-drawing` |
-| L3 | `cc-io-dwg`, `cc-render` |
+| L3 | `cc-io-dwg` (DWG reader, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu) |
 | L4 | `cc-tools` |
 | L5 | `cc-engine` |
 | L6 | `cc-ui-egui`, `cc-mcp` |
-| L7 | `cadcraft`, `cadcraft-cli`, `cadcraft-web` |
+| L7 | `cadcraft`, `cadcraft-cli`, `cadcraft-web`, `cadcraft-shot` |
 
 `cargo xtask layers` enforces "strictly lower layers only" and "no UI toolkit below L6" from
 `[package.metadata.layer]`.
@@ -47,3 +47,20 @@ decoders), `acis` / `acds` (ACIS data, R2013+ data storage), `mleader_read` / `d
 - **Never crash:** the crate denies unwrap/expect/panic/indexing/unchecked integer arithmetic/lossy casts; release builds
   keep overflow checks; each object decode is wrapped in `catch_unwind` (native). A damaged object becomes a note, as in JS.
 - **Diagnostics:** `CCDWG_PHASES=1` prints phase timings to stderr.
+
+## The 2D viewer (M3)
+
+open → `read_dwg` / `read_dxf_model` (the JS model) → `compile_drawing` (+ xref models) → `cc_drawing::Drawing` →
+`build_geometry` per space (parallel) → uploaded on the first paint → per frame: one uniform per view + one draw call
+per visible batch, texts as egui shapes.
+
+- **GPU, not a CPU raster (deliberate deviation from AGENTS.md § 6 "2D apps: vello_cpu").** Speed decides (owner): a CAD
+  drawing pans and zooms continuously; uploading the lines once and drawing them on the GPU costs one uniform write per
+  frame, where a CPU raster re-renders the view on every zoom step. Overlays stay vector (egui) on top, as § 6 asks.
+- **Large coordinates:** mesh positions are f32 relative to the space's bounds centre; the shader receives the view
+  centre relative to the same origin (computed in f64), so a survey drawing at x = 500 000 m stays steady.
+- **Sheets:** the paper (theme colour), then each viewport: the model mesh drawn with its own view
+  (zoom × viewHeight ratio, twist, centre mapped as dwg-view.js's `vpMatrix`) under a scissor rectangle, then the
+  sheet's own entities. Per-viewport frozen layers are not applied yet (as in the JS viewer).
+- **Web:** WebGPU only (`Backends::BROWSER_WEBGPU`; egui-wgpu's WebGL feature is off), `profile.web` = fat LTO, one
+  codegen unit, opt-level 3, `+simd128`; trunk + wasm-opt -O3; no inline script.
