@@ -231,6 +231,8 @@ pub struct Editor {
     seen: Option<u64>,
     /// the doc version at the last save (None = never saved)
     saved: Option<u64>,
+    /// each object's display, kept between edits (only what an edit changed is walked again)
+    pub display: cc_cad_geom::display::DisplayCache,
 }
 
 impl Editor {
@@ -248,6 +250,7 @@ impl Editor {
             pending_box: None,
             seen: None,
             saved: None,
+            display: cc_cad_geom::display::DisplayCache::new(),
         };
         ed.saved = Some(ed.version());
         ed.refresh_prompt();

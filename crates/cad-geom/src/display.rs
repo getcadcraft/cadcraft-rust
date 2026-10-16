@@ -6,7 +6,10 @@
 //! anchored on its baseline as view.js `drawTexts` places them. Construction lines are left out (view.js clips them to
 //! the screen every frame; the canvas draws them as overlays).
 
+use std::collections::HashMap;
+
 use cc_cad::entity::{Entity, Geo};
+use cc_cad::omap::OMap;
 use cc_cad::{Doc, SpaceId, js};
 use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, Layer, Space, SpaceKind, Stats, Text, Viewport};
 
@@ -226,6 +229,239 @@ pub fn doc_drawing(doc: &Doc) -> Drawing {
     for (i, l) in doc.layouts.iter().enumerate() {
         spaces.push(space_of(doc, l.space, format!("layout:{i}"), l.name.clone(), SpaceKind::Paper, paper_bounds(&l.paper)));
     }
+    drawing_of(doc, spaces)
+}
+
+/// One top-level entity's share of the display: its batches (in first-use order), bounds and viewports.
+#[derive(Clone, Debug, Default)]
+struct Piece {
+    batches: Vec<Batch>,
+    bounds: Bounds,
+    viewports: Vec<Viewport>,
+}
+
+/// Collects a walk's output per top-level entity (`WalkOut::begin`).
+struct PieceCollect {
+    layer: String,
+    pieces: Vec<Piece>,
+    cur: Collect,
+}
+
+impl PieceCollect {
+    fn flush(&mut self) {
+        let c = std::mem::replace(
+            &mut self.cur,
+            Collect { layer: self.layer.clone(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() },
+        );
+        self.pieces.push(Piece { batches: c.batches, bounds: c.bounds, viewports: c.viewports });
+    }
+}
+
+impl WalkOut for PieceCollect {
+    fn begin(&mut self, index: usize) {
+        if index > 0 {
+            self.flush();
+        }
+    }
+    fn stroke(&mut self, color: &str, prims: Vec<Prim>, lw: f64, o: Option<Opts>) {
+        self.cur.stroke(color, prims, lw, o);
+    }
+    fn fill(&mut self, color: &str, loops: Vec<Vec<f64>>, solid: bool, o: Option<Opts>) {
+        self.cur.fill(color, loops, solid, o);
+    }
+    fn text(&mut self, color: &str, e: &Entity, o: Option<Opts>) {
+        self.cur.text(color, e, o);
+    }
+    fn point(&mut self, color: &str, x: f64, y: f64) {
+        self.cur.point(color, x, y);
+    }
+    fn viewport(&mut self, e: &Entity) {
+        self.cur.viewport(e);
+    }
+}
+
+fn same_map<K: PartialEq + Eq + std::hash::Hash + Clone, V: PartialEq>(a: &OMap<K, V>, b: &OMap<K, V>) -> bool {
+    a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
+}
+
+/// What a walk reads from the document besides the entity itself: when any of it changes, every entity is walked
+/// again.
+#[derive(Clone)]
+struct Ctx {
+    layers: OMap<String, cc_cad::Layer>,
+    linetypes: OMap<String, cc_cad::doc::Linetype>,
+    text_styles: OMap<String, cc_cad::Obj>,
+    dim_styles: OMap<String, cc_cad::Obj>,
+    blocks: OMap<String, cc_cad::Block>,
+    meta: cc_cad::Obj,
+}
+
+impl Ctx {
+    fn of(doc: &Doc) -> Ctx {
+        Ctx {
+            layers: doc.layers.clone(),
+            linetypes: doc.linetypes.clone(),
+            text_styles: doc.text_styles.clone(),
+            dim_styles: doc.dim_styles.clone(),
+            blocks: doc.blocks.clone(),
+            meta: doc.meta.clone(),
+        }
+    }
+    fn matches(&self, doc: &Doc) -> bool {
+        same_map(&self.layers, &doc.layers)
+            && same_map(&self.linetypes, &doc.linetypes)
+            && same_map(&self.text_styles, &doc.text_styles)
+            && same_map(&self.dim_styles, &doc.dim_styles)
+            && same_map(&self.blocks, &doc.blocks)
+            && self.meta == doc.meta
+    }
+}
+
+/// [`doc_drawing`] with each top-level entity's display kept between calls: after an edit only the entities that
+/// changed are walked again (all of them when a layer, linetype, style, block or the drawing settings changed).
+/// The result is identical to [`doc_drawing`] (tested).
+#[derive(Default)]
+pub struct DisplayCache {
+    ctx: Option<Ctx>,
+    ents: HashMap<(SpaceId, u64), (Entity, Piece)>,
+    /// entities walked / reused by the last call
+    pub walked: usize,
+    pub reused: usize,
+}
+
+impl std::fmt::Debug for DisplayCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DisplayCache")
+            .field("entities", &self.ents.len())
+            .field("walked", &self.walked)
+            .field("reused", &self.reused)
+            .finish()
+    }
+}
+
+impl DisplayCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The document for the viewer, walking only what changed since the last call.
+    pub fn drawing(&mut self, doc: &Doc) -> Drawing {
+        if !self.ctx.as_ref().is_some_and(|c| c.matches(doc)) {
+            self.ents.clear();
+            self.ctx = Some(Ctx::of(doc));
+        }
+        self.walked = 0;
+        self.reused = 0;
+        let mut seen: HashMap<(SpaceId, u64), ()> = HashMap::with_capacity(self.ents.len());
+        let mut spaces = vec![self.space(doc, cc_cad::MODEL, "model".into(), "Model".into(), SpaceKind::Model, None, &mut seen)];
+        for (i, l) in doc.layouts.iter().enumerate() {
+            spaces.push(self.space(
+                doc,
+                l.space,
+                format!("layout:{i}"),
+                l.name.clone(),
+                SpaceKind::Paper,
+                paper_bounds(&l.paper),
+                &mut seen,
+            ));
+        }
+        self.ents.retain(|k, _| seen.contains_key(k));
+        drawing_of(doc, spaces)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn space(
+        &mut self,
+        doc: &Doc,
+        space: SpaceId,
+        key: String,
+        name: String,
+        kind: SpaceKind,
+        paper: Option<Bounds>,
+        seen: &mut HashMap<(SpaceId, u64), ()>,
+    ) -> Space {
+        // top-level objects grouped by layer (first-seen order), as space_of walks them
+        let mut groups: Vec<(&str, Vec<&Entity>)> = Vec::new();
+        let mut at: HashMap<&str, usize> = HashMap::new();
+        for e in doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))) {
+            let l = e.layer.as_deref().unwrap_or("0");
+            let i = *at.entry(l).or_insert_with(|| {
+                groups.push((l, Vec::new()));
+                groups.len().saturating_sub(1)
+            });
+            if let Some((_, g)) = groups.get_mut(i) {
+                g.push(e);
+            }
+        }
+        let opts = display_opts();
+        let mut batches: Vec<Batch> = Vec::new();
+        let mut bounds = Bounds::default();
+        let mut viewports: Vec<Viewport> = Vec::new();
+        for (layer, ents) in &groups {
+            // walk the entities that are new or changed (an entity without an id is walked every time)
+            let stale: Vec<&Entity> = ents
+                .iter()
+                .copied()
+                .filter(|e| match e.id {
+                    Some(id) => self.ents.get(&(space, id)).is_none_or(|(old, _)| old != *e),
+                    None => true,
+                })
+                .collect();
+            let mut fresh: Vec<Piece> = Vec::new();
+            if !stale.is_empty() {
+                let list: Vec<Entity> = stale.iter().map(|e| (*e).clone()).collect();
+                let mut pc = PieceCollect {
+                    layer: (*layer).to_string(),
+                    pieces: Vec::with_capacity(list.len()),
+                    cur: Collect { layer: (*layer).to_string(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() },
+                };
+                walk(doc, &list, &mut pc, &opts);
+                pc.flush();
+                fresh = pc.pieces;
+                self.walked = self.walked.saturating_add(list.len());
+            }
+            let mut fresh = fresh.into_iter();
+            let start = batches.len();
+            for e in ents {
+                let piece = match e.id {
+                    Some(id) if !stale.iter().any(|s| std::ptr::eq(*s, *e)) => {
+                        self.reused = self.reused.saturating_add(1);
+                        seen.insert((space, id), ());
+                        self.ents.get(&(space, id)).map(|(_, p)| p.clone()).unwrap_or_default()
+                    }
+                    id => {
+                        let p = fresh.next().unwrap_or_default();
+                        if let Some(id) = id {
+                            seen.insert((space, id), ());
+                            self.ents.insert((space, id), ((*e).clone(), p.clone()));
+                        }
+                        p
+                    }
+                };
+                for pb in piece.batches {
+                    let slot = batches.iter_mut().skip(start).find(|b| b.color == pb.color && b.lw == pb.lw && b.layer == pb.layer);
+                    match slot {
+                        Some(b) => {
+                            b.lines.extend(pb.lines);
+                            b.fills.extend(pb.fills);
+                            b.texts.extend(pb.texts);
+                        }
+                        None => batches.push(pb),
+                    }
+                }
+                if !piece.bounds.is_empty() {
+                    bounds.grow(&[piece.bounds.min_x, piece.bounds.min_y, piece.bounds.max_x, piece.bounds.max_y]);
+                }
+                viewports.extend(piece.viewports);
+            }
+        }
+        batches.retain(|b| !(b.lines.is_empty() && b.fills.is_empty() && b.texts.is_empty()));
+        let paper_unit = paper.map(|_| "mm".to_string());
+        Space { key, name, kind, batches, bounds, paper, paper_unit, viewports, images: Vec::new() }
+    }
+}
+
+fn drawing_of(doc: &Doc, spaces: Vec<Space>) -> Drawing {
     let layers = doc
         .layers
         .values()
@@ -254,6 +490,7 @@ pub fn doc_drawing(doc: &Doc) -> Drawing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cc_cad::Block;
     use serde_json::json;
 
     #[test]
@@ -276,5 +513,60 @@ mod tests {
         assert_eq!(texts.len(), 2);
         assert!(texts[1].y < texts[0].y, "the second line under the first");
         assert!(m.bounds.min_x <= 0.0 && m.bounds.max_x >= 10.0 && m.bounds.max_y > 20.0);
+    }
+
+    #[test]
+    fn the_cache_draws_what_a_full_walk_draws() {
+        let mut d = Doc::new();
+        d.load(&json!({
+            "layers": [{ "name": "0" }, { "name": "A", "color": 3, "linetype": "DASHED" }],
+            "linetypes": [{ "name": "DASHED", "pattern": [0.5, -0.25] }],
+            "blocks": [{ "name": "B", "base": { "x": 0, "y": 0 }, "entities": [
+                { "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1 }, { "type": "circle", "cx": 0, "cy": 0, "r": 0.5, "color": 0 } ] }],
+            "entities": [
+                { "type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0 },
+                { "type": "circle", "cx": 5, "cy": 5, "r": 2, "color": 1, "layer": "A" },
+                { "type": "text", "x": 0, "y": 20, "h": 2, "s": "A\nB" },
+                { "type": "insert", "block": "B", "x": 3, "y": 3, "color": 5 },
+                { "type": "poly", "closed": true, "pts": [{ "x": 0, "y": 0 }, { "x": 4, "y": 0, "b": 0.5 }, { "x": 4, "y": 4 }], "layer": "A" },
+                { "type": "hatch", "solid": true, "loops": [[0, 0, 2, 0, 2, 2]], "color": 2 }
+            ]
+        }));
+        let mut cache = DisplayCache::new();
+        let check = |cache: &mut DisplayCache, d: &Doc, what: &str| {
+            assert_eq!(cache.drawing(d), doc_drawing(d), "{what}");
+        };
+        check(&mut cache, &d, "first build");
+        assert_eq!(cache.reused, 0);
+        check(&mut cache, &d, "unchanged");
+        assert_eq!(cache.walked, 0, "nothing changed: nothing walked");
+        let first = d.model().next().and_then(|e| e.id).unwrap();
+        d.change("move", |d| {
+            let mut e = d.get(first).cloned().unwrap();
+            if let Geo::Line(l) = &mut e.geo {
+                l.x2 = 20.0;
+            }
+            d.update(first, e)?;
+            d.add(Entity::new(Geo::Circle(cc_cad::entity::Circle { cx: 1.0, cy: 1.0, r: 1.0 })))
+        })
+        .unwrap();
+        check(&mut cache, &d, "one moved, one added");
+        assert_eq!(cache.walked, 2, "{cache:?}");
+        d.change("erase", |d| d.remove(first)).unwrap();
+        check(&mut cache, &d, "erased");
+        d.undo();
+        check(&mut cache, &d, "undo");
+        d.change("layer", |d| d.set_layer("A", json!({ "color": 4 }).as_object().unwrap(), false)).unwrap();
+        check(&mut cache, &d, "a layer colour");
+        assert_eq!(cache.reused, 0, "a layer change walks everything");
+        let b = Block::new(
+            "B",
+            cc_geom::P2::new(0.0, 0.0),
+            vec![Entity::new(Geo::Circle(cc_cad::entity::Circle { cx: 0.0, cy: 0.0, r: 3.0 }))],
+        );
+        d.change("block", |d| d.define_block(&b)).unwrap();
+        check(&mut cache, &d, "a block redefined");
+        d.set_space(Some("Layout1"));
+        check(&mut cache, &d, "other space");
     }
 }

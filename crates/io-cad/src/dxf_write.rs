@@ -21,19 +21,26 @@ use cc_io_dwg::value::{Obj, V};
 use crate::i18n::{self, Catalog};
 use crate::jsv::{self, JsErr, Ov, R};
 use crate::props;
-use crate::small::round_precision;
 use crate::text::{encode_text, len16, one_line, slice16};
 
 /// `f(n)`: a number as R12 writes it (15 significant digits, "0.0" for |n| < 1e-12).
 pub fn ff(n: f64) -> String {
+    let mut out = String::with_capacity(24);
+    push_ff(&mut out, n);
+    out
+}
+/// [`ff`] appended to `out`.
+pub fn push_ff(out: &mut String, n: f64) {
     if n.abs() < 1e-12 {
-        return "0.0".into();
+        out.push_str("0.0");
+        return;
     }
     if n.fract() == 0.0 && n.abs() < 1e15 {
         // an integer of at most 15 digits: toPrecision(15) keeps it as it is
-        return js::num_to_string(n);
+        js::push_num(out, n);
+        return;
     }
-    js::num_to_string(round_precision(n, 15))
+    crate::small::push_precision(out, n, 15);
 }
 /// `f(v)` for a value that may not be a number (the JS throws where it would call toPrecision on a non-number).
 fn fv(v: Ov) -> R<String> {

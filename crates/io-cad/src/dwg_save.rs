@@ -83,116 +83,94 @@ fn ev(e: &Entity) -> V {
 /// An entity as the dynamic value, with -0 kept in its typed fields (`Entity::to_value` writes them as 0; the DWG
 /// writer keeps the sign bit, as the JS does).
 pub fn entity_v(e: &Entity) -> V {
-    let mut v = jsv::from_json(&e.to_value());
-    let V::Obj(o) = &mut v else { return v };
-    let neg = |x: f64| x == 0.0 && x.is_sign_negative();
-    fn fix(o: &mut Obj, k: &str) {
-        if let Some(V::Num(n)) = o.get_mut(k) {
-            *n = -0.0;
+    let mut sink = VSink(Obj::with_capacity(12));
+    e.write_to(&mut sink);
+    V::Obj(sink.0)
+}
+
+/// `Entity::to_obj` built straight as a value of the saver's object model (no JSON in between; numbers keep their
+/// sign, as the JS objects do).
+struct VSink(Obj);
+
+impl VSink {
+    fn push(&mut self, k: &'static str, v: V) {
+        self.0.0.push((std::borrow::Cow::Borrowed(k), v));
+    }
+}
+
+fn xy(p: P2) -> V {
+    let mut o = Obj::with_capacity(2);
+    o.0.push((std::borrow::Cow::Borrowed("x"), V::Num(p.x)));
+    o.0.push((std::borrow::Cow::Borrowed("y"), V::Num(p.y)));
+    V::Obj(o)
+}
+
+impl cc_cad::entity::ObjSink for VSink {
+    fn num(&mut self, k: &'static str, v: f64) {
+        self.push(k, V::Num(v));
+    }
+    fn id(&mut self, k: &'static str, v: u64) {
+        self.push(k, jsv::from_json(&serde_json::Value::from(v)));
+    }
+    fn string(&mut self, k: &'static str, v: &str) {
+        self.push(k, V::Str(v.to_string()));
+    }
+    fn boolean(&mut self, k: &'static str, v: bool) {
+        self.push(k, V::Bool(v));
+    }
+    fn null(&mut self, k: &'static str) {
+        self.push(k, V::Null);
+    }
+    fn color(&mut self, k: &'static str, c: &cc_cad::Color) {
+        self.push(
+            k,
+            match c {
+                cc_cad::Color::Null => V::Null,
+                cc_cad::Color::Num(n) => V::Num(*n),
+                cc_cad::Color::Str(st) => V::Str(st.clone()),
+            },
+        );
+    }
+    fn object(&mut self, k: &'static str, v: &serde_json::Map<String, serde_json::Value>) {
+        self.push(k, jsv::from_json_map(v));
+    }
+    fn point(&mut self, k: &'static str, p: P2) {
+        self.push(k, xy(p));
+    }
+    fn points(&mut self, k: &'static str, pts: &[P2]) {
+        self.push(k, V::Arr(pts.iter().map(|p| xy(*p)).collect()));
+    }
+    fn vertices(&mut self, k: &'static str, pts: &[cc_cad::entity::Vertex]) {
+        let list = pts
+            .iter()
+            .map(|q| {
+                let mut o = Obj::with_capacity(q.extra.len().saturating_add(3));
+                o.0.push((std::borrow::Cow::Borrowed("x"), V::Num(q.x)));
+                o.0.push((std::borrow::Cow::Borrowed("y"), V::Num(q.y)));
+                if let Some(b) = q.b {
+                    o.0.push((std::borrow::Cow::Borrowed("b"), V::Num(b)));
+                }
+                merge_json(&mut o, &q.extra);
+                V::Obj(o)
+            })
+            .collect();
+        self.push(k, V::Arr(list));
+    }
+    fn loops(&mut self, k: &'static str, loops: &[Vec<f64>]) {
+        self.push(k, V::Arr(loops.iter().map(|l| V::Arr(l.iter().map(|x| V::Num(*x)).collect())).collect()));
+    }
+    fn merge(&mut self, extra: &serde_json::Map<String, serde_json::Value>) {
+        merge_json(&mut self.0, extra);
+    }
+}
+
+/// The keys of a JSON object that `o` does not have yet.
+fn merge_json(o: &mut Obj, extra: &serde_json::Map<String, serde_json::Value>) {
+    for (k, x) in extra {
+        if !o.has(k) {
+            o.0.push((std::borrow::Cow::Owned(k.clone()), jsv::from_json(x)));
         }
     }
-    let put = |o: &mut Obj, k: &str, x: f64| {
-        if neg(x) {
-            fix(o, k);
-        }
-    };
-    let pt = |v: Option<&mut V>, p: P2| {
-        if let Some(V::Obj(q)) = v {
-            if neg(p.x) {
-                fix(q, "x");
-            }
-            if neg(p.y) {
-                fix(q, "y");
-            }
-        }
-    };
-    match &e.geo {
-        Geo::Line(l) => [("x1", l.x1), ("y1", l.y1), ("x2", l.x2), ("y2", l.y2)].into_iter().for_each(|(k, x)| put(o, k, x)),
-        Geo::Circle(c) => [("cx", c.cx), ("cy", c.cy), ("r", c.r)].into_iter().for_each(|(k, x)| put(o, k, x)),
-        Geo::Arc(a) => [("cx", a.cx), ("cy", a.cy), ("r", a.r), ("a0", a.a0), ("a1", a.a1)].into_iter().for_each(|(k, x)| put(o, k, x)),
-        Geo::Poly(p) => {
-            if let Some(V::Arr(vs)) = o.get_mut("pts") {
-                for (q, src) in vs.iter_mut().zip(&p.pts) {
-                    if let V::Obj(q) = q {
-                        for (k, x) in [("x", Some(src.x)), ("y", Some(src.y)), ("b", src.b)] {
-                            if x.is_some_and(neg) {
-                                fix(q, k);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Geo::Ellipse(el) => [("cx", el.cx), ("cy", el.cy), ("mx", el.mx), ("my", el.my), ("ratio", el.ratio), ("t0", el.t0), ("t1", el.t1)]
-            .into_iter()
-            .for_each(|(k, x)| put(o, k, x)),
-        Geo::Text(t) => {
-            [("x", t.x), ("y", t.y), ("h", t.h)].into_iter().for_each(|(k, x)| put(o, k, x));
-            for (k, x) in [("rot", t.rot), ("wf", t.wf), ("ww", t.ww), ("ls", t.ls)] {
-                if let Some(x) = x {
-                    put(o, k, x);
-                }
-            }
-        }
-        Geo::Point(p) => [("x", p.x), ("y", p.y)].into_iter().for_each(|(k, x)| put(o, k, x)),
-        Geo::Insert(i) => {
-            [("x", i.x), ("y", i.y)].into_iter().for_each(|(k, x)| put(o, k, x));
-            for (k, x) in [("sx", i.sx), ("sy", i.sy), ("rot", i.rot)] {
-                if let Some(x) = x {
-                    put(o, k, x);
-                }
-            }
-        }
-        Geo::Hatch(h) => {
-            if let Some(V::Arr(ls)) = o.get_mut("loops") {
-                for (l, src) in ls.iter_mut().zip(&h.loops) {
-                    if let V::Arr(a) = l {
-                        for (x, sx) in a.iter_mut().zip(src) {
-                            if neg(*sx) {
-                                *x = V::Num(-0.0);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Geo::Dim(d) => {
-            for (k, p) in [("p1", d.p1), ("p2", d.p2), ("c", d.c), ("loc", d.loc)] {
-                if let Some(p) = p {
-                    pt(o.get_mut(k), p);
-                }
-            }
-            if let Some(r) = d.rot {
-                put(o, "rot", r);
-            }
-        }
-        Geo::Viewport(vp) => {
-            [("x", vp.x), ("y", vp.y), ("w", vp.w), ("h", vp.h), ("cx", vp.cx), ("cy", vp.cy), ("s", vp.s)]
-                .into_iter()
-                .for_each(|(k, x)| put(o, k, x));
-            if let Some(t) = vp.tw {
-                put(o, "tw", t);
-            }
-        }
-        Geo::Xline(i) | Geo::Ray(i) => [("x", i.x), ("y", i.y), ("dx", i.dx), ("dy", i.dy)].into_iter().for_each(|(k, x)| put(o, k, x)),
-        Geo::Mleader(l) => {
-            if let Some(V::Arr(ps)) = o.get_mut("pts") {
-                for (q, p) in ps.iter_mut().zip(&l.pts) {
-                    pt(Some(q), *p);
-                }
-            }
-            for (k, x) in [("dir", l.dir), ("h", l.h), ("ww", l.ww), ("ls", l.ls)] {
-                if let Some(x) = x {
-                    put(o, k, x);
-                }
-            }
-        }
-        Geo::Other => {}
-    }
-    if let Some(Some(w)) = e.lw {
-        put(o, "lw", w);
-    }
-    v
 }
 fn to_entity(v: &V) -> Entity {
     Entity::from_value(&jsv::to_json(v))
@@ -379,8 +357,8 @@ impl Sv<'_> {
     /// `conv(e)`: one CadCraft entity → cc-dwg model entities.
     fn conv(&mut self, e: &V) -> R<Vec<V>> {
         let mut out = self.conv0(e)?;
-        let eo = jsv::obj(Some(e)).cloned().unwrap_or_default();
-        let x = props::props_xdata(&eo, self.vkey == "2000");
+        let empty = Obj::new();
+        let x = props::props_xdata(jsv::obj(Some(e)).unwrap_or(&empty), self.vkey == "2000");
         if let Some(V::Obj(first)) = out.first_mut()
             && !x.is_empty()
         {

@@ -103,7 +103,8 @@ struct Clip {
 }
 
 struct W {
-    lines: Vec<String>,
+    /// the file so far: every line followed by CR LF (the JS joins an array of lines)
+    out: String,
     seed: u64,
     lt_names: Vec<String>,
     layer_h: HashMap<String, String>,
@@ -112,9 +113,43 @@ struct W {
 }
 
 impl W {
-    fn w(&mut self, code: i64, v: impl Into<String>) {
-        self.lines.push(format!("{code:>3}"));
-        self.lines.push(v.into());
+    fn w(&mut self, code: i64, v: impl AsRef<str>) {
+        self.code(code);
+        self.out.push_str(v.as_ref());
+        self.out.push_str("\r\n");
+    }
+    /// a group code line, right-aligned in 3 columns
+    fn code(&mut self, code: i64) {
+        use std::fmt::Write as _;
+        let _ = write!(self.out, "{code:>3}\r\n");
+    }
+    /// a code given as text (xdata: `String(code)`, padded like `${code}`.padStart(3))
+    fn w_str_code(&mut self, cs: &str, v: &str) {
+        use std::fmt::Write as _;
+        let _ = write!(self.out, "{cs:>3}\r\n");
+        self.out.push_str(v);
+        self.out.push_str("\r\n");
+    }
+    /// `f(n)` written straight into the file
+    fn wf(&mut self, code: i64, n: f64) {
+        self.code(code);
+        if n.is_finite() {
+            crate::dxf_write::push_ff(&mut self.out, n);
+        } else {
+            self.out.push_str("0.0");
+        }
+        self.out.push_str("\r\n");
+    }
+    /// `f(v)`
+    fn wfo(&mut self, code: i64, v: Ov) {
+        match v {
+            Some(V::Num(n)) => self.wf(code, *n),
+            _ => self.w(code, "0.0"),
+        }
+    }
+    /// `f(v || d)`
+    fn wfo_or(&mut self, code: i64, v: Ov, d: f64) {
+        if jsv::truthy(v) { self.wfo(code, v) } else { self.wf(code, d) }
     }
     fn wn(&mut self, code: i64, v: f64) {
         self.w(code, js::num_to_string(v));
@@ -163,10 +198,9 @@ impl W {
     }
     fn p(&mut self, c: i64, p: Ov) {
         let g = |k: &str| jsv::get(p, k);
-        let (x, y, z) = (fo_or(g("x"), 0.0), fo_or(g("y"), 0.0), fo_or(g("z"), 0.0));
-        self.w(c, x);
-        self.w(c.saturating_add(10), y);
-        self.w(c.saturating_add(20), z);
+        self.wfo_or(c, g("x"), 0.0);
+        self.wfo_or(c.saturating_add(10), g("y"), 0.0);
+        self.wfo_or(c.saturating_add(20), g("z"), 0.0);
     }
     fn head(&mut self, typ: &str, e: &V, owner: &str, paper: bool) {
         let g = |k: &str| jsv::get(Some(e), k);
@@ -209,7 +243,7 @@ impl W {
         }
         let lts = g("ltscale");
         if jsv::to_num(lts) > 0.0 && !props::strict_eq(lts, Some(&V::Num(1.0))) {
-            self.w(48, fo(lts));
+            self.wfo(48, lts);
         }
         if jsv::fin(g("transparency")).is_some() {
             self.w(440, int32s(g("transparency")));
@@ -218,7 +252,7 @@ impl W {
     fn th(&mut self, e: &V) {
         let t = jsv::get(Some(e), "thickness");
         if jsv::truthy(t) {
-            self.w(39, fo(t));
+            self.wfo(39, t);
         }
     }
     fn xdata(&mut self, e: &V) {
@@ -236,8 +270,7 @@ impl W {
                     Some(1070.0) => int32s(v),
                     _ => sv(v),
                 };
-                self.lines.push(format!("{cs:>3}"));
-                self.lines.push(out);
+                self.w_str_code(&cs, &out);
             }
         }
     }
@@ -245,16 +278,16 @@ impl W {
         let g = |k: &str| jsv::get(Some(e), k);
         self.th(e);
         self.p(10, g("insert"));
-        self.w(40, fo(g("height")));
+        self.wfo(40, g("height"));
         self.w(1, enc(g("value")));
         if jsv::truthy(g("rotation")) {
-            self.w(50, fnum(degv(g("rotation"))));
+            self.wf(50, degv(g("rotation")));
         }
         if jsv::truthy(g("widthFactor")) && !props::strict_eq(g("widthFactor"), Some(&V::Num(1.0))) {
-            self.w(41, fo(g("widthFactor")));
+            self.wfo(41, g("widthFactor"));
         }
         if jsv::truthy(g("oblique")) {
-            self.w(51, fnum(degv(g("oblique"))));
+            self.wf(51, degv(g("oblique")));
         }
         self.w(7, if jsv::truthy(g("style")) { enc(g("style")) } else { "Standard".into() });
         if jsv::truthy(g("hAlign")) {
@@ -282,11 +315,11 @@ impl W {
                 self.w(100, "AcDbCircle");
                 self.th(e);
                 self.p(10, g("center"));
-                self.w(40, fo(g("radius")));
+                self.wfo(40, g("radius"));
                 if typ == "ARC" {
                     self.w(100, "AcDbArc");
-                    self.w(50, fnum(degv(g("startAngle"))));
-                    self.w(51, fnum(degv(g("endAngle"))));
+                    self.wf(50, degv(g("startAngle")));
+                    self.wf(51, degv(g("endAngle")));
                 }
             }
             "POINT" => {
@@ -310,19 +343,19 @@ impl W {
                 self.w(70, if jsv::truthy(g("closed")) { "1" } else { "0" });
                 self.w(43, if each { fnum(0.0) } else { fo_or(g("constantWidth"), 0.0) });
                 if jsv::truthy(g("elevation")) {
-                    self.w(38, fo(g("elevation")));
+                    self.wfo(38, g("elevation"));
                 }
                 self.th(e);
                 for v in vs {
                     let gv = |k: &str| jsv::get(Some(v), k);
-                    self.w(10, fo(gv("x")));
-                    self.w(20, fo(gv("y")));
+                    self.wfo(10, gv("x"));
+                    self.wfo(20, gv("y"));
                     if each {
-                        self.w(40, fo_or(gv("startWidth"), 0.0));
-                        self.w(41, fo_or(gv("endWidth"), 0.0));
+                        self.wfo_or(40, gv("startWidth"), 0.0);
+                        self.wfo_or(41, gv("endWidth"), 0.0);
                     }
                     if jsv::truthy(gv("bulge")) {
-                        self.w(42, fo(gv("bulge")));
+                        self.wfo(42, gv("bulge"));
                     }
                 }
             }
@@ -366,8 +399,8 @@ impl W {
                 self.head("MTEXT", e, owner, paper);
                 self.w(100, "AcDbMText");
                 self.p(10, g("insert"));
-                self.w(40, fo(g("height")));
-                self.w(41, fo_or(g("width"), 0.0));
+                self.wfo(40, g("height"));
+                self.wfo_or(41, g("width"), 0.0);
                 self.w(71, if jsv::truthy(g("attach")) { sv(g("attach")) } else { "1".into() });
                 self.w(72, "1");
                 let v = enc(g("value"));
@@ -383,7 +416,7 @@ impl W {
                 if jsv::truthy(g("xAxis")) {
                     self.p(11, g("xAxis"));
                 }
-                self.w(44, fo_or(g("lineSpacing"), 1.0));
+                self.wfo_or(44, g("lineSpacing"), 1.0);
                 if jsv::i32_of(jsv::to_num(g("backgroundFlags"))) & 1 != 0 {
                     let dflt = V::Obj(cc_io_dwg::obj! { "index" => 7.0 });
                     let bc = if jsv::truthy(g("backgroundColor")) { g("backgroundColor").cloned().unwrap_or(V::Null) } else { dflt };
@@ -394,7 +427,7 @@ impl W {
                     if rgb.is_some() {
                         self.wn(421, jsv::i2f(jsv::i32_of(jsv::to_num(rgb)) & 0xff_ffff));
                     }
-                    self.w(45, fo_or(g("backgroundScale"), 1.5));
+                    self.wfo_or(45, g("backgroundScale"), 1.5);
                     self.w(441, int32s(g("backgroundTransparency")));
                 }
             }
@@ -422,10 +455,10 @@ impl W {
                 let sc = g("scale");
                 for (c, k) in [(41, "x"), (42, "y"), (43, "z")] {
                     let v = jsv::nnv(jsv::get(sc, k), V::Num(1.0));
-                    self.w(c, fo(Some(&v)));
+                    self.wfo(c, Some(&v));
                 }
                 if jsv::truthy(g("rotation")) {
-                    self.w(50, fnum(degv(g("rotation"))));
+                    self.wf(50, degv(g("rotation")));
                 }
                 self.xdata(e);
                 if !atts.is_empty() {
@@ -466,7 +499,7 @@ impl W {
                 self.w(100, "AcDbHatch");
                 self.w(10, "0.0");
                 self.w(20, "0.0");
-                self.w(30, fo_or(g("elevation"), 0.0));
+                self.wfo_or(30, g("elevation"), 0.0);
                 self.w(210, "0.0");
                 self.w(220, "0.0");
                 self.w(230, "1.0");
@@ -484,10 +517,10 @@ impl W {
                     self.w(73, "1");
                     self.wn(93, jsv::us2f(v.len()));
                     for q in v {
-                        self.w(10, fo(jsv::get(Some(q), "x")));
-                        self.w(20, fo(jsv::get(Some(q), "y")));
+                        self.wfo(10, jsv::get(Some(q), "x"));
+                        self.wfo(20, jsv::get(Some(q), "y"));
                         if bul {
-                            self.w(42, fo_or(jsv::get(Some(q), "bulge"), 0.0));
+                            self.wfo_or(42, jsv::get(Some(q), "bulge"), 0.0);
                         }
                     }
                     self.w(97, "0");
@@ -496,22 +529,22 @@ impl W {
                 let pt = jsv::nnv(g("patternType"), V::Num(1.0));
                 self.wv(76, Some(&pt));
                 if !jsv::truthy(g("solid")) {
-                    self.w(52, fnum(deg(jsv::or(g("angle"), 0.0))));
-                    self.w(41, fo_or(g("scale"), 1.0));
+                    self.wf(52, deg(jsv::or(g("angle"), 0.0)));
+                    self.wfo_or(41, g("scale"), 1.0);
                     self.w(77, "0");
                     let lines = jsv::arr(g("lines"));
                     self.wn(78, jsv::us2f(lines.len()));
                     for ln in lines {
                         let gl = |k: &str| jsv::get(Some(ln), k);
-                        self.w(53, fnum(degv(gl("angle"))));
-                        self.w(43, fo(jsv::get(gl("base"), "x")));
-                        self.w(44, fo(jsv::get(gl("base"), "y")));
-                        self.w(45, fo(jsv::get(gl("offset"), "x")));
-                        self.w(46, fo(jsv::get(gl("offset"), "y")));
+                        self.wf(53, degv(gl("angle")));
+                        self.wfo(43, jsv::get(gl("base"), "x"));
+                        self.wfo(44, jsv::get(gl("base"), "y"));
+                        self.wfo(45, jsv::get(gl("offset"), "x"));
+                        self.wfo(46, jsv::get(gl("offset"), "y"));
                         let d = jsv::arr(gl("dashes"));
                         self.wn(79, jsv::us2f(d.len()));
                         for x in d {
-                            self.w(49, fo(Some(x)));
+                            self.wfo(49, Some(x));
                         }
                     }
                 }
@@ -529,7 +562,7 @@ impl W {
                     self.w(1, enc(g("text")));
                 }
                 if jsv::truthy(g("textRotation")) {
-                    self.w(53, fnum(degv(g("textRotation"))));
+                    self.wf(53, degv(g("textRotation")));
                 }
                 self.w(3, if jsv::truthy(g("style")) && !is_standard(g("style")) { enc(g("style")) } else { "Standard".into() });
                 let k = jsv::i32_of(jsv::to_num(g("dimType"))) & 7;
@@ -539,7 +572,7 @@ impl W {
                         self.p(13, g("xline1"));
                         self.p(14, g("xline2"));
                         if k == 0 {
-                            self.w(50, fnum(deg(jsv::or(g("angle"), 0.0))));
+                            self.wf(50, deg(jsv::or(g("angle"), 0.0)));
                             self.w(100, "AcDbRotatedDimension");
                         }
                     }
@@ -562,8 +595,8 @@ impl W {
                 self.head("VIEWPORT", e, owner, true);
                 self.w(100, "AcDbViewport");
                 self.p(10, g("center"));
-                self.w(40, fo(g("width")));
-                self.w(41, fo(g("height")));
+                self.wfo(40, g("width"));
+                self.wfo(41, g("height"));
                 let id1 = jsv::num(g("id")) == Some(1.0);
                 self.w(
                     68,
@@ -577,8 +610,8 @@ impl W {
                 );
                 let idv = jsv::orv(g("id"), V::Num(2.0));
                 self.wv(69, Some(&idv));
-                self.w(12, fo_or(jsv::get(g("viewCenter"), "x"), 0.0));
-                self.w(22, fo_or(jsv::get(g("viewCenter"), "y"), 0.0));
+                self.wfo_or(12, jsv::get(g("viewCenter"), "x"), 0.0);
+                self.wfo_or(22, jsv::get(g("viewCenter"), "y"), 0.0);
                 for (c, v) in [
                     (13, "0.0"),
                     (23, "0.0"),
@@ -598,9 +631,9 @@ impl W {
                 ] {
                     self.w(c, v);
                 }
-                self.w(45, fo(g("viewHeight")));
+                self.wfo(45, g("viewHeight"));
                 self.w(50, "0.0");
-                self.w(51, fnum(deg(jsv::or(g("twist"), 0.0))));
+                self.wf(51, deg(jsv::or(g("twist"), 0.0)));
                 self.w(72, "1000");
                 for nm in jsv::arr(g("frozenLayers")) {
                     if let Some(lh) = self.layer_h.get(&jsv::upper(&sv(Some(nm)))).cloned() {
@@ -669,7 +702,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
     let counts = built.counts;
     let tables = jsv::get(Some(&model), "tables");
     let tget = |k: &str| jsv::get(tables, k);
-    let mut w = W { lines: Vec::new(), seed: 1, lt_names: Vec::new(), layer_h: HashMap::new(), clips: Vec::new(), skipped: 0.0 };
+    let mut w =
+        W { out: String::with_capacity(1 << 20), seed: 1, lt_names: Vec::new(), layer_h: HashMap::new(), clips: Vec::new(), skipped: 0.0 };
     let names = [
         "vportT", "ltypeT", "layerT", "styleT", "viewT", "ucsT", "appidT", "dimT", "brT", "vport", "byBlock", "byLayer", "cont", "style",
         "dim", "nod", "groups", "layoutsD", "mlsD", "mls",
@@ -686,21 +720,20 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
     let name_of = |b: &V| sv(jsv::get(Some(b), "name"));
     let is_space = |n: &str| n.strip_prefix("*Paper_Space").is_some_and(|r| r.bytes().all(|c| c.is_ascii_digit()));
     let ms_i = blocks.iter().position(|b| name_of(b) == "*Model_Space");
-    let mut list: Vec<(V, Kind)> = Vec::new();
+    let placeholder = V::Obj(cc_io_dwg::obj! { "name" => "*Paper_Space", "entities" => V::Arr(Vec::new()) });
+    let mut list: Vec<(&V, Kind)> = Vec::new();
     if let Some(i) = ms_i
         && let Some(b) = blocks.get(i)
     {
-        list.push((b.clone(), Kind::Ms));
+        list.push((b, Kind::Ms));
     }
-    let spaces: Vec<V> = blocks.iter().filter(|b| is_space(&name_of(b))).cloned().collect();
+    let spaces: Vec<&V> = blocks.iter().filter(|b| is_space(&name_of(b))).collect();
     if spaces.is_empty() {
-        list.push((V::Obj(cc_io_dwg::obj! { "name" => "*Paper_Space", "entities" => V::Arr(Vec::new()) }), Kind::Space));
+        list.push((&placeholder, Kind::Space));
     } else {
         list.extend(spaces.into_iter().map(|b| (b, Kind::Space)));
     }
-    list.extend(
-        blocks.iter().enumerate().filter(|(i, b)| Some(*i) != ms_i && !is_space(&name_of(b))).map(|(_, b)| (b.clone(), Kind::Plain)),
-    );
+    list.extend(blocks.iter().enumerate().filter(|(i, b)| Some(*i) != ms_i && !is_space(&name_of(b))).map(|(_, b)| (b, Kind::Plain)));
     let mut rec: Vec<(String, Rec)> = Vec::new();
     for (b, _) in &list {
         let r = Rec { br: w.h(), block: w.h(), endblk: w.h(), layout: None };
@@ -778,21 +811,22 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
     w.w(1, "AC1015");
     w.w(9, "$DWGCODEPAGE");
     w.w(3, "ANSI_1252");
-    let handseed_at = w.lines.len().saturating_add(3);
     w.w(9, "$HANDSEED");
-    w.w(5, "FFFF");
+    w.code(5);
+    let handseed_at = w.out.len();
+    w.out.push_str("FFFF\r\n");
     w.w(9, "$INSBASE");
-    w.w(10, fo_or(jsv::get(hg("INSBASE"), "x"), 0.0));
-    w.w(20, fo_or(jsv::get(hg("INSBASE"), "y"), 0.0));
+    w.wfo_or(10, jsv::get(hg("INSBASE"), "x"), 0.0);
+    w.wfo_or(20, jsv::get(hg("INSBASE"), "y"), 0.0);
     w.w(30, "0.0");
     if jsv::truthy(hg("EXTMIN")) && jsv::truthy(hg("EXTMAX")) {
         w.w(9, "$EXTMIN");
-        w.w(10, fo(jsv::get(hg("EXTMIN"), "x")));
-        w.w(20, fo(jsv::get(hg("EXTMIN"), "y")));
+        w.wfo(10, jsv::get(hg("EXTMIN"), "x"));
+        w.wfo(20, jsv::get(hg("EXTMIN"), "y"));
         w.w(30, "0.0");
         w.w(9, "$EXTMAX");
-        w.w(10, fo(jsv::get(hg("EXTMAX"), "x")));
-        w.w(20, fo(jsv::get(hg("EXTMAX"), "y")));
+        w.wfo(10, jsv::get(hg("EXTMAX"), "x"));
+        w.wfo(20, jsv::get(hg("EXTMAX"), "y"));
         w.w(30, "0.0");
     }
     w.w(9, "$INSUNITS");
@@ -810,8 +844,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         };
         for (k, p) in [("$UCSORG", hg("UCSORG")), ("$UCSXDIR", xd), ("$UCSYDIR", Some(&yd))] {
             w.w(9, k);
-            w.w(10, fo(jsv::get(p, "x")));
-            w.w(20, fo(jsv::get(p, "y")));
+            w.wfo(10, jsv::get(p, "x"));
+            w.wfo(20, jsv::get(p, "y"));
             w.w(30, "0.0");
         }
     }
@@ -820,7 +854,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         w.w(70, int32s(hg("LUPREC")));
     }
     w.w(9, "$LTSCALE");
-    w.w(40, fo_or(hg("LTSCALE"), 1.0));
+    w.wfo_or(40, hg("LTSCALE"), 1.0);
     w.w(9, "$CLAYER");
     w.w(8, "0");
     w.w(9, "$TILEMODE");
@@ -852,12 +886,12 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         } else {
             jsv::p2((ex(&e0, "x") + ex(&e1, "x")) / 2.0, (ex(&e0, "y") + ex(&e1, "y")) / 2.0)
         };
-        w.w(10, fo(jsv::get(gv("lowerLeft"), "x")));
-        w.w(20, fo(jsv::get(gv("lowerLeft"), "y")));
-        w.w(11, fo(jsv::get(gv("upperRight"), "x")));
-        w.w(21, fo(jsv::get(gv("upperRight"), "y")));
-        w.w(12, fo(jsv::get(Some(&c), "x")));
-        w.w(22, fo(jsv::get(Some(&c), "y")));
+        w.wfo(10, jsv::get(gv("lowerLeft"), "x"));
+        w.wfo(20, jsv::get(gv("lowerLeft"), "y"));
+        w.wfo(11, jsv::get(gv("upperRight"), "x"));
+        w.wfo(21, jsv::get(gv("upperRight"), "y"));
+        w.wfo(12, jsv::get(Some(&c), "x"));
+        w.wfo(22, jsv::get(Some(&c), "y"));
         for (cd, s) in [
             (13, "0.0"),
             (23, "0.0"),
@@ -879,7 +913,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         for (cd, s) in [(42, "50.0"), (43, "0.0"), (44, "0.0"), (50, "0.0")] {
             w.w(cd, s);
         }
-        w.w(51, fnum(deg(jsv::or(gv("twist"), 0.0))));
+        w.wf(51, deg(jsv::or(gv("twist"), 0.0)));
         for (cd, s) in [(71, "0"), (72, "1000"), (73, "1"), (74, "3"), (75, "0"), (76, "0"), (77, "0"), (78, "0")] {
             w.w(cd, s);
         }
@@ -891,8 +925,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
                     let val = jsv::at(Some(it), 1);
                     let out = if jsv::num(code) == Some(1000.0) { enc(val) } else { sv(val) };
                     let cs = sv(code);
-                    w.lines.push(format!("{cs:>3}"));
-                    w.lines.push(out);
+                    w.w_str_code(&cs, &out);
                 }
             }
         }
@@ -917,9 +950,9 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         w.w(72, "65");
         let els = jsv::arr(gl("elements"));
         w.wn(73, jsv::us2f(els.len()));
-        w.w(40, fo(gl("patternLength")));
+        w.wfo(40, gl("patternLength"));
         for x in els {
-            w.w(49, fo(jsv::get(Some(x), "length")));
+            w.wfo(49, jsv::get(Some(x), "length"));
             w.w(74, "0");
         }
     }
@@ -992,9 +1025,9 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         let gx = |k: &str| jsv::get(Some(x), k);
         let eh = sh_of(&jsv::upper(&sv(gx("name")))).unwrap_or_default();
         w.entry("STYLE", &eh, &style_t, "AcDbTextStyleTableRecord", &enc(gx("name")), 0.0);
-        w.w(40, fo_or(gx("height"), 0.0));
-        w.w(41, fo_or(gx("widthFactor"), 1.0));
-        w.w(50, fnum(deg(jsv::or(gx("oblique"), 0.0))));
+        w.wfo_or(40, gx("height"), 0.0);
+        w.wfo_or(41, gx("widthFactor"), 1.0);
+        w.wf(50, deg(jsv::or(gx("oblique"), 0.0)));
         w.w(71, "0");
         w.w(42, "2.5");
         let font = jsv::orv(gx("font"), V::from("txt"));
@@ -1009,10 +1042,10 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         let gv = |k: &str| jsv::get(Some(v), k);
         let eh = w.h();
         w.entry("VIEW", &eh, &view_t, "AcDbViewTableRecord", &enc(gv("name")), if jsv::truthy(gv("paperSpace")) { 1.0 } else { 0.0 });
-        w.w(40, fo(gv("height")));
-        w.w(10, fo(jsv::get(gv("center"), "x")));
-        w.w(20, fo(jsv::get(gv("center"), "y")));
-        w.w(41, fo(gv("width")));
+        w.wfo(40, gv("height"));
+        w.wfo(10, jsv::get(gv("center"), "x"));
+        w.wfo(20, jsv::get(gv("center"), "y"));
+        w.wfo(41, gv("width"));
         for (c, s) in [
             (11, "0.0"),
             (21, "0.0"),
@@ -1053,8 +1086,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
             jsv::p2(-jsv::to_num(jsv::get(gu("xAxis"), "y")), jsv::to_num(jsv::get(gu("xAxis"), "x")))
         };
         for (c, q) in [(10i64, gu("origin")), (11, gu("xAxis")), (12, Some(&ya))] {
-            w.w(c, fo_or(jsv::get(q, "x"), 0.0));
-            w.w(c.saturating_add(10), fo_or(jsv::get(q, "y"), 0.0));
+            w.wfo_or(c, jsv::get(q, "x"), 0.0);
+            w.wfo_or(c.saturating_add(10), jsv::get(q, "y"), 0.0);
             w.w(c.saturating_add(20), "0.0");
         }
         w.w(79, "0");
@@ -1091,8 +1124,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
                 _ => fo(Some(&v)),
             };
             let cs = js::num_to_string(code);
-            w.lines.push(format!("{cs:>3}"));
-            w.lines.push(out);
+            w.w_str_code(&cs, &out);
         }
         let tx = jsv::get(Some(&vars), "DIMTXSTY");
         let tk = jsv::upper(&if jsv::truthy(tx) { sv(tx) } else { "Standard".into() });
@@ -1197,8 +1229,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         w.w(100, "AcDbSpatialFilter");
         w.wn(70, jsv::us2f(c.pts.len()));
         for p in &c.pts {
-            w.w(10, fo(jsv::get(Some(p), "x")));
-            w.w(20, fo(jsv::get(Some(p), "y")));
+            w.wfo(10, jsv::get(Some(p), "x"));
+            w.wfo(20, jsv::get(Some(p), "y"));
         }
         for (cd, s) in [(210, "0.0"), (220, "0.0"), (230, "1.0"), (11, "0.0"), (21, "0.0"), (31, "0.0"), (71, "1"), (72, "0"), (73, "0")] {
             w.w(cd, s);
@@ -1221,7 +1253,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
     w.w(52, "90.0");
     w.w(71, "2");
     for o in [0.5, -0.5] {
-        w.w(49, fnum(o));
+        w.wf(49, o);
         w.w(62, "256");
         w.w(6, "BYLAYER");
     }
@@ -1248,8 +1280,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         for c in [40, 41, 42, 43] {
             w.w(c, "0.0");
         }
-        w.w(44, fo_or(gp("w"), 215.9));
-        w.w(45, fo_or(gp("h"), 279.4));
+        w.wfo_or(44, gp("w"), 215.9);
+        w.wfo_or(45, gp("h"), 279.4);
         for c in [46, 47, 48, 49, 140, 141] {
             w.w(c, "0.0");
         }
@@ -1269,10 +1301,10 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         w.w(1, enc_s(&l.name));
         w.w(70, "1");
         w.wn(71, l.tab);
-        w.w(10, fo(jsv::get(jsv::get(Some(&lim), "min"), "x")));
-        w.w(20, fo(jsv::get(jsv::get(Some(&lim), "min"), "y")));
-        w.w(11, fo(jsv::get(jsv::get(Some(&lim), "max"), "x")));
-        w.w(21, fo(jsv::get(jsv::get(Some(&lim), "max"), "y")));
+        w.wfo(10, jsv::get(jsv::get(Some(&lim), "min"), "x"));
+        w.wfo(20, jsv::get(jsv::get(Some(&lim), "min"), "y"));
+        w.wfo(11, jsv::get(jsv::get(Some(&lim), "max"), "x"));
+        w.wfo(21, jsv::get(jsv::get(Some(&lim), "max"), "y"));
         for (c, s) in [
             (12, "0.0"),
             (22, "0.0"),
@@ -1303,8 +1335,8 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
     w.w(0, "ENDSEC");
     w.w(0, "EOF");
     let seed = hex(w.seed);
-    if let Some(slot) = w.lines.get_mut(handseed_at) {
-        *slot = seed;
+    if w.out.get(handseed_at..handseed_at.saturating_add(4)) == Some("FFFF") {
+        w.out.replace_range(handseed_at..handseed_at.saturating_add(4), &seed);
     }
 
     let mut counts_out = counts.clone();
@@ -1346,8 +1378,7 @@ pub fn write_dxf2000_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_jso
         let n = jsv::or(counts_out.get("skipped"), 0.0) + jsv::or(counts_out.get("other"), 0.0);
         notes.push(cat.t("dwg.save.other", &i18n::n(n)));
     }
-    let mut text = w.lines.join("\r\n");
-    text.push_str("\r\n");
+    let text = std::mem::take(&mut w.out);
     let mut rep = Obj::new();
     rep.set("notes", V::Arr(notes.into_iter().map(V::Str).collect()));
     rep.set("counts", counts_out);

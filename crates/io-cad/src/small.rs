@@ -291,30 +291,39 @@ pub fn round_precision(x: f64, p: usize) -> f64 {
 /// s has at most p digits, the p-digit rounding r is at least as close to x as s, so r reads back as x — except next to
 /// a power of two, where the interval below x is half as wide. The ambiguous cases return None (the exact path).
 fn fast_round(x: f64, p: usize) -> Option<f64> {
-    if !(1..=21).contains(&p) {
+    let (neg, d) = fast_digits(x, p)?;
+    let mut t = String::with_capacity(32);
+    js::push_digits_js(&mut t, neg, &d);
+    t.parse::<f64>().ok()
+}
+
+/// The digits of `Number(x.toPrecision(p))` (trailing zeros dropped: they are the shortest digits of that number, as
+/// every decimal of at most 15 digits reads back to a distinct double), or None where only the exact path can tell.
+fn fast_digits(x: f64, p: usize) -> Option<(bool, js::Digits)> {
+    if !(1..=15).contains(&p) || !x.is_finite() || x == 0.0 {
         return None;
     }
-    let s = format!("{:e}", x.abs());
-    let (mant, exp) = s.split_once('e')?;
-    let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
-    let e: i32 = exp.parse().ok()?;
+    let dg = js::shortest_digits(x.abs());
+    let digits = dg.digits();
     if digits.len() <= p {
         // a power of two (no mantissa bits): the interval is lopsided
-        return (x.to_bits() & 0x000f_ffff_ffff_ffff != 0).then_some(x);
+        return (x.to_bits() & 0x000f_ffff_ffff_ffff != 0).then_some((x < 0.0, dg));
     }
     let first = *digits.get(p)?;
     if first == b'5' && digits.len() == p.saturating_add(1) {
         return None;
     }
-    let mut kept: Vec<u8> = digits.get(..p)?.to_vec();
-    let mut e = e;
+    let mut kept = [0u8; 24];
+    kept.get_mut(..p)?.copy_from_slice(digits.get(..p)?);
+    let mut n = dg.n;
     if first >= b'5' {
-        let mut i = kept.len();
+        let mut i = p;
         loop {
             if i == 0 {
-                kept.insert(0, b'1');
-                kept.truncate(p);
-                e = e.checked_add(1)?;
+                // 99…9 rounded up: 100…0 one place higher
+                kept.get_mut(..p)?.fill(b'0');
+                *kept.first_mut()? = b'1';
+                n = n.checked_add(1)?;
                 break;
             }
             i = i.checked_sub(1)?;
@@ -327,16 +336,26 @@ fn fast_round(x: f64, p: usize) -> Option<f64> {
             }
         }
     }
-    let mut t = String::with_capacity(p.saturating_add(8));
-    if x < 0.0 {
-        t.push('-');
+    let mut len = p;
+    while len > 1 && kept.get(len.checked_sub(1)?) == Some(&b'0') {
+        len = len.checked_sub(1)?;
     }
-    t.push(char::from(*kept.first()?));
-    t.push('.');
-    t.extend(kept.get(1..)?.iter().map(|d| char::from(*d)));
-    t.push('e');
-    t.push_str(&e.to_string());
-    t.parse::<f64>().ok()
+    Some((x < 0.0, js::Digits::from_parts(kept.get(..len)?, n)?))
+}
+
+/// `String(Number(x.toPrecision(p)))`, formatted once.
+pub fn precision_string(x: f64, p: usize) -> String {
+    let mut t = String::with_capacity(24);
+    push_precision(&mut t, x, p);
+    t
+}
+
+/// [`precision_string`] appended to `out`.
+pub fn push_precision(out: &mut String, x: f64, p: usize) {
+    match fast_digits(x, p) {
+        Some((neg, d)) => js::push_digits_js(out, neg, &d),
+        None => js::push_num(out, round_precision(x, p)),
+    }
 }
 
 #[cfg(test)]
@@ -390,7 +409,11 @@ mod tests {
             for p in [12usize, 15] {
                 let exact = js::str_to_number(&js::to_exponential(v, p - 1));
                 assert_eq!(round_precision(v, p).to_bits(), exact.to_bits(), "{v:e} at {p}");
+                assert_eq!(precision_string(v, p), js::num_to_string(exact), "{v:e} at {p}");
             }
+        }
+        for v in [0.999_999_999_999_999_9, 9.999_999_999_999_996, 1e21, 123.0, 0.1 + 0.2, 1.5e-7, -2.5e-310] {
+            assert_eq!(precision_string(v, 15), js::num_to_string(js::str_to_number(&js::to_exponential(v, 14))), "{v:e}");
         }
     }
 }

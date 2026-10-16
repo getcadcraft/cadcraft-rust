@@ -320,14 +320,17 @@ pub fn from_json(v: &Value) -> V {
             _ => V::Str(x.clone()),
         },
         Value::Array(a) => V::Arr(a.iter().map(from_json).collect()),
-        Value::Object(m) => {
-            let mut o = Obj::with_capacity(m.len());
-            for (k, x) in m {
-                o.0.push((std::borrow::Cow::Owned(k.clone()), from_json(x)));
-            }
-            V::Obj(o)
-        }
+        Value::Object(m) => from_json_map(m),
     }
+}
+
+/// [`from_json`] of an object.
+pub fn from_json_map(m: &serde_json::Map<String, Value>) -> V {
+    let mut o = Obj::with_capacity(m.len());
+    for (k, x) in m {
+        o.0.push((std::borrow::Cow::Owned(k.clone()), from_json(x)));
+    }
+    V::Obj(o)
 }
 
 /// Shallow copy of an object with more keys (`{ ...a, k: v }`).

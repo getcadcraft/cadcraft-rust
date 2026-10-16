@@ -97,14 +97,68 @@ pub fn int32(x: f64) -> f64 {
     if m >= 2_147_483_648.0 { m - 4_294_967_296.0 } else { m }
 }
 
-/// The digits (no leading zeros) and the decimal exponent n of a finite positive x: x = 0.d1d2… × 10^n, shortest
-/// round-trip digits (what `Number.prototype.toString` uses).
-fn shortest(x: f64) -> (Vec<u8>, i64) {
-    let s = format!("{x:e}");
-    let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
-    let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
-    let e: i64 = exp.parse().unwrap_or(0);
-    (digits, e.saturating_add(1))
+/// The shortest round-trip digits of a finite positive number (what `Number.prototype.toString` uses), on the stack:
+/// x = 0.d1d2… × 10^n.
+#[derive(Clone, Copy, Debug)]
+pub struct Digits {
+    buf: [u8; 24],
+    len: usize,
+    /// the decimal exponent n
+    pub n: i64,
+}
+
+impl Digits {
+    /// The digits, no leading zeros.
+    pub fn digits(&self) -> &[u8] {
+        self.buf.get(..self.len).unwrap_or(&[])
+    }
+    /// Digits given as ASCII (at most 24, no leading zeros) and the exponent n; None if they do not fit.
+    pub fn from_parts(d: &[u8], n: i64) -> Option<Self> {
+        let mut out = Digits { buf: [0; 24], len: d.len(), n };
+        out.buf.get_mut(..d.len())?.copy_from_slice(d);
+        Some(out)
+    }
+}
+
+/// A fixed buffer `fmt::Write` (formatting a float's `{:e}` without a heap allocation).
+struct StackW {
+    buf: [u8; 48],
+    len: usize,
+}
+
+impl std::fmt::Write for StackW {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let end = self.len.checked_add(s.len()).ok_or(std::fmt::Error)?;
+        self.buf.get_mut(self.len..end).ok_or(std::fmt::Error)?.copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+/// [`Digits`] of a finite positive x (Rust's shortest `{:e}`; the same digits V8 prints).
+pub fn shortest_digits(x: f64) -> Digits {
+    use std::fmt::Write as _;
+    let mut w = StackW { buf: [0; 48], len: 0 };
+    let mut d = Digits { buf: [0; 24], len: 0, n: 1 };
+    if write!(w, "{x:e}").is_err() {
+        return d;
+    }
+    let text = w.buf.get(..w.len).unwrap_or(&[]);
+    let (mant, exp) = match text.iter().position(|&c| c == b'e') {
+        Some(i) => (text.get(..i).unwrap_or(&[]), text.get(i.saturating_add(1)..).unwrap_or(&[])),
+        None => (text, &b"0"[..]),
+    };
+    for &c in mant {
+        if c.is_ascii_digit()
+            && let Some(slot) = d.buf.get_mut(d.len)
+        {
+            *slot = c;
+            d.len = d.len.saturating_add(1);
+        }
+    }
+    let e: i64 = std::str::from_utf8(exp).ok().and_then(|t| t.parse().ok()).unwrap_or(0);
+    d.n = e.saturating_add(1);
+    d
 }
 
 fn push_digits(out: &mut String, d: &[u8]) {
@@ -115,49 +169,63 @@ fn push_digits(out: &mut String, d: &[u8]) {
 
 /// `String(x)` for a number (ECMAScript Number::toString).
 pub fn num_to_string(x: f64) -> String {
+    let mut out = String::new();
+    push_num(&mut out, x);
+    out
+}
+
+/// `String(x)` appended to `out`.
+pub fn push_num(out: &mut String, x: f64) {
     if x.is_nan() {
-        return "NaN".into();
+        out.push_str("NaN");
+        return;
     }
     if x == 0.0 {
-        return "0".into();
+        out.push('0');
+        return;
     }
     if x.is_infinite() {
-        return if x > 0.0 { "Infinity".into() } else { "-Infinity".into() };
+        out.push_str(if x > 0.0 { "Infinity" } else { "-Infinity" });
+        return;
     }
-    let mut out = String::new();
-    if x < 0.0 {
+    push_digits_js(out, x < 0.0, &shortest_digits(x.abs()));
+}
+
+/// `String(x)` from x's sign and shortest digits.
+pub fn push_digits_js(out: &mut String, neg: bool, dg: &Digits) {
+    if neg {
         out.push('-');
     }
-    let (d, n) = shortest(x.abs());
+    let d = dg.digits();
+    let n = dg.n;
     let k = i64::try_from(d.len()).unwrap_or(0);
     if k <= n && n <= 21 {
-        push_digits(&mut out, &d);
+        push_digits(out, d);
         for _ in 0..n.saturating_sub(k) {
             out.push('0');
         }
     } else if 0 < n && n <= 21 {
         let nu = usize::try_from(n).unwrap_or(0);
-        push_digits(&mut out, d.get(..nu).unwrap_or(&[]));
+        push_digits(out, d.get(..nu).unwrap_or(&[]));
         out.push('.');
-        push_digits(&mut out, d.get(nu..).unwrap_or(&[]));
+        push_digits(out, d.get(nu..).unwrap_or(&[]));
     } else if -6 < n && n <= 0 {
         out.push_str("0.");
         for _ in 0..n.saturating_neg() {
             out.push('0');
         }
-        push_digits(&mut out, &d);
+        push_digits(out, d);
     } else {
         let e = n.saturating_sub(1);
-        push_digits(&mut out, d.get(..1).unwrap_or(&[]));
+        push_digits(out, d.get(..1).unwrap_or(&[]));
         if d.len() > 1 {
             out.push('.');
-            push_digits(&mut out, d.get(1..).unwrap_or(&[]));
+            push_digits(out, d.get(1..).unwrap_or(&[]));
         }
         out.push('e');
         out.push(if e < 0 { '-' } else { '+' });
         out.push_str(&e.unsigned_abs().to_string());
     }
-    out
 }
 
 /// Add one to a run of ASCII digits (true = it carried out of the first digit).

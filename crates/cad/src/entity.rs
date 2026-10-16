@@ -326,20 +326,76 @@ fn merge(m: &mut Obj, extra: &Obj) {
         }
     }
 }
-fn put(m: &mut Obj, k: &str, v: f64) {
-    m.insert(k.into(), num(v));
-}
-fn put_opt(m: &mut Obj, k: &str, v: Option<f64>) {
-    if let Some(v) = v {
-        put(m, k, v);
+/// Where an entity writes its keys: a JSON object (`to_obj`) or another object model (the DWG saver builds its own
+/// values straight from the entity). Keys come in `to_obj`'s order.
+pub trait ObjSink {
+    fn num(&mut self, k: &'static str, v: f64);
+    fn num_opt(&mut self, k: &'static str, v: Option<f64>) {
+        if let Some(v) = v {
+            self.num(k, v);
+        }
     }
+    fn id(&mut self, k: &'static str, v: u64);
+    fn string(&mut self, k: &'static str, v: &str);
+    fn str_opt(&mut self, k: &'static str, v: Option<&str>) {
+        if let Some(v) = v {
+            self.string(k, v);
+        }
+    }
+    fn boolean(&mut self, k: &'static str, v: bool);
+    fn null(&mut self, k: &'static str);
+    fn color(&mut self, k: &'static str, c: &Color);
+    fn object(&mut self, k: &'static str, v: &Obj);
+    fn point(&mut self, k: &'static str, p: P2);
+    fn points(&mut self, k: &'static str, pts: &[P2]);
+    fn vertices(&mut self, k: &'static str, pts: &[Vertex]);
+    fn loops(&mut self, k: &'static str, loops: &[Vec<f64>]);
+    /// the keys of `extra` not written yet
+    fn merge(&mut self, extra: &Obj);
 }
-fn put_s(m: &mut Obj, k: &str, v: &Option<String>) {
-    if let Some(v) = v {
-        m.insert(k.into(), Value::String(v.clone()));
+
+impl ObjSink for Obj {
+    fn num(&mut self, k: &'static str, v: f64) {
+        put(self, k, v);
+    }
+    fn id(&mut self, k: &'static str, v: u64) {
+        self.insert(k.into(), Value::from(v));
+    }
+    fn string(&mut self, k: &'static str, v: &str) {
+        self.insert(k.into(), Value::String(v.to_string()));
+    }
+    fn boolean(&mut self, k: &'static str, v: bool) {
+        self.insert(k.into(), Value::Bool(v));
+    }
+    fn null(&mut self, k: &'static str) {
+        self.insert(k.into(), Value::Null);
+    }
+    fn color(&mut self, k: &'static str, c: &Color) {
+        self.insert(k.into(), c.to_value());
+    }
+    fn object(&mut self, k: &'static str, v: &Obj) {
+        self.insert(k.into(), Value::Object(v.clone()));
+    }
+    fn point(&mut self, k: &'static str, p: P2) {
+        self.insert(k.into(), pt(p));
+    }
+    fn points(&mut self, k: &'static str, pts: &[P2]) {
+        self.insert(k.into(), Value::Array(pts.iter().map(|p| pt(*p)).collect()));
+    }
+    fn vertices(&mut self, k: &'static str, pts: &[Vertex]) {
+        self.insert(k.into(), Value::Array(pts.iter().map(Vertex::to_value).collect()));
+    }
+    fn loops(&mut self, k: &'static str, loops: &[Vec<f64>]) {
+        self.insert(k.into(), Value::Array(loops.iter().map(|l| Value::Array(l.iter().map(|v| num(*v)).collect())).collect()));
+    }
+    fn merge(&mut self, extra: &Obj) {
+        merge(self, extra);
     }
 }
 
+fn put(m: &mut Obj, k: &str, v: f64) {
+    m.insert(k.into(), num(v));
+}
 fn parse_geo(typ: &str, m: &mut Obj) -> Option<Geo> {
     Some(match typ {
         "line" => Geo::Line(Line { x1: take_f(m, "x1")?, y1: take_f(m, "y1")?, x2: take_f(m, "x2")?, y2: take_f(m, "y2")? }),
@@ -457,108 +513,108 @@ impl Geo {
             Geo::Other => return None,
         })
     }
-    fn write(&self, m: &mut Obj) {
+    fn write<S: ObjSink>(&self, m: &mut S) {
         match self {
             Geo::Line(l) => {
-                put(m, "x1", l.x1);
-                put(m, "y1", l.y1);
-                put(m, "x2", l.x2);
-                put(m, "y2", l.y2);
+                m.num("x1", l.x1);
+                m.num("y1", l.y1);
+                m.num("x2", l.x2);
+                m.num("y2", l.y2);
             }
             Geo::Circle(c) => {
-                put(m, "cx", c.cx);
-                put(m, "cy", c.cy);
-                put(m, "r", c.r);
+                m.num("cx", c.cx);
+                m.num("cy", c.cy);
+                m.num("r", c.r);
             }
             Geo::Arc(a) => {
-                put(m, "cx", a.cx);
-                put(m, "cy", a.cy);
-                put(m, "r", a.r);
-                put(m, "a0", a.a0);
-                put(m, "a1", a.a1);
+                m.num("cx", a.cx);
+                m.num("cy", a.cy);
+                m.num("r", a.r);
+                m.num("a0", a.a0);
+                m.num("a1", a.a1);
             }
             Geo::Poly(p) => {
                 if let Some(c) = p.closed {
-                    m.insert("closed".into(), Value::Bool(c));
+                    m.boolean("closed", c);
                 }
-                m.insert("pts".into(), Value::Array(p.pts.iter().map(Vertex::to_value).collect()));
+                m.vertices("pts", &p.pts);
             }
             Geo::Ellipse(e) => {
                 for (k, v) in [("cx", e.cx), ("cy", e.cy), ("mx", e.mx), ("my", e.my), ("ratio", e.ratio), ("t0", e.t0), ("t1", e.t1)] {
-                    put(m, k, v);
+                    m.num(k, v);
                 }
             }
             Geo::Text(t) => {
-                put(m, "x", t.x);
-                put(m, "y", t.y);
-                put(m, "h", t.h);
-                put_opt(m, "rot", t.rot);
-                m.insert("s".into(), Value::String(t.s.clone()));
-                put_s(m, "ha", &t.ha);
-                put_s(m, "va", &t.va);
-                put_opt(m, "wf", t.wf);
-                put_opt(m, "ww", t.ww);
-                put_opt(m, "ls", t.ls);
+                m.num("x", t.x);
+                m.num("y", t.y);
+                m.num("h", t.h);
+                m.num_opt("rot", t.rot);
+                m.string("s", &t.s);
+                m.str_opt("ha", t.ha.as_deref());
+                m.str_opt("va", t.va.as_deref());
+                m.num_opt("wf", t.wf);
+                m.num_opt("ww", t.ww);
+                m.num_opt("ls", t.ls);
             }
             Geo::Point(p) => {
-                put(m, "x", p.x);
-                put(m, "y", p.y);
+                m.num("x", p.x);
+                m.num("y", p.y);
             }
             Geo::Insert(i) => {
-                m.insert("block".into(), Value::String(i.block.clone()));
-                put(m, "x", i.x);
-                put(m, "y", i.y);
-                put_opt(m, "sx", i.sx);
-                put_opt(m, "sy", i.sy);
-                put_opt(m, "rot", i.rot);
+                m.string("block", &i.block);
+                m.num("x", i.x);
+                m.num("y", i.y);
+                m.num_opt("sx", i.sx);
+                m.num_opt("sy", i.sy);
+                m.num_opt("rot", i.rot);
                 if let Some(a) = &i.attrs {
-                    m.insert("attrs".into(), Value::Object(a.clone()));
+                    m.object("attrs", a);
                 }
                 if let Some(a) = &i.attloc {
-                    m.insert("attloc".into(), Value::Object(a.clone()));
+                    m.object("attloc", a);
                 }
             }
             Geo::Hatch(h) => {
                 if let Some(s) = h.solid {
-                    m.insert("solid".into(), Value::Bool(s));
+                    m.boolean("solid", s);
                 }
-                m.insert("loops".into(), Value::Array(h.loops.iter().map(|l| Value::Array(l.iter().map(|v| num(*v)).collect())).collect()));
+                m.loops("loops", &h.loops);
             }
             Geo::Dim(d) => {
-                put_s(m, "kind", &d.kind);
+                m.str_opt("kind", d.kind.as_deref());
                 for (k, p) in [("p1", d.p1), ("p2", d.p2), ("c", d.c), ("loc", d.loc)] {
                     if let Some(p) = p {
-                        m.insert(k.into(), pt(p));
+                        m.point(k, p);
                     }
                 }
-                put_opt(m, "rot", d.rot);
-                put_s(m, "text", &d.text);
+                m.num_opt("rot", d.rot);
+                m.str_opt("text", d.text.as_deref());
                 if let Some(st) = &d.st {
-                    m.insert("st".into(), Value::Object(st.clone()));
+                    m.object("st", st);
                 }
-                put_s(m, "block", &d.block);
+                m.str_opt("block", d.block.as_deref());
             }
             Geo::Viewport(v) => {
                 for (k, x) in [("x", v.x), ("y", v.y), ("w", v.w), ("h", v.h), ("cx", v.cx), ("cy", v.cy), ("s", v.s)] {
-                    put(m, k, x);
+                    m.num(k, x);
                 }
-                put_opt(m, "tw", v.tw);
+                m.num_opt("tw", v.tw);
             }
             Geo::Xline(i) | Geo::Ray(i) => {
-                put(m, "x", i.x);
-                put(m, "y", i.y);
-                put(m, "dx", i.dx);
-                put(m, "dy", i.dy);
+                m.num("x", i.x);
+                m.num("y", i.y);
+                m.num("dx", i.dx);
+                m.num("dy", i.dy);
             }
             Geo::Mleader(l) => {
-                m.insert("pts".into(), Value::Array(l.pts.iter().map(|p| pt(*p)).collect()));
-                put_opt(m, "dir", l.dir);
-                put_s(m, "s", &l.s);
-                put_opt(m, "h", l.h);
-                put_opt(m, "ww", l.ww);
-                put_opt(m, "ls", l.ls);
+                m.points("pts", &l.pts);
+                m.num_opt("dir", l.dir);
+                m.str_opt("s", l.s.as_deref());
+                m.num_opt("h", l.h);
+                m.num_opt("ww", l.ww);
+                m.num_opt("ls", l.ls);
                 if let Some(st) = &l.st {
-                    m.insert("st".into(), Value::Object(st.clone()));
+                    m.object("st", st);
                 }
             }
             Geo::Other => {}
@@ -637,37 +693,35 @@ impl Entity {
     }
     pub fn to_obj(&self) -> Obj {
         let mut m = Obj::new();
+        self.write_to(&mut m);
+        m
+    }
+    /// The keys of [`Entity::to_obj`], in the same order, into any [`ObjSink`].
+    pub fn write_to<S: ObjSink>(&self, m: &mut S) {
         if let Some(t) = self.geo.type_name() {
-            m.insert("type".into(), Value::String(t.into()));
+            m.string("type", t);
         }
         if let Some(id) = self.id {
-            m.insert("id".into(), Value::from(id));
+            m.id("id", id);
         }
         if let Some(l) = &self.layer {
-            m.insert("layer".into(), Value::String(l.clone()));
+            m.string("layer", l);
         }
         if let Some(c) = &self.color {
-            m.insert("color".into(), c.to_value());
+            m.color("color", c);
         }
-        self.geo.write(&mut m);
+        self.geo.write(m);
         match &self.lt {
-            Some(Some(s)) => {
-                m.insert("lt".into(), Value::String(s.clone()));
-            }
-            Some(None) => {
-                m.insert("lt".into(), Value::Null);
-            }
+            Some(Some(s)) => m.string("lt", s),
+            Some(None) => m.null("lt"),
             None => {}
         }
         match self.lw {
-            Some(Some(w)) => put(&mut m, "lw", w),
-            Some(None) => {
-                m.insert("lw".into(), Value::Null);
-            }
+            Some(Some(w)) => m.num("lw", w),
+            Some(None) => m.null("lw"),
             None => {}
         }
-        merge(&mut m, &self.extra);
-        m
+        m.merge(&self.extra);
     }
 
     /// `e.type` ('' when it has none).

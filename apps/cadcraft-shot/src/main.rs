@@ -184,6 +184,9 @@ fn bench(args: &[String]) -> Result<(), String> {
         hs.step();
         hs.render()?;
         edit_ms = format!("{:.2}", t.elapsed().as_secs_f64() * 1000.0);
+        if let Some(ed) = hs.state().editor.as_ref() {
+            eprintln!("display after the edit: {:?}", ed.display);
+        }
         hs.state_mut().run("cmd.line", &Params { name: Some(String::new()), ..Default::default() })?;
     }
     let st = hs.state();

@@ -49,6 +49,9 @@ pub trait WalkOut {
     fn text(&mut self, color: &str, e: &Entity, o: Option<Opts>);
     fn point(&mut self, color: &str, x: f64, y: f64);
     fn viewport(&mut self, _e: &Entity) {}
+    /// The walk starts on the top-level entity `index` of the list it was given (what follows, up to the next call,
+    /// is that entity's output).
+    fn begin(&mut self, _index: usize) {}
     /// Does this output paint text masks itself (`out.mask`)? Else a mask comes as a solid fill.
     fn has_mask(&self) -> bool {
         false
@@ -507,7 +510,8 @@ pub fn walk(doc: &Doc, entities: &[Entity], out: &mut dyn WalkOut, opts: &WalkOp
         max_dashes: opts.max_dashes,
     };
     let m = opts.m;
-    for e in entities {
+    for (i, e) in entities.iter().enumerate() {
+        out.begin(i);
         if let Geo::Viewport(_) = &e.geo {
             out.viewport(e);
             if w.shown(e.layer.as_deref()) {

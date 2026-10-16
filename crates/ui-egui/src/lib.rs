@@ -401,7 +401,7 @@ impl UiApp {
     pub fn sync_editor(&mut self) {
         let Some(ed) = self.editor.as_mut() else { return };
         if ed.take_changed() || self.doc.is_none() {
-            let drawing = cc_cad_geom::display::doc_drawing(&ed.eng.doc());
+            let drawing = ed.display.drawing(&ed.eng.doc());
             let n = drawing.spaces.len();
             self.doc = Some(document::from_drawing(&ed.name, drawing));
             self.views.resize(n, None);
