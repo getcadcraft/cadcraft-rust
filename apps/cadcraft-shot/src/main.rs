@@ -108,6 +108,7 @@ fn bench(args: &[String]) -> Result<(), String> {
     hs.render()?;
     let first = t.elapsed().as_secs_f64() * 1000.0;
     let mut times = Vec::with_capacity(frames);
+    let mut ui_times = Vec::with_capacity(frames);
     for i in 0..frames {
         let z = if i % 2 == 0 { 1.15 } else { 1.0 / 1.1 };
         hs.state_mut().run("view.zoom", &Params { factor: Some(z), ..Default::default() })?;
@@ -115,12 +116,15 @@ fn bench(args: &[String]) -> Result<(), String> {
         hs.step();
         hs.render()?;
         times.push(t.elapsed().as_secs_f64() * 1000.0);
+        ui_times.push(hs.state().frame_ms);
     }
     let st = hs.state();
     let list: Vec<String> = times.iter().map(|t| format!("{t:.2}")).collect();
+    let ui_list: Vec<String> = ui_times.iter().map(|t| format!("{t:.2}")).collect();
     println!(
-        r#"{{"open_ms":{open_ms:.2},"first_frame_ms":{first:.2},"frame_ms":[{}],"texts":{},"message":"{}"}}"#,
+        r#"{{"open_ms":{open_ms:.2},"first_frame_ms":{first:.2},"frame_ms":[{}],"ui_ms":[{}],"texts":{},"message":"{}"}}"#,
         list.join(","),
+        ui_list.join(","),
         st.last_stats.texts,
         st.message.replace('"', "'")
     );

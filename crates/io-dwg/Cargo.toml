@@ -21,6 +21,7 @@ cc-drawing.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 encoding_rs = "0.8"
+web-time = "1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"

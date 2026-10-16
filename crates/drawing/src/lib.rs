@@ -166,7 +166,9 @@ pub enum SpaceKind {
     Paper,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// Serialises like the JS: a model space has no `paper` / `paperUnit` keys; a paper space always has both
+/// (`paper: null` when the layout has no usable limits), see the hand-written `Serialize` below.
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Space {
     /// "model" | "layout:<handle>"
@@ -175,13 +177,36 @@ pub struct Space {
     pub kind: SpaceKind,
     pub batches: Vec<Batch>,
     pub bounds: Bounds,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub paper: Option<Bounds>,
     /// "mm" | "in" (paper spaces)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub paper_unit: Option<String>,
     pub viewports: Vec<Viewport>,
     pub images: Vec<SpaceImage>,
+}
+
+impl Serialize for Space {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let paper = self.kind == SpaceKind::Paper;
+        let mut st = s.serialize_struct("Space", if paper { 9 } else { 7 })?;
+        st.serialize_field("key", &self.key)?;
+        st.serialize_field("name", &self.name)?;
+        st.serialize_field("kind", &self.kind)?;
+        st.serialize_field("batches", &self.batches)?;
+        st.serialize_field("bounds", &self.bounds)?;
+        if paper {
+            st.serialize_field("paper", &self.paper)?;
+            st.serialize_field("paperUnit", &self.paper_unit)?;
+        } else {
+            st.skip_field("paper")?;
+            st.skip_field("paperUnit")?;
+        }
+        st.serialize_field("viewports", &self.viewports)?;
+        st.serialize_field("images", &self.images)?;
+        st.end()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -19,6 +19,13 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "dxf_read"
+path = "fuzz_targets/dxf_read.rs"
+test = false
+doc = false
+bench = false
+
 [profile.release]
 debug = 1
 overflow-checks = true

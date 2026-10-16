@@ -101,14 +101,14 @@ fn plain_err(e: &DwgError) -> bool {
 
 /// readDwg(bytes, opts) → the model.
 pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
-    let t0 = std::time::Instant::now();
+    let t0 = web_time::Instant::now();
     let mut model = new_model();
     let phases = std::env::var_os("CCDWG_PHASES").is_some();
-    let mut lap = std::time::Instant::now();
+    let mut lap = web_time::Instant::now();
     let mut phase = |name: &str| {
         if phases {
             eprintln!("ccdwg phase {name}: {:.2} ms", lap.elapsed().as_secs_f64() * 1000.0);
-            lap = std::time::Instant::now();
+            lap = web_time::Instant::now();
         }
     };
     let c: Container = match read_container(bytes) {
@@ -1378,11 +1378,11 @@ fn build_model_parts(
     notes: &mut Vec<String>,
 ) -> Res<()> {
     let phases = std::env::var_os("CCDWG_PHASES").is_some();
-    let mut lap = std::time::Instant::now();
+    let mut lap = web_time::Instant::now();
     let mut ph = |name: &str| {
         if phases {
             eprintln!("ccdwg   build {name}: {:.2} ms", lap.elapsed().as_secs_f64() * 1000.0);
-            lap = std::time::Instant::now();
+            lap = web_time::Instant::now();
         }
     };
     let ver = ctx.ver;

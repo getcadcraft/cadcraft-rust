@@ -67,6 +67,15 @@ mod web {
         };
         wasm_bindgen_futures::spawn_local(async move {
             let runner = eframe::WebRunner::new();
+            // wasm32 aborts on panic: tell the page the instance stopped (after eframe's own handler)
+            let prev = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                prev(info);
+                if let Some(el) = web_sys::window().and_then(|w| w.document()).and_then(|d| d.get_element_by_id("status")) {
+                    let _ = el.remove_attribute("hidden");
+                    el.set_text_content(Some("The CadCraft test version stopped after an internal error. Reload the page to start again."));
+                }
+            }));
             let res = runner
                 .start(
                     canvas,

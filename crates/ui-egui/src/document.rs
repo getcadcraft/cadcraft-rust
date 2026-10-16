@@ -41,7 +41,7 @@ pub fn open(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
     let is_dxf = name.to_ascii_lowercase().ends_with(".dxf") && !bytes.starts_with(b"AC10");
     let t = web_time::Instant::now();
     let model = if is_dxf {
-        let text = String::from_utf8_lossy(bytes);
+        let text = cc_io_dwg::dxf_model::decode_dxf_bytes(bytes);
         cc_io_dwg::dxf_model::read_dxf_model(&text)
     } else {
         cc_io_dwg::read_dwg(bytes, &cc_io_dwg::ReadOpts::default())
