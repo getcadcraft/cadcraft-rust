@@ -724,6 +724,7 @@ dependencies = [
  "cc-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "cc-io-ifc",
  "cc-m3d",
  "cc-render",
  "egui",

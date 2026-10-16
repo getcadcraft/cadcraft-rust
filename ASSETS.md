@@ -11,6 +11,7 @@ Prefer art generated in code.
 | assets/fonts/JetBrainsMono-Regular.ttf | JetBrains | https://github.com/JetBrains/JetBrainsMono v2.304 release | OFL-1.1 (assets/fonts/JetBrainsMono-OFL.txt) |
 | assets/fonts/JetBrainsMono-OFL.txt | JetBrains | JetBrains Mono v2.304 release | OFL-1.1 text |
 | assets/samples/kitchen-equipment.dwg | CadCraft | CadCraft's own public test fixture (getcadcraft.com `fixtures/dwg/kitchen-equipment.dwg`, also in the public app repos; links base-plan.dwg) | Apache-2.0 |
+| assets/samples/bimcraft-house.ifc | CadCraft | CadCraft's own public showcase model (getcadcraft.com `fixtures/showcase/bimcraft-house.ifc`), the 3D IFC sample | Apache-2.0 |
 | apps/cadcraft-web/favicon.svg | CadCraft | drawn for this repo (a pick box on the brand blue) | Apache-2.0 |
 | assets/lang/cadcraft/en.json | CadCraft | CadCraft 0.5's own language catalog (`public_html/assets/apps/cadcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
 | assets/lang/cadcraft/es-MX.json | CadCraft | CadCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |

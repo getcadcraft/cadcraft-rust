@@ -59,6 +59,7 @@ mod web {
         let new_drawing = search.split(['?', '&']).any(|p| p == "new");
         let demo3d = search.split(['?', '&']).any(|p| p == "demo3d");
         let model3 = search.split(['?', '&']).any(|p| p == "model");
+        let ifc = search.split(['?', '&']).any(|p| p == "ifc");
         if bench_frames {
             bench();
         }
@@ -107,7 +108,7 @@ mod web {
                                 let ctx = open_ctx.clone();
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let Some(f) = rfd::AsyncFileDialog::new()
-                                        .add_filter("Drawings and models", &["dwg", "dxf", "modelcraft"])
+                                        .add_filter("Drawings and models", &["dwg", "dxf", "modelcraft", "ifc"])
                                         .pick_file()
                                         .await
                                     else {
@@ -153,6 +154,9 @@ mod web {
                         }
                         if model3 {
                             let _ = app.run("view.model.sample", &Params::default());
+                        }
+                        if ifc {
+                            let _ = app.run("file.sample.ifc", &Params::default());
                         }
                         Ok(Box::new(App { app }))
                     }),

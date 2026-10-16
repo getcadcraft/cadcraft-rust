@@ -18,6 +18,7 @@
 pub mod canvas;
 pub mod document;
 pub mod edit;
+pub mod ifc3d;
 pub mod model3d;
 pub mod theme;
 pub mod view3d;
@@ -109,6 +110,8 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
 pub static SAMPLE_DWG: &[u8] = include_bytes!("../../../assets/samples/kitchen-equipment.dwg");
 /// The drawing the sample links (xref "base-plan").
 pub static SAMPLE_XREF: &[u8] = include_bytes!("../../../assets/samples/base-plan.dwg");
+/// The IFC sample (CadCraft's public showcase house).
+pub static SAMPLE_IFC: &[u8] = include_bytes!("../../../assets/samples/bimcraft-house.ifc");
 
 pub struct UiApp {
     pub services: Services,
@@ -199,8 +202,13 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
-        if f.name.to_ascii_lowercase().ends_with(".modelcraft") {
+        let lower = f.name.to_ascii_lowercase();
+        if lower.ends_with(".modelcraft") {
             self.open_model(f);
+            return;
+        }
+        if lower.ends_with(".ifc") {
+            self.open_ifc(f);
             return;
         }
         let dir = f.dir.clone();
@@ -230,6 +238,36 @@ impl UiApp {
         match model.load(&j, false) {
             Ok(()) => self.show_model(model, &f.name),
             Err(e) => self.error = Some(format!("{}: {e:?}", f.name)),
+        }
+    }
+
+    /// An IFC model (cc-ifc with cc-manifold for openings) → the 3D view.
+    fn open_ifc(&mut self, f: &ImportedFile) {
+        let t0 = web_time::Instant::now();
+        match cc_io_ifc::view::view(&f.bytes, &cc_io_ifc::geo::bool_ops::ManifoldOps) {
+            Ok(v) => {
+                let read_ms = t0.elapsed().as_secs_f64() * 1000.0;
+                self.scene_seq = self.scene_seq.wrapping_add(1);
+                let scene = ifc3d::scene_of(&v, self.scene_seq, 1_500_000);
+                let mut view = view3d::View3::default();
+                self.style3(&mut view);
+                let tris: usize = v.pieces.iter().filter_map(|p| v.meshes.get(p.mesh)).map(|m| m.idx.len() / 3).sum();
+                self.message = format!(
+                    "{}: {} products, {} pieces, {} triangles · read + geometry {:.0} ms · middle / right drag orbits, Shift pans, wheel zooms",
+                    f.name,
+                    v.products,
+                    v.pieces.len(),
+                    tris,
+                    read_ms
+                );
+                self.doc = None;
+                self.editor = None;
+                self.source = None;
+                self.error = None;
+                self.model3 = None;
+                self.scene3 = Some((scene, view));
+            }
+            Err(e) => self.error = Some(format!("{}: {}", f.name, e.0)),
         }
     }
 
@@ -398,6 +436,9 @@ impl UiApp {
                 if let Some((_, v)) = self.scene3.as_mut() {
                     v.fit_pending = true;
                 }
+            }
+            "file.sample.ifc" => {
+                self.open_bytes("bimcraft-house.ifc", SAMPLE_IFC);
             }
             "view.model.sample" => {
                 self.show_model(model3d::sample_model(), "Sample model");
