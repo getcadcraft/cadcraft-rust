@@ -70,7 +70,7 @@ fn geom(bytes: Vec<u8>) -> Result<String, String> {
     std::thread::Builder::new()
         .stack_size(512 << 20)
         .spawn(move || {
-            cc_io_ifc::engine_geom::products(&bytes, &cc_io_ifc::geo::bool_ops::NoSolidOps).map(|p| cc_io_ifc::engine_geom::to_json(&p))
+            cc_io_ifc::engine_geom::products(&bytes, &cc_io_ifc::geo::bool_ops::ManifoldOps).map(|p| cc_io_ifc::engine_geom::to_json(&p))
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -82,7 +82,7 @@ fn geom(bytes: Vec<u8>) -> Result<String, String> {
 pub fn bench(engine: &str, file: &str, runs: usize) -> Option<ExitCode> {
     let run: fn(&[u8]) -> Result<(), String> = match engine {
         "ifc-step" => |b| cc_io_ifc::engine_step::run_all(b).map(drop).map_err(|e| e.0),
-        "ifc-geom" => |b| cc_io_ifc::engine_geom::products(b, &cc_io_ifc::geo::bool_ops::NoSolidOps).map(drop).map_err(|e| e.0),
+        "ifc-geom" => |b| cc_io_ifc::engine_geom::products(b, &cc_io_ifc::geo::bool_ops::ManifoldOps).map(drop).map_err(|e| e.0),
         _ => return None,
     };
     let bytes = match read(file) {

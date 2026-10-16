@@ -18,6 +18,8 @@ workspace = true
 [dependencies]
 # FreeBSD msun (fdlibm) in Rust: the same tan / atan / atan2 / acos / asin V8 uses, bit for bit (already in Cargo.lock)
 libm = "0.2.16"
+# the boolean engine (Manifold 3.5.4 ported to Rust, identical output to the manifold-3d wasm the JS uses)
+cc-manifold.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"

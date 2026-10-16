@@ -64,6 +64,45 @@ pub trait SolidOps: Sync {
     fn get_mesh(&self, s: &Solid) -> (Vec<f32>, Vec<u32>);
 }
 
+/// The boolean engine the 0.5 JS runs with: manifold-3d 3.5.4, here as its Rust port `cc-manifold` (identical output).
+/// Its calls never throw, as in the JS: a failed boolean is a result whose status is an error and whose mesh is empty.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ManifoldOps;
+
+fn man(s: &Solid) -> Option<&cc_manifold::Manifold> {
+    s.0.downcast_ref::<cc_manifold::Manifold>()
+}
+
+impl SolidOps for ManifoldOps {
+    fn loaded(&self) -> bool {
+        true
+    }
+    fn from_mesh(&self, vert_properties: &[f32], tri_verts: &[u32]) -> Option<Solid> {
+        let mut mm = cc_manifold::Mesh::new(3, vert_properties.to_vec(), tri_verts.to_vec());
+        mm.merge();
+        let m = cc_manifold::Manifold::from_mesh(&mm).ok()?;
+        Some(Solid(Box::new(m)))
+    }
+    fn subtract(&self, a: &Solid, b: &Solid) -> Option<Solid> {
+        Some(Solid(Box::new(man(a)?.subtract(man(b)?))))
+    }
+    fn add(&self, a: &Solid, b: &Solid) -> Option<Solid> {
+        Some(Solid(Box::new(man(a)?.add(man(b)?))))
+    }
+    fn intersect(&self, a: &Solid, b: &Solid) -> Option<Solid> {
+        Some(Solid(Box::new(man(a)?.intersect(man(b)?))))
+    }
+    fn get_mesh(&self, s: &Solid) -> (Vec<f32>, Vec<u32>) {
+        match man(s) {
+            Some(m) => {
+                let mm = m.get_mesh();
+                (mm.vert_properties, mm.tri_verts)
+            }
+            None => (Vec::new(), Vec::new()),
+        }
+    }
+}
+
 /// No boolean engine (the JS run without manifold-3d).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoSolidOps;

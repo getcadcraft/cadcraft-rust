@@ -655,6 +655,7 @@ dependencies = [
 name = "cc-io-ifc"
 version = "0.0.1"
 dependencies = [
+ "cc-manifold",
  "libm",
  "rayon",
 ]

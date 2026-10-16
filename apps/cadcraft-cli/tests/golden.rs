@@ -65,19 +65,8 @@ fn same(a: &Value, b: &Value, abs: f64, rel: f64, path: &str, out: &mut Vec<Stri
     }
 }
 
-/// Differences understood and waiting on work elsewhere: "<engine> <fixture> <product id>" → why.
-const KNOWN: &[(&str, &str)] = &[
-    // the nine walls with openings: cut by manifold-3d in the JS; the Rust SolidOps is NoSolidOps until cc-manifold lands
-    ("ifc-geom bimcraft-house.ifc 59", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 110", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 175", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 240", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 305", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 370", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 583", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 717", "opening (booleans)"),
-    ("ifc-geom bimcraft-house.ifc 815", "opening (booleans)"),
-];
+/// Differences understood and waiting on work elsewhere: "<engine> <fixture> <product id>" → why (none today).
+const KNOWN: &[(&str, &str)] = &[];
 
 fn check(engine: &str, abs: f64, rel: f64, ndjson: bool) {
     let dir = root().join("js-0.5").join(engine);
