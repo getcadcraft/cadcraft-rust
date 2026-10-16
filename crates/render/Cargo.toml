@@ -20,3 +20,6 @@ cc-geom.workspace = true
 cc-drawing.workspace = true
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu", "dx12", "metal", "vulkan", "gles", "std"] }
 lyon_tessellation = "1"
+
+[dev-dependencies]
+pollster = "0.4"

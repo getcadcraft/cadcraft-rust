@@ -21,6 +21,8 @@
     clippy::indexing_slicing
 )]
 
+pub mod mesh3d;
+
 use std::ops::Range;
 
 use cc_drawing::{Color, Space};
