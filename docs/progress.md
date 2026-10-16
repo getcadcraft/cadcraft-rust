@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-16 — M5 in progress (speed debt, m3d, readers), M6 groundwork
+
+- M5.1 speed debt: DXF 2000 save of the 3.4 MB drawing 702 → 357 ms (JS 450: now 1.26×; DWG 2018 1.45×, DWG 2000
+  1.5×): one output buffer, each number formatted once straight into it (toPrecision digits from the shortest digits,
+  proven equal on 200,000 random doubles), entities built straight into the saver's values (`cc_cad::entity::ObjSink`
+  instead of entity → JSON → value), no deep copy of the blocks. Save parity unchanged (byte-identical 78/78, 32/32,
+  110/110 per version). Edit mode: a per-object display cache (`DisplayCache`): an edit walks only the objects that
+  changed (all of them when a layer, linetype, style, block or the drawing settings changed): 127 → ~38 ms per edit on
+  the 3.4 MB drawing; equal to a full walk (tested through edits, undo, layer and block changes).
+- Measured: the DWG reader as single-threaded wasm (WASI under Node) reads the 3.4 MB drawing in 257 ms vs the JS's 527
+  (2.05×): the browser's 1.2–1.5× (M3) came from the 174 KB sample, where fixed costs dominate.
+- M5.2: golden references of the public fixtures in CI (`tests/golden`, from the kit's `ref.mjs --public-out`).
+- M5.3: nightly fuzz OOM in `cad_dxf_read`: nested block inserts multiplied without end in an object's outline and the
+  walk; budgets (2 M primitives per outline, 10 M visits per walk) + regression tests.
+- M6.1/M6.2 groundwork: `cc-render::mesh3d` (3D viewport GPU side: meshes per definition, camera-relative f64
+  instances, reversed-Z, MSAA offscreen target, styles, read-back; headless cube at survey coordinates) and
+  `cc-geom::bvh` (bvh.js, same splits and visiting order).
+- Running in parallel work copies: m3d kernel (ModelCraft's model.js + vec/earcut/units → `crates/m3d`, harness
+  mdiff.mjs), cc-ifc (`crates/io-ifc`: ifc-step, ifc-geom with booleans behind `trait SolidOps`), cc-skp
+  (`crates/io-skp`).
+
 ## 2026-10-16 — M4 done
 
 - M4.7: `cc-io-cad` (L4, agent-ported): CadCraft's DWG import (dwg-import.js + helpers), DXF read / write R12 (dxf.js),
