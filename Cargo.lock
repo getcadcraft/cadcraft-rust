@@ -501,7 +501,10 @@ dependencies = [
 name = "cadcraft-cli"
 version = "0.0.1"
 dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
  "cc-io-dwg",
+ "serde_json",
 ]
 
 [[package]]
@@ -568,6 +571,25 @@ dependencies = [
  "jobserver",
  "libc",
  "shlex",
+]
+
+[[package]]
+name = "cc-cad"
+version = "0.0.1"
+dependencies = [
+ "cc-geom",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cc-cad-geom"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-geom",
+ "libm",
+ "serde_json",
 ]
 
 [[package]]

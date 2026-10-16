@@ -7,6 +7,8 @@
 //!   cadcraft-cli compile <file.dwg|file.dxf> [--json] [--bench N]   dev: the 2D display list (BimCraft's compileDrawing);
 //!                                                --bench N: best-of-N compile time after one warm-up
 //!   cadcraft-cli parity dxf <file.dxf>           dev: readDxfModel's model as JSON
+//!   cadcraft-cli cadgeom <cases.json>            dev: the drafting kernel's parity cases (forks/tools/gdiff.mjs) → JSON results
+//!   cadcraft-cli cadgeom --doc <script.json>     dev: a document-ops script, one snapshot per step → JSON
 //!
 //! Exit codes: 0 ok, 1 refused file / error, 2 usage, 3 engine not ported yet.
 #![forbid(unsafe_code)]
@@ -36,6 +38,7 @@ fn main() -> ExitCode {
         "parity" => parity(&rest),
         "bench" => bench(&rest),
         "compile" => compile(&rest),
+        "cadgeom" => cadgeom(&rest),
         _ => usage(),
     }
 }
@@ -283,5 +286,30 @@ fn compile(rest: &[&str]) -> ExitCode {
             d.stats.unsupported
         );
     }
+    ExitCode::SUCCESS
+}
+
+/// Dev: run the drafting kernel's parity cases, or (`--doc`) a document-ops script, and print the results as JSON.
+fn cadgeom(rest: &[&str]) -> ExitCode {
+    let doc_mode = rest.contains(&"--doc");
+    let Some(file) = rest.iter().find(|a| !a.starts_with("--")) else { return usage() };
+    let bytes = match read_file(file) {
+        Ok(b) => b,
+        Err(c) => return c,
+    };
+    let v: serde_json::Value = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            print_error("json", &e.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    let out = if doc_mode {
+        let steps = v.as_array().cloned().unwrap_or_default();
+        cc_cad::script::run(&steps)
+    } else {
+        cc_cad_geom::parity::run_cases(&v)
+    };
+    println!("{}", serde_json::Value::Array(out));
     ExitCode::SUCCESS
 }

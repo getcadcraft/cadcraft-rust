@@ -24,6 +24,8 @@ print_stderr = "allow"
 [workspace.dependencies]
 cc-geom = { path = "crates/geom" }
 cc-drawing = { path = "crates/drawing" }
+cc-cad = { path = "crates/cad" }
+cc-cad-geom = { path = "crates/cad-geom" }
 cc-io-dwg = { path = "crates/io-dwg" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }

@@ -1,0 +1,175 @@
+//! The Doc behaviours the CadCraft app's Node test relies on (getcadcraft.com/bin/test-cadcraft.mjs, 0.5: 'Blocks',
+//! 'Layouts and viewports', undo as one step per command), plus doc.js's own rules (JS Map order on undo, nested
+//! changes, rollback on error). Step-by-step parity with the JS Doc: forks/tools/gdiff.mjs (doc-ops script).
+
+use cc_cad::doc::{Block, DocEvent, Layout, MODEL};
+use cc_cad::{Doc, DocError, Entity};
+use cc_geom::P2;
+use serde_json::{Value, json};
+
+fn e(v: Value) -> Entity {
+    Entity::from_value(&v)
+}
+fn line() -> Entity {
+    e(json!({ "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1 }))
+}
+fn types(d: &Doc) -> Vec<String> {
+    d.entities().map(|x| x.typ().to_string()).collect()
+}
+
+#[test]
+fn add_defaults_and_one_step_per_change() {
+    let mut d = Doc::new();
+    let a = d.change("L", |d| d.add(line())).unwrap();
+    assert_eq!(a.id, Some(1));
+    assert_eq!(a.layer.as_deref(), Some("0"));
+    assert_eq!(a.to_value()["color"], Value::Null);
+    d.change("C", |d| {
+        d.add(e(json!({ "type": "circle", "layer": "New", "cx": 0, "cy": 0, "r": 1 })))?;
+        d.add(line())
+    })
+    .unwrap();
+    assert_eq!(d.undo_stack.len(), 2, "one undo step per change");
+    assert!(d.layers.contains_key(&"New".to_string()), "a new layer is made for a new object");
+    assert_eq!(d.undo().as_deref(), Some("C"));
+    assert_eq!(types(&d), vec!["line"]);
+    assert_eq!(d.redo().as_deref(), Some("C"));
+    assert_eq!(d.count(), 3);
+    assert!(d.change("nothing", |_| Ok(())).is_ok());
+    assert_eq!(d.undo_stack.len(), 2, "a change with no edits is no step");
+    assert_eq!(d.add(line()).map(|_| ()), Err(DocError::NotInChange));
+}
+
+#[test]
+fn undone_erase_comes_back_last_as_js_map_order() {
+    let mut d = Doc::new();
+    d.change("A", |d| {
+        for _ in 0..3 {
+            d.add(line())?;
+        }
+        Ok(())
+    })
+    .unwrap();
+    d.change("E", |d| d.remove(1)).unwrap();
+    d.undo();
+    let ids: Vec<u64> = d.entities().filter_map(|x| x.id).collect();
+    assert_eq!(ids, vec![2, 3, 1], "a Map re-set after delete goes to the end");
+}
+
+#[test]
+fn errors_roll_back_and_nested_changes_join() {
+    let mut d = Doc::new();
+    let r: Result<(), DocError> = d.change("X", |d| {
+        d.add(line())?;
+        d.change("inner", |d| d.add(line()).map(|_| ()))?;
+        Err(DocError::Failed("no".into()))
+    });
+    assert!(r.is_err());
+    assert_eq!(d.count(), 0);
+    assert!(d.undo_stack.is_empty());
+    d.change("Y", |d| {
+        d.add(line())?;
+        d.change("inner", |d| d.add(line()).map(|_| ()))
+    })
+    .unwrap();
+    assert_eq!(d.undo_stack.len(), 1, "a nested change is part of the outer one");
+}
+
+#[test]
+fn blocks_define_undo_redo_and_uses() {
+    let mut d = Doc::new();
+    d.change("B", |d| {
+        d.define_block(&Block::new(
+            "Bolt",
+            P2::new(0.0, 0.0),
+            vec![line(), e(json!({ "type": "circle", "id": 9, "cx": 0, "cy": 0, "r": 5 }))],
+        ))?;
+        d.add(e(json!({ "type": "insert", "block": "Bolt", "x": 100, "y": 0, "sx": 2, "rot": std::f64::consts::FRAC_PI_2 })))
+    })
+    .unwrap();
+    assert!(d.blocks.get(&"Bolt".to_string()).unwrap().entities.iter().all(|x| x.id.is_none()), "block entities lose their ids");
+    assert_eq!(d.block_uses("Bolt"), 1);
+    d.undo();
+    assert!(!d.blocks.contains_key(&"Bolt".to_string()) && d.count() == 0, "undo takes the definition away");
+    d.redo();
+    assert!(d.blocks.contains_key(&"Bolt".to_string()) && d.count() == 1);
+    d.change("PURGE", |d| d.remove_block("Nope")).unwrap();
+    assert_eq!(d.undo_stack.len(), 1, "removing a block that is not there is no edit");
+}
+
+#[test]
+fn layouts_undo_across_spaces() {
+    let mut d = Doc::new();
+    d.change("L", |d| d.add(line())).unwrap();
+    let s = d.new_space();
+    d.change("LAYOUT", |d| {
+        let mut list = d.layouts.clone();
+        let mut paper = cc_cad::Obj::new();
+        paper.insert("w".into(), json!(420));
+        paper.insert("h".into(), json!(297));
+        list.push(Layout { name: "Sheet".into(), paper, space: s });
+        d.set_layouts(list)
+    })
+    .unwrap();
+    d.set_space(Some("Sheet"));
+    assert_eq!(d.drain_events().last(), Some(&DocEvent::Space));
+    d.change("VP", |d| d.add(e(json!({ "type": "viewport", "x": 200, "y": 150, "w": 100, "h": 80, "cx": 0, "cy": 0, "s": 1 })))).unwrap();
+    assert!(d.layout().is_some() && d.count() == 1 && d.space_map(MODEL).unwrap().len() == 1, "drawing on a sheet draws in paper space");
+    d.set_space(None);
+    d.undo();
+    assert_eq!(d.space_map(s).unwrap().len(), 0, "the sheet's step undoes on the sheet while the model is open");
+    d.set_space(Some("Sheet"));
+    d.undo();
+    assert!(d.layouts.is_empty() && d.in_model(), "undoing LAYOUT removes the sheet and goes back to the model");
+    assert!(d.drain_events().contains(&DocEvent::Space));
+    d.redo();
+    assert_eq!(d.layouts.len(), 1);
+}
+
+#[test]
+fn mark_squash_and_rename_layer() {
+    let mut d = Doc::new();
+    let m = d.mark();
+    for _ in 0..3 {
+        d.change("L", |d| d.add(e(json!({ "type": "line", "layer": "Old", "x1": 0, "y1": 0, "x2": 1, "y2": 0 })))).unwrap();
+    }
+    d.squash(m, "LINES");
+    assert_eq!(d.undo_stack.len(), 1);
+    assert_eq!(d.undo_stack[0].label, "LINES");
+    let mut patch = cc_cad::Obj::new();
+    patch.insert("name".into(), json!("New"));
+    d.set_layer("Old", &patch, true).unwrap();
+    assert!(
+        d.entities().all(|x| x.layer.as_deref() == Some("New")) && d.current.layer == "New",
+        "a new name moves the objects on the layer"
+    );
+    assert_eq!(d.undo_stack.last().unwrap().label, "RENAME LAYER");
+    d.undo();
+    assert!(d.entities().all(|x| x.layer.as_deref() == Some("Old")) && d.current.layer == "0");
+}
+
+#[test]
+fn load_checks_file_data() {
+    let mut d = Doc::new();
+    d.load(&json!({
+        "entities": [{ "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 0, "ccref": 3, "layer": "" }, { "type": "face3d", "pts": [] }],
+        "blocks": [{ "name": "CADCRAFT_3D", "entities": [] }, { "name": "K", "entities": [], "xref": { "path": 12 } }],
+        "layouts": [{ "name": "S", "paper": { "w": 10 }, "entities": [{ "type": "point", "x": 1, "y": 1 }] }],
+        "views": [{ "name": "V", "cx": 0, "cy": 0, "w": 1, "h": 1 }, { "name": "", "cx": 0, "cy": 0, "w": 1, "h": 1 }],
+        "linetypes": [{ "name": "OK", "pattern": [1, -1] }, { "name": "BAD", "pattern": [1, "x"] }],
+        "textStyles": [["T", { "font": "Arial", "h": -2, "wf": 0, "obl": 0.1 }]],
+        "viewTwist": 1000
+    }));
+    let s = d.snapshot();
+    assert_eq!(s["model"].as_array().unwrap().len(), 1, "face3d left out of the drawing");
+    assert!(s["model"][0].get("ccref").is_none() && s["model"][0]["layer"] == "0" && s["model"][0]["color"] == Value::Null);
+    assert_eq!(s["blocks"].as_array().unwrap().len(), 1, "the 3D model's block is not a drawing block");
+    assert_eq!(s["blocks"][0]["xref"], json!({ "path": "12" }));
+    assert_eq!(s["layouts"][0]["paper"], json!({ "x0": 0, "y0": 0, "w": 10 }));
+    assert_eq!(s["layouts"][0]["entities"][0]["id"], json!(2));
+    assert_eq!(s["views"].as_array().unwrap().len(), 1);
+    assert_eq!(s["linetypes"].as_array().unwrap().len(), 1);
+    assert_eq!(s["textStyles"][0][1], json!({ "font": "Arial", "h": 0, "wf": 1, "obl": 0.1 }));
+    assert_eq!(s["viewTwist"], json!(0));
+    assert!(!d.dirty() && d.undo_stack.is_empty());
+}

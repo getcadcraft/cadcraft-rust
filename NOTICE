@@ -5,3 +5,8 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 
 cc-dwg (crates/io-dwg) is a port of CadCraft's own clean-room DWG reader (lib/dwg, Apache-2.0), written from the
 Open Design Alliance "Open Design Specification for .dwg files". No DWG library's source was read.
+
+cc-cad-geom (crates/cad-geom/src/jsmath.rs) contains the fdlibm 5.3 sin/cos kernels, as V8 uses them:
+Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved. Developed at SunSoft, a Sun Microsystems, Inc.
+business. Permission to use, copy, modify, and distribute this software is freely granted, provided that this notice
+is preserved.

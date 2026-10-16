@@ -17,3 +17,6 @@ workspace = true
 
 [dependencies]
 cc-io-dwg.workspace = true
+cc-cad.workspace = true
+cc-cad-geom.workspace = true
+serde_json.workspace = true
