@@ -1,6 +1,6 @@
 [package]
 name = "cc-drawing"
-description = "CadCraft L1: the 2D drawing document model (pure data)."
+description = "CadCraft L1: the 2D drawing display model (spaces, layers, batches of lines/fills/texts), pure data."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -17,3 +17,5 @@ workspace = true
 
 [dependencies]
 cc-geom.workspace = true
+serde.workspace = true
+serde_json.workspace = true

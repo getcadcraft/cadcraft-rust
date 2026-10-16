@@ -20,12 +20,14 @@
 pub mod acds;
 pub mod acis;
 pub mod bits;
+pub mod compile;
 pub mod container;
 pub mod crc;
 pub mod dec_entities;
 pub mod dec_mleader;
 pub mod dec_objects;
 pub mod dec_objects2;
+pub mod dxf_model;
 pub mod dynblock_read;
 pub mod header_vars;
 pub mod lz2004;

@@ -1,0 +1,23 @@
+[package]
+name = "cadcraft-shot"
+description = "CadCraft (Rust test version): headless screenshots and frame-time benchmarks of the real UI (egui_kittest on wgpu)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 7
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-ui-egui.workspace = true
+egui = { version = "0.37", default-features = false }
+egui_kittest = { version = "0.37", default-features = false, features = ["wgpu"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+egui-wgpu = { version = "0.37", default-features = false }

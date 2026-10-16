@@ -16,3 +16,7 @@ layer = 7
 workspace = true
 
 [dependencies]
+cc-ui-egui.workspace = true
+eframe = { version = "0.37", default-features = false, features = ["wgpu_no_default_features", "x11", "wayland", "accesskit"] }
+rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "pollster", "wayland"] }
+egui = { version = "0.37", default-features = false }

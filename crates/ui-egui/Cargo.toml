@@ -1,6 +1,6 @@
 [package]
 name = "cc-ui-egui"
-description = "CadCraft L6: the egui frontend."
+description = "CadCraft L6: the egui frontend (viewer canvas on wgpu, panels, theme)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -16,4 +16,12 @@ layer = 6
 workspace = true
 
 [dependencies]
-cc-engine.workspace = true
+cc-drawing.workspace = true
+cc-render.workspace = true
+cc-io-dwg.workspace = true
+egui = { version = "0.37", default-features = false }
+egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm"] }
+web-time = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rayon = "1"

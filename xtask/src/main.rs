@@ -6,6 +6,8 @@
 //!   assets        every file under assets/ has a row in ASSETS.md
 //!   deny          `cargo deny check`
 //!   fuzz [--smoke] [--secs N]   each fuzz target over its corpus (needs the nightly toolchain + cargo-fuzz)
+//!   web           trunk build --release of apps/cadcraft-web into dist/web, then the inline init script moves into
+//!                 its own hashed file (the host's CSP is script-src 'self' 'wasm-unsafe-eval': no inline script)
 #![forbid(unsafe_code)]
 // No indexing_slicing deny here: `serde_json::Value[...]` returns Null for a missing key, it never panics.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -30,8 +32,9 @@ fn main() -> ExitCode {
         "assets" => assets(),
         "deny" => deny(),
         "fuzz" => fuzz(rest),
+        "web" => web(),
         _ => {
-            eprintln!("usage: cargo xtask <ci|layers|wasm|assets|deny|fuzz [--smoke] [--secs N]>");
+            eprintln!("usage: cargo xtask <ci|layers|wasm|assets|deny|fuzz [--smoke] [--secs N]|web>");
             return ExitCode::from(2);
         }
     };
@@ -259,5 +262,35 @@ fn fuzz(args: &[String]) -> R {
         c.args(["--", &format!("-max_total_time={secs}"), "-rss_limit_mb=2048", "-max_len=4194304"]);
         run(&format!("fuzz {t} ({secs} s)"), c)?;
     }
+    Ok(())
+}
+
+fn web() -> R {
+    let app = root().join("apps").join("cadcraft-web");
+    let mut c = Command::new("trunk");
+    c.current_dir(&app);
+    c.args(["build", "--release"]);
+    run("trunk build --release", c)?;
+    let dist = root().join("dist").join("web");
+    let index = dist.join("index.html");
+    let html = std::fs::read_to_string(&index).map_err(|e| format!("{}: {e}", index.display()))?;
+    let Some(a) = html.find("<script type=\"module\">") else { return Ok(()) };
+    let body_start = a + "<script type=\"module\">".len();
+    let Some(rel_end) = html.get(body_start..).and_then(|t| t.find("</script>")) else {
+        return Err("index.html: unterminated inline script".into());
+    };
+    let body = html.get(body_start..body_start + rel_end).unwrap_or_default();
+    // name the file after its content (FNV-1a, 16 hex digits) so it can be cached forever
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in body.bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    let name = format!("init-{h:016x}.js");
+    std::fs::write(dist.join(&name), body).map_err(|e| format!("{name}: {e}"))?;
+    let tag = format!("<script type=\"module\" src=\"/{name}\"></script>");
+    let out =
+        format!("{}{}{}", html.get(..a).unwrap_or_default(), tag, html.get(body_start + rel_end + "</script>".len()..).unwrap_or_default());
+    std::fs::write(&index, out).map_err(|e| format!("{}: {e}", index.display()))?;
+    eprintln!("   inline init script → {name}");
     Ok(())
 }

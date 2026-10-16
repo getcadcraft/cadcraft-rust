@@ -1,0 +1,5 @@
+[build]
+target = "index.html"
+dist = "../../dist/web"
+filehash = true
+public_url = "/"

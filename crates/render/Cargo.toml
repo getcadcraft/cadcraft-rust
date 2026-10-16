@@ -1,6 +1,6 @@
 [package]
 name = "cc-render"
-description = "CadCraft L3: drawing to display lists (pure function of document, view, options)."
+description = "CadCraft L3: drawing to GPU buffers and draw calls (wgpu; no UI toolkit), plus the view transform."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -18,3 +18,5 @@ workspace = true
 [dependencies]
 cc-geom.workspace = true
 cc-drawing.workspace = true
+wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu", "dx12", "metal", "vulkan", "gles", "std"] }
+lyon_tessellation = "1"

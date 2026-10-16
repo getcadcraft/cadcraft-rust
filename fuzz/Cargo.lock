@@ -29,6 +29,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-drawing"
+version = "0.0.1"
+dependencies = [
+ "cc-geom",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-geom"
 version = "0.0.1"
 
@@ -36,6 +45,7 @@ version = "0.0.1"
 name = "cc-io-dwg"
 version = "0.0.1"
 dependencies = [
+ "cc-drawing",
  "cc-geom",
  "encoding_rs",
  "rayon",
@@ -252,6 +262,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]

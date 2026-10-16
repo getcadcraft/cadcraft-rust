@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 cc-geom.workspace = true
+cc-drawing.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 encoding_rs = "0.8"
