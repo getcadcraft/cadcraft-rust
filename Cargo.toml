@@ -50,3 +50,7 @@ overflow-checks = true
 
 [profile.bench]
 inherits = "release"
+
+[profile.profiling]
+inherits = "release"
+debug = true

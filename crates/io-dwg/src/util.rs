@@ -188,3 +188,29 @@ mod tests {
         assert_eq!(to_u32(-1.0), 4294967295);
     }
 }
+
+/// A fast hasher for integer keys (handles): a multiply-rotate mix, not DoS-resistant (keys come from one file
+/// and only shape performance, never correctness).
+#[derive(Default, Clone, Copy, Debug)]
+pub struct IntHasher(u64);
+impl std::hash::Hasher for IntHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ u64::from(b)).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    fn write_i64(&mut self, n: i64) {
+        self.0 = (n as u64 ^ self.0).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+    fn write_u64(&mut self, n: u64) {
+        self.0 = (n ^ self.0).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.write_u64(n as u64);
+    }
+}
+pub type IntMap<K, V> = std::collections::HashMap<K, V, std::hash::BuildHasherDefault<IntHasher>>;
+pub type IntSet<K> = std::collections::HashSet<K, std::hash::BuildHasherDefault<IntHasher>>;

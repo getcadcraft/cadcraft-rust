@@ -314,55 +314,74 @@ fn read_data_section(
     plausible_size(max_size, b.len())?;
     let size_u = crate::util::to_usize(size);
     let mut out = vec![0u8; size_u];
-    let mut bad = 0usize;
-    for num in list {
-        let Some(loc) = pages.get(num) else {
-            bad = bad.saturating_add(1);
-            continue;
-        };
+    // Pass 1 (parallel): locate, checksum and decompress every page; pass 2 (in page order) applies them
+    // exactly as the sequential reader did, so notes and the first error come out the same.
+    struct Page {
+        ok: bool,
+        sum_ok: bool,
+        start: f64,
+        data: Option<Res<Vec<u8>>>,
+        from: usize,
+    }
+    let job = |num: &i64| -> Page {
+        let bad = Page { ok: false, sum_ok: true, start: 0.0, data: None, from: 0 };
+        let Some(loc) = pages.get(num) else { return bad };
         let at = loc.addr;
         if at.saturating_add(32) > b.len() {
-            bad = bad.saturating_add(1);
-            continue;
+            return bad;
         }
         let mask = 0x4164_536Bu32 ^ u32::try_from(at).unwrap_or(0);
         let hh = |k: usize| u32_at(b, at.saturating_add(k)) ^ mask; // at + 32 <= b.len()
-        let ptype = hh(0);
         let data_size = crate::util::usize_from_u32(hh(8));
         let start = f64::from(hh(16)) + f64::from(hh(20)) * 4294967296.0;
-        let data_sum = hh(0x1C);
-        if ptype != 0x4163_043B {
-            bad = bad.saturating_add(1);
-            continue;
+        if hh(0) != 0x4163_043B {
+            return bad;
         }
         let from = at.saturating_add(32);
         let to = from.saturating_add(data_size);
         if to > b.len() {
+            return bad;
+        }
+        let sum_ok = page_checksum(0, b, from, to) == hh(0x1C);
+        let logical = max_size.min(size - start);
+        let data = if compressed && logical > 0.0 { Some(decompress_r2004(b, from, to, crate::util::to_usize(max_size))) } else { None };
+        Page { ok: true, sum_ok, start, data, from }
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let jobs: Vec<Page> = {
+        use rayon::prelude::*;
+        list.par_iter().map(job).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let jobs: Vec<Page> = list.iter().map(job).collect();
+    let mut bad = 0usize;
+    for pg in jobs {
+        if !pg.ok {
             bad = bad.saturating_add(1);
             continue;
         }
-        if page_checksum(0, b, from, to) != data_sum {
+        if !pg.sum_ok {
             notes.push(msg("ccdwg.read.page_checksum", &[("name", name)]));
         }
-        let logical = max_size.min(size - start);
+        let logical = max_size.min(size - pg.start);
         if logical <= 0.0 {
             continue;
         }
         let logical = crate::util::to_usize(logical);
-        let start = crate::util::to_usize(start);
+        let start = crate::util::to_usize(pg.start);
         let page;
-        let src: &[u8] = if compressed {
-            page = decompress_r2004(b, from, to, crate::util::to_usize(max_size))?;
-            &page
-        } else {
-            b.get(from..).unwrap_or_default()
-        };
-        for i in 0..logical {
-            match out.get_mut(start.saturating_add(i)) {
-                Some(x) => *x = src.get(i).copied().unwrap_or(0),
-                None => break,
+        let src: &[u8] = match pg.data {
+            Some(r) => {
+                page = r?;
+                &page
             }
+            None => b.get(pg.from..).unwrap_or_default(),
+        };
+        let n = logical.min(src.len()).min(size_u.saturating_sub(start));
+        if let (Some(dst), Some(s)) = (out.get_mut(start..start.saturating_add(n)), src.get(..n)) {
+            dst.copy_from_slice(s);
         }
+        // the JS copies `logical` bytes; past the source it writes zeros, which `out` already holds
     }
     if bad > 0 {
         notes.push(msg("ccdwg.read.pages_bad", &[("n", &bad.to_string()), ("name", name)]));

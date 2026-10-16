@@ -2,7 +2,9 @@
 //! → objects (ch. 20) → the model. Objects decode independently (in parallel on native builds); the model
 //! is assembled in the same order as the JavaScript reader, so the output matches it field for field.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+
+use crate::util::{IntMap, IntSet};
 
 use crate::bits::{BitReader, Codepage, DwgError, Res};
 use crate::container::{Container, SENTINEL_CLASSES, SENTINEL_HEADER, read_container, u16_at, u32_at};
@@ -24,7 +26,7 @@ pub struct ReadOpts {
 /// The decoded records in object-map order (a JS `Map` keyed by handle).
 #[derive(Debug, Default)]
 pub struct Records {
-    pub idx: HashMap<i64, usize>,
+    pub idx: IntMap<i64, usize>,
     pub list: Vec<Record>,
 }
 impl Records {
@@ -101,6 +103,14 @@ fn plain_err(e: &DwgError) -> bool {
 pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
     let t0 = std::time::Instant::now();
     let mut model = new_model();
+    let phases = std::env::var_os("CCDWG_PHASES").is_some();
+    let mut lap = std::time::Instant::now();
+    let mut phase = |name: &str| {
+        if phases {
+            eprintln!("ccdwg phase {name}: {:.2} ms", lap.elapsed().as_secs_f64() * 1000.0);
+            lap = std::time::Instant::now();
+        }
+    };
     let c: Container = match read_container(bytes) {
         Ok(c) => c,
         Err(e) => {
@@ -170,6 +180,7 @@ pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
     }
 
     // ---- classes (ch. 10)
+    phase("container+header");
     match read_classes_section(c.section("AcDb:Classes"), &ctx, &mut notes) {
         Ok(list) => {
             let mut arr = Vec::with_capacity(list.len());
@@ -198,7 +209,11 @@ pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
     let mut crc_bad = 0usize;
     let mut damaged_types: Vec<(String, usize)> = Vec::new();
     if objs.is_some() {
+        phase("classes+map");
         let decoded = decode_all(buf, &map, &ctx);
+        records.list.reserve(map.len());
+        records.idx.reserve(map.len());
+        phase("decode");
         for ((handle, _), res) in map.iter().zip(decoded) {
             let rec = match res {
                 Ok(r) => r,
@@ -251,6 +266,7 @@ pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
     for (t, n) in &damaged_types {
         notes.push(msg("ccdwg.read.partial_type", &[("n", &n.to_string()), ("type", t)]));
     }
+    phase("records-insert");
     if ver >= 27 {
         crate::solid_read::attach_data_storage(&mut records, c.section("AcDb:AcDsPrototype_1b"), &mut notes);
     }
@@ -259,13 +275,19 @@ pub fn read_dwg(bytes: &[u8], opts: &ReadOpts) -> Obj {
     if let Some(rep) = model.obj_mut("report") {
         rep.set("notes", notes.into_iter().map(V::Str).collect::<Vec<V>>());
     }
+    phase("records");
     build_model(&mut model, &mut records, &ctx, buf);
+    phase("build");
     let _ = crate::dynblock_read::read_dynamic(&mut model);
+    phase("dynamic");
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     if let Some(rep) = model.obj_mut("report") {
         rep.set("ms", ms.round());
         rep.set("objects", records.len());
     }
+    // Freeing tens of thousands of records costs milliseconds the caller need not wait for.
+    #[cfg(not(target_arch = "wasm32"))]
+    std::thread::spawn(move || drop(records));
     model
 }
 
@@ -419,7 +441,7 @@ fn read_classes_section(sec: Option<&[u8]>, ctx: &Ctx, notes: &mut Vec<String>) 
 fn read_object_map(sec: Option<&[u8]>, notes: &mut Vec<String>) -> Res<Vec<(f64, f64)>> {
     let Some(sec) = sec else { return Err(DwgError(msg("ccdwg.err.no_handles", &[]))) };
     let mut list: Vec<(f64, f64)> = Vec::new();
-    let mut pos_of: HashMap<i64, usize> = HashMap::new();
+    let mut pos_of: IntMap<i64, usize> = IntMap::default();
     let mut p = 0usize;
     let mut bad = 0usize;
     while p.saturating_add(2) <= sec.len() {
@@ -503,15 +525,15 @@ fn dim_base(t: &str) -> Option<i32> {
 /// Copy the public fields of a record (no _private, no handle-ref bag); bytes become base64 text.
 pub fn plain(rec: &Record) -> Obj {
     let mut o = Obj::with_capacity(rec.f.len());
-    for (k, v) in rec.f.iter() {
-        if k.starts_with('_') || SKIP_KEYS.contains(&k) {
+    for (k, v) in &rec.f.0 {
+        if k.starts_with('_') || SKIP_KEYS.contains(&k.as_ref()) {
             continue;
         }
         let v = match v {
             V::Bytes(b) => V::Str(crate::util::b64(b)),
             other => other.clone(),
         };
-        o.0.push((std::borrow::Cow::Owned(k.to_string()), v));
+        o.0.push((k.clone(), v));
     }
     o
 }
@@ -528,9 +550,15 @@ fn get_f(r: &Record, k: &str) -> Option<V> {
 fn hlist(v: &[f64]) -> V {
     V::Arr(v.iter().map(|&h| V::Str(hx(h))).collect())
 }
+fn count_type_ref(e: &Obj) -> &str {
+    if e.str("type") == Some("UNKNOWN") { e.str("dxfName").unwrap_or("") } else { e.str("type").unwrap_or("") }
+}
 fn inc(o: &mut Obj, k: &str) {
-    let n = o.num(k).unwrap_or(0.0) + 1.0;
-    o.set(k.to_string(), n);
+    match o.get_mut(k) {
+        Some(V::Num(n)) => *n += 1.0,
+        Some(other) => *other = V::Num(other.as_f64().unwrap_or(f64::NAN) + 1.0),
+        None => o.0.push((std::borrow::Cow::Owned(k.to_string()), V::Num(1.0))),
+    }
 }
 fn xdata_items(items: &[(i32, V)]) -> Vec<V> {
     items.iter().map(|(c, v)| V::Arr(vec![V::from(*c), v.clone()])).collect()
@@ -681,7 +709,7 @@ fn fix_records(model: &mut Obj, records: &mut Records, ver: u32) {
     let owns_graph = |records: &Records, r: &Record| -> bool {
         r.hn("xdic").and_then(|x| records.get(x)).and_then(dict_names).is_some_and(|n| n.iter().any(|s| s == "ACAD_ENHANCEDBLOCK"))
     };
-    let mut used_names: HashSet<String> = HashSet::new();
+    let mut used_names: std::collections::HashSet<String> = std::collections::HashSet::new();
     for r in records.iter() {
         if r.typ == "BLOCK_HEADER"
             && let Some(n) = r.f.get("name")
@@ -750,18 +778,50 @@ fn fix_records(model: &mut Obj, records: &mut Records, ver: u32) {
     }
 }
 
+/// What converting one entity changes besides its output (kept per thread, merged in order).
+#[derive(Default)]
+struct Local {
+    used: Vec<i64>,
+    unknown: Vec<String>,
+    build_errors: usize,
+}
+
 struct Conv<'a> {
     b: Build<'a>,
     ver: u32,
     ms_rec: f64,
     ps_rec: f64,
-    used: HashSet<i64>,
+    used: IntSet<i64>,
     unknown: Obj,
     build_errors: usize,
-    mlatt_fold: HashSet<i64>,
+    mlatt_fold: IntSet<i64>,
+}
+
+/// Convert a block's entities, in parallel on native builds; results come back in input order.
+fn convert_many(cv: &Conv, todo: &[(f64, f64)]) -> Vec<(Obj, Local)> {
+    let one = |&(h, owner): &(f64, f64)| {
+        let mut l = Local::default();
+        let e = cv.convert(&mut l, h, owner);
+        (e, l)
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        if todo.len() > 256 {
+            return todo.par_iter().with_min_len(64).map(one).collect();
+        }
+    }
+    todo.iter().map(one).collect()
 }
 
 impl<'a> Conv<'a> {
+    fn merge(&mut self, l: Local) {
+        self.used.extend(l.used);
+        for t in l.unknown {
+            inc(&mut self.unknown, &t);
+        }
+        self.build_errors = self.build_errors.saturating_add(l.build_errors);
+    }
     fn get(&self, h: f64) -> Option<&'a Record> {
         let recs: &'a Records = self.b.records;
         recs.get(h)
@@ -828,7 +888,7 @@ impl<'a> Conv<'a> {
     /// R13–R2000 entity chains.
     fn chain(&self, first: f64, last: f64) -> Vec<f64> {
         let mut out = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = IntSet::default();
         let mut h = first;
         while h != 0.0 && !seen.contains(&to_i64(h)) && out.len() <= self.b.records.len() {
             seen.insert(to_i64(h));
@@ -892,9 +952,9 @@ impl<'a> Conv<'a> {
         }
     }
 
-    fn convert(&mut self, rec_h: f64, owner_handle: f64) -> Obj {
+    fn convert(&self, l: &mut Local, rec_h: f64, owner_handle: f64) -> Obj {
         let Some(rec) = self.get(rec_h) else { return Obj::new() };
-        self.used.insert(to_i64(rec.handle));
+        l.used.push(to_i64(rec.handle));
         let ver = self.ver;
         let owner = if owner_handle != 0.0 { owner_handle } else { self.owner_of(rec) };
         let mut e = obj! { "handle" => hx(rec.handle), "type" => rec.typ.clone(), "owner" => hx(owner) };
@@ -969,15 +1029,15 @@ impl<'a> Conv<'a> {
             if let Some(de) = rec.data_end {
                 e.set("bits", crate::util::usize_to_f64(de) - crate::util::usize_to_f64(rec.data_start));
             }
-            inc(&mut self.unknown, &rec.typ);
+            l.unknown.push(rec.typ.clone());
             return e;
         }
-        match self.type_fields(rec) {
+        match self.type_fields(l, rec) {
             Ok(f) => e.assign(f),
             Err(err) => {
                 let prev = rec.error.as_ref().map(|x| format!("{x}; ")).unwrap_or_default();
                 e.set("damaged", format!("{prev}model: {}", err.0));
-                self.build_errors = self.build_errors.saturating_add(1);
+                l.build_errors = l.build_errors.saturating_add(1);
                 return e;
             }
         }
@@ -987,7 +1047,7 @@ impl<'a> Conv<'a> {
         e
     }
 
-    fn type_fields(&mut self, rec: &'a Record) -> Res<Obj> {
+    fn type_fields(&self, l: &mut Local, rec: &'a Record) -> Res<Obj> {
         let mut f = plain(rec);
         let ver = self.ver;
         let h = |k: &str| rec.hn(k).unwrap_or(0.0);
@@ -1050,15 +1110,15 @@ impl<'a> Conv<'a> {
                     let is_attrib = self.get(a).is_some_and(|r| r.typ == "ATTRIB");
                     if is_attrib {
                         if self.mlatt_fold.contains(&to_i64(a)) {
-                            self.used.insert(to_i64(a));
+                            l.used.push(to_i64(a));
                         } else {
-                            atts.push(V::Obj(self.convert(a, rec.handle)));
+                            atts.push(V::Obj(self.convert(l, a, rec.handle)));
                         }
                     }
                 }
                 f.set("attribs", atts);
                 if h("seqend") != 0.0 {
-                    self.used.insert(to_i64(h("seqend")));
+                    l.used.push(to_i64(h("seqend")));
                 }
             }
             "POLYLINE_2D" | "POLYLINE_3D" | "POLYLINE_PFACE" | "POLYLINE_MESH" => {
@@ -1073,7 +1133,7 @@ impl<'a> Conv<'a> {
                     if !v.typ.starts_with("VERTEX") {
                         continue;
                     }
-                    self.used.insert(to_i64(vhd));
+                    l.used.push(to_i64(vhd));
                     if v.typ == "VERTEX_PFACE_FACE" {
                         if let Some(ix) = v.f.get("indices")
                             && ix.truthy()
@@ -1101,7 +1161,7 @@ impl<'a> Conv<'a> {
                     verts.push(V::Obj(o));
                 }
                 if h("seqend") != 0.0 {
-                    self.used.insert(to_i64(h("seqend")));
+                    l.used.push(to_i64(h("seqend")));
                 }
                 f.set("vertices", verts);
                 if rec.typ == "POLYLINE_PFACE" {
@@ -1317,9 +1377,18 @@ fn build_model_parts(
     build_errors: &mut usize,
     notes: &mut Vec<String>,
 ) -> Res<()> {
+    let phases = std::env::var_os("CCDWG_PHASES").is_some();
+    let mut lap = std::time::Instant::now();
+    let mut ph = |name: &str| {
+        if phases {
+            eprintln!("ccdwg   build {name}: {:.2} ms", lap.elapsed().as_secs_f64() * 1000.0);
+            lap = std::time::Instant::now();
+        }
+    };
     let ver = ctx.ver;
     fix_records(model, records, ver);
     let records: &Records = records;
+    ph("fix_records");
     let hnum = |k: &str| model.obj("header").and_then(|h| h.str(k)).map(handle_num).unwrap_or(0.0);
     let controls = [
         ("blockRecords", hnum("BLOCK_CONTROL_OBJECT")),
@@ -1336,7 +1405,7 @@ fn build_model_parts(
     let ps_rec = hnum("BLOCK_RECORD_PAPER_SPACE");
     let mut table_recs: HashMap<&str, Vec<&Record>> = HashMap::new();
     for (t, ch) in controls {
-        let mut seen = HashSet::new();
+        let mut seen = IntSet::default();
         let mut list = Vec::new();
         if let Some(c) = records.get(ch)
             && let Some(ents) = c.hlist("entries")
@@ -1364,10 +1433,10 @@ fn build_model_parts(
         ver,
         ms_rec,
         ps_rec,
-        used: HashSet::new(),
+        used: IntSet::default(),
         unknown: Obj::new(),
         build_errors: 0,
-        mlatt_fold: HashSet::new(),
+        mlatt_fold: IntSet::default(),
     };
     let empty: Vec<&Record> = Vec::new();
     let tr = |k: &str| table_recs.get(k).unwrap_or(&empty);
@@ -1522,10 +1591,11 @@ fn build_model_parts(
     }
     tables.set("blockRecords", brs);
     model.set("tables", tables);
+    ph("tables");
 
     // ---- entities
-    let mut rec_space: HashMap<i64, &str> = HashMap::new();
-    let mut layout_blocks: HashSet<i64> = HashSet::new();
+    let mut rec_space: IntMap<i64, &str> = IntMap::default();
+    let mut layout_blocks: IntSet<i64> = IntSet::default();
     for r in records.iter() {
         if r.typ == "LAYOUT"
             && let Some(b) = r.hn("block")
@@ -1559,6 +1629,7 @@ fn build_model_parts(
         }
     }
     let mut counts = Obj::new();
+    ph("pre-entities");
     let mut by_space = obj! { "model" => Obj::new(), "paper" => Obj::new(), "block" => Obj::new() };
     let count_type = |e: &Obj| -> String {
         if e.str("type") == Some("UNKNOWN") {
@@ -1586,6 +1657,7 @@ fn build_model_parts(
         recs_in_order.push(r);
     }
     let mut blocks: Vec<Obj> = Vec::new();
+    let mut pending: Vec<(Obj, Vec<f64>, Option<&str>, f64)> = Vec::new();
     for brr in recs_in_order {
         let blk = records.get(brr.hn("block").unwrap_or(0.0));
         let mut b = Obj::new();
@@ -1626,7 +1698,7 @@ fn build_model_parts(
             eh = Some(cv.chain(brr.hn("firstEntity").unwrap_or(0.0), brr.hn("lastEntity").unwrap_or(0.0)));
         }
         let space = rec_space.get(&to_i64(brr.handle)).copied();
-        let mut ents = Vec::new();
+        let mut todo: Vec<f64> = Vec::new();
         for h in eh.unwrap_or_default() {
             let Some(r) = records.get(h) else { continue };
             if !r.is_entity || SUB_TYPES.contains(&r.typ.as_str()) {
@@ -1636,26 +1708,43 @@ fn build_model_parts(
                 cv.used.insert(to_i64(h));
                 continue;
             }
-            let mut e = cv.convert(h, brr.handle);
+            todo.push(h);
+        }
+        pending.push((b, todo, space, brr.handle));
+    }
+    // every block's entities in one batch (parallel on native builds), then back in block order
+    let flat: Vec<(f64, f64)> = pending.iter().flat_map(|(_, todo, _, owner)| todo.iter().map(move |&h| (h, *owner))).collect();
+    ph("blocks-prep");
+    let mut converted = convert_many(&cv, &flat).into_iter();
+    ph("blocks-convert");
+    for (mut b, todo, space, _) in pending {
+        let mut ents = Vec::with_capacity(todo.len());
+        for _ in 0..todo.len() {
+            let Some((mut e, l)) = converted.next() else { break };
+            cv.merge(l);
             if let Some(s) = space {
                 e.set("space", s);
             }
             let s_key = space.unwrap_or("block");
-            let mut types = vec![count_type(&e)];
+            let space_counts = by_space.obj_mut(s_key);
+            let t = count_type_ref(&e);
+            inc(&mut counts, t);
+            let mut space_counts = space_counts;
+            if let Some(so) = space_counts.as_deref_mut() {
+                inc(so, t);
+            }
             if let Some(V::Arr(atts)) = e.get_mut("attribs") {
                 for a in atts.iter_mut() {
                     if let V::Obj(a) = a {
                         if let Some(s) = space {
                             a.set("space", s);
                         }
-                        types.push(count_type(a));
+                        let t = count_type_ref(a);
+                        inc(&mut counts, t);
+                        if let Some(so) = space_counts.as_deref_mut() {
+                            inc(so, t);
+                        }
                     }
-                }
-            }
-            for t in types {
-                inc(&mut counts, &t);
-                if let Some(so) = by_space.obj_mut(s_key) {
-                    inc(so, &t);
                 }
             }
             ents.push(V::Obj(e));
@@ -1663,6 +1752,7 @@ fn build_model_parts(
         b.set("entities", ents);
         blocks.push(b);
     }
+    ph("blocks");
     // orphans
     let mut orphans = 0usize;
     for r in records.iter() {
@@ -1672,7 +1762,9 @@ fn build_model_parts(
         let owner = cv.owner_of(r);
         let ohx = hx(owner);
         let Some(bi) = blocks.iter().position(|x| x.str("record") == Some(ohx.as_str())) else { continue };
-        let mut e = cv.convert(r.handle, owner);
+        let mut l = Local::default();
+        let mut e = cv.convert(&mut l, r.handle, owner);
+        cv.merge(l);
         if let Some(s) = rec_space.get(&to_i64(owner)) {
             e.set("space", *s);
         }
@@ -1687,6 +1779,7 @@ fn build_model_parts(
     if orphans > 0 {
         notes.push(msg("ccdwg.read.orphans", &[("n", &orphans.to_string())]));
     }
+    ph("orphans");
     // layouts
     let mut layouts: Vec<Obj> = Vec::new();
     for r in records.iter() {
@@ -1773,6 +1866,7 @@ fn build_model_parts(
         let y = b.num("tabOrder").unwrap_or(f64::NAN);
         (x - y).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal)
     });
+    ph("layouts");
     // non-graphical objects
     let is_table_thing = |t: &str| table_of(t).is_some() || t.ends_with("_CONTROL") || t == "VPENT_HEADER";
     let mut objects: Vec<Obj> = Vec::new();
@@ -1808,6 +1902,7 @@ fn build_model_parts(
         }
         objects.push(o);
     }
+    ph("objects");
     objects.sort_by(|a, b| {
         let x = handle_num(a.str("handle").unwrap_or(""));
         let y = handle_num(b.str("handle").unwrap_or(""));
