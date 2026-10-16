@@ -1,0 +1,24 @@
+[package]
+name = "cadcraft-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+cc-io-dwg = { path = "../crates/io-dwg" }
+
+[[bin]]
+name = "dwg_read"
+path = "fuzz_targets/dwg_read.rs"
+test = false
+doc = false
+bench = false
+
+[profile.release]
+debug = 1
+overflow-checks = true

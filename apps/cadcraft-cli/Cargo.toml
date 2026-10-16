@@ -16,3 +16,4 @@ layer = 7
 workspace = true
 
 [dependencies]
+cc-io-dwg.workspace = true
