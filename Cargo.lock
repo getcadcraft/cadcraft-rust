@@ -587,6 +587,7 @@ name = "cc-cad-geom"
 version = "0.0.1"
 dependencies = [
  "cc-cad",
+ "cc-drawing",
  "cc-geom",
  "libm",
  "serde_json",

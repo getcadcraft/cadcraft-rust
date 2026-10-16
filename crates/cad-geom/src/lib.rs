@@ -31,6 +31,7 @@
 pub mod corners;
 pub mod dims;
 pub mod dimstyle;
+pub mod display;
 pub mod edit;
 pub mod font;
 pub mod geom;

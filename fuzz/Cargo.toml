@@ -11,6 +11,9 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 cc-io-dwg = { path = "../crates/io-dwg" }
+cc-cad = { path = "../crates/cad" }
+cc-cad-geom = { path = "../crates/cad-geom" }
+serde_json = "1"
 
 [[bin]]
 name = "dwg_read"
@@ -29,3 +32,10 @@ bench = false
 [profile.release]
 debug = 1
 overflow-checks = true
+
+[[bin]]
+name = "cad_load"
+path = "fuzz_targets/cad_load.rs"
+test = false
+doc = false
+bench = false

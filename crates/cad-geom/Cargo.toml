@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 cc-cad.workspace = true
+cc-drawing.workspace = true
 cc-geom.workspace = true
 serde_json.workspace = true
 # FreeBSD msun (fdlibm) in Rust: the same sin / cos / tan / atan / atan2 / acos / pow V8 uses, bit for bit (already in Cargo.lock via num-traits)

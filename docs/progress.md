@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-16 — M4 in progress
+
+- M4.1: `cc-engine::prompt`: commands are async blocks that ask questions (`Prompter::ask`) and a runtime-free
+  `Runner` answers them (Esc = `Cancelled`), single-threaded, wasm-safe.
+- M4.2: `cc-cad` (L1, doc.js: typed entities, change/undo/redo across spaces, blocks, layouts, load, snapshot) and
+  `cc-cad-geom` (L2, geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch). Agent-ported. Parity with
+  `forks/tools/gdiff.mjs --exact` (no tolerance): 0 differences on ~18,000 geometry cases per seed (seeds 1–10) and
+  1,210/1,210 doc-op steps. V8's sin/cos are fdlibm's: ported (`jsmath.rs`, Sun notice kept, NOTICE updated);
+  tan/atan/atan2/acos from the `libm` crate match V8 exactly.
+- Fuzz target `cad_load` (any JSON → `Doc::load` → snapshot → grips, explode, walk): 648,764 runs in 10 min, no crash.
+- `cc-cad-geom::display`: the editable document walked into the viewer's display model, so the drafting canvas
+  renders through the M3 GPU renderer.
+- Running: the DWG writer (byte-identical to write.js, 78 files × 6 versions), the drafting commands (LINE … TRIM on
+  the prompt Runner, harness kdiff.mjs), and DWG import + CadCraft's DXF read/write (new crate `io-cad`, harness
+  idiff.mjs), each by an agent in its own work copy.
+
 ## 2026-10-16 — M3 done
 
 - `cc-drawing` (L1): the display model (spaces → batches per layer × colour × weight: polylines, fills, texts),
