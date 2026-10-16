@@ -1,0 +1,470 @@
+//! ModelCraft in the 3D view: the cc-m3d model edited through cc-m3d-tools (ModelCraft's tools.js, camera.js and
+//! infer.js at parity), drawn through the shared 3D view, with the tools' overlay (inference markers, rubber bands,
+//! previews, the selection window, grips, dimensions) painted on top the way view3d.js paints its overlay canvas.
+//!
+//! Mouse as ModelCraft's default controls: left = the tool, middle drag = orbit (Shift = pan), right drag = orbit,
+//! wheel = zoom about the pointer. Keys: the tool letters (L line, R rectangle, C circle, P push/pull, M move, Q
+//! rotate, S scale, E erase, T tape, Space select …), Esc, arrows lock an axis, Ctrl+Z / Ctrl+Y undo / redo; typing a
+//! number fills the value box, Enter gives it to the tool.
+
+use cc_m3d::def::face_tris;
+use cc_m3d::model::Model;
+use cc_m3d::ops::Sel;
+use cc_m3d::vec::P3;
+use cc_m3d_tools::tools::{Ev, Host, ToolArg, Tools};
+use cc_m3d_tools::{Camera, overlay::Overlay};
+use cc_render::mesh3d::{Cam3, Style3};
+use egui::{Color32, Pos2, Rect, Sense, Stroke};
+
+use crate::model3d;
+use crate::theme::Tokens;
+use crate::view3d::{self, Scene3D};
+
+/// The tools on the palette: (tools.js name, label).
+pub const PALETTE: &[(&str, &str)] = &[
+    ("select", "Select"),
+    ("line", "Line"),
+    ("rect", "Rectangle"),
+    ("circle", "Circle"),
+    ("polygon", "Polygon"),
+    ("arc", "Arc"),
+    ("push", "Push/Pull"),
+    ("offset", "Offset"),
+    ("follow", "Follow me"),
+    ("move", "Move"),
+    ("rotate", "Rotate"),
+    ("scale", "Scale"),
+    ("erase", "Erase"),
+    ("paint", "Paint"),
+    ("tape", "Tape"),
+    ("dim", "Dimension"),
+    ("protractor", "Protractor"),
+    ("section", "Section"),
+];
+
+/// One open ModelCraft model and its tools.
+pub struct ModelView {
+    pub tools: Tools,
+    pub name: String,
+    scene: Scene3D,
+    /// (model version, model generation) the scene was built from
+    built: (f64, u64),
+    seq: u64,
+    dark: bool,
+    pub style: Style3,
+    /// the button held in the view, if any
+    held: Option<egui::PointerButton>,
+    clock: web_time::Instant,
+    /// the value box being typed
+    pub vcb: String,
+    /// the last message the tools printed
+    pub message: String,
+}
+
+impl std::fmt::Debug for ModelView {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelView").field("name", &self.name).field("tool", &self.tools.name).finish()
+    }
+}
+
+/// The colour of an inference kind (view3d.js KIND_COLOR, in the theme's layer colours).
+fn kind_color(kind: &str, t: &Tokens) -> Color32 {
+    match kind {
+        "end" | "axis-y" => Color32::from_rgb(0x17, 0x9a, 0x4a),
+        "mid" => Color32::from_rgb(0x16, 0x9c, 0xb0),
+        "center" | "face" | "axis-z" => Color32::from_rgb(0x2a, 0x5c, 0xe0),
+        "edge" | "axis-x" => Color32::from_rgb(0xd0, 0x22, 0x3e),
+        "origin" => Color32::from_rgb(0xb8, 0x74, 0x1a),
+        "parallel" | "perp" | "lock" => Color32::from_rgb(0xc0, 0x2a, 0xa0),
+        _ => t.text_dim,
+    }
+}
+
+impl ModelView {
+    pub fn new(model: Model, name: &str, dark: bool) -> Result<ModelView, String> {
+        let tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
+        let scene = model3d::scene_of(&tools.host.model, 1, dark);
+        let mut v = ModelView {
+            tools,
+            name: name.to_string(),
+            scene,
+            built: (f64::NAN, 0),
+            seq: 1,
+            dark,
+            style: Style3::default(),
+            held: None,
+            clock: web_time::Instant::now(),
+            vcb: String::new(),
+            message: String::new(),
+        };
+        v.rebuild();
+        v.fit();
+        Ok(v)
+    }
+
+    /// Zoom to the whole model (camera.js fit).
+    pub fn fit(&mut self) {
+        let bb = cc_m3d_tools::camera::Box3 { min: self.scene.min, max: self.scene.max };
+        self.tools.host.cam.fit(Some(&bb), None);
+    }
+    /// A standard view (camera.js standard: iso, top, front …).
+    pub fn standard(&mut self, name: &str) {
+        let bb = cc_m3d_tools::camera::Box3 { min: self.scene.min, max: self.scene.max };
+        self.tools.host.cam.standard(name, Some(&bb));
+    }
+
+    pub fn set_dark(&mut self, dark: bool) {
+        if dark != self.dark {
+            self.dark = dark;
+            self.built = (f64::NAN, 0);
+        }
+    }
+
+    /// The scene again when the model changed (a new version, undo, another model).
+    fn rebuild(&mut self) {
+        let key = (self.tools.host.model.version(), self.tools.host.model_gen());
+        if key.0 == self.built.0 && key.1 == self.built.1 {
+            return;
+        }
+        self.seq = self.seq.wrapping_add(1);
+        self.scene = model3d::scene_of(&self.tools.host.model, self.seq, self.dark);
+        self.built = key;
+    }
+
+    fn now(&self) -> f64 {
+        self.clock.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn ev(&self, p: Pos2, rect: Rect, m: egui::Modifiers) -> Ev {
+        Ev {
+            x: f64::from(p.x - rect.min.x),
+            y: f64::from(p.y - rect.min.y),
+            shift: m.shift,
+            ctrl: m.command || m.ctrl,
+            alt: m.alt,
+            time: Some(self.now()),
+            ..Ev::default()
+        }
+    }
+
+    /// Choose a tool by its tools.js name.
+    pub fn set_tool(&mut self, name: &str) {
+        let _ = self.tools.set(name, ToolArg::None);
+        self.vcb.clear();
+    }
+
+    pub fn undo(&mut self) {
+        if self.tools.busy() {
+            let _ = self.tools.escape();
+        }
+        if let Ok(Some(l)) = self.tools.host.model.undo() {
+            self.message = format!("Undo {l}");
+        }
+        self.tools.host.sel.clear();
+    }
+    pub fn redo(&mut self) {
+        if let Ok(Some(l)) = self.tools.host.model.redo() {
+            self.message = format!("Redo {l}");
+        }
+    }
+
+    /// Show the model in `rect`, feed the tools, draw the overlay.
+    pub fn show(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens) {
+        let ppp = f64::from(ui.ctx().pixels_per_point());
+        let resp = ui.allocate_rect(rect, Sense::click_and_drag());
+        self.tools.host.cam.set_size(f64::from(rect.width()), f64::from(rect.height()));
+        self.input(ui, &resp, rect);
+        self.rebuild();
+        let c = &self.tools.host.cam;
+        let cam = Cam3 {
+            eye: c.eye,
+            target: c.target,
+            fov: c.fov,
+            persp: c.persp,
+            width: c.w * ppp,
+            height: c.h * ppp,
+            near: c.near,
+            far: c.far,
+        };
+        view3d::paint(ui, rect, &self.scene, &cam, &self.style);
+        self.overlay(ui, rect, t);
+        if let Some(m) = self.tools.host.msgs.pop() {
+            self.message = m;
+            self.tools.host.msgs.clear();
+        }
+    }
+
+    fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, rect: Rect) {
+        let (pos, mods, scroll, pressed, released, delta) = ui.input(|i| {
+            (
+                i.pointer.hover_pos(),
+                i.modifiers,
+                i.smooth_scroll_delta.y,
+                [egui::PointerButton::Primary, egui::PointerButton::Secondary, egui::PointerButton::Middle]
+                    .map(|b| i.pointer.button_pressed(b)),
+                [egui::PointerButton::Primary, egui::PointerButton::Secondary, egui::PointerButton::Middle]
+                    .map(|b| i.pointer.button_released(b)),
+                i.pointer.delta(),
+            )
+        });
+        let inside = pos.is_some_and(|p| rect.contains(p));
+        // presses that start in the view
+        if inside && let Some(p) = pos {
+            if pressed[0] {
+                self.held = Some(egui::PointerButton::Primary);
+                let e = self.ev(p, rect, mods);
+                let _ = self.tools.down(&e);
+            } else if pressed[1] {
+                self.held = Some(egui::PointerButton::Secondary);
+            } else if pressed[2] {
+                self.held = Some(egui::PointerButton::Middle);
+            }
+        }
+        match self.held {
+            Some(egui::PointerButton::Secondary | egui::PointerButton::Middle) => {
+                let (dx, dy) = (f64::from(delta.x), f64::from(delta.y));
+                if dx != 0.0 || dy != 0.0 {
+                    if mods.shift {
+                        self.tools.host.cam.pan(dx, dy);
+                    } else {
+                        self.tools.host.cam.orbit(dx, dy);
+                    }
+                }
+            }
+            _ => {
+                if let Some(p) = pos
+                    && (inside || self.held.is_some())
+                    && (delta.x != 0.0 || delta.y != 0.0 || pressed[0])
+                {
+                    let e = self.ev(p, rect, mods);
+                    let _ = self.tools.mv(&e);
+                }
+            }
+        }
+        if released.iter().any(|r| *r) {
+            if self.held == Some(egui::PointerButton::Primary)
+                && let Some(p) = pos
+            {
+                let e = self.ev(p, rect, mods);
+                let _ = self.tools.up(&e);
+            }
+            self.held = None;
+        }
+        if inside && scroll != 0.0 {
+            let p = pos.unwrap_or(rect.center()) - rect.min;
+            let factor = (-f64::from(scroll) * 0.002).exp();
+            self.tools.host.cam.zoom_at(factor, Some(f64::from(p.x)), Some(f64::from(p.y)), None);
+        }
+        if !(resp.hovered() || self.held.is_some()) || ui.ctx().egui_wants_keyboard_input() {
+            return;
+        }
+        // keys
+        let events: Vec<egui::Event> = ui.input(|i| i.events.clone());
+        for ev in events {
+            match ev {
+                egui::Event::Key { key, pressed: true, modifiers, .. } => self.key(key, modifiers),
+                egui::Event::Key { key: egui::Key::Escape, pressed: false, .. } => {}
+                egui::Event::Text(s) => {
+                    for ch in s.chars() {
+                        if ch.is_ascii_digit() || ".,-+/*<>@[]'\"xXs ".contains(ch) || (!self.vcb.is_empty() && ch.is_ascii_alphabetic()) {
+                            self.vcb.push(ch);
+                        } else if let Some(name) = cc_m3d_tools::tools::tool_key(&ch.to_ascii_lowercase().to_string()) {
+                            self.set_tool(name);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn key(&mut self, key: egui::Key, m: egui::Modifiers) {
+        use egui::Key;
+        if m.command && key == Key::Z {
+            if m.shift {
+                self.redo()
+            } else {
+                self.undo()
+            }
+            return;
+        }
+        if m.command && key == Key::Y {
+            self.redo();
+            return;
+        }
+        match key {
+            Key::Escape => {
+                if !self.vcb.is_empty() {
+                    self.vcb.clear();
+                } else if !self.tools.escape().unwrap_or(false) {
+                    if self.tools.name == "select" {
+                        self.tools.host.sel.clear();
+                    } else {
+                        self.set_tool("select");
+                    }
+                }
+            }
+            Key::Enter => {
+                if !self.vcb.is_empty() {
+                    let text = std::mem::take(&mut self.vcb);
+                    let _ = self.tools.value(&text);
+                }
+            }
+            Key::Backspace => {
+                self.vcb.pop();
+            }
+            Key::Delete => {
+                let _ = self.tools.key("Delete");
+            }
+            Key::ArrowRight => {
+                let _ = self.tools.key("ArrowRight");
+            }
+            Key::ArrowLeft => {
+                let _ = self.tools.key("ArrowLeft");
+            }
+            Key::ArrowUp => {
+                let _ = self.tools.key("ArrowUp");
+            }
+            Key::ArrowDown => {
+                let _ = self.tools.key("ArrowDown");
+            }
+            _ => {}
+        }
+    }
+
+    /// The overlay: selection, hover, previews, inference marker and tip.
+    fn overlay(&self, ui: &egui::Ui, rect: Rect, t: &Tokens) {
+        let painter = ui.painter_at(rect);
+        let cam = &self.tools.host.cam;
+        let to = |p: P3| -> Option<Pos2> { cam.project(p).map(|q| Pos2::new(rect.min.x + q[0] as f32, rect.min.y + q[1] as f32)) };
+        let sel_col = Color32::from_rgb(0x2a, 0x6c, 0xf0);
+        // the selection and the hover, in the open context
+        let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
+        let ov: Option<&Overlay> = self.tools.host.overlay.as_ref();
+        let mut sels: Vec<(&Sel, Color32, f32)> = self.tools.host.sel.iter().map(|s| (s, sel_col, 2.5)).collect();
+        if let Some(Some(h)) = ov.and_then(|o| o.hover.as_ref()) {
+            sels.push((h, Color32::from_rgb(0xff, 0xaa, 0x22), 2.0));
+        }
+        if let Some(many) = ov.and_then(|o| o.many.as_ref()) {
+            sels.extend(many.iter().map(|s| (s, sel_col, 1.5)));
+        }
+        if let Some(def) = self.tools.host.model.def(&ctx.def) {
+            let w = |p: P3| -> P3 {
+                let m = &ctx.m;
+                [
+                    m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+                    m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+                    m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+                ]
+            };
+            for (s, col, width) in sels {
+                match s.t.as_str() {
+                    "e" => {
+                        if let Some(e) = def.edges.get(s.id)
+                            && let (Some(a), Some(b)) = (to(w(def.v(e.a))), to(w(def.v(e.b))))
+                        {
+                            painter.line_segment([a, b], Stroke::new(width, col));
+                        }
+                    }
+                    "f" => {
+                        if let Some(f) = def.faces.get(s.id) {
+                            let fill = Color32::from_rgba_unmultiplied(col.r(), col.g(), col.b(), 60);
+                            for tri in face_tris(def, f) {
+                                let pts: Vec<Pos2> = tri.iter().filter_map(|v| to(w(def.v(*v)))).collect();
+                                if pts.len() == 3 {
+                                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::NONE));
+                                }
+                            }
+                            for l in &f.loops {
+                                let pts: Vec<Pos2> = l.iter().filter_map(|v| to(w(def.v(*v)))).collect();
+                                if pts.len() >= 2 {
+                                    painter.add(egui::Shape::closed_line(pts, Stroke::new(width.min(1.5), col)));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let Some(o) = ov else { return };
+        if let Some(fs) = &o.faces {
+            let fill = Color32::from_rgba_unmultiplied(sel_col.r(), sel_col.g(), sel_col.b(), 50);
+            for tri in fs {
+                let pts: Vec<Pos2> = tri.iter().filter_map(|p| to(*p)).collect();
+                if pts.len() == 3 {
+                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::NONE));
+                }
+            }
+        }
+        if let Some(ls) = &o.lines {
+            for l in ls {
+                if let (Some(a), Some(b)) = (to(l.a), to(l.b)) {
+                    let st = Stroke::new(1.5, kind_color(&l.kind, t));
+                    if l.dash {
+                        painter.extend(egui::Shape::dashed_line(&[a, b], st, 6.0, 4.0));
+                    } else {
+                        painter.line_segment([a, b], st);
+                    }
+                }
+            }
+        }
+        if let Some(poly) = &o.poly {
+            let pts: Vec<Pos2> = poly.iter().filter_map(|p| to(*p)).collect();
+            if pts.len() >= 2 {
+                painter.add(egui::Shape::closed_line(pts, Stroke::new(1.5, t.text_strong)));
+            }
+        }
+        if let Some(ps) = &o.points {
+            for p in ps.iter().filter_map(|p| to(*p)) {
+                painter.circle_filled(p, 2.5, t.text_strong);
+            }
+        }
+        if let Some(gs) = &o.grips {
+            for (i, p) in gs.iter().enumerate() {
+                if let Some(q) = to(*p) {
+                    let hot = o.hot_grip.is_some_and(|h| h as usize == i);
+                    let r = Rect::from_center_size(q, egui::vec2(8.0, 8.0));
+                    painter.rect_filled(r, 1.0, if hot { Color32::from_rgb(0xff, 0xaa, 0x22) } else { sel_col });
+                }
+            }
+        }
+        if let Some(r) = &o.rect {
+            let a = Pos2::new(rect.min.x + r.x0 as f32, rect.min.y + r.y0 as f32);
+            let b = Pos2::new(rect.min.x + r.x1 as f32, rect.min.y + r.y1 as f32);
+            let rr = Rect::from_two_pos(a, b);
+            painter.rect_filled(rr, 0.0, Color32::from_rgba_unmultiplied(sel_col.r(), sel_col.g(), sel_col.b(), 24));
+            let st = Stroke::new(1.0, sel_col);
+            if r.crossing {
+                let c = [rr.left_top(), rr.right_top(), rr.right_bottom(), rr.left_bottom(), rr.left_top()];
+                painter.extend(egui::Shape::dashed_line(&c, st, 5.0, 4.0));
+            } else {
+                painter.rect_stroke(rr, 0.0, st, egui::StrokeKind::Inside);
+            }
+        }
+        if let Some(Some(m)) = &o.marker
+            && let Some(p) = to(m.p)
+        {
+            let c = kind_color(&m.kind, t);
+            painter.circle_stroke(p, 6.0, Stroke::new(2.0, c));
+            painter.circle_filled(p, 2.5, c);
+            if let Some(tip) = o.tip.as_deref().filter(|s| !s.is_empty()) {
+                painter.text(p + egui::vec2(12.0, 12.0), egui::Align2::LEFT_TOP, tip, egui::FontId::proportional(12.0), c);
+            }
+        }
+    }
+
+    /// What the status bar shows: the tool's tip, the value box (label + what is typed), the last message.
+    pub fn status(&self) -> String {
+        let (label, text) = &self.tools.host.vcb;
+        let typed = if self.vcb.is_empty() { text.clone() } else { self.vcb.clone() };
+        let mut out = self.tools.host.tip.clone();
+        if !label.is_empty() {
+            out.push_str(&format!("   {label}: {typed}"));
+        }
+        if !self.message.is_empty() {
+            out.push_str(&format!("   · {}", self.message));
+        }
+        out
+    }
+}

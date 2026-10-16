@@ -20,6 +20,7 @@ pub mod document;
 pub mod edit;
 pub mod ifc3d;
 pub mod model3d;
+pub mod modelcraft;
 pub mod theme;
 pub mod view3d;
 
@@ -119,6 +120,8 @@ pub struct UiApp {
     pub scene3: Option<(view3d::Scene3D, view3d::View3)>,
     /// the ModelCraft model open (shown through `scene3`)
     pub model3: Option<cc_m3d::model::Model>,
+    /// the ModelCraft model being edited with its tools (replaces `scene3` while open)
+    pub mc: Option<modelcraft::ModelView>,
     /// scene ids: a new id = new GPU meshes
     scene_seq: u64,
     /// the IFC file shown (for properties) and each scene instance's product line
@@ -171,6 +174,7 @@ impl Default for UiApp {
             services: Services::default(),
             scene3: None,
             model3: None,
+            mc: None,
             scene_seq: 0,
             ifc3: None,
             ifc_groups: Vec::new(),
@@ -281,6 +285,7 @@ impl UiApp {
                 self.source = None;
                 self.error = None;
                 self.model3 = None;
+                self.mc = None;
                 self.scene3 = Some((scene, view));
                 self.sel3 = None;
                 self.sel_props.clear();
@@ -294,6 +299,7 @@ impl UiApp {
 
     /// Show a model in the 3D view (any drawing open is closed).
     fn show_model(&mut self, model: cc_m3d::model::Model, name: &str) {
+        let made = modelcraft::ModelView::new(model.clone(), name, self.preset == Preset::Dark);
         self.scene_seq = self.scene_seq.wrapping_add(1);
         let scene = model3d::scene_of(&model, self.scene_seq, self.preset == Preset::Dark);
         let mut view = view3d::View3::default();
@@ -314,6 +320,15 @@ impl UiApp {
         self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
+        match made {
+            Ok(mut mv) => {
+                let mut v = view3d::View3::default();
+                self.style3(&mut v);
+                mv.style = v.style;
+                self.mc = Some(mv);
+            }
+            Err(e) => self.error = Some(format!("{name}: {e}")),
+        }
     }
 
     /// Hide or show a storey ("s:<name>") or class ("c:<name>") of the IFC model; "*" shows everything.
@@ -329,6 +344,41 @@ impl UiApp {
             scene.set_hidden(&|i| {
                 groups.get(i).is_some_and(|(st, ty)| hidden.contains(&format!("s:{st}")) || hidden.contains(&format!("c:{ty}")))
             });
+        }
+    }
+
+    fn tool_palette(&mut self, ui: &mut egui::Ui) {
+        let t = self.tokens;
+        let cur = self.mc.as_ref().map(|m| m.tools.name.clone()).unwrap_or_default();
+        let mut pick: Option<&str> = None;
+        let mut undo = false;
+        let mut redo = false;
+        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+        egui::Panel::left("mc_tools").exact_size(116.0).frame(frame).show(ui, |ui| {
+            ui.label(RichText::new("Tools").strong().color(t.text_strong));
+            ui.separator();
+            for (name, label) in modelcraft::PALETTE {
+                let on = cur == *name;
+                if ui.add_sized([104.0, 22.0], egui::Button::new(*label).selected(on)).clicked() {
+                    pick = Some(name);
+                }
+            }
+            ui.separator();
+            ui.horizontal(|ui| {
+                undo = ui.button("Undo").clicked();
+                redo = ui.button("Redo").clicked();
+            });
+        });
+        if let Some(mc) = self.mc.as_mut() {
+            if let Some(n) = pick {
+                mc.set_tool(n);
+            }
+            if undo {
+                mc.undo();
+            }
+            if redo {
+                mc.redo();
+            }
         }
     }
 
@@ -538,6 +588,7 @@ impl UiApp {
     fn loaded(&mut self, res: Result<Loaded, String>) {
         self.scene3 = None;
         self.model3 = None;
+        self.mc = None;
         match res {
             Ok(l) => {
                 self.editor = None;
@@ -616,8 +667,17 @@ impl UiApp {
             }
             "view.fit" => {
                 self.pending_fit = true;
+                if let Some(mc) = self.mc.as_mut() {
+                    mc.fit();
+                }
                 if let Some((_, v)) = self.scene3.as_mut() {
                     v.fit_pending = true;
+                }
+            }
+            "view.standard" if self.mc.is_some() => {
+                let n = params.name.clone().unwrap_or_else(|| "iso".into());
+                if let Some(mc) = self.mc.as_mut() {
+                    mc.standard(&n);
                 }
             }
             "view.standard" => {
@@ -635,9 +695,28 @@ impl UiApp {
                     view.cam.fit(scene.min, scene.max, Some(dir));
                 }
             }
+            "view.projection" if self.mc.is_some() => {
+                if let Some(mc) = self.mc.as_mut() {
+                    mc.tools.host.cam.persp = !mc.tools.host.cam.persp;
+                }
+            }
             "view.projection" => {
                 if let Some((_, view)) = self.scene3.as_mut() {
                     view.cam.persp = !view.cam.persp;
+                }
+            }
+            "tool.set" => {
+                let n = params.name.clone().ok_or("tool.set: name is required")?;
+                self.mc.as_mut().ok_or("tool.set: open a model first")?.set_tool(&n);
+            }
+            "tool.value" => {
+                let n = params.name.clone().ok_or("tool.value: name is required")?;
+                let mc = self.mc.as_mut().ok_or("tool.value: open a model first")?;
+                let _ = mc.tools.value(&n);
+            }
+            "model.undo" => {
+                if let Some(mc) = self.mc.as_mut() {
+                    mc.undo();
                 }
             }
             "view.cut" => {
@@ -894,7 +973,18 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        if self.scene3.is_some() {
+        if self.mc.is_some() {
+            self.tool_palette(ui);
+            let t = self.tokens;
+            if let Some(mc) = self.mc.as_mut() {
+                mc.set_dark(self.preset == Preset::Dark);
+                egui::CentralPanel::no_frame().show(ui, |ui| {
+                    let rect = ui.max_rect();
+                    mc.show(ui, rect, &t);
+                });
+                self.message = mc.status();
+            }
+        } else if self.scene3.is_some() {
             self.model_panel(ui);
             self.props_panel(ui);
             let mut clicked: Option<Option<(f64, f64)>> = None;
@@ -979,7 +1069,7 @@ impl UiApp {
                         }
                     }
                     if ui
-                        .add_enabled(self.doc.is_some() || self.scene3.is_some(), egui::Button::new("Fit"))
+                        .add_enabled(self.doc.is_some() || self.scene3.is_some() || self.mc.is_some(), egui::Button::new("Fit"))
                         .on_hover_text("Zoom to the drawing or model (Home)")
                         .clicked()
                     {
@@ -994,7 +1084,10 @@ impl UiApp {
                                 self.run_ui("view.standard", &Params { name: Some(name.into()), ..Default::default() });
                             }
                         }
-                        let persp = self.scene3.as_ref().is_some_and(|(_, v)| v.cam.persp);
+                        let persp = self
+                            .scene3
+                            .as_ref()
+                            .map_or_else(|| self.mc.as_ref().is_some_and(|m| m.tools.host.cam.persp), |(_, v)| v.cam.persp);
                         if ui.button(if persp { "Parallel" } else { "Perspective" }).on_hover_text("Switch the projection").clicked() {
                             self.run_ui("view.projection", &Params::default());
                         }

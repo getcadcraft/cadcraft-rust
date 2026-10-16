@@ -261,10 +261,15 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, scene: &Scene3D, view: &mut View3) ->
         let factor = (-f64::from(scroll) * 0.002).exp();
         view.cam.zoom_at(factor, f64::from(p.x) * ppp, f64::from(p.y) * ppp);
     }
-    let px = ((view.cam.width.round() as u32).max(1), (view.cam.height.round() as u32).max(1));
-    let cb = Callback { scene: scene.clone(), cam: view.cam, style: view.style, px };
-    ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, cb));
+    paint(ui, rect, scene, &view.cam, &view.style);
     resp
+}
+
+/// Draw `scene` into `rect` with a camera sized in physical pixels (no input handling: the caller moves the camera).
+pub fn paint(ui: &egui::Ui, rect: Rect, scene: &Scene3D, cam: &Cam3, style: &Style3) {
+    let px = ((cam.width.round() as u32).max(1), (cam.height.round() as u32).max(1));
+    let cb = Callback { scene: scene.clone(), cam: *cam, style: *style, px };
+    ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, cb));
 }
 
 /// A test scene: one box mesh (12 triangles, 12 edges) placed `n × n` times on a grid at `origin`, plus one plate

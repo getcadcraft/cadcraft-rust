@@ -737,6 +737,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-m3d",
+ "cc-m3d-tools",
  "cc-render",
  "egui",
  "egui-wgpu",
