@@ -1,6 +1,7 @@
 # CadCraft in Rust: one page
 
-Stage: M3 done (2D viewer, desktop + web, live at https://rust.getcadcraft.com, unlisted). M4 next (drafting). Milestones: [docs/roadmap.md](docs/roadmap.md).
+Stage: M4 done (drafting: command line, LINE … TRIM, undo, Edit + Save as DWG / DXF, desktop + web, live at
+https://rust.getcadcraft.com, unlisted). M5 next (re-planned in [docs/roadmap.md](docs/roadmap.md)).
 Session log: [docs/progress.md](docs/progress.md).
 
 ## Headline numbers
@@ -38,8 +39,34 @@ drawing 168 → 84 ms, 1.7 MB 32 → 22 ms.
 | Whole frame incl. software GPU (lavapipe) + readback, 3.4 MB drawing | 132 ms best (no hardware GPU on this server) |
 | Kitchen sample, whole frame on lavapipe | 42 ms best |
 
+**Drafting (M4)** — 2026-10-16. Parity against the frozen 0.5 JavaScript, no tolerance unless noted:
+
+| Part | Harness (outside the repo) | Result |
+|---|---|---|
+| Doc + geometry (doc.js, geom.js, dims, walk, linetypes, hatch …) | `gdiff.mjs --exact` | 0 differences, ~18,000 cases per seed, seeds 1–10; doc ops 121/121 steps per seed |
+| Command line + commands (LINE … TRIM, UNDO, ZOOM) | `kdiff.mjs` | 0 differences, 26 seeds, ~70,000 records |
+| DWG writer (writeDwg) | `wdiff.mjs` | byte-identical 468/468 (78 files × 6 versions), 72/72 synthetic models |
+| DWG import, DXF R12 read/write | `idiff.mjs` | 0 differences: 78 kit DWGs, 32 other DWGs, 110 DXFs |
+| DWG save (saveDwg) 2000–2018, DXF 2000 | `idiff.mjs --save` | byte-identical, reports equal: 78/78 per version (+ other DWGs, DXFs, fixture, 15 dynamic-block variants) |
+
+Timings (best of 5, single-threaded, same machine; JS = the 0.5 engine call in Node 24):
+
+| File | Step | 0.5 JS (ms) | Rust (ms) | Speed-up |
+|---|---|---:|---:|---:|
+| kitchen-equipment.dwg (0.55 MB) | write DWG (AC1015) | 151 | 76 | 2.0× |
+| 3.4 MB R2013 drawing | import (importDwg, after the read) | 350 | 179 | 2.0× |
+| 3.4 MB R2013 drawing | save DWG 2018 | 942 | 686 | 1.4× |
+| 3.4 MB R2013 drawing | save DWG 2000 | 706 | 623 | 1.1× |
+| 3.4 MB R2013 drawing | save DXF 2000 | 483 | 702 | **0.7× (slower)** |
+
+Editing a big drawing (Rust only; the JS app has no comparable headless path): Edit on the 3.4 MB drawing = read +
+import 406 ms, Doc load 325 ms, display model 127 ms; one LINE until the redrawn frame 360 ms, of which ~200 ms is the
+software rasteriser's frame (no GPU here); 1.7 MB floor plan 226 ms; 0.9 MB sheet 188 ms. Every edit rebuilds the
+whole display model (incremental rebuild is M5 work).
+
 ## Progress log
 
+- 2026-10-16 M4: drafting (Doc, geometry, command line, commands, undo), DWG writer, CadCraft's DWG/DXF import and DWG/DXF save at byte parity; Edit + Save as in the app; deployed.
 - 2026-10-16 M3: viewer (model + sheets with viewports, pan/zoom, layers, texts, xrefs) on desktop and web (WebGPU only), deployed.
 - 2026-10-16 M2: cc-dwg reader in Rust at full-model parity (78/78), 2.6–4.2× faster than 0.5 JS; fuzz target; CLI `info`, `convert --json`, `parity`, `bench`.
 - 2026-10-15 M1: workspace, lints, xtask gate.

@@ -1,12 +1,13 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-16 · Change: M3 done (viewer deployed).
+Last updated 2026-10-16 · Change: M4 done; M5+ re-planned with measured numbers.
 
 | Date | Change |
 |---|---|
 | 2026-10-15 | First version (milestones from the kick-off prompt). |
 | 2026-10-16 | M1, M2 done; M2 numbers in ROADMAP.md. |
 | 2026-10-16 | M3 done: viewer on desktop + web (WebGPU), live at rust.getcadcraft.com. |
+| 2026-10-16 | M4 done: drafting, Edit + Save as DWG / DXF at byte parity; M5+ re-planned (below). |
 
 Speed decides. Every milestone is measured against the CadCraft 0.5 JavaScript build (reference:
 `getcadcraft.com/public_html/assets/apps/<app>/dev/`, `lib/{dwg,ifc,skp,shapes}`, `docs/apps/*.md`) with
@@ -18,8 +19,12 @@ Parity on the corpus is the gate (AGENTS.md section 15).
 | M1 | Workspace + gate | crate layout, lints, clippy.toml, deny.toml, xtask (ci, layers, wasm, assets, deny, fuzz --smoke), rust-toolchain.toml, CI workflow; `cargo xtask ci` green on the empty skeleton | done 2026-10-15 |
 | M2 | cc-dwg reader (`crates/io-dwg`) | parity with `lib/dwg` readDwg on the corpus (six versions + ODA truth), one fuzz target, `cadcraft-cli info` / `convert --json`, benchmark vs JS readDwg on the largest files; parity numbers + timings | done 2026-10-16: 78/78 parity, 2.6–4.2× |
 | M3 | CadCraft 2D viewer | open DWG/DXF, model + sheets, pan/zoom, layers; desktop and web (WebGPU only); deployed to rust.getcadcraft.com via forks/deploy.sh; frame-time benchmark on the big drawings | done 2026-10-16 |
-| M4 | CadCraft drafting commands | command engine with commands that ask questions (LINE ... TRIM), undo, save DWG/DXF at parity with dwg-save.js | planned |
-| M5+ | The rest | m3d kernel + ModelCraft, cc-ifc + BimCraft, cc-skp port (beat OpenSKP and cc-skp), the other apps; re-planned with measured numbers after M3 | planned |
+| M4 | CadCraft drafting commands | command engine with commands that ask questions (LINE ... TRIM), undo, save DWG/DXF at parity with dwg-save.js | done 2026-10-16: 0 differences (gdiff, kdiff, idiff), saves byte-identical 78/78 per version |
+| M5 | Speed debt + m3d kernel | (a) incremental edit display, typed fast path under the dynamic models, DXF 2000 save at least at JS speed; (b) m3d (CadCraft's 3D kernel, `assets/apps/cadcraft/dev/m3d/`, ≈13,000 lines JS) as `crates/m3d` (L2) at parity on its tests + golden meshes, Manifold behind `trait SolidOps` (approved exception) | planned |
+| M6 | ModelCraft | ModelCraft (≈36,000 lines JS) on m3d: 3D viewport (wgpu, BVH picking, inference), push/pull … , SKP import through M8's reader once it lands; frame time on a 1M-triangle model | planned |
+| M7 | cc-ifc + BimCraft | `lib/ifc` (≈6,300 lines, 22 files) at parity on the IFC corpus with the kit, then BimCraft's views on it (≈54,000 lines JS: plan from the DWG work, 3D from M6) | planned |
+| M8 | cc-skp | `lib/skp` (≈2,500 lines) at parity; must beat both cc-skp JS and OpenSKP (black-box baseline) on the big files | planned |
+| M9+ | The other apps | PartCraft, CivilCraft (large coordinates), DetailCraft, TakeoffCraft, MarkupCraft, then Studio; order re-planned after M6 with measured numbers | planned |
 
 ## Tablets (AGENTS.md section 10, Mobile)
 
@@ -32,6 +37,21 @@ makes no tablet promise beyond "the web build in a WebGPU browser".
 ## Known issues
 
 - Accessibility (screen readers) is skipped by the owner's decision (2026-10-15); see `docs/gaps.md`.
+
+## After M4 (re-plan inputs, measured 2026-10-16)
+
+- **Every engine ported so far is at exact parity** (byte-identical writers, 0-difference readers and geometry). The
+  port-then-diff method (frozen JS vs `cadcraft-cli`, harnesses in `forks/tools`) works; keep it for m3d, ifc, skp.
+- **Speed is uneven.** Readers 2–4× the JS natively; DWG saves 1.1–1.4×; **DXF 2000 save 0.7× (slower)**. The cost is
+  the JS-shaped dynamic value model (allocation, clones, hashed maps, number formatting), not the algorithms. M5 (a)
+  adds typed fast paths where a profile shows it, keeping the dynamic model as the parity reference.
+- **Editing a big drawing** rebuilds the whole display model per edit (127 ms of the 3.4 MB drawing's 360 ms edit;
+  the rest is this server's software GPU). M5 (a): per-object display cache keyed by object id + doc version.
+- **Web:** single-threaded wasm (wgpu's objects are not Send/Sync, so the threaded build is blocked in eframe); engine
+  work can still go to a worker later. The 9.0 MB wasm (2.26 MB brotli) now carries every drafting engine: load the
+  savers on first use if the first paint suffers.
+- **Order:** m3d before ModelCraft before BimCraft, because BimCraft's 3D and PartCraft both stand on m3d, and SKP
+  import lands in ModelCraft. Tablets stay "the web build in a WebGPU browser" (section below).
 
 ## After M3 (re-plan inputs, measured 2026-10-16)
 

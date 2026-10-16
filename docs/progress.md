@@ -2,6 +2,28 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-16 — M4 done
+
+- M4.7: `cc-io-cad` (L4, agent-ported): CadCraft's DWG import (dwg-import.js + helpers), DXF read / write R12 (dxf.js),
+  DWG save 2000–2018 (dwg-save.js over the M4.4 writer) and DXF 2000 (dxf2000.js). `forks/tools/idiff.mjs` (frozen JS
+  vs `cadcraft-cli import / dxf-out / save`): 0 differences on 78 kit DWGs, 32 other DWGs, 110 DXFs (import, Doc after
+  load, R12 text, re-read); saves byte-identical with equal reports, 78/78 per version (2000, 2004, 2007, 2010, 2013,
+  2018, DXF 2000), also on the other DWGs, the DXFs, a synthetic fixture and 15 dynamic-block variants. Fuzz target
+  `cad_dxf_read` (read → load → R12 → DXF 2000 → DWG save): 3 × 10 min, no crash.
+- M4.8: Edit and Save in the app. **Edit** imports the open DWG / DXF into an editable drawing (the viewer stays the
+  fast default for viewing); **Save as** DWG 2018 … 2000, DXF 2000, DXF R12 (desktop: dialog + write; web: download),
+  Ctrl+S = the last format. Checked: a headless test (sample → Edit → LINE → all 8 formats → each re-opened with the new
+  line), cadcraft-shot `--edit --save`, Chromium on the local build and on rust.getcadcraft.com (Edit, CIRCLE, RECTANG,
+  Save as DWG 2004 → an AC1018 download holding both).
+- Edit-mode display fixes found by measuring the big drawings: a linetype's dash on a circle kept the circle's `full`
+  flag and was drawn as a whole circle (Carey: 328 dashed circles = 906,000 segments → 22,000); a dash budget per
+  object (`DISPLAY_MAX_DASHES` = 400, past it the object draws continuous; parity paths keep the JS's 20,000); batches
+  per layer (the layers panel works in edit mode); layer colours.
+- Command line: the field keeps the focus on Enter, and the input hook passes one Enter per frame (what follows waits a
+  frame): typed answers were lost or merged on the web when keys came faster than frames.
+- `round_precision` (toPrecision) from the shortest round-trip digits instead of 40 exact digits: proven equal, checked
+  on 200,000 random doubles; DXF 2000 save of the 3.4 MB drawing 834 → 702 ms.
+
 ## 2026-10-16 — M4 in progress
 
 - M4.1: `cc-engine::prompt`: commands are async blocks that ask questions (`Prompter::ask`) and a runtime-free

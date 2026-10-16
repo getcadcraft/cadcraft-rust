@@ -284,22 +284,26 @@ pub fn round_precision(x: f64, p: usize) -> f64 {
     }
 }
 
-/// `Number(x.toPrecision(p))` without the exact 1100-digit expansion `js::to_exponential` makes: Rust's `{:.Ne}` is
-/// exactly rounded, so 40 digits decide the rounding at digit p unless they read as a tie (or a near-tie that 40 digits
-/// may have rounded into one): then None (the caller takes the exact path). JS rounds ties away from zero.
+/// `Number(x.toPrecision(p))` without the exact 1100-digit expansion `js::to_exponential` makes, from the shortest
+/// round-trip digits s of x (Rust's `{:e}`). Rounding s at digit p gives the same p digits as rounding the exact value:
+/// a rounding midpoint m (p + 1 digits, ending in 5) strictly between s and x would be a decimal at most as long as s
+/// and closer to x, which the shortest digits rule out; so only s = m (k = p + 1 digits ending in 5) is ambiguous. When
+/// s has at most p digits, the p-digit rounding r is at least as close to x as s, so r reads back as x — except next to
+/// a power of two, where the interval below x is half as wide. The ambiguous cases return None (the exact path).
 fn fast_round(x: f64, p: usize) -> Option<f64> {
     if !(1..=21).contains(&p) {
         return None;
     }
-    let s = format!("{:.39e}", x.abs());
+    let s = format!("{:e}", x.abs());
     let (mant, exp) = s.split_once('e')?;
     let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
     let e: i32 = exp.parse().ok()?;
-    let rest = digits.get(p..)?;
-    let first = *rest.first()?;
-    let tail = rest.get(1..)?;
-    // "5000…" (a tie, or a value just above / below one) and "4999…" (maybe rounded up from just under a tie)
-    if (first == b'5' && tail.iter().all(|d| *d == b'0')) || (first == b'4' && tail.iter().all(|d| *d == b'9')) {
+    if digits.len() <= p {
+        // a power of two (no mantissa bits): the interval is lopsided
+        return (x.to_bits() & 0x000f_ffff_ffff_ffff != 0).then_some(x);
+    }
+    let first = *digits.get(p)?;
+    if first == b'5' && digits.len() == p.saturating_add(1) {
         return None;
     }
     let mut kept: Vec<u8> = digits.get(..p)?.to_vec();
@@ -364,5 +368,29 @@ mod tests {
             x = (x * 7.31 + 0.137).fract() * 10f64.powi(i32::try_from(k % 30).unwrap() - 15);
         }
         assert_eq!(hypot3(2.0, 3.0, 6.0), 7.0);
+    }
+
+    #[test]
+    fn fast_round_matches_the_exact_path_on_random_doubles() {
+        // xorshift64 over raw bit patterns (every exponent), plus drawing-like coordinates with 16-17 digits
+        let mut st: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut next = || {
+            st ^= st << 13;
+            st ^= st >> 7;
+            st ^= st << 17;
+            st
+        };
+        let n = if cfg!(debug_assertions) { 20_000 } else { 200_000 };
+        for i in 0..n {
+            let r = next();
+            let v = if i % 2 == 0 { f64::from_bits(r) } else { (r >> 11) as f64 / 9_007_199_254_740_992.0 * 10f64.powi((i % 12) as i32) };
+            if !v.is_finite() || v == 0.0 {
+                continue;
+            }
+            for p in [12usize, 15] {
+                let exact = js::str_to_number(&js::to_exponential(v, p - 1));
+                assert_eq!(round_precision(v, p).to_bits(), exact.to_bits(), "{v:e} at {p}");
+            }
+        }
     }
 }
