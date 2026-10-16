@@ -507,6 +507,7 @@ dependencies = [
  "cc-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "flate2",
  "serde_json",
 ]
 
