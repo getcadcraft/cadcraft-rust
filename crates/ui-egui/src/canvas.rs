@@ -21,8 +21,8 @@ pub struct GpuState {
 /// Install the renderer once the wgpu render state exists (desktop and web hosts call this at start-up).
 pub fn install_gpu(rs: &egui_wgpu::RenderState) {
     let renderer = Renderer::new(&rs.device, rs.target_format, 1);
-    let mut w = rs.renderer.write();
-    w.callback_resources.insert(GpuState { renderer, meshes: HashMap::new() });
+    rs.renderer.write().callback_resources.insert(GpuState { renderer, meshes: HashMap::new() });
+    crate::view3d::install(rs);
 }
 
 #[derive(Clone)]

@@ -3,9 +3,10 @@
 //! headless tests and screenshots read it back.
 //!
 //! **Large coordinates:** a mesh's positions are f32 relative to its own origin; each instance's transform is
-//! composed in f64 on the CPU with the camera's eye subtracted (`T(-eye) · M · T(origin)`) and only then cast to f32,
-//! so a model at x = 500 000 m, y = 4 000 000 m draws as steadily as one at the origin. The projection × view
-//! rotation is the only other matrix.
+//! composed in f64 on the CPU relative to the scene's origin (`T(-origin) · M · T(mesh origin)`, once per scene) and
+//! only then cast to f32, and the frame's matrix carries `P · R · T(origin − eye)`, also made in f64: a model at
+//! x = 500 000 m, y = 4 000 000 m draws as steadily as one at the origin, and orbiting rewrites one uniform, not the
+//! instances. (f32 relative to the scene origin keeps 1 mm up to about 8 km from it.)
 //!
 //! **Depth:** reversed Z (`Depth32Float`, near = 1, far = 0, compare Greater): precision where it matters.
 
@@ -113,10 +114,103 @@ impl Cam3 {
             [1.0 / hw, 0.0, 0.0, 0.0, 0.0, 1.0 / hh, 0.0, 0.0, 0.0, 0.0, a, 0.0, 0.0, 0.0, b, 1.0]
         }
     }
-    /// The transform an instance is drawn with: `T(-eye) · m · T(origin)`, in f64, then f32.
-    pub fn relative(&self, m: &[f64; 16], origin: [f64; 3]) -> [f32; 16] {
-        let r = mmul(&translation([-self.eye[0], -self.eye[1], -self.eye[2]]), &mmul(m, &translation(origin)));
-        r.map(|v| v as f32)
+    /// Metres per pixel at a point's depth (camera.js `pixelSize`).
+    pub fn pixel_size(&self, p: [f64; 3]) -> f64 {
+        let (_, _, z) = self.axes();
+        let depth = if self.persp {
+            let d = sub3(p, self.eye);
+            (-(d[0] * z[0] + d[1] * z[1] + d[2] * z[2])).max(1e-6)
+        } else {
+            self.distance()
+        };
+        (2.0 * depth * (self.fov.to_radians() / 2.0).tan()) / self.height.max(1.0)
+    }
+    /// camera.js `orbit(dx, dy)` (pixels): about the target, Z stays up.
+    pub fn orbit(&mut self, dx: f64, dy: f64) {
+        let off = sub3(self.eye, self.target);
+        let r = len3(off);
+        if r <= 0.0 {
+            return;
+        }
+        let yaw = off[1].atan2(off[0]) - dx * 0.008;
+        let pitch = ((off[2] / r).clamp(-1.0, 1.0).acos() - dy * 0.008).clamp(0.001, std::f64::consts::PI - 0.001);
+        self.eye =
+            [self.target[0] + r * pitch.sin() * yaw.cos(), self.target[1] + r * pitch.sin() * yaw.sin(), self.target[2] + r * pitch.cos()];
+    }
+    /// camera.js `pan(dx, dy)` (pixels).
+    pub fn pan(&mut self, dx: f64, dy: f64) {
+        let (x, y, _) = self.axes();
+        let s = self.pixel_size(self.target);
+        let mv = [x[0] * -dx * s + y[0] * dy * s, x[1] * -dx * s + y[1] * dy * s, x[2] * -dx * s + y[2] * dy * s];
+        self.eye = [self.eye[0] + mv[0], self.eye[1] + mv[1], self.eye[2] + mv[2]];
+        self.target = [self.target[0] + mv[0], self.target[1] + mv[1], self.target[2] + mv[2]];
+    }
+    /// camera.js `zoomAt(factor, x, y)`: factor < 1 zooms in, keeping the point under (sx, sy) on the target's plane.
+    pub fn zoom_at(&mut self, factor: f64, sx: f64, sy: f64) {
+        let (o, d) = self.ray(sx, sy);
+        let (_, _, z) = self.axes();
+        let dn = d[0] * z[0] + d[1] * z[1] + d[2] * z[2];
+        let p = if dn.abs() > 1e-12 {
+            let t = ((self.target[0] - o[0]) * z[0] + (self.target[1] - o[1]) * z[1] + (self.target[2] - o[2]) * z[2]) / dn;
+            if t >= 0.0 { [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t] } else { self.target }
+        } else {
+            self.target
+        };
+        let nd = self.distance() * factor;
+        if !(1e-3..=1e6).contains(&nd) {
+            return;
+        }
+        let scale = |q: [f64; 3]| [p[0] + (q[0] - p[0]) * factor, p[1] + (q[1] - p[1]) * factor, p[2] + (q[2] - p[2]) * factor];
+        if self.persp {
+            self.eye = scale(self.eye);
+            self.target = scale(self.target);
+        } else {
+            let tgt = scale(self.target);
+            let along = (tgt[0] - self.target[0]) * z[0] + (tgt[1] - self.target[1]) * z[1] + (tgt[2] - self.target[2]) * z[2];
+            let t2 = [tgt[0] - z[0] * along, tgt[1] - z[1] * along, tgt[2] - z[2] * along];
+            self.target = t2;
+            self.eye = [t2[0] + z[0] * nd, t2[1] + z[1] * nd, t2[2] + z[2] * nd];
+        }
+    }
+    /// camera.js `ray(x, y)`: the pick ray through a pixel (origin, unit direction).
+    pub fn ray(&self, sx: f64, sy: f64) -> ([f64; 3], [f64; 3]) {
+        let (x, y, z) = self.axes();
+        let nx = (2.0 * sx) / self.width.max(1.0) - 1.0;
+        let ny = 1.0 - (2.0 * sy) / self.height.max(1.0);
+        let th = (self.fov.to_radians() / 2.0).tan();
+        if self.persp {
+            let (a, b) = (nx * th * self.aspect(), ny * th);
+            let d = norm3([x[0] * a + y[0] * b - z[0], x[1] * a + y[1] * b - z[1], x[2] * a + y[2] * b - z[2]]);
+            return (self.eye, d);
+        }
+        let hh = self.distance() * th;
+        let hw = hh * self.aspect();
+        let k = self.far * 0.5;
+        let o = [
+            self.eye[0] + x[0] * nx * hw + y[0] * ny * hh + z[0] * k,
+            self.eye[1] + x[1] * nx * hw + y[1] * ny * hh + z[1] * k,
+            self.eye[2] + x[2] * nx * hw + y[2] * ny * hh + z[2] * k,
+        ];
+        (o, [-z[0], -z[1], -z[2]])
+    }
+    /// camera.js `fit(bbox, dir)`: look at a box from the current direction (or `dir`), near/far from its size.
+    pub fn fit(&mut self, min: [f64; 3], max: [f64; 3], dir: Option<[f64; 3]>) {
+        let d = norm3(dir.unwrap_or_else(|| sub3(self.eye, self.target)));
+        let c = [(min[0] + max[0]) / 2.0, (min[1] + max[1]) / 2.0, (min[2] + max[2]) / 2.0];
+        let r = (len3(sub3(max, min)) / 2.0).max(0.01);
+        let fov_min = self.fov.min(self.fov * self.aspect()).to_radians() / 2.0;
+        let dd = (r / fov_min.sin()) * 1.08;
+        self.target = c;
+        self.eye = [c[0] + d[0] * dd, c[1] + d[1] * dd, c[2] + d[2] * dd];
+        // camera.js clip(r)
+        let dist = self.distance();
+        self.far = dist + r.max(1.0) * 4.0 + 100.0;
+        self.near = (self.far / 1e5).max((dist * 0.01).min(0.05));
+    }
+    /// The frame matrix for instances made relative to `origin`: `P · R · T(origin − eye)`, in f64, then f32.
+    pub fn frame_matrix(&self, origin: [f64; 3]) -> [f32; 16] {
+        let t = translation([origin[0] - self.eye[0], origin[1] - self.eye[1], origin[2] - self.eye[2]]);
+        mmul(&self.proj(), &mmul(&self.view_rot(), &t)).map(|v| v as f32)
     }
 }
 
@@ -308,11 +402,61 @@ impl std::fmt::Debug for Renderer3 {
     }
 }
 
+/// Placements on the GPU: every instance's transform relative to the scene's origin, grouped by mesh (made once per
+/// scene; orbiting does not touch it).
+#[derive(Debug)]
+pub struct InstanceSet {
+    pub origin: [f64; 3],
+    buf: Option<wgpu::Buffer>,
+    ranges: Vec<(usize, std::ops::Range<u32>)>,
+    pub count: u32,
+}
+
+/// `T(-origin) · m · T(mesh origin)` in f64, then f32.
+pub fn relative(m: &[f64; 16], origin: [f64; 3], mesh_origin: [f64; 3]) -> [f32; 16] {
+    mmul(&translation([-origin[0], -origin[1], -origin[2]]), &mmul(m, &translation(mesh_origin))).map(|v| v as f32)
+}
+
+impl InstanceSet {
+    /// Upload `instances` of `meshes`, relative to `origin` (the scene's box centre is a good one).
+    pub fn new(device: &wgpu::Device, meshes: &[GpuMesh], instances: &[Instance3], origin: [f64; 3]) -> InstanceSet {
+        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < meshes.len()).collect();
+        order.sort_by_key(|i| i.mesh);
+        let mut ib: Vec<u8> = Vec::with_capacity(order.len() * ISTRIDE as usize);
+        let mut ranges: Vec<(usize, std::ops::Range<u32>)> = Vec::new();
+        for (k, inst) in order.iter().enumerate() {
+            let Some(mesh) = meshes.get(inst.mesh) else { continue };
+            let m = relative(&inst.m, origin, mesh.origin);
+            let nm = normal_matrix(&inst.m);
+            for v in m.iter().chain(nm.iter()) {
+                ib.extend_from_slice(&v.to_le_bytes());
+            }
+            let tint = inst.tint.map_or([0.0; 4], |c| c.map(|x| f32::from(x) / 255.0));
+            for v in tint {
+                ib.extend_from_slice(&v.to_le_bytes());
+            }
+            let k = k as u32;
+            match ranges.last_mut() {
+                Some((mi, r)) if *mi == inst.mesh => r.end = k + 1,
+                _ => ranges.push((inst.mesh, k..k + 1)),
+            }
+        }
+        let buf = (!ib.is_empty()).then(|| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("cc3 instances"),
+                contents: &ib,
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        });
+        InstanceSet { origin, buf, ranges, count: u32::try_from(order.len()).unwrap_or(u32::MAX) }
+    }
+}
+
 /// What to draw: the meshes and their placements.
 #[derive(Clone, Copy, Debug)]
 pub struct Scene3<'a> {
     pub meshes: &'a [GpuMesh],
-    pub instances: &'a [Instance3],
+    pub instances: &'a InstanceSet,
 }
 
 /// What one frame drew.
@@ -450,51 +594,23 @@ impl Renderer3 {
         cam: &Cam3,
         style: &Style3,
     ) -> Stats3 {
-        let (meshes, instances) = (scene.meshes, scene.instances);
-        let pv = mmul(&cam.proj(), &cam.view_rot());
+        let meshes = scene.meshes;
+        let set = scene.instances;
+        let pv = cam.frame_matrix(set.origin);
         let shade = if style.hidden_line { [1.0, 0.0, 1.0, 0.0] } else { [0.45, 0.6, if style.xray { 0.45 } else { 1.0 }, 0.0] };
         // edges win over their faces by a depth nudge that is a fixed fraction of the depth range near the eye
         let nudge = if cam.persp { 2e-6 } else { 1e-5 };
-        let mut fb: Vec<f32> = pv.iter().map(|v| *v as f32).collect();
+        let mut fb: Vec<f32> = pv.to_vec();
         fb.extend_from_slice(&[0.35, -0.45, 0.82, 0.0]);
         fb.extend_from_slice(&[style.back[0], style.back[1], style.back[2], 0.25]);
         fb.extend_from_slice(&style.edge);
         fb.extend_from_slice(&[shade[0], shade[1], shade[2], nudge]);
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);
-
-        // instances grouped by mesh: one instance buffer, one range per mesh
-        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < meshes.len()).collect();
-        order.sort_by_key(|i| i.mesh);
-        let mut ib: Vec<u8> = Vec::with_capacity(order.len() * ISTRIDE as usize);
-        let mut ranges: Vec<(usize, std::ops::Range<u32>)> = Vec::new();
-        for (k, inst) in order.iter().enumerate() {
-            let Some(mesh) = meshes.get(inst.mesh) else { continue };
-            let m = cam.relative(&inst.m, mesh.origin);
-            let nm = normal_matrix(&inst.m);
-            for v in m.iter().chain(nm.iter()) {
-                ib.extend_from_slice(&v.to_le_bytes());
-            }
-            let tint = inst.tint.map_or([0.0; 4], |c| c.map(|x| f32::from(x) / 255.0));
-            for v in tint {
-                ib.extend_from_slice(&v.to_le_bytes());
-            }
-            let k = k as u32;
-            match ranges.last_mut() {
-                Some((mi, r)) if *mi == inst.mesh => r.end = k + 1,
-                _ => ranges.push((inst.mesh, k..k + 1)),
-            }
-        }
-        let inst_buf = (!ib.is_empty()).then(|| {
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("cc3 instances"),
-                contents: &ib,
-                usage: wgpu::BufferUsages::VERTEX,
-            })
-        });
+        let (inst_buf, ranges) = (&set.buf, &set.ranges);
 
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("cc3") });
-        let mut stats = Stats3 { instances: u32::try_from(order.len()).unwrap_or(u32::MAX), ..Stats3::default() };
+        let mut stats = Stats3 { instances: set.count, ..Stats3::default() };
         {
             let bg = style.background;
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -527,7 +643,7 @@ impl Renderer3 {
                 pass.set_vertex_buffer(1, inst_buf.slice(..));
                 if style.faces {
                     pass.set_pipeline(if style.xray { &self.face_xray } else { &self.face });
-                    for (mi, r) in &ranges {
+                    for (mi, r) in ranges {
                         let Some(mesh) = meshes.get(*mi) else { continue };
                         if let (Some(v), Some(i)) = (&mesh.verts, &mesh.idx) {
                             pass.set_vertex_buffer(0, v.slice(..));
@@ -540,7 +656,7 @@ impl Renderer3 {
                 }
                 if style.edges {
                     pass.set_pipeline(&self.edge);
-                    for (mi, r) in &ranges {
+                    for (mi, r) in ranges {
                         let Some(mesh) = meshes.get(*mi) else { continue };
                         if let Some(e) = &mesh.edges {
                             pass.set_vertex_buffer(0, e.slice(..));
@@ -554,6 +670,98 @@ impl Renderer3 {
         }
         queue.submit([enc.finish()]);
         stats
+    }
+}
+
+/// Draws a [`Target3`] onto another pass (the UI's): a full-viewport triangle sampling the target; the caller sets
+/// the viewport to where the 3D view goes.
+pub struct Blit {
+    pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+}
+
+impl std::fmt::Debug for Blit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Blit")
+    }
+}
+
+impl Blit {
+    /// For a pass of `format` with `msaa` samples.
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, msaa: u32) -> Blit {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("cc3 blit"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("blit.wgsl").into()),
+        });
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cc3 blit"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cc3 blit"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cc3 blit"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs"), compilation_options: Default::default(), buffers: &[] },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState { count: msaa.max(1), mask: !0, alpha_to_coverage_enabled: false },
+            multiview_mask: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("cc3 blit"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        Blit { pipeline, layout, sampler }
+    }
+
+    /// The bind group for a target (make it again when the target is re-made).
+    pub fn bind(&self, device: &wgpu::Device, target: &Target3) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cc3 blit"),
+            layout: &self.layout,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&target.view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+            ],
+        })
+    }
+
+    /// Draw the bound target over the pass's current viewport.
+    pub fn draw(&self, pass: &mut wgpu::RenderPass<'_>, bind: &wgpu::BindGroup) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, bind, &[]);
+        pass.draw(0..3, 0..1);
     }
 }
 
@@ -675,10 +883,12 @@ mod tests {
         let far = [500_000.0, 4_000_000.0, 120.0];
         let c0 = Cam3 { eye: [3.0, -4.0, 2.0], target: [0.5, 0.5, 0.5], ..Cam3::default() };
         let c1 = Cam3 { eye: [far[0] + 3.0, far[1] - 4.0, far[2] + 2.0], target: [far[0] + 0.5, far[1] + 0.5, far[2] + 0.5], ..c0 };
-        let m0 = c0.relative(&IDENT, [0.5, 0.5, 0.5]);
-        let m1 = c1.relative(&IDENT, [far[0] + 0.5, far[1] + 0.5, far[2] + 0.5]);
-        for (a, b) in m0.iter().zip(&m1) {
-            assert!((a - b).abs() < 1e-6, "{m0:?} vs {m1:?}");
+        let m0 = relative(&IDENT, [0.5, 0.5, 0.5], [0.0; 3]);
+        let m1 = relative(&IDENT, [far[0] + 0.5, far[1] + 0.5, far[2] + 0.5], far);
+        let f0 = c0.frame_matrix([0.5, 0.5, 0.5]);
+        let f1 = c1.frame_matrix([far[0] + 0.5, far[1] + 0.5, far[2] + 0.5]);
+        for (a, b) in m0.iter().zip(&m1).chain(f0.iter().zip(&f1)) {
+            assert!((a - b).abs() < 1e-5, "{m0:?} vs {m1:?}, {f0:?} vs {f1:?}");
         }
     }
 
@@ -709,8 +919,9 @@ mod tests {
             ..Cam3::default()
         };
         let r = Renderer3::new(&device);
-        let (meshes, instances) = ([mesh], [Instance3 { mesh: 0, m: IDENT, tint: None }]);
-        let st = r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &instances }, &cam, &Style3::default());
+        let meshes = [mesh];
+        let set = InstanceSet::new(&device, &meshes, &[Instance3 { mesh: 0, m: IDENT, tint: None }], c);
+        let st = r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &set }, &cam, &Style3::default());
         assert_eq!(st.triangles, 12);
         assert_eq!(st.segments, 12);
         let px = read_back(&device, &queue, &target).unwrap();

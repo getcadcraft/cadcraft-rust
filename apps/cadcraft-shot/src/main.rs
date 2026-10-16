@@ -62,7 +62,11 @@ fn egui_wgpu_options() -> egui_wgpu::RendererOptions {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let r = if args.first().map(String::as_str) == Some("bench") { bench(&args) } else { shot(&args) };
+    let r = match args.first().map(String::as_str) {
+        Some("bench") => bench(&args),
+        Some("demo3d") => demo3d(&args),
+        _ => shot(&args),
+    };
     match r {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -139,6 +143,52 @@ fn shot(args: &[String]) -> Result<(), String> {
     img.save(out).map_err(|e| format!("{out}: {e}"))?;
     let st = hs.state();
     println!("{out}: {}x{} · {}", img.width(), img.height(), st.message);
+    Ok(())
+}
+
+/// `cadcraft-shot demo3d <out.png> [--n N] [--survey] [--frames F] [--size WxH]`: the 3D viewport on a test scene of
+/// N×N instanced boxes (at x = 500 000, y = 4 000 000 with --survey); writes a PNG and times F orbit frames.
+fn demo3d(args: &[String]) -> Result<(), String> {
+    use cc_ui_egui::view3d::{View3, demo_scene, show};
+    let out = args.get(1).ok_or("usage: cadcraft-shot demo3d <out.png> [--n N] [--survey] [--frames F]")?.clone();
+    let n: usize = arg(args, "--n").and_then(|s| s.parse().ok()).unwrap_or(12);
+    let frames: usize = arg(args, "--frames").and_then(|s| s.parse().ok()).unwrap_or(0);
+    let (w, h) = arg(args, "--size")
+        .and_then(|s| s.split_once('x').map(|(a, b)| (a.parse().unwrap_or(1200.0), b.parse().unwrap_or(800.0))))
+        .unwrap_or((1200.0, 800.0));
+    let origin = if args.iter().any(|a| a == "--survey") { [500_000.0, 4_000_000.0, 120.0] } else { [0.0; 3] };
+    let scene = demo_scene(n, origin);
+    let rs = egui_kittest::wgpu::create_render_state(egui_kittest::wgpu::default_wgpu_setup(), egui_wgpu_options());
+    cc_ui_egui::install_gpu(&rs);
+    let renderer = egui_kittest::wgpu::WgpuTestRenderer::from_render_state(rs);
+    let mut hs = egui_kittest::Harness::builder().with_size(egui::vec2(w, h)).with_pixels_per_point(1.0).renderer(renderer).build_ui_state(
+        move |ui, v: &mut View3| {
+            let rect = ui.max_rect();
+            show(ui, rect, &scene, v);
+        },
+        View3::default(),
+    );
+    hs.step();
+    let img = hs.render()?;
+    img.save(&out).map_err(|e| format!("{out}: {e}"))?;
+    let tris = (n * n * 12 + 12) as u64;
+    let mut times = Vec::new();
+    for _ in 0..frames {
+        hs.state_mut().cam.orbit(9.0, 2.0);
+        let t = Instant::now();
+        hs.step();
+        hs.render()?;
+        times.push(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    times.sort_by(f64::total_cmp);
+    let best = times.first().copied().unwrap_or(f64::NAN);
+    let median = times.get(times.len() / 2).copied().unwrap_or(f64::NAN);
+    println!(
+        "{out}: {}x{} · {} instances · {tris} triangles · orbit frame best {best:.2} ms, median {median:.2} ms",
+        img.width(),
+        img.height(),
+        n * n + 1
+    );
     Ok(())
 }
 

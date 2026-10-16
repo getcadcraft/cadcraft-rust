@@ -19,6 +19,7 @@ pub mod canvas;
 pub mod document;
 pub mod edit;
 pub mod theme;
+pub mod view3d;
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, PoisonError};
