@@ -9,6 +9,14 @@
 //!   cadcraft-cli parity dxf <file.dxf>           dev: readDxfModel's model as JSON
 //!   cadcraft-cli cadgeom <cases.json>            dev: the drafting kernel's parity cases (forks/tools/gdiff.mjs) → JSON results
 //!   cadcraft-cli cadgeom --doc <script.json>     dev: a document-ops script, one snapshot per step → JSON
+//!   cadcraft-cli write <in.dwg> <AC10xx> <out.dwg> [--created-ms N] [--guid-seq] [--bench N]
+//!   cadcraft-cli write --model <model.json> <AC10xx> <out.dwg> [...]
+//!   cadcraft-cli dynvis <case.json>              dev: dynamic-block visibility parameter writer on {raw, states}:
+//!                                                {exact, fields (as JSON), encoded, rewritten | error}
+//!                                                read (our reader, or a model JSON), write with our writer (writeDwg),
+//!                                                print the report as JSON; --created-ms / --guid-seq fix the creation
+//!                                                time and the GUIDs (the parity harness does the same in the JS);
+//!                                                --bench N: best-of-N write time after one warm-up
 //!
 //! Exit codes: 0 ok, 1 refused file / error, 2 usage, 3 engine not ported yet.
 #![forbid(unsafe_code)]
@@ -19,11 +27,11 @@ use std::time::Instant;
 
 use cc_io_dwg::compile::{compile_drawing, to_json};
 use cc_io_dwg::dxf_model::{decode_dxf_bytes, try_read_dxf_model};
-use cc_io_dwg::{Obj, ReadOpts, V, read_dwg};
+use cc_io_dwg::{GuidMode, Obj, ReadOpts, V, WriteOpts, read_dwg, write_dwg_opts};
 
 fn usage() -> ExitCode {
     eprintln!(
-        "usage: cadcraft-cli info [--json] <file.dwg> | convert --json <file.dwg> [-o out.json] | parity <engine> <file> | bench <engine> <file> [--runs N] | compile <file.dwg|file.dxf> [--json] [--bench N]"
+        "usage: cadcraft-cli info [--json] <file.dwg> | convert --json <file.dwg> [-o out.json] | parity <engine> <file> | bench <engine> <file> [--runs N] | compile <file.dwg|file.dxf> [--json] [--bench N] | write (<in.dwg> | --model <model.json>) <AC10xx> <out.dwg> [--created-ms N] [--guid-seq] [--bench N] | dynvis <case.json>"
     );
     ExitCode::from(2)
 }
@@ -39,6 +47,8 @@ fn main() -> ExitCode {
         "bench" => bench(&rest),
         "compile" => compile(&rest),
         "cadgeom" => cadgeom(&rest),
+        "write" => write(&rest),
+        "dynvis" => dynvis(&rest),
         _ => usage(),
     }
 }
@@ -286,6 +296,122 @@ fn compile(rest: &[&str]) -> ExitCode {
             d.stats.unsupported
         );
     }
+    ExitCode::SUCCESS
+}
+
+fn write(rest: &[&str]) -> ExitCode {
+    let opt = |k: &str| rest.iter().position(|a| *a == k).and_then(|i| rest.get(i + 1)).copied();
+    let model_json = opt("--model");
+    let created = opt("--created-ms").and_then(|s| s.parse::<f64>().ok());
+    let bench_n = opt("--bench").and_then(|s| s.parse::<usize>().ok());
+    let guid = if rest.contains(&"--guid-seq") { GuidMode::Sequence } else { GuidMode::Random };
+    let skip: Vec<&str> = [model_json, opt("--created-ms"), opt("--bench")].into_iter().flatten().collect();
+    let pos: Vec<&str> = rest.iter().copied().filter(|a| !a.starts_with("--") && !skip.contains(a)).collect();
+    let (input, version, out) = match (model_json, pos.as_slice()) {
+        (Some(m), [v, o]) => (m, *v, *o),
+        (None, [i, v, o]) => (*i, *v, *o),
+        _ => return usage(),
+    };
+    let bytes = match read_file(input) {
+        Ok(b) => b,
+        Err(c) => return c,
+    };
+    let model = if model_json.is_some() {
+        match serde_json::from_slice::<serde_json::Value>(&bytes) {
+            Ok(v) => match cc_io_dwg::w_js::from_json(&v, 0) {
+                V::Obj(o) => o,
+                _ => {
+                    print_error("refused", "the model JSON is not an object");
+                    return ExitCode::from(1);
+                }
+            },
+            Err(e) => {
+                print_error("refused", &e.to_string());
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        read_dwg(&bytes, &ReadOpts::default())
+    };
+    let opts = WriteOpts { version: version.to_string(), created_ms: created, guid };
+    if let Some(n) = bench_n {
+        let _ = write_dwg_opts(&model, &opts); // warm-up
+        let mut best = f64::INFINITY;
+        for _ in 0..n.max(1) {
+            let t = Instant::now();
+            let r = write_dwg_opts(&model, &opts);
+            best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+            drop(r);
+        }
+        println!("{{\"write_ms\":{best:.3}}}");
+        return ExitCode::SUCCESS;
+    }
+    match write_dwg_opts(&model, &opts) {
+        Ok((data, report)) => {
+            if let Err(e) = std::fs::write(out, &data) {
+                print_error("io", &e.to_string());
+                return ExitCode::from(1);
+            }
+            println!("{}", cc_io_dwg::w_js::js_order(V::Obj(report)).to_json());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            print_error("refused", &e);
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn dynvis(rest: &[&str]) -> ExitCode {
+    use cc_io_dwg::w_dynblock::{encode_visibility, reencodes_exactly, rewrite_visibility, visibility_fields};
+    let Some(file) = rest.first() else { return usage() };
+    let bytes = match read_file(file) {
+        Ok(b) => b,
+        Err(c) => return c,
+    };
+    let case = match serde_json::from_slice::<serde_json::Value>(&bytes) {
+        Ok(v) => cc_io_dwg::w_js::from_json(&v, 0),
+        Err(e) => {
+            print_error("refused", &e.to_string());
+            return ExitCode::from(1);
+        }
+    };
+    let raw = case.as_obj().and_then(|o| o.obj("raw")).cloned().unwrap_or_default();
+    let mut out = Obj::new();
+    out.set("exact", reencodes_exactly(&raw));
+    match visibility_fields(&raw) {
+        Ok(f) => {
+            let st: Vec<V> = f
+                .states
+                .iter()
+                .map(|s| {
+                    let hs = |l: &[(f64, String)]| V::Arr(l.iter().map(|(c, x)| V::Arr(vec![V::Num(*c), V::from(x.as_str())])).collect());
+                    let mut o = Obj::new();
+                    o.set("name", s.name.as_str());
+                    o.set("entities", hs(&s.entities));
+                    o.set("elements", hs(&s.elements));
+                    V::Obj(o)
+                })
+                .collect();
+            let mut fo = Obj::new();
+            fo.set("name", f.name.as_str());
+            fo.set("label", f.label.as_str());
+            fo.set("all", f.all.len());
+            fo.set("states", st);
+            out.set("fields", fo);
+            if let Ok(e) = encode_visibility(&f, f.ver) {
+                out.set("encoded", e);
+            }
+        }
+        Err(e) => out.set("fieldsError", e),
+    }
+    if let Some(states) = case.as_obj().and_then(|o| o.get("states")) {
+        match rewrite_visibility(&raw, states) {
+            Ok(r) => out.set("rewritten", r),
+            Err(e) => out.set("rewriteError", e),
+        }
+    }
+    println!("{}", V::Obj(out).to_json());
     ExitCode::SUCCESS
 }
 

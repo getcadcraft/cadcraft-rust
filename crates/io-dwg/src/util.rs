@@ -226,3 +226,57 @@ impl std::hash::Hasher for IntHasher {
 }
 pub type IntMap<K, V> = std::collections::HashMap<K, V, std::hash::BuildHasherDefault<IntHasher>>;
 pub type IntSet<K> = std::collections::HashSet<K, std::hash::BuildHasherDefault<IntHasher>>;
+
+// ---------------------------------------------------------------- writer side (additions)
+
+/// usize → u64 (lossless on every platform we build for).
+pub fn usize_to_u64(n: usize) -> u64 {
+    n as u64
+}
+/// The low 32 bits of a u64.
+pub fn low_u32(n: u64) -> u32 {
+    (n & 0xFFFF_FFFF) as u32
+}
+/// f64 → u64 for an integer-valued, non-negative number (truncating; negative / NaN → 0; saturating).
+pub fn f64_to_u64(n: f64) -> u64 {
+    if n > 0.0 { n as u64 } else { 0 }
+}
+/// u64 → f64 (a JS number; exact up to 2^53).
+pub fn u64_to_f64(n: u64) -> f64 {
+    n as f64
+}
+/// i32 → f64.
+pub fn i32_to_f64(n: i32) -> f64 {
+    f64::from(n)
+}
+/// JS `BigInt.asUintN(64, BigInt(Math.trunc(n)))` for a finite number (NaN / ±Infinity → 0).
+pub fn f64_to_u64_wrapping(n: f64) -> u64 {
+    if !n.is_finite() {
+        return 0;
+    }
+    let t = n.trunc();
+    if t >= 0.0 {
+        if t < 18446744073709551616.0 { t as u64 } else { (t % 18446744073709551616.0) as u64 }
+    } else if t >= -9223372036854775808.0 {
+        (t as i64) as u64
+    } else {
+        let m = (-t) % 18446744073709551616.0;
+        (m as u64).wrapping_neg()
+    }
+}
+/// u8 from the low byte of an i32 (JS `v & 0xFF`).
+pub fn u8_of_i32(n: i32) -> u8 {
+    (n & 0xFF) as u8
+}
+/// u16 from the low 16 bits of an i32.
+pub fn u16_of_i32(n: i32) -> u16 {
+    (n & 0xFFFF) as u16
+}
+/// usize → u32 (saturating).
+pub fn u32_of_usize(n: usize) -> u32 {
+    u32::try_from(n).unwrap_or(u32::MAX)
+}
+/// usize → i32 (saturating).
+pub fn i32_of_usize(n: usize) -> i32 {
+    i32::try_from(n).unwrap_or(i32::MAX)
+}

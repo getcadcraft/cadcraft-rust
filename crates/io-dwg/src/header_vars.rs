@@ -432,3 +432,18 @@ pub fn decode_header_vars(r: &mut BitReader, ver: u32, mut handles: Option<&mut 
     }
     (vars, error)
 }
+
+/// The value the ODA spec names as a variable's default (header-vars.js `def`; the writer's last fallback).
+pub fn header_def(name: &str) -> Option<V> {
+    Some(match name {
+        "REQUIREDVERSIONS" => V::Num(0.0),
+        "UNKNOWN_1" => V::Num(412_148_564_080.0),
+        "UNKNOWN_2" | "UNKNOWN_3" | "UNKNOWN_4" => V::Num(1.0),
+        "UNKNOWN_5" | "UNKNOWN_6" | "UNKNOWN_7" | "UNKNOWN_8" => V::Str(String::new()),
+        "UNKNOWN_9" => V::Num(24.0),
+        "UNKNOWN_10" | "UNKNOWN_11" => V::Num(0.0),
+        "TSTACKALIGN" => V::Num(1.0),
+        "TSTACKSIZE" => V::Num(70.0),
+        _ => return None,
+    })
+}

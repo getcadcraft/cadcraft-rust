@@ -23,6 +23,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "dwg_roundtrip"
+path = "fuzz_targets/dwg_roundtrip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "dxf_read"
 path = "fuzz_targets/dxf_read.rs"
 test = false
