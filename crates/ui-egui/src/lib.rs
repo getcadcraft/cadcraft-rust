@@ -345,26 +345,38 @@ impl UiApp {
             return;
         }
         let groups = self.sel_props.clone();
-        egui::Panel::right("props3").default_size(300.0).resizable(true).frame(egui::Frame::new().fill(t.panel).inner_margin(6)).show(
-            ui,
-            |ui| {
-                ui.label(RichText::new("Properties").strong().color(t.text_strong));
-                ui.separator();
-                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    for g in &groups {
-                        egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
-                            egui::Grid::new(&g.title).num_columns(2).striped(true).show(ui, |ui| {
-                                for (k, v) in &g.rows {
-                                    ui.label(RichText::new(k).color(t.text_dim));
-                                    ui.label(RichText::new(v).color(t.text));
-                                    ui.end_row();
-                                }
-                            });
-                        });
-                    }
-                });
-            },
-        );
+        // the panel never grows past half the window; values wrap anywhere (point lists have no spaces) and a huge one
+        // (a terrain's survey points in one string) shows its start and its length
+        let max_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
+        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+        egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(frame).show(ui, |ui| {
+            ui.label(RichText::new("Properties").strong().color(t.text_strong));
+            ui.separator();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                for g in &groups {
+                    egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
+                        // name above value (a grid needs a frame to settle its column widths)
+                        let col = ui.available_width().max(80.0);
+                        for (k, v) in &g.rows {
+                            ui.label(RichText::new(k).small().color(t.text_dim));
+                            let n = v.chars().count();
+                            let shown = if n > 160 {
+                                format!("{}… ({n} characters)", v.chars().take(160).collect::<String>())
+                            } else {
+                                v.clone()
+                            };
+                            let mut job = egui::text::LayoutJob::single_section(
+                                shown,
+                                egui::TextFormat::simple(egui::TextStyle::Body.resolve(ui.style()), t.text),
+                            );
+                            job.wrap = egui::text::TextWrapping { max_width: col, break_anywhere: true, ..Default::default() };
+                            ui.add(egui::Label::new(job));
+                            ui.add_space(3.0);
+                        }
+                    });
+                }
+            });
+        });
     }
 
     /// The 3D view's colours from the theme (view3d.js's paper / model colours).
@@ -777,6 +789,8 @@ impl UiApp {
             }
             if let Some(at) = clicked {
                 self.select3(at);
+                // the Properties panel was laid out before the click in this frame: draw it in the next one
+                ui.ctx().request_repaint();
             }
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
