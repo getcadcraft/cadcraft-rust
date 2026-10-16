@@ -37,6 +37,7 @@ mod cmds;
 mod ifc;
 mod iocad;
 mod m3d;
+mod m3dio;
 mod m3dtools;
 mod manifold;
 mod skp;
@@ -75,6 +76,7 @@ fn main() -> ExitCode {
         "manifold" => manifold::manifold(&rest),
         "m3d" => m3d::m3d(&rest),
         "m3dtools" => m3dtools::m3dtools(&rest),
+        "m3dio" => m3dio::m3dio(&rest),
         _ => usage(),
     }
 }

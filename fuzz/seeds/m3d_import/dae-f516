@@ -1,0 +1,1 @@
+<?xml version="1.0"?><COLLADA><library_nodes><node id="a"><instance_node url="#b"/></node><node id="b"><instance_node url="#a"/></node></library_nodes><library_visual_scenes><visual_scene id="s"><node><instance_node url="#a"/></node></visual_scene></library_visual_scenes></COLLADA>

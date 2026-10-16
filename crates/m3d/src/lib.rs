@@ -46,6 +46,7 @@ pub mod js;
 pub mod jsmath;
 pub mod json;
 pub mod mesh;
+pub mod meshin;
 pub mod model;
 pub mod offset;
 pub mod omap;

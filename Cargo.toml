@@ -31,6 +31,7 @@ cc-m3d-tools = { path = "crates/m3d-tools" }
 cc-io-dwg = { path = "crates/io-dwg" }
 cc-io-skp = { path = "crates/io-skp" }
 cc-io-ifc = { path = "crates/io-ifc" }
+cc-io-m3d = { path = "crates/io-m3d" }
 cc-io-cad = { path = "crates/io-cad" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }
@@ -60,6 +61,9 @@ overflow-checks = true
 overflow-checks = true
 
 [profile.release.package.cc-io-ifc]
+overflow-checks = true
+
+[profile.release.package.cc-io-m3d]
 overflow-checks = true
 
 [profile.bench]

@@ -1,0 +1,23 @@
+[package]
+name = "cc-io-m3d"
+description = "CadCraft L3: ModelCraft's file formats (io.js, xml.js, strokefont.js, solids.js, skp-import.js, print3d.js, print-mc.js) on cc-m3d."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-m3d.workspace = true
+cc-manifold.workspace = true
+serde_json.workspace = true
+libm = "0.2.16"
+unicode-general-category = "1.1"

@@ -1958,13 +1958,38 @@ impl<'m> W<'m> {
     }
 }
 
-/// Math.max (NaN wins)
+/// Math.max (NaN wins; +0 is larger than −0, as in JS)
 pub fn js_max(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { f64::NAN } else { a.max(b) }
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a == 0.0 && b == 0.0 {
+        if a.is_sign_positive() { a } else { b }
+    } else {
+        a.max(b)
+    }
 }
-/// Math.min (NaN wins)
+/// Math.min (NaN wins; −0 is smaller than +0, as in JS)
 pub fn js_min(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) }
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else if a == 0.0 && b == 0.0 {
+        if a.is_sign_negative() { a } else { b }
+    } else {
+        a.min(b)
+    }
+}
+
+#[cfg(test)]
+mod js_max_tests {
+    #[test]
+    fn signed_zeros_order_as_in_js() {
+        assert!(super::js_max(0.0, -0.0).is_sign_positive());
+        assert!(super::js_max(-0.0, 0.0).is_sign_positive());
+        assert!(super::js_min(0.0, -0.0).is_sign_negative());
+        assert!(super::js_min(-0.0, 0.0).is_sign_negative());
+        assert_eq!(super::js_max(1.0, 2.0), 2.0);
+        assert!(super::js_min(f64::NAN, 1.0).is_nan());
+    }
 }
 
 /// `/CONTROL|^LAYER$|^STYLE$|^LTYPE$|^APPID$|^DIMSTYLE$|^VPORT$|^VIEW$|DICTIONARY|PLACEHOLDER|MLINESTYLE|LAYOUT|BLOCK_HEADER/`

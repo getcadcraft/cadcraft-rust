@@ -508,6 +508,7 @@ dependencies = [
  "cc-io-cad",
  "cc-io-dwg",
  "cc-io-ifc",
+ "cc-io-m3d",
  "cc-io-skp",
  "cc-m3d",
  "cc-m3d-tools",
@@ -660,6 +661,17 @@ dependencies = [
  "cc-manifold",
  "libm",
  "rayon",
+]
+
+[[package]]
+name = "cc-io-m3d"
+version = "0.0.1"
+dependencies = [
+ "cc-m3d",
+ "cc-manifold",
+ "libm",
+ "serde_json",
+ "unicode-general-category",
 ]
 
 [[package]]

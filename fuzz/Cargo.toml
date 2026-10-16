@@ -20,6 +20,7 @@ cc-io-ifc = { path = "../crates/io-ifc" }
 cc-manifold = { path = "../crates/manifold" }
 cc-m3d = { path = "../crates/m3d" }
 cc-m3d-tools = { path = "../crates/m3d-tools" }
+cc-io-m3d = { path = "../crates/io-m3d" }
 
 [[bin]]
 name = "dwg_read"
@@ -91,6 +92,13 @@ bench = false
 [[bin]]
 name = "m3d_tools"
 path = "fuzz_targets/m3d_tools.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "m3d_import"
+path = "fuzz_targets/m3d_import.rs"
 test = false
 doc = false
 bench = false
