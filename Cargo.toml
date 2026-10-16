@@ -27,6 +27,7 @@ cc-drawing = { path = "crates/drawing" }
 cc-cad = { path = "crates/cad" }
 cc-cad-geom = { path = "crates/cad-geom" }
 cc-io-dwg = { path = "crates/io-dwg" }
+cc-io-skp = { path = "crates/io-skp" }
 cc-io-cad = { path = "crates/io-cad" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }
@@ -49,6 +50,9 @@ codegen-units = 16
 panic = "unwind"
 
 [profile.release.package.cc-io-dwg]
+overflow-checks = true
+
+[profile.release.package.cc-io-skp]
 overflow-checks = true
 
 [profile.bench]

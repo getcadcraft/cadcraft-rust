@@ -22,6 +22,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "cc-io-skp",
  "libfuzzer-sys",
  "serde_json",
 ]
@@ -96,6 +97,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-io-skp"
+version = "0.0.1"
+dependencies = [
+ "crc32fast",
+ "memchr",
+ "rayon",
+ "zlib-rs",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -106,6 +117,15 @@ name = "core_detect"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f8f80099a98041a3d1622845c271458a2d73e688351bf3cb999266764b81d48"
+
+[[package]]
+name = "crc32fast"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
+dependencies = [
+ "cfg-if",
+]
 
 [[package]]
 name = "crossbeam-deque"
@@ -504,6 +524,12 @@ dependencies = [
  "js-sys",
  "wasm-bindgen",
 ]
+
+[[package]]
+name = "zlib-rs"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 
 [[package]]
 name = "zmij"

@@ -2,7 +2,7 @@
 //!
 //!   cadcraft-cli info <file.dwg>                 version, objects, counts, notes (human text; --json for JSON)
 //!   cadcraft-cli convert --json <file.dwg> [-o out.json]   the drawing model as JSON (the JS readDwg shape)
-//!   cadcraft-cli parity <engine> <file>          fork-parity contract: engine output as JSON (engines: dwg)
+//!   cadcraft-cli parity <engine> <file>          fork-parity contract: engine output as JSON (engines: dwg, skp)
 //!   cadcraft-cli bench <engine> <file> --runs N  fork-parity contract: in-process timings after one warm-up
 //!   cadcraft-cli compile <file.dwg|file.dxf> [--json] [--bench N]   dev: the 2D display list (BimCraft's compileDrawing);
 //!                                                --bench N: best-of-N compile time after one warm-up
@@ -29,6 +29,7 @@
 
 mod cmds;
 mod iocad;
+mod skp;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -99,6 +100,9 @@ fn parity(rest: &[&str]) -> ExitCode {
             }
         };
     }
+    if *engine == "skp" {
+        return skp::parity(file);
+    }
     if *engine != "dwg" {
         return ExitCode::from(3);
     }
@@ -120,10 +124,13 @@ fn parity(rest: &[&str]) -> ExitCode {
 
 fn bench(rest: &[&str]) -> ExitCode {
     let (Some(engine), Some(file)) = (rest.first(), rest.get(1)) else { return usage() };
+    let runs: usize = rest.iter().position(|a| *a == "--runs").and_then(|i| rest.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(5);
+    if *engine == "skp" {
+        return skp::bench(file, runs);
+    }
     if *engine != "dwg" {
         return ExitCode::from(3);
     }
-    let runs: usize = rest.iter().position(|a| *a == "--runs").and_then(|i| rest.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(5);
     let mut open = Vec::new();
     let mut parse = Vec::new();
     let _ = read_dwg(&std::fs::read(file).unwrap_or_default(), &ReadOpts::default()); // warm-up

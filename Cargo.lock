@@ -507,6 +507,7 @@ dependencies = [
  "cc-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "cc-io-skp",
  "flate2",
  "serde_json",
 ]
@@ -646,6 +647,16 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "web-time",
+]
+
+[[package]]
+name = "cc-io-skp"
+version = "0.0.1"
+dependencies = [
+ "crc32fast",
+ "memchr",
+ "rayon",
+ "zlib-rs",
 ]
 
 [[package]]
