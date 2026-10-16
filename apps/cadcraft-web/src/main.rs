@@ -57,6 +57,7 @@ mod web {
         let sample = search.split(['?', '&']).any(|p| p == "sample");
         let bench_frames = search.split(['?', '&']).any(|p| p == "bench");
         let new_drawing = search.split(['?', '&']).any(|p| p == "new");
+        let demo3d = search.split(['?', '&']).any(|p| p == "demo3d");
         if bench_frames {
             bench();
         }
@@ -142,6 +143,9 @@ mod web {
                         }
                         if bench_frames {
                             app.start_bench(120);
+                        }
+                        if demo3d {
+                            let _ = app.run("view.demo3d", &Params::default());
                         }
                         Ok(Box::new(App { app }))
                     }),

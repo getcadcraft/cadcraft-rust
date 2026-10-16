@@ -84,6 +84,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("layer.all", "Show every layer", "", "{}"),
     ("theme.toggle", "Dark / light", "", "{}"),
     ("file.new", "New drawing", "Ctrl+N", "{} → an empty editable drawing with the command line"),
+    (
+        "view.demo3d",
+        "3D test scene",
+        "",
+        "{factor?: number} → shows the 3D viewport on a test scene of N×N boxes (factor = N, default 12) at survey coordinates",
+    ),
     ("cmd.line", "Type at the command line", "", "{name: string} → as if typed and Enter pressed (drawing open for editing)"),
     ("edit.undo", "Undo", "Ctrl+Z", "{}"),
     ("edit.redo", "Redo", "Ctrl+Y", "{}"),
@@ -105,6 +111,8 @@ pub static SAMPLE_XREF: &[u8] = include_bytes!("../../../assets/samples/base-pla
 
 pub struct UiApp {
     pub services: Services,
+    /// a 3D scene shown instead of the drawing (the 3D viewport, M6)
+    pub scene3: Option<(view3d::Scene3D, view3d::View3)>,
     pub doc: Option<Loaded>,
     pub space: usize,
     /// one view per space (physical pixels)
@@ -143,6 +151,7 @@ impl Default for UiApp {
     fn default() -> Self {
         UiApp {
             services: Services::default(),
+            scene3: None,
             doc: None,
             space: 0,
             views: Vec::new(),
@@ -252,6 +261,7 @@ impl UiApp {
     }
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
+        self.scene3 = None;
         match res {
             Ok(l) => {
                 self.editor = None;
@@ -328,8 +338,22 @@ impl UiApp {
                 let f = params.name.clone().unwrap_or_else(|| self.save_format.clone());
                 self.save_as(&f)?;
             }
-            "view.fit" => self.pending_fit = true,
+            "view.fit" => {
+                self.pending_fit = true;
+                if let Some((_, v)) = self.scene3.as_mut() {
+                    v.fit_pending = true;
+                }
+            }
+            "view.demo3d" => {
+                let n = params.factor.filter(|f| f.is_finite() && *f >= 1.0).map_or(12, |f| f.min(400.0) as usize);
+                self.scene3 = Some((view3d::demo_scene(n, [500_000.0, 4_000_000.0, 120.0]), view3d::View3::default()));
+                self.message = format!(
+                    "3D test scene: {} boxes at x = 500 000, y = 4 000 000 · middle / right drag orbits, Shift pans, wheel zooms",
+                    n * n
+                );
+            }
             "file.new" => {
+                self.scene3 = None;
                 self.source = None;
                 self.editor = Some(edit::Editor::new(cc_cad::Doc::new(), "Drawing1"));
                 self.doc = None;
@@ -546,7 +570,14 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+        if let Some((scene, view)) = self.scene3.as_mut() {
+            egui::CentralPanel::no_frame().show(ui, |ui| {
+                let rect = ui.max_rect();
+                view3d::show(ui, rect, scene, view);
+            });
+        } else {
+            egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+        }
         if self.bench.is_some() && self.doc.is_some() {
             self.bench_step(&ctx);
         }
