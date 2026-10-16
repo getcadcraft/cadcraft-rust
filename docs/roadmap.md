@@ -39,6 +39,17 @@ makes no tablet promise beyond "the web build in a WebGPU browser".
 
 - Accessibility (screen readers) is skipped by the owner's decision (2026-10-15); see `docs/gaps.md`.
 
+## M9 inputs (measured 2026-10-16, during M6)
+
+- **PDF apps (MarkupCraft, TakeoffCraft) need a PDF renderer in place of pdf.js.** `hayro` 0.8 (pure Rust, Apache-2.0 OR
+  MIT, vello_cpu rasteriser) on the Carey plan-set sheet (18 × 24 in, vector-heavy): load + render at 1× 43 ms vs pdf.js
+  (Node 24 + Skia canvas) 390 ms (9×); at 3× 201 vs 505 ms (2.5×); the picture is right (text, hatching, door swings).
+  Candidate for the PDF stack; annotation read/write needs a PDF object layer as well (hayro-syntax to read, a writer of
+  our own or lopdf (MIT) to write); parity there is semantic (what pdf.js and other readers read back), as pdf-lib's
+  bytes cannot be matched by another library.
+- The 3D viewport, picking, section cuts, IFC properties and storeys are shared by ModelCraft, BimCraft, CivilCraft's
+  site view, DetailCraft and PartCraft: build them once in `cc-ui-egui::view3d` (done for M6/M7).
+
 ## After M4 (re-plan inputs, measured 2026-10-16)
 
 - **Every engine ported so far is at exact parity** (byte-identical writers, 0-difference readers and geometry). The
