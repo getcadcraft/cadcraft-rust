@@ -17,6 +17,8 @@ workspace = true
 
 [dependencies]
 cc-geom.workspace = true
+cc-cad.workspace = true
+cc-cad-geom.workspace = true
 cc-drawing.workspace = true
 cc-tools.workspace = true
 serde_json.workspace = true

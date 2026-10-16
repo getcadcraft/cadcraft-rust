@@ -503,6 +503,8 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-cad-geom",
+ "cc-engine",
+ "cc-geom",
  "cc-io-dwg",
  "serde_json",
 ]
@@ -606,6 +608,8 @@ dependencies = [
 name = "cc-engine"
 version = "0.0.1"
 dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
  "cc-drawing",
  "cc-geom",
  "cc-tools",

@@ -19,4 +19,6 @@ workspace = true
 cc-io-dwg.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
+cc-engine.workspace = true
+cc-geom.workspace = true
 serde_json.workspace = true

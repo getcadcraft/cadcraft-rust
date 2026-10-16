@@ -17,10 +17,13 @@
 //!                                                print the report as JSON; --created-ms / --guid-seq fix the creation
 //!                                                time and the GUIDs (the parity harness does the same in the JS);
 //!                                                --bench N: best-of-N write time after one warm-up
+//!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
 //!
 //! Exit codes: 0 ok, 1 refused file / error, 2 usage, 3 engine not ported yet.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+
+mod cmds;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -49,6 +52,7 @@ fn main() -> ExitCode {
         "cadgeom" => cadgeom(&rest),
         "write" => write(&rest),
         "dynvis" => dynvis(&rest),
+        "cmds" => cmds::cmds(&rest),
         _ => usage(),
     }
 }
