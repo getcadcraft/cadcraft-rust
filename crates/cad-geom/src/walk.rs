@@ -198,7 +198,13 @@ struct Walker<'a> {
     ltscale: f64,
     patterns: Vec<(String, Option<Vec<f64>>)>,
     max_dashes: Option<f64>,
+    /// entities visited so far (nested inserts count each time they are drawn)
+    visits: usize,
 }
+
+/// Entities one walk draws at most, counting every copy a nested insert makes. Spec gap vs 0.5: blocks inserted inside
+/// blocks (16 levels) multiply without end in the JS, which then hangs; past this the walk draws nothing more.
+pub const MAX_WALK_VISITS: usize = 10_000_000;
 
 fn color_value(v: &Value) -> Color {
     Color::from_value(v).unwrap_or(Color::Null)
@@ -284,7 +290,8 @@ impl Walker<'_> {
         depth: u32,
         blk: &BlkCtx,
     ) {
-        if depth > 16 {
+        self.visits = self.visits.saturating_add(1);
+        if depth > 16 || self.visits > MAX_WALK_VISITS {
             return;
         }
         let color = self.resolve_color(e, by_block, parent);
@@ -508,6 +515,7 @@ pub fn walk(doc: &Doc, entities: &[Entity], out: &mut dyn WalkOut, opts: &WalkOp
         ltscale,
         patterns: Vec::new(),
         max_dashes: opts.max_dashes,
+        visits: 0,
     };
     let m = opts.m;
     for (i, e) in entities.iter().enumerate() {

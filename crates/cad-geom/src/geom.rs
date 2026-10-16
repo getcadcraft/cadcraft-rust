@@ -352,6 +352,25 @@ pub fn prims(e: &Entity, blocks: Option<&Blocks>) -> Vec<Prim> {
 }
 
 pub fn prims_d(e: &Entity, blocks: Option<&Blocks>, depth: u32) -> Vec<Prim> {
+    prims_cap(e, blocks, depth, MAX_PRIMS)
+}
+
+/// Primitives per top-level entity at most. Spec gap vs 0.5: the JS has no cap, and blocks inserted inside blocks
+/// (16 levels deep) multiply into billions of pieces — a hostile file then runs the JS out of memory; here the
+/// outline stops at this many (no real drawing comes near it).
+pub const MAX_PRIMS: usize = 2_000_000;
+
+/// [`prims_d`] with at most `cap` primitives (nested inserts stop filling once the budget is spent).
+fn prims_cap(e: &Entity, blocks: Option<&Blocks>, depth: u32, cap: usize) -> Vec<Prim> {
+    if cap == 0 {
+        return Vec::new();
+    }
+    let mut v = prims_one(e, blocks, depth, cap);
+    v.truncate(cap);
+    v
+}
+
+fn prims_one(e: &Entity, blocks: Option<&Blocks>, depth: u32, cap: usize) -> Vec<Prim> {
     match &e.geo {
         Geo::Line(l) => vec![Prim::l(l.x1, l.y1, l.x2, l.y2)],
         Geo::Circle(c) => vec![Prim::circle(c.cx, c.cy, c.r)],
@@ -374,14 +393,22 @@ pub fn prims_d(e: &Entity, blocks: Option<&Blocks>, depth: u32) -> Vec<Prim> {
             }
             let m = insert_matrix(ins, blk);
             let mut out = Vec::new();
-            for c in &blk.entities {
-                for q in prims_d(c, blocks, depth + 1) {
-                    out.extend(tx_prim(&q, &m));
+            'ents: for c in &blk.entities {
+                for q in prims_cap(c, blocks, depth + 1, cap.saturating_sub(out.len())) {
+                    for r in tx_prim(&q, &m) {
+                        if out.len() >= cap {
+                            break 'ents;
+                        }
+                        out.push(r);
+                    }
                 }
             }
-            for t in attr_texts(ins, Some(blk), false) {
+            'atts: for t in attr_texts(ins, Some(blk), false) {
                 for q in prims(&t, None) {
                     for r in tx_prim(&q, &m) {
+                        if out.len() >= cap {
+                            break 'atts;
+                        }
                         out.push(Prim { boxed: true, ..r });
                     }
                 }
@@ -396,7 +423,7 @@ pub fn prims_d(e: &Entity, blocks: Option<&Blocks>, depth: u32) -> Vec<Prim> {
             let mut out = Vec::new();
             for c in parts.iter() {
                 let boxed = matches!(c.geo, Geo::Hatch(_) | Geo::Text(_));
-                for q in prims_d(c, blocks, depth + 1) {
+                for q in prims_cap(c, blocks, depth + 1, cap.saturating_sub(out.len())) {
                     out.push(if boxed { Prim { boxed: true, ..q } } else { q });
                 }
             }
@@ -414,7 +441,7 @@ pub fn prims_d(e: &Entity, blocks: Option<&Blocks>, depth: u32) -> Vec<Prim> {
             let mut out = Vec::new();
             for c in crate::leader::leader_geometry(e) {
                 let boxed = matches!(c.geo, Geo::Hatch(_) | Geo::Text(_));
-                for q in prims_d(&c, blocks, depth + 1) {
+                for q in prims_cap(&c, blocks, depth + 1, cap.saturating_sub(out.len())) {
                     out.push(if boxed { Prim { boxed: true, ..q } } else { q });
                 }
             }

@@ -717,7 +717,7 @@ mod tests {
         if let Ok(dir) = std::env::var("CC_RENDER_DUMP") {
             // a PPM to look at (CC_RENDER_DUMP=<dir>)
             let mut ppm = b"P6\n64 64\n255\n".to_vec();
-            ppm.extend(px.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]));
+            ppm.extend(px.as_chunks::<4>().0.iter().flat_map(|p| [p[0], p[1], p[2]]));
             std::fs::write(std::path::Path::new(&dir).join("cube.ppm"), ppm).unwrap();
         }
         let at = |x: usize, y: usize| &px[(y * 64 + x) * 4..(y * 64 + x) * 4 + 3];
