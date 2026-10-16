@@ -2,7 +2,7 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
-## 2026-10-16 — M5 in progress (speed debt, m3d, readers), M6 groundwork
+## 2026-10-16 — M5 done; cc-ifc, cc-manifold, cc-skp done; M6 started
 
 - M5.1 speed debt: DXF 2000 save of the 3.4 MB drawing 702 → 357 ms (JS 450: now 1.26×; DWG 2018 1.45×, DWG 2000
   1.5×): one output buffer, each number formatted once straight into it (toPrecision digits from the shortest digits,
@@ -19,9 +19,20 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M6.1/M6.2 groundwork: `cc-render::mesh3d` (3D viewport GPU side: meshes per definition, camera-relative f64
   instances, reversed-Z, MSAA offscreen target, styles, read-back; headless cube at survey coordinates) and
   `cc-geom::bvh` (bvh.js, same splits and visiting order).
-- Running in parallel work copies: m3d kernel (ModelCraft's model.js + vec/earcut/units → `crates/m3d`, harness
-  mdiff.mjs), cc-ifc (`crates/io-ifc`: ifc-step, ifc-geom with booleans behind `trait SolidOps`), cc-skp
-  (`crates/io-skp`).
+- M5.4 (agent): `cc-m3d` = ModelCraft's model.js in full (+ vec, earcut, units formatters) at exact parity
+  (`forks/tools/mdiff.mjs --exact`: 640/640 op records + 1,247/1,247 function cases per seed, seeds 1–10; V8's TimSort
+  ported because NaN keys make comparators inconsistent), 3.4–8.4× the JS; fuzz `m3d_load` 5.4 M runs.
+- M7.1 (agent): `cc-io-ifc`: ifc-step 118/118 exact (4.4–7.9×), ifc-geom with booleans behind `trait SolidOps`.
+- M7.2 (agent): `cc-manifold`: Manifold 3.5.4's mesh boolean ported to pure Rust (Apache-2.0 port, notices kept),
+  identical to the manifold-3d wasm on 11,093 cases (incl. 1,102 recorded from the IFC corpus), 1.8× the wasm; works
+  on the web (no C++). Chosen over the approved C++ binding because a binding cannot build for wasm32-unknown-unknown.
+- M7.3: IFC openings through cc-manifold: ifc-geom 115/115 (was 105/115), 3.5–7.9× the JS with booleans on both
+  sides.
+- M8.1 (agent): `cc-io-skp`: readSkp 27/27 byte-identical canonical JSON, 5.4–14.2× the JS, faster than OpenSKP's
+  recorded times on every corpus file; fuzz `skp_read`.
+- M6.3/M6.4: the 3D viewport in the UI (offscreen render on demand + blit, orbit / pan / zoom from camera.js) on
+  desktop and web (`?demo3d`, checked in Chromium over WebGPU), deployed.
+- Next (M6): camera.js / infer.js / tools.js and io.js formats on cc-m3d (agents), then ModelCraft's app shell.
 
 ## 2026-10-16 — M4 done
 

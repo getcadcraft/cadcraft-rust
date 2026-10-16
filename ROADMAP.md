@@ -1,7 +1,8 @@
 # CadCraft in Rust: one page
 
-Stage: M4 done (drafting: command line, LINE … TRIM, undo, Edit + Save as DWG / DXF, desktop + web, live at
-https://rust.getcadcraft.com, unlisted). M5 next (re-planned in [docs/roadmap.md](docs/roadmap.md)).
+Stage: M5 done (speed debt, the m3d 3D kernel); the M7/M8 engines done ahead of plan (cc-ifc, cc-manifold booleans,
+cc-skp, all at parity); M6 ModelCraft in progress (3D viewport live at https://rust.getcadcraft.com/?demo3d, unlisted).
+Plan: [docs/roadmap.md](docs/roadmap.md).
 Session log: [docs/progress.md](docs/progress.md).
 
 ## Headline numbers
@@ -55,16 +56,66 @@ Timings (best of 5, single-threaded, same machine; JS = the 0.5 engine call in N
 |---|---|---:|---:|---:|
 | kitchen-equipment.dwg (0.55 MB) | write DWG (AC1015) | 151 | 76 | 2.0× |
 | 3.4 MB R2013 drawing | import (importDwg, after the read) | 350 | 179 | 2.0× |
-| 3.4 MB R2013 drawing | save DWG 2018 | 942 | 686 | 1.4× |
-| 3.4 MB R2013 drawing | save DWG 2000 | 706 | 623 | 1.1× |
-| 3.4 MB R2013 drawing | save DXF 2000 | 483 | 702 | **0.7× (slower)** |
+| 3.4 MB R2013 drawing | save DWG 2018 | 856 | 592 | 1.45× (M5.1; was 1.4×) |
+| 3.4 MB R2013 drawing | save DWG 2000 | 752 | 501 | 1.5× (M5.1; was 1.1×) |
+| 3.4 MB R2013 drawing | save DXF 2000 | 453 | 357 | 1.26× (M5.1; was 0.7×) |
+
+(M5.1 rows measured the same minute for both sides on a loaded machine; saves stay byte-identical on every file.)
 
 Editing a big drawing (Rust only; the JS app has no comparable headless path): Edit on the 3.4 MB drawing = read +
-import 406 ms, Doc load 325 ms, display model 127 ms; one LINE until the redrawn frame 360 ms, of which ~200 ms is the
-software rasteriser's frame (no GPU here); 1.7 MB floor plan 226 ms; 0.9 MB sheet 188 ms. Every edit rebuilds the
-whole display model (incremental rebuild is M5 work).
+import 406 ms, Doc load 325 ms; since M5.1 an edit walks only the objects it changed (display rebuild 127 → ~38 ms);
+one LINE until the redrawn frame ~270 ms, most of it this server's software rasteriser.
+
+**The 3D model kernel (M5, cc-m3d = ModelCraft's model.js)** — `mdiff.mjs --exact` (frozen JS `Model` vs `cadcraft-cli
+m3d`, zero tolerance): 640/640 op records + 1,247/1,247 function cases per seed, seeds 1–10. Speed (best of 5):
+
+| Case | 0.5 JS (ms) | Rust (ms) | Speed-up |
+|---|---:|---:|---:|
+| 2,000 push/pulls (100 boxes) | 2919 | 619 | 4.7× |
+| 200×200 grid of lines | 8522 | 1020 | 8.4× |
+| load of a 49,928-face model | 579 | 121 | 4.8× |
+| 150 rectangles, 150 undos, 150 redos | 629 | 147 | 4.3× |
+
+**Booleans (cc-manifold = Manifold 3.5.4 ported to Rust)** — identical output to the manifold-3d 3.5.4 wasm the JS uses
+on 11,093 cases (9,990 random, 1,102 recorded from the IFC corpus, a 20k-triangle wall with 200 openings: same counts,
+order, run ids, bit-equal floats); 1.80× the wasm natively in total, 1.59× compiled to wasm32.
+
+**IFC (cc-ifc, `crates/io-ifc`)** — kit parity: ifc-step **118/118** (exact), ifc-geom **115/115** (booleans included).
+
+| ifc-step | Size (MB) | 0.5 JS (ms) | Rust (ms) | Speed-up | Parity |
+|---|---:|---:|---:|---:|---|
+| Molio_with_URIs.ifc | 70.52 | 1638 | 217 | 7.54× | same |
+| IFC_Schependomlaan_geo.ifc | 47.00 | 1120 | 143 | 7.85× | same |
+| Clinic_Structural.ifc | 18.18 | 419 | 67.1 | 6.24× | same |
+
+| ifc-geom (with booleans on both sides) | Size (MB) | 0.5 JS (ms) | Rust (ms) | Speed-up | Parity |
+|---|---:|---:|---:|---:|---|
+| Clinic_Structural.ifc | 18.18 | 1130 | 248 | 4.55× | same |
+| Duplex_MEP_20110907.ifc | 17.04 | 800 | 101 | 7.93× | same |
+| Clinic_Architectural.ifc | 12.40 | 615 | 95.1 | 6.47× | same |
+| 1807_EP_AR_v18.ifc | 11.55 | 825 | 143 | 5.78× | same |
+| AC20-Institute-Var-2.ifc | 10.43 | 284 | 80.1 | 3.54× | same |
+| AC-20-Smiley-West-10-Bldg.ifc | 5.83 | 368 | 61.3 | 6.00× | same |
+
+**SketchUp (cc-skp, `crates/io-skp`)** — kit parity **27/27** (canonical JSON byte-identical); 1,296 damaged copies give
+the JS's output or error. Beats both cc-skp JS and OpenSKP (OpenSKP numbers from the 2026-10-15 measurement in
+`docs/forks/README.md`; no build on this machine):
+
+| File | Size (MB) | 0.5 JS (ms) | Rust (ms) | Speed-up | OpenSKP C++ (ms) |
+|---|---:|---:|---:|---:|---:|
+| coedge_orientation_regression | 5.25 | 284 | 37.4 | 7.6× | 630 |
+| pimeta-v2-pcb (v6) | 2.06 | 52.7 | 8.05 | 6.6× | 47 |
+| slot_boundary | 0.78 | 42.7 | 4.20 | 10.2× | 34 |
+| gondola_v20 | 0.74 | 46.9 | 3.31 | 14.2× | 20 |
+| CAD_furniture_set_large (31 MB, outside the corpus) | 31.2 | 942–1149 | 155–200 | ≈6× | — |
+
+**3D viewport (M6 groundwork)** — `cadcraft-shot demo3d`: 1,002,264 triangles / 83,522 instances at x = 500 000,
+y = 4 000 000 draw in 284–308 ms per orbit frame on this server's software rasteriser (no GPU here); the CPU side of an
+orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
+
+- 2026-10-16 M5 + engines: DXF 2000 save 1.26× JS, per-object edit display cache, golden references in CI, nightly fuzz OOM fixed; cc-m3d (ModelCraft's kernel) at exact parity; cc-skp 27/27, cc-ifc 118/118 + 115/115, cc-manifold identical to the wasm on 11,093 cases; 3D viewport (cc-render mesh3d, ui view3d) on desktop and web.
 
 - 2026-10-16 M4: drafting (Doc, geometry, command line, commands, undo), DWG writer, CadCraft's DWG/DXF import and DWG/DXF save at byte parity; Edit + Save as in the app; deployed.
 - 2026-10-16 M3: viewer (model + sheets with viewports, pan/zoom, layers, texts, xrefs) on desktop and web (WebGPU only), deployed.

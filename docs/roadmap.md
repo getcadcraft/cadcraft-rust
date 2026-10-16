@@ -1,6 +1,6 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-16 · Change: M4 done; M5+ re-planned with measured numbers.
+Last updated 2026-10-16 · Change: M5 done; M7/M8 engines done early; M6 in progress.
 
 | Date | Change |
 |---|---|
@@ -8,6 +8,7 @@ Last updated 2026-10-16 · Change: M4 done; M5+ re-planned with measured numbers
 | 2026-10-16 | M1, M2 done; M2 numbers in ROADMAP.md. |
 | 2026-10-16 | M3 done: viewer on desktop + web (WebGPU), live at rust.getcadcraft.com. |
 | 2026-10-16 | M4 done: drafting, Edit + Save as DWG / DXF at byte parity; M5+ re-planned (below). |
+| 2026-10-16 | M5 done; cc-ifc, cc-manifold, cc-skp at parity (the engines of M7/M8, run in parallel); M6 started (3D viewport). |
 
 Speed decides. Every milestone is measured against the CadCraft 0.5 JavaScript build (reference:
 `getcadcraft.com/public_html/assets/apps/<app>/dev/`, `lib/{dwg,ifc,skp,shapes}`, `docs/apps/*.md`) with
@@ -20,10 +21,10 @@ Parity on the corpus is the gate (AGENTS.md section 15).
 | M2 | cc-dwg reader (`crates/io-dwg`) | parity with `lib/dwg` readDwg on the corpus (six versions + ODA truth), one fuzz target, `cadcraft-cli info` / `convert --json`, benchmark vs JS readDwg on the largest files; parity numbers + timings | done 2026-10-16: 78/78 parity, 2.6–4.2× |
 | M3 | CadCraft 2D viewer | open DWG/DXF, model + sheets, pan/zoom, layers; desktop and web (WebGPU only); deployed to rust.getcadcraft.com via forks/deploy.sh; frame-time benchmark on the big drawings | done 2026-10-16 |
 | M4 | CadCraft drafting commands | command engine with commands that ask questions (LINE ... TRIM), undo, save DWG/DXF at parity with dwg-save.js | done 2026-10-16: 0 differences (gdiff, kdiff, idiff), saves byte-identical 78/78 per version |
-| M5 | Speed debt + m3d kernel | (a) incremental edit display, typed fast path under the dynamic models, DXF 2000 save at least at JS speed; (b) m3d (CadCraft's 3D kernel, `assets/apps/cadcraft/dev/m3d/`, ≈13,000 lines JS) as `crates/m3d` (L2) at parity on its tests + golden meshes, Manifold behind `trait SolidOps` (approved exception) | planned |
-| M6 | ModelCraft | ModelCraft (≈36,000 lines JS) on m3d: 3D viewport (wgpu, BVH picking, inference), push/pull … , SKP import through M8's reader once it lands; frame time on a 1M-triangle model | planned |
-| M7 | cc-ifc + BimCraft | `lib/ifc` (≈6,300 lines, 22 files) at parity on the IFC corpus with the kit, then BimCraft's views on it (≈54,000 lines JS: plan from the DWG work, 3D from M6) | planned |
-| M8 | cc-skp | `lib/skp` (≈2,500 lines) at parity; must beat both cc-skp JS and OpenSKP (black-box baseline) on the big files | planned |
+| M5 | Speed debt + m3d kernel | (a) incremental edit display, typed fast path under the dynamic models, DXF 2000 save at least at JS speed; (b) m3d (CadCraft's 3D kernel, `assets/apps/cadcraft/dev/m3d/`, ≈13,000 lines JS) as `crates/m3d` (L2) at parity on its tests + golden meshes, Manifold behind `trait SolidOps` | done 2026-10-16: m3d exact parity (seeds 1–10), DXF 2000 save 1.26×, edit cache; Manifold ported to pure Rust instead of a C++ binding (identical to the wasm, works on the web) |
+| M6 | ModelCraft | ModelCraft (≈36,000 lines JS) on m3d: 3D viewport (wgpu, BVH picking, inference), push/pull … , SKP import through M8's reader once it lands; frame time on a 1M-triangle model | in progress: 3D viewport on desktop + web (1M triangles measured), BVH; next: camera/infer/tools, formats, the app |
+| M7 | cc-ifc + BimCraft | `lib/ifc` (≈6,300 lines, 22 files) at parity on the IFC corpus with the kit, then BimCraft's views on it (≈54,000 lines JS: plan from the DWG work, 3D from M6) | engine done 2026-10-16 (118/118, 115/115 with booleans); BimCraft app after M6 |
+| M8 | cc-skp | `lib/skp` (≈2,500 lines) at parity; must beat both cc-skp JS and OpenSKP (black-box baseline) on the big files | reader done 2026-10-16 (27/27, 5–14× JS, faster than OpenSKP on every file); import into ModelCraft with M6 |
 | M9+ | The other apps | PartCraft, CivilCraft (large coordinates), DetailCraft, TakeoffCraft, MarkupCraft, then Studio; order re-planned after M6 with measured numbers | planned |
 
 ## Tablets (AGENTS.md section 10, Mobile)
