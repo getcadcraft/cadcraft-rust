@@ -41,17 +41,29 @@ fn dictionary(r: &mut BitReader, h: &mut BitReader, rec: &mut Record, ctx: &Ctx,
         let ho = r.rc()?;
         rec.f.set("hardOwner", ho);
     }
-    // JS `new Array(n)` then filled: a failure part way leaves holes (null in JSON)
+    // JS `new Array(n)` then filled: a failure part way leaves holes (null in JSON). The array grows as names are
+    // read (a damaged count of up to 10^7 must not allocate up front); on a failure the holes are added back, up to
+    // a cap (JS arrays are sparse, ours are not).
     let nu = crate::util::usize_from_i32(n);
-    rec.f.set("names", vec![V::Null; nu]);
-    for i in 0..nu {
-        let s = r.tv()?;
-        if let Some(V::Arr(a)) = rec.f.get_mut("names")
-            && let Some(x) = a.get_mut(i)
-        {
-            *x = V::Str(s);
+    let mut names: Vec<V> = Vec::new();
+    let mut failed = None;
+    for _ in 0..nu {
+        match r.tv() {
+            Ok(s) => names.push(V::Str(s)),
+            Err(e) => {
+                failed = Some(e);
+                break;
+            }
         }
     }
+    if let Some(e) = failed {
+        if nu <= 1_000_000 {
+            names.resize(nu, V::Null);
+        }
+        rec.f.set("names", names);
+        return Err(e);
+    }
+    rec.f.set("names", names);
     let items = hrefs(h, rec.handle, f64::from(n))?;
     rec.h.set("items", items);
     if wdflt {

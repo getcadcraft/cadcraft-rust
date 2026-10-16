@@ -89,7 +89,17 @@ pub fn hex_of(n: f64) -> String {
     }
     let neg = n < 0.0;
     let a = n.abs();
-    let s = if a < 18446744073709551615.0 { format!("{:X}", a as u64) } else { format!("{a}") };
+    let s = if a < 18446744073709551615.0 {
+        format!("{:X}", a as u64)
+    } else {
+        // JS prints the double's exact value: mantissa × 2^exp → hex(mantissa << exp % 4) + exp / 4 zeros
+        let bits = a.to_bits();
+        let exp = (((bits >> 52) & 0x7FF) as i64).wrapping_sub(1075); // 11-bit field: no overflow
+        let mant = (bits & ((1u64 << 52) - 1)) | (1u64 << 52);
+        let (q, r) = (exp.div_euclid(4), exp.rem_euclid(4));
+        let head = u128::from(mant) << (r as u32);
+        format!("{head:X}{}", "0".repeat(usize::try_from(q).unwrap_or(0)))
+    };
     if neg { format!("-{s}") } else { s }
 }
 
@@ -186,6 +196,8 @@ mod tests {
         assert_eq!(handle_num("1F"), 31.0);
         assert_eq!(to_i32(4294967295.0), -1);
         assert_eq!(to_u32(-1.0), 4294967295);
+        // JS: (2.315991066e27).toString(16) prints the exact double
+        assert_eq!(hex_of(6.786303506878256e26), "231599106C9D1A000000000");
     }
 }
 

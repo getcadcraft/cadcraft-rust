@@ -420,6 +420,11 @@ fn read_eed(r: &mut BitReader, rec: &mut Record, ctx: &Ctx) -> Res<()> {
         }
         r.pos = end;
         rec.eed.get_or_insert_with(Vec::new).push(Eed { app, items });
+        // A negative size moves the JS reader before the buffer, where every read gives 0: its next size is 0 and
+        // the loop ends. Stop here too (re-reading from 0 would cycle 10 000 times; found by fuzzing).
+        if end_f < 0.0 {
+            break;
+        }
         n = n.saturating_add(1);
         if n > 10000 {
             break;
