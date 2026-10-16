@@ -53,6 +53,7 @@ mod web {
         let search = window.location().search().unwrap_or_default();
         let sample = search.split(['?', '&']).any(|p| p == "sample");
         let bench_frames = search.split(['?', '&']).any(|p| p == "bench");
+        let new_drawing = search.split(['?', '&']).any(|p| p == "new");
         if bench_frames {
             bench();
         }
@@ -131,6 +132,9 @@ mod web {
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {
                             let _ = app.run("file.sample", &Params::default());
+                        }
+                        if new_drawing && !sample && !bench_frames {
+                            let _ = app.run("file.new", &Params::default());
                         }
                         if bench_frames {
                             app.start_bench(120);

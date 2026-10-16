@@ -664,12 +664,17 @@ dependencies = [
 name = "cc-ui-egui"
 version = "0.0.1"
 dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
  "cc-drawing",
+ "cc-engine",
+ "cc-geom",
  "cc-io-dwg",
  "cc-render",
  "egui",
  "egui-wgpu",
  "rayon",
+ "serde_json",
  "web-time",
 ]
 

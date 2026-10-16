@@ -163,6 +163,13 @@ impl WalkOut for Collect {
     }
 }
 
+/// Any entities of a document (previews, a selection) walked into batches, in world coordinates.
+pub fn walk_batches(doc: &Doc, ents: &[Entity]) -> Vec<Batch> {
+    let mut out = Collect { batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
+    walk(doc, ents, &mut out, &WalkOpts::default());
+    out.batches
+}
+
 fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKind, paper: Option<Bounds>) -> Space {
     let ents: Vec<Entity> = doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))).cloned().collect();
     let mut out = Collect { batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };

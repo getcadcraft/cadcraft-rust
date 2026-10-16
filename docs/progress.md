@@ -14,9 +14,19 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - Fuzz target `cad_load` (any JSON → `Doc::load` → snapshot → grips, explode, walk): 648,764 runs in 10 min, no crash.
 - `cc-cad-geom::display`: the editable document walked into the viewer's display model, so the drafting canvas
   renders through the M3 GPU renderer.
-- Running: the DWG writer (byte-identical to write.js, 78 files × 6 versions), the drafting commands (LINE … TRIM on
-  the prompt Runner, harness kdiff.mjs), and DWG import + CadCraft's DXF read/write (new crate `io-cad`, harness
-  idiff.mjs), each by an agent in its own work copy.
+- M4.4: the cc-dwg writer (agent): `write_dwg` byte-identical to the 0.5 JS `writeDwg` on 78 files × 6 versions
+  (468/468, reports equal), 72/72 synthetic models; 1.2–3.1× faster single-threaded; fuzz target `dwg_roundtrip`.
+- M4.5: the command line and drafting commands (agent): LINE PLINE CIRCLE ARC RECTANG POLYGON ELLIPSE POINT TEXT ERASE
+  MOVE COPY ROTATE SCALE MIRROR OFFSET TRIM EXTEND UNDO REDO ZOOM; `forks/tools/kdiff.mjs` (the frozen JS Engine with a
+  stub host vs `cadcraft-cli cmds`): 0 differences, 26 seeds, ~70,000 records (6 seeds bit-exact).
+- M4.6: drafting in the app: New drawing (Ctrl+N, `?new` on the web), the command line (history, prompt, Enter /
+  Space / right click = Enter, Esc, Delete, Ctrl+Z / Ctrl+Y, F3 object snap, F8 ortho), cadcraft.js's click rules (point
+  questions: object snap end/mid/cen/quad/int/perp/node/ins with markers, then ortho; object questions: pick or
+  window; idle: pick, Shift removes, a click on nothing starts a window, drag = window, right-to-left = crossing),
+  the rubber band, selection highlight with grips, ZOOM requests. The 0.5 language catalogs (en, es-MX) ship unchanged
+  in `assets/lang/cadcraft/`. Checked in Chromium (WebGPU) with typed commands and real clicks.
+- Still running: DWG import + CadCraft's DXF read/write, then DWG save (dwg-save.js) and DXF 2000 (new crate `io-cad`,
+  harness idiff.mjs), by an agent in its own work copy.
 
 ## 2026-10-16 — M3 done
 

@@ -108,6 +108,23 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
     })
 }
 
+/// A drawing made elsewhere (the editable document's display model) → GPU-ready geometry.
+pub fn from_drawing(name: &str, drawing: Drawing) -> Loaded {
+    let t = web_time::Instant::now();
+    let geometry = build_all(&drawing);
+    Loaded {
+        name: name.to_string(),
+        drawing: Arc::new(drawing),
+        geometry: Arc::new(geometry),
+        id: next_id(),
+        read_ms: 0.0,
+        compile_ms: 0.0,
+        geometry_ms: ms(t),
+        notes: Vec::new(),
+        bytes: 0,
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn build_all(d: &Drawing) -> Vec<SpaceGeometry> {
     use rayon::prelude::*;

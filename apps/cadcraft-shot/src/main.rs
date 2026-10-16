@@ -1,6 +1,8 @@
 //! cadcraft-shot: drive the real UI headless (egui_kittest on wgpu; lavapipe works) and write PNGs or time frames.
 //!
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
+//!       <file> may be --new: an empty editable drawing; then any number of --cmd "TEXT" (typed at the command line,
+//!       Enter), --click x,y and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N]
 //!       → JSON {open_ms, first_frame_ms, frame_ms: [...], spaces, segments …}; each frame pans/zooms the view.
 #![forbid(unsafe_code)]
@@ -25,6 +27,9 @@ fn size(args: &[String]) -> (f32, f32) {
 }
 
 fn load(app: &mut UiApp, src: &str) -> Result<(), String> {
+    if src == "--new" {
+        return app.run("file.new", &Params::default());
+    }
     if src == "--sample" {
         return app.run("file.sample", &Params::default());
     }
@@ -80,6 +85,34 @@ fn shot(args: &[String]) -> Result<(), String> {
     let zoom = arg(args, "--zoom").and_then(|s| s.parse::<f64>().ok());
     let mut hs = harness(app, w, h);
     hs.run_steps(2);
+    let xy = |v: &str| -> Option<(f64, f64)> {
+        let (a, b) = v.split_once(',')?;
+        Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+    };
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        let v = args.get(i + 1).cloned().unwrap_or_default();
+        match a.as_str() {
+            "--cmd" => {
+                hs.state_mut().run("cmd.line", &Params { name: Some(v), ..Default::default() })?;
+                hs.run_steps(1);
+            }
+            "--click" => {
+                if let Some((x, y)) = xy(&v) {
+                    hs.state_mut().click_world(x, y);
+                    hs.run_steps(1);
+                }
+            }
+            "--hover" => {
+                if let Some((x, y)) = xy(&v) {
+                    hs.state_mut().hover_world(x, y);
+                    hs.run_steps(1);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
     if let Some(z) = zoom {
         hs.state_mut().run("view.zoom", &Params { factor: Some(z), ..Default::default() })?;
         hs.run_steps(1);
