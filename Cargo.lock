@@ -507,6 +507,7 @@ dependencies = [
  "cc-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "cc-io-ifc",
  "cc-io-skp",
  "flate2",
  "serde_json",
@@ -647,6 +648,14 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "web-time",
+]
+
+[[package]]
+name = "cc-io-ifc"
+version = "0.0.1"
+dependencies = [
+ "libm",
+ "rayon",
 ]
 
 [[package]]

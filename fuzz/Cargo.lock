@@ -22,6 +22,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-io-cad",
  "cc-io-dwg",
+ "cc-io-ifc",
  "cc-io-skp",
  "libfuzzer-sys",
  "serde_json",
@@ -94,6 +95,14 @@ dependencies = [
  "serde_json",
  "thiserror",
  "web-time",
+]
+
+[[package]]
+name = "cc-io-ifc"
+version = "0.0.1"
+dependencies = [
+ "libm",
+ "rayon",
 ]
 
 [[package]]

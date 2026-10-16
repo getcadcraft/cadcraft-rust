@@ -16,6 +16,7 @@ cc-cad-geom = { path = "../crates/cad-geom" }
 serde_json = "1"
 cc-io-cad = { path = "../crates/io-cad" }
 cc-io-skp = { path = "../crates/io-skp" }
+cc-io-ifc = { path = "../crates/io-ifc" }
 
 [[bin]]
 name = "dwg_read"
@@ -59,6 +60,13 @@ bench = false
 [[bin]]
 name = "skp_read"
 path = "fuzz_targets/skp_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ifc_read"
+path = "fuzz_targets/ifc_read.rs"
 test = false
 doc = false
 bench = false

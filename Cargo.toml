@@ -28,6 +28,7 @@ cc-cad = { path = "crates/cad" }
 cc-cad-geom = { path = "crates/cad-geom" }
 cc-io-dwg = { path = "crates/io-dwg" }
 cc-io-skp = { path = "crates/io-skp" }
+cc-io-ifc = { path = "crates/io-ifc" }
 cc-io-cad = { path = "crates/io-cad" }
 cc-render = { path = "crates/render" }
 cc-tools = { path = "crates/tools" }
@@ -53,6 +54,9 @@ panic = "unwind"
 overflow-checks = true
 
 [profile.release.package.cc-io-skp]
+overflow-checks = true
+
+[profile.release.package.cc-io-ifc]
 overflow-checks = true
 
 [profile.bench]

@@ -2,7 +2,7 @@
 //!
 //!   cadcraft-cli info <file.dwg>                 version, objects, counts, notes (human text; --json for JSON)
 //!   cadcraft-cli convert --json <file.dwg> [-o out.json]   the drawing model as JSON (the JS readDwg shape)
-//!   cadcraft-cli parity <engine> <file>          fork-parity contract: engine output as JSON (engines: dwg, skp)
+//!   cadcraft-cli parity <engine> <file>          fork-parity contract: engine output as JSON (engines: dwg, skp, ifc-step, ifc-geom)
 //!   cadcraft-cli bench <engine> <file> --runs N  fork-parity contract: in-process timings after one warm-up
 //!   cadcraft-cli compile <file.dwg|file.dxf> [--json] [--bench N]   dev: the 2D display list (BimCraft's compileDrawing);
 //!                                                --bench N: best-of-N compile time after one warm-up
@@ -28,6 +28,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 mod cmds;
+mod ifc;
 mod iocad;
 mod skp;
 
@@ -103,6 +104,9 @@ fn parity(rest: &[&str]) -> ExitCode {
     if *engine == "skp" {
         return skp::parity(file);
     }
+    if let Some(code) = ifc::parity(engine, file) {
+        return code;
+    }
     if *engine != "dwg" {
         return ExitCode::from(3);
     }
@@ -127,6 +131,9 @@ fn bench(rest: &[&str]) -> ExitCode {
     let runs: usize = rest.iter().position(|a| *a == "--runs").and_then(|i| rest.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(5);
     if *engine == "skp" {
         return skp::bench(file, runs);
+    }
+    if let Some(code) = ifc::bench(engine, file, runs) {
+        return code;
     }
     if *engine != "dwg" {
         return ExitCode::from(3);
