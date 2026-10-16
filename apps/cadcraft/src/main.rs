@@ -19,8 +19,20 @@ impl eframe::App for App {
 
 fn pick_open() -> Option<Result<ImportedFile, String>> {
     let path = rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"]).pick_file()?;
+    Some(read_path(&path))
+}
+
+fn read_path(path: &std::path::Path) -> Result<ImportedFile, String> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    Some(std::fs::read(&path).map(|bytes| ImportedFile { name, bytes }).map_err(|e| format!("{}: {e}", path.display())))
+    let dir = path.parent().map(|p| p.to_string_lossy().into_owned());
+    std::fs::read(path).map(|bytes| ImportedFile { name, bytes, dir }).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// "<xref>.dwg" in the drawing's folder, case-insensitively (as BimCraft looks for linked drawings).
+fn read_xref(dir: &str, name: &str) -> Option<Vec<u8>> {
+    let want = format!("{name}.dwg").to_lowercase();
+    let entry = std::fs::read_dir(dir).ok()?.filter_map(Result::ok).find(|e| e.file_name().to_string_lossy().to_lowercase() == want)?;
+    std::fs::read(entry.path()).ok()
 }
 
 fn main() -> eframe::Result {
@@ -37,12 +49,12 @@ fn main() -> eframe::Result {
             if let Some(rs) = &cc.wgpu_render_state {
                 cc_ui_egui::install_gpu(rs);
             }
-            let services = Services { pick_open: Some(Box::new(pick_open)), ..Default::default() };
+            let services = Services { pick_open: Some(Box::new(pick_open)), read_xref: Some(Box::new(read_xref)), ..Default::default() };
             let mut app = UiApp::new(services);
             if let Some(p) = start {
-                match std::fs::read(&p) {
-                    Ok(b) => app.open_bytes(&p, &b),
-                    Err(e) => app.error = Some(format!("{p}: {e}")),
+                match read_path(std::path::Path::new(&p)) {
+                    Ok(f) => app.open_file(&f),
+                    Err(e) => app.error = Some(e),
                 }
             }
             Ok(Box::new(App { app }))

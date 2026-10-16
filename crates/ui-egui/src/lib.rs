@@ -35,7 +35,12 @@ use theme::{Preset, Tokens};
 pub struct ImportedFile {
     pub name: String,
     pub bytes: Vec<u8>,
+    /// desktop: the folder it came from (linked drawings are looked for there)
+    pub dir: Option<String>,
 }
+
+/// Linked-drawing lookup: (folder, xref name) → bytes.
+pub type ReadXref = Box<dyn FnMut(&str, &str) -> Option<Vec<u8>>>;
 
 /// A desktop picker: None = cancelled.
 pub type PickOpen = Box<dyn FnMut() -> Option<Result<ImportedFile, String>>>;
@@ -49,6 +54,8 @@ pub struct Services {
     pub open_async: Option<Box<dyn FnMut()>>,
     /// files waiting to be opened (async pickers, dropped files)
     pub inbox: Option<Arc<Mutex<Vec<ImportedFile>>>>,
+    /// desktop: "<xref>.dwg" in a folder (folder, xref name) → bytes
+    pub read_xref: Option<ReadXref>,
     /// web: read a dropped file asynchronously into `inbox`
     #[cfg(target_arch = "wasm32")]
     pub read_dropped: Option<Box<dyn FnMut(Arc<dyn egui::DroppedFile + Send + Sync>)>>,
@@ -67,7 +74,9 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
 ];
 
 /// The built-in sample (CadCraft's own public fixture, base-plan.dwg).
-pub static SAMPLE_DWG: &[u8] = include_bytes!("../../../assets/samples/base-plan.dwg");
+pub static SAMPLE_DWG: &[u8] = include_bytes!("../../../assets/samples/kitchen-equipment.dwg");
+/// The drawing the sample links (xref "base-plan").
+pub static SAMPLE_XREF: &[u8] = include_bytes!("../../../assets/samples/base-plan.dwg");
 
 pub struct UiApp {
     pub services: Services,
@@ -121,7 +130,25 @@ impl UiApp {
 
     /// Open bytes as a drawing (any failure becomes a message, never a crash).
     pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) {
-        match document::open(name, bytes) {
+        self.open_file(&ImportedFile { name: name.to_string(), bytes: bytes.to_vec(), dir: None });
+    }
+
+    /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
+    pub fn open_file(&mut self, f: &ImportedFile) {
+        let dir = f.dir.clone();
+        let reader = &mut self.services.read_xref;
+        let mut resolve = |x: &str| -> Option<Vec<u8>> {
+            match (dir.as_deref(), reader.as_mut()) {
+                (Some(d), Some(r)) => r(d, x),
+                _ => None,
+            }
+        };
+        let res = document::open_with(&f.name, &f.bytes, &mut resolve);
+        self.loaded(res);
+    }
+
+    fn loaded(&mut self, res: Result<Loaded, String>) {
+        match res {
             Ok(l) => {
                 self.message =
                     format!("{} · read {:.0} ms · compile {:.0} ms · GPU data {:.0} ms", l.name, l.read_ms, l.compile_ms, l.geometry_ms);
@@ -142,7 +169,7 @@ impl UiApp {
             "file.open" => {
                 if let Some(p) = self.services.pick_open.as_mut() {
                     match p() {
-                        Some(Ok(f)) => self.open_bytes(&f.name, &f.bytes),
+                        Some(Ok(f)) => self.open_file(&f),
                         Some(Err(e)) => self.error = Some(e),
                         None => {}
                     }
@@ -152,7 +179,12 @@ impl UiApp {
                     return Err("file.open: no file picker on this platform".into());
                 }
             }
-            "file.sample" => self.open_bytes("base-plan.dwg", SAMPLE_DWG),
+            "file.sample" => {
+                let res = document::open_with("kitchen-equipment.dwg", SAMPLE_DWG, &mut |x| {
+                    (x.eq_ignore_ascii_case("base-plan")).then(|| SAMPLE_XREF.to_vec())
+                });
+                self.loaded(res);
+            }
             "view.fit" => self.pending_fit = true,
             "view.zoom" => {
                 let f = params.factor.filter(|f| f.is_finite() && *f > 0.0).ok_or("view.zoom: factor must be a number > 0")?;
@@ -209,7 +241,7 @@ impl UiApp {
             None => Vec::new(),
         };
         for f in incoming {
-            self.open_bytes(&f.name, &f.bytes);
+            self.open_file(&f);
         }
         // dropped files (native: read here; web: the host reads them asynchronously into the inbox)
         let dropped: Vec<std::sync::Arc<dyn egui::DroppedFile + Send + Sync>> = ctx.input(|i| i.raw.dropped_files.clone());
@@ -217,8 +249,9 @@ impl UiApp {
             #[cfg(not(target_arch = "wasm32"))]
             {
                 let name = f.path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let dir = f.path().parent().map(|p| p.to_string_lossy().into_owned());
                 match f.bytes() {
-                    Ok(b) => self.open_bytes(&name, &b),
+                    Ok(b) => self.open_file(&ImportedFile { name, bytes: b, dir }),
                     Err(e) => self.error = Some(format!("{name}: {e}")),
                 }
             }

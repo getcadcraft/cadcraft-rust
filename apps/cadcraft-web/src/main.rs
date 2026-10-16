@@ -100,7 +100,11 @@ mod web {
                                         return;
                                     };
                                     let bytes = f.read().await;
-                                    inbox.lock().unwrap_or_else(PoisonError::into_inner).push(ImportedFile { name: f.file_name(), bytes });
+                                    inbox.lock().unwrap_or_else(PoisonError::into_inner).push(ImportedFile {
+                                        name: f.file_name(),
+                                        bytes,
+                                        dir: None,
+                                    });
                                     ctx.request_repaint();
                                 });
                             })),
@@ -111,12 +115,13 @@ mod web {
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let name = f.path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                                     if let Ok(bytes) = f.bytes_async().await {
-                                        inbox.lock().unwrap_or_else(PoisonError::into_inner).push(ImportedFile { name, bytes });
+                                        inbox.lock().unwrap_or_else(PoisonError::into_inner).push(ImportedFile { name, bytes, dir: None });
                                         ctx.request_repaint();
                                     }
                                 });
                             })),
                             pick_open: None,
+                            read_xref: None,
                         };
                         let mut app = UiApp::new(services);
                         if sample {

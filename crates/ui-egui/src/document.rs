@@ -35,17 +35,51 @@ fn ms(t: web_time::Instant) -> f64 {
 
 /// Open a DWG or DXF from its bytes (the name decides DXF vs DWG; DWG is also sniffed by its "AC10" start).
 pub fn open(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
-    if bytes.len() > MAX_FILE_BYTES {
-        return Err(format!("{name}: the file is larger than {} MB", MAX_FILE_BYTES / (1024 * 1024)));
-    }
+    open_with(name, bytes, &mut |_| None)
+}
+
+fn read_model(name: &str, bytes: &[u8]) -> cc_io_dwg::Obj {
     let is_dxf = name.to_ascii_lowercase().ends_with(".dxf") && !bytes.starts_with(b"AC10");
-    let t = web_time::Instant::now();
-    let model = if is_dxf {
+    if is_dxf {
         let text = cc_io_dwg::dxf_model::decode_dxf_bytes(bytes);
         cc_io_dwg::dxf_model::read_dxf_model(&text)
     } else {
         cc_io_dwg::read_dwg(bytes, &cc_io_dwg::ReadOpts::default())
-    };
+    }
+}
+
+/// Names of the linked drawings (xref block records) a model uses.
+pub fn xref_names(model: &cc_io_dwg::Obj) -> Vec<String> {
+    model
+        .arr("blocks")
+        .map(|bs| {
+            bs.iter()
+                .filter_map(|b| b.as_obj())
+                .filter(|b| b.num("flags").is_some_and(|f| f.is_finite() && (f as i64) & 4 != 0))
+                .filter_map(|b| b.str("name").map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Open with linked drawings: `resolve(xref name)` returns the bytes of "<name>.dwg" when the host can find it.
+pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Result<Loaded, String> {
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(format!("{name}: the file is larger than {} MB", MAX_FILE_BYTES / (1024 * 1024)));
+    }
+    let t = web_time::Instant::now();
+    let model = read_model(name, bytes);
+    let mut xrefs: Vec<(String, cc_io_dwg::Obj)> = Vec::new();
+    for x in xref_names(&model) {
+        if let Some(b) = resolve(&x)
+            && b.len() <= MAX_FILE_BYTES
+        {
+            let m = cc_io_dwg::read_dwg(&b, &cc_io_dwg::ReadOpts::default());
+            if m.obj("report").and_then(|r| r.str("error")).is_none() {
+                xrefs.push((x.to_lowercase(), m));
+            }
+        }
+    }
     let read_ms = ms(t);
     let report = model.obj("report");
     if let Some(e) = report.and_then(|r| r.str("error")) {
@@ -55,7 +89,7 @@ pub fn open(name: &str, bytes: &[u8]) -> Result<Loaded, String> {
         report.and_then(|r| r.arr("notes")).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let version = model.str("version").unwrap_or("").to_string();
     let t = web_time::Instant::now();
-    let drawing = cc_io_dwg::compile::compile_drawing(&model, &version, &[]);
+    let drawing = cc_io_dwg::compile::compile_drawing(&model, &version, &xrefs);
     let compile_ms = ms(t);
     drop(model);
     let t = web_time::Instant::now();
