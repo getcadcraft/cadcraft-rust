@@ -620,6 +620,26 @@ impl UiApp {
                     v.fit_pending = true;
                 }
             }
+            "view.standard" => {
+                let n = params.name.clone().unwrap_or_else(|| "iso".into());
+                let dir = match n.as_str() {
+                    "top" => [0.0, -1e-4, 1.0],
+                    "bottom" => [0.0, -1e-4, -1.0],
+                    "front" => [0.0, -1.0, 0.0],
+                    "back" => [0.0, 1.0, 0.0],
+                    "left" => [-1.0, 0.0, 0.0],
+                    "right" => [1.0, 0.0, 0.0],
+                    _ => [1.0, -1.15, 0.85],
+                };
+                if let Some((scene, view)) = self.scene3.as_mut() {
+                    view.cam.fit(scene.min, scene.max, Some(dir));
+                }
+            }
+            "view.projection" => {
+                if let Some((_, view)) = self.scene3.as_mut() {
+                    view.cam.persp = !view.cam.persp;
+                }
+            }
             "view.cut" => {
                 self.cut3 = match params.factor.filter(|f| f.is_finite()) {
                     Some(f) => (true, f.clamp(0.0, 1.0)),
@@ -958,8 +978,26 @@ impl UiApp {
                             self.run_ui("file.save", &Params { name: Some(f.to_string()), ..Default::default() });
                         }
                     }
-                    if ui.add_enabled(self.doc.is_some(), egui::Button::new("Fit")).on_hover_text("Zoom to the drawing (Home)").clicked() {
+                    if ui
+                        .add_enabled(self.doc.is_some() || self.scene3.is_some(), egui::Button::new("Fit"))
+                        .on_hover_text("Zoom to the drawing or model (Home)")
+                        .clicked()
+                    {
                         self.run_ui("view.fit", &Params::default());
+                    }
+                    if self.scene3.is_some() {
+                        ui.separator();
+                        for (name, label) in
+                            [("iso", "Iso"), ("top", "Top"), ("front", "Front"), ("right", "Right"), ("back", "Back"), ("left", "Left")]
+                        {
+                            if ui.button(label).on_hover_text(format!("{label} view")).clicked() {
+                                self.run_ui("view.standard", &Params { name: Some(name.into()), ..Default::default() });
+                            }
+                        }
+                        let persp = self.scene3.as_ref().is_some_and(|(_, v)| v.cam.persp);
+                        if ui.button(if persp { "Parallel" } else { "Perspective" }).on_hover_text("Switch the projection").clicked() {
+                            self.run_ui("view.projection", &Params::default());
+                        }
                     }
                     if ui.add_enabled(self.doc.is_some(), egui::Button::new("Layers")).clicked() {
                         self.show_layers = !self.show_layers;
