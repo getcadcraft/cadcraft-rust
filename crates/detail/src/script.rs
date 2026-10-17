@@ -29,22 +29,58 @@ type R = Option<Result<Value, String>>;
 
 /// Run a script through the handlers (tried in order) → the JSON array of results.
 pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
+    run_with_timer(script, handlers, None)
+}
+
+fn call_of(c: &Value) -> Call<'_> {
+    Call {
+        op: s(c.get("op")),
+        args: arr(c.get("args")),
+        as_name: c.get("as").and_then(Value::as_str),
+        this: c.get("self").and_then(Value::as_str),
+    }
+}
+fn dispatch(reg: &mut Registry, call: &Call, handlers: &[Handler]) -> Option<Result<Value, String>> {
+    for h in handlers {
+        let res = h(reg, call);
+        if res.is_some() {
+            return res;
+        }
+    }
+    None
+}
+
+/// `run_with`, plus `bench.time [call, runs]` (best and median ms of `runs` runs of one call after a warm-up) when the
+/// host gives a clock in ms (the CLI; the web build has none).
+pub fn run_with_timer(script: &Value, handlers: &[Handler], clock: Option<&dyn Fn() -> f64>) -> Value {
     let mut reg = Registry::new();
     let mut out = Vec::new();
     for c in arr(script.get("calls")) {
-        let call = Call {
-            op: s(c.get("op")),
-            args: arr(c.get("args")),
-            as_name: c.get("as").and_then(Value::as_str),
-            this: c.get("self").and_then(Value::as_str),
-        };
-        let mut res = None;
-        for h in handlers {
-            res = h(&mut reg, &call);
-            if res.is_some() {
-                break;
+        let call = call_of(c);
+        let res = if call.op == "bench.time" {
+            match (clock, call.args.first()) {
+                (Some(clock), Some(inner)) => {
+                    let ic = call_of(inner);
+                    let runs = call.args.get(1).and_then(Value::as_u64).unwrap_or(5).clamp(1, 1000);
+                    drop(dispatch(&mut reg, &ic, handlers));
+                    let mut ms = Vec::new();
+                    for _ in 0..runs {
+                        let t0 = clock();
+                        let r = dispatch(&mut reg, &ic, handlers);
+                        ms.push(clock() - t0);
+                        drop(r);
+                    }
+                    let best = ms.iter().copied().fold(f64::INFINITY, f64::min);
+                    let mut sorted = ms.clone();
+                    sorted.sort_by(f64::total_cmp);
+                    let median = sorted.get(sorted.len() / 2).copied().unwrap_or(best);
+                    Some(Ok(json!({ "best": best, "median": median, "runs": ms })))
+                }
+                _ => Some(Err("bench.time needs a clock and a call".into())),
             }
-        }
+        } else {
+            dispatch(&mut reg, &call, handlers)
+        };
         out.push(match res {
             Some(Ok(Value::String(x))) if x == UNDEF => json!({}),
             Some(Ok(v)) => json!({ "ok": v }),
@@ -57,7 +93,7 @@ pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle])
+    run_with(script, &[handle, crate::script_edit::handle])
 }
 
 /// The object a call names.
@@ -220,13 +256,27 @@ fn model_ops(reg: &mut Registry, c: &Call) -> R {
             "model.change" => {
                 let label = c.str(0).to_string();
                 let ops = arr(c.arg(1)).to_vec();
+                // the clips a `$paste` names, taken out of the registry before the model is borrowed
+                let mut clips: Vec<(String, Value)> = Vec::new();
+                for o in &ops {
+                    if s(o.get("op")) == "$paste" {
+                        let n = s(arr(o.get("args")).first()).to_string();
+                        if let Some(k) = reg.get::<crate::script_edit::Clip>(&n) {
+                            clips.push((n, k.0.clone()));
+                        }
+                    }
+                }
                 let name = c.this.ok_or("no model named")?;
                 let m = reg.get_mut::<Model>(name).ok_or_else(|| format!("no model {name}"))?;
-
                 m.change(&label, |tx| {
                     let mut res = Vec::new();
                     for o in &ops {
-                        let r = tx.call(s(o.get("op")), arr(o.get("args")))?;
+                        let op = s(o.get("op"));
+                        let r = if op.starts_with('$') {
+                            crate::script_edit::tx_op(tx, op, arr(o.get("args")), &clips)?
+                        } else {
+                            tx.call(op, arr(o.get("args")))?
+                        };
                         res.push(r.unwrap_or(Value::Null));
                     }
                     Ok(Value::Array(res))

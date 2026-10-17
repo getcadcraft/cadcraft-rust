@@ -236,6 +236,12 @@ pub fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
+/// `a[i]` of a small fixed array (in range by construction; the default otherwise).
+#[inline]
+pub fn g3<T: Copy + Default, const N: usize>(a: [T; N], i: usize) -> T {
+    a.get(i).copied().unwrap_or_default()
+}
+
 /// A thrown error's message.
 pub type Res<T> = Result<T, String>;
 

@@ -236,3 +236,10 @@ path = "fuzz_targets/detail_model.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "detail_clip"
+path = "fuzz_targets/detail_clip.rs"
+test = false
+doc = false
+bench = false

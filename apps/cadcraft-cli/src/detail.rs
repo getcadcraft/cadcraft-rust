@@ -19,7 +19,9 @@ fn read_json(path: &str) -> Result<serde_json::Value, ExitCode> {
 }
 
 fn run(v: &serde_json::Value) -> serde_json::Value {
-    cc_detail::script::run_with(v, &[cc_detail::script::handle])
+    let start = Instant::now();
+    let clock = move || start.elapsed().as_secs_f64() * 1000.0;
+    cc_detail::script::run_with_timer(v, &[cc_detail::script::handle, cc_detail::script_edit::handle], Some(&clock))
 }
 
 pub fn detail(rest: &[&str]) -> ExitCode {

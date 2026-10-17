@@ -28,19 +28,26 @@
 #![allow(clippy::type_complexity, clippy::too_many_arguments, clippy::too_many_lines)]
 
 pub mod build;
+pub mod clash;
+pub mod clipboard;
 pub mod connections;
 pub mod csv;
 pub mod geom;
 pub mod i18n;
 pub mod js;
+pub mod lasso_core;
 pub mod marks;
 pub mod model;
+pub mod nest;
 pub mod profiles;
 pub mod rebar;
 pub mod sample;
 pub mod script;
+pub mod script_edit;
 mod section_rows;
 pub mod sections;
 pub mod stair;
 pub mod state;
+pub mod transform;
+pub mod winsel;
 pub mod zip;
