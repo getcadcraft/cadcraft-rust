@@ -49,7 +49,7 @@ fn hidden(v: Option<&Value>) -> Option<Vec<f64>> {
 fn clip_view(v: &Value) -> Value {
     let mut c = v.clone();
     if let Some(o) = c.as_object_mut() {
-        o.remove("source");
+        o.shift_remove("source");
     }
     c
 }
@@ -67,7 +67,7 @@ fn nest_opts(o: Option<&Value>) -> (nest::Stock, f64, f64, f64) {
 
 pub fn handle(reg: &mut Registry, c: &Call) -> R {
     let (module, _) = c.op.split_once('.').unwrap_or((c.op, ""));
-    if !matches!(module, "clip" | "xf" | "winsel" | "lasso" | "nest" | "clash") {
+    if !matches!(module, "clip" | "xf" | "winsel" | "lasso" | "nest" | "clash" | "agent") {
         return None;
     }
     let r = (|| -> Result<Value, String> {
@@ -235,6 +235,38 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 let tol = o.and_then(|o| o.get("tol")).map_or(1.0, |v| num(Some(v)));
                 let ph = hidden(o.and_then(|o| o.get("phases")));
                 clash::clash_json(&clash::clash_check(&st, b, tol, ph.as_deref()))
+            }
+            "agent.new" => {
+                let model = match c.raw(0) {
+                    Some(Value::String(x)) if x == "sample" => crate::sample::sample_model("Sample frame")?,
+                    None => crate::sample::sample_model("Sample frame")?,
+                    Some(st) => crate::model::Model::new(st.clone()),
+                };
+                keep(reg, c, crate::agents::AgentApp::new(model));
+                crate::script::undef()
+            }
+            "agent.tools" => Value::Array(crate::agents::tool_defs().iter().map(crate::agents::ToolDef::j).collect()),
+            "agent.run" | "agent.state" | "agent.change" | "agent.undoModel" => {
+                let name = c.this.ok_or("no object named")?;
+                let app = reg.get_mut::<crate::agents::AgentApp>(name).ok_or_else(|| format!("no object {name}"))?;
+                match c.op {
+                    "agent.run" => app.run(c.str(0), c.raw(1).unwrap_or(&json!({})))?,
+                    "agent.state" => json!({
+                        "state": app.model.state, "selected": app.selected, "saves": app.saves, "exported": app.exported,
+                        "undo": app.model.undo_stack.iter().map(|s| s.label.clone()).collect::<Vec<_>>(), "dirty": app.model.dirty(),
+                    }),
+                    "agent.change" => {
+                        let ops = arr(c.arg(1)).to_vec();
+                        app.model.change(c.str(0), |tx| {
+                            let mut res = Vec::new();
+                            for o in &ops {
+                                res.push(tx.call(crate::js::s(o.get("op")), arr(o.get("args")))?.unwrap_or(Value::Null));
+                            }
+                            Ok(Value::Array(res))
+                        })?
+                    }
+                    _ => app.model.undo().map_or(Value::Null, Value::from),
+                }
             }
             "clash.obb" => {
                 let ob = |v: Option<&Value>| clash::Obb {

@@ -227,7 +227,7 @@ pub fn paste_into(tx: &mut Tx, clip: &Value, offset: Option<&Value>) -> Res<Valu
     }
     for f in arr(clip.get("footings")) {
         let mut rest = crate::js::spread(Some(f), None);
-        rest.remove("id");
+        rest.shift_remove("id");
         rest.insert("x".into(), jnum(num(f.get("x")) + off[0]));
         rest.insert("y".into(), jnum(num(f.get("y")) + off[1]));
         rest.insert("top".into(), jnum(num(f.get("top")) + off[2]));
@@ -236,7 +236,7 @@ pub fn paste_into(tx: &mut Tx, clip: &Value, offset: Option<&Value>) -> Res<Valu
     }
     for x in arr(clip.get("stairs")) {
         let mut rest = crate::js::spread(Some(x), None);
-        rest.remove("id");
+        rest.shift_remove("id");
         rest.insert("x".into(), jnum(num(x.get("x")) + off[0]));
         rest.insert("y".into(), jnum(num(x.get("y")) + off[1]));
         rest.insert("z".into(), jnum(num(x.get("z")) + off[2]));

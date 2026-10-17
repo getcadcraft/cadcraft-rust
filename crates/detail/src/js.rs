@@ -5,7 +5,7 @@
 
 use serde_json::{Map, Value};
 
-pub use cc_cad::js::{hypot, max, min, num_to_string, round, sign, slice16, str_to_number, to_fixed, to_js_string, to_number, trim};
+pub use cc_cad::js::{hypot, max, min, num_to_string, round, sign, slice16, str_to_number, to_js_string, to_number, trim};
 pub use cc_civil::js::{J, Obj, arr, as_str, is_integer, jnum, locale_compare, locale_compare_num, ord, sort_by};
 
 /// `Math.sin` / `Math.cos` (fdlibm, bit for bit with V8).
@@ -44,9 +44,53 @@ pub fn hypot_n(xs: &[f64]) -> f64 {
     cc_m3d::js::hypot(xs)
 }
 
+/// `x.toFixed(f)`: Rust's `{:.f}` is the exactly rounded decimal of the double, as `toFixed` is, except on exact ties,
+/// where the JS takes the larger digit and Rust the even one; ties are found exactly (an FMA residual) and handed to
+/// cc-cad's exact `to_fixed`.
+pub fn to_fixed(x: f64, f: usize) -> String {
+    if !x.is_finite() || x.abs() >= 1e21 || f > 20 {
+        return cc_cad::js::to_fixed(x, f);
+    }
+    if x == 0.0 {
+        return format!("{:.f$}", 0.0, f = f);
+    }
+    if x.fract() == 0.0 && x.abs() < 1e15 {
+        // an integer: its digits, then f zeros
+        if let Some(i) = cc_civil::js::i64_of(x) {
+            return if f == 0 { i.to_string() } else { format!("{i}.{}", "0".repeat(f)) };
+        }
+    }
+    let scale = 10f64.powi(i32::try_from(f).unwrap_or(0));
+    let y = x * (2.0 * scale);
+    if y.fract() == 0.0 && x.mul_add(2.0 * scale, -y) == 0.0 && (y / 2.0).fract() != 0.0 {
+        return cc_cad::js::to_fixed(x, f);
+    }
+    format!("{x:.f$}")
+}
+/// `String(Number(x.toFixed(f)))`.
+pub fn fixed_num_str(x: f64, f: usize) -> String {
+    let s = to_fixed(x, f);
+    if !x.is_finite() || x.abs() >= 1e21 {
+        return num_to_string(str_to_number(&s));
+    }
+    let digits = s.bytes().filter(u8::is_ascii_digit).skip_while(|b| *b == b'0').count();
+    if digits > 15 {
+        return num_to_string(str_to_number(&s));
+    }
+    let t = if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.') } else { s.as_str() };
+    match t {
+        "-0" | "" | "-" => "0".into(),
+        t => t.to_string(),
+    }
+}
+
 /// `Number(x.toFixed(d))`.
 pub fn fixed_num(x: f64, d: usize) -> f64 {
-    str_to_number(&to_fixed(x, d))
+    if x.fract() == 0.0 && x.abs() < 1e15 {
+        return x + 0.0;
+    }
+    let s = to_fixed(x, d);
+    s.parse::<f64>().unwrap_or_else(|_| str_to_number(&s))
 }
 
 /// `Math.max(...xs)` (−∞ for none, NaN wins).
@@ -254,5 +298,19 @@ mod tests {
         assert_eq!(clean_text(None, 3), "");
         assert_eq!(stringify_indent(&serde_json::json!({"a": [1, 2.5], "b": {}}), 1), "{\n \"a\": [\n  1,\n  2.5\n ],\n \"b\": {}\n}");
         assert_eq!(fixed_num(1.005, 2), 1.0);
+        let mut x = 0.123_456_789_f64;
+        for i in 0..100_000 {
+            let v = x * f64::from(i % 1000) - 333.0;
+            for f in [0, 1, 2, 3, 6] {
+                assert_eq!(to_fixed(v, f), cc_cad::js::to_fixed(v, f), "{v} {f}");
+                assert_eq!(fixed_num_str(v, f), num_to_string(str_to_number(&cc_cad::js::to_fixed(v, f))), "{v} {f}");
+            }
+            x = (x * 1.000_37 + 0.000_013).fract();
+        }
+        for v in [0.0078125, -0.0078125, 2.5, 0.125, -2.5, 0.5, -0.5, 1e20, -1e-7, 0.000_000_5, 1e-300] {
+            for f in [0, 1, 2, 6] {
+                assert_eq!(to_fixed(v, f), cc_cad::js::to_fixed(v, f), "{v} {f}");
+            }
+        }
     }
 }

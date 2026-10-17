@@ -93,7 +93,7 @@ pub fn run_with_timer(script: &Value, handlers: &[Handler], clock: Option<&dyn F
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle, crate::script_edit::handle])
+    run_with(script, &[handle, crate::script_edit::handle, crate::script_draw::handle])
 }
 
 /// The object a call names.

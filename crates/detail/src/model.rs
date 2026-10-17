@@ -1326,8 +1326,8 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
     if dropped > 0 {
         warnings.push(t("model.warn.members", &[("n", F::N(dropped as f64))]));
     }
-    let member_ids: Vec<String> = members.iter().map(|m| s_(m.get("id")).to_string()).collect();
-    let has_member = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|x| member_ids.iter().any(|m| m == x));
+    let member_ids: std::collections::HashSet<String> = members.iter().map(|m| s_(m.get("id")).to_string()).collect();
+    let has_member = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|x| member_ids.contains(x));
     let mut conns = Vec::new();
     let mut dropped_c = 0usize;
     for c in list_of(j.get("connections"), 20000) {

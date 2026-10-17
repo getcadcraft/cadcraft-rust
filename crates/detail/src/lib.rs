@@ -27,25 +27,35 @@
 #![allow(clippy::cast_precision_loss)]
 #![allow(clippy::type_complexity, clippy::too_many_arguments, clippy::too_many_lines)]
 
+pub mod agents;
 pub mod build;
 pub mod clash;
 pub mod clipboard;
 pub mod connections;
 pub mod csv;
+pub mod display;
+pub mod drawings;
 pub mod geom;
 pub mod i18n;
+pub mod issues;
 pub mod js;
+pub mod kiss;
 pub mod lasso_core;
 pub mod marks;
 pub mod model;
 pub mod nest;
+pub mod paper;
+pub mod pdf;
 pub mod profiles;
 pub mod rebar;
+pub mod report;
 pub mod sample;
 pub mod script;
+pub mod script_draw;
 pub mod script_edit;
 mod section_rows;
 pub mod sections;
+pub mod shop;
 pub mod stair;
 pub mod state;
 pub mod transform;

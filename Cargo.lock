@@ -315,6 +315,7 @@ dependencies = [
  "cc-geom",
  "cc-io-cad",
  "cc-io-civil",
+ "cc-io-detail",
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-m3d",
@@ -448,9 +449,11 @@ name = "cc-detail"
 version = "0.0.1"
 dependencies = [
  "cc-cad",
+ "cc-cad-geom",
  "cc-civil",
  "cc-m3d",
  "libm",
+ "miniz_oxide 0.8.9",
  "serde_json",
 ]
 
@@ -509,6 +512,21 @@ dependencies = [
  "unicode-normalization",
  "url",
  "zlib-rs",
+]
+
+[[package]]
+name = "cc-io-detail"
+version = "0.0.1"
+dependencies = [
+ "cc-bim",
+ "cc-cad",
+ "cc-civil",
+ "cc-detail",
+ "cc-io-dwg",
+ "cc-io-ifc",
+ "cc-m3d",
+ "libm",
+ "serde_json",
 ]
 
 [[package]]
