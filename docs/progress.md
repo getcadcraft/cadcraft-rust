@@ -21,6 +21,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M9.8: MarkupCraft markups on the sheet view: read with cc-io-markup openPdf when the PDF opens, drawn from cc-markup's
+  display lists (shapes.js: the list the saved PDF's appearances come from) through the page's viewport transform;
+  pages MarkupCraft draws itself (annotMode "disable") render without their annotations' own appearances (hayro
+  `render_annotations`, which auto count keeps on); Markups switch with counts.
 - M9.7: crash fix (gate fuzz smoke, `civil_las` OOM): a layered LAZ chunk listing a 4 GB layer made laz-rs size a buffer
   to it before reading; every chunk's layer sizes are now checked against the bytes left before laz-rs reads it (chunks
   found by chunk_size or the chunk table); regression fixture + unit tests + seed; crs-las parity unchanged (358 calls,

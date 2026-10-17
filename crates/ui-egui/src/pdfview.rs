@@ -30,6 +30,14 @@ pub struct PdfView {
     /// how long the last render took (ms)
     pub render_ms: f64,
     pub error: Option<String>,
+    /// the markups read back from the file (MarkupCraft's openPdf), when it has any
+    pub markups: Vec<cc_markup::model::Markup>,
+    /// each page's key ("f1:<index>") markups name their sheet by
+    page_keys: Vec<String>,
+    /// pages whose annotations MarkupCraft draws itself (annotMode "disable"): rendered without them while markups show
+    annots_drawn: Vec<bool>,
+    /// draw the markups over the sheet
+    pub show_markups: bool,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -54,7 +62,20 @@ impl PdfView {
         if pages.is_empty() {
             return Err("the PDF has no pages".into());
         }
+        // MarkupCraft's reading of the same file: its markups (a file it cannot read still shows as a plan set)
+        let mut env = cc_markup::model::Env::default();
+        let opts = cc_io_markup::read::OpenOpts { file_id: "f1".into(), name: name.to_string(), read_text: false };
+        let (markups, page_keys, annots_drawn) = match cc_io_markup::read::open_pdf(&mut env, bytes, &opts) {
+            Ok(r) => {
+                (r.markups, r.pages.iter().map(|p| p.key.clone()).collect(), r.pages.iter().map(|p| p.annot_mode == "disable").collect())
+            }
+            Err(_) => (Vec::new(), Vec::new(), Vec::new()),
+        };
         Ok(PdfView {
+            markups,
+            page_keys,
+            annots_drawn,
+            show_markups: true,
             name: name.to_string(),
             doc,
             pages,
@@ -97,7 +118,8 @@ impl PdfView {
     /// Render the page at `scale` into the texture.
     fn render(&mut self, ctx: &egui::Context, scale: f64) {
         let t0 = web_time::Instant::now();
-        match pdfread::render_rgba(&self.doc, self.page, scale) {
+        let own = self.show_markups && self.annots_drawn.get(self.page).copied().unwrap_or(false);
+        match pdfread::render_rgba(&self.doc, self.page, scale, !own) {
             Ok((rgba, w, h)) => {
                 let img = egui::ColorImage::from_rgba_premultiplied([w, h], &rgba);
                 let opts = egui::TextureOptions::LINEAR;
@@ -119,6 +141,14 @@ impl PdfView {
     /// The sheet list (page labels).
     pub fn sheets(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let mut go: Option<usize> = None;
+        if !self.markups.is_empty() {
+            let label = format!("Markups ({} on this sheet, {} in all)", self.page_markups(), self.markups.len());
+            if ui.checkbox(&mut self.show_markups, egui::RichText::new(label).color(t.text)).changed() {
+                // the page is drawn with or without its annotations' own appearances
+                self.tex = None;
+            }
+            ui.separator();
+        }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             for (i, p) in self.pages.iter().enumerate() {
                 let label = if p.label.is_empty() { format!("Page {}", i + 1) } else { p.label.clone() };
@@ -173,9 +203,79 @@ impl PdfView {
         if let Some((tex, _, _)) = &self.tex {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
+        if self.show_markups {
+            self.draw_markups(&painter, page_rect.min);
+        }
         if let Some(e) = &self.error {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, e, egui::FontId::proportional(14.0), t.text);
         }
+    }
+
+    /// The markups of this page, drawn from MarkupCraft's display lists (shapes.js: the same list the saved PDF's
+    /// appearance streams are made from), PDF user space → the screen through the page's viewport transform.
+    fn draw_markups(&self, painter: &egui::Painter, origin: Pos2) {
+        use cc_markup::shapes::{Item, ShapeEnv, flatten, place_text, shapes};
+        let (Some(key), Some(info)) = (self.page_keys.get(self.page), self.pages.get(self.page)) else { return };
+        let tr = info.transform;
+        let z = self.zoom;
+        let at = |x: f64, y: f64| {
+            let (vx, vy) = pdfread::to_viewport(&tr, x, y);
+            origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
+        };
+        let env = ShapeEnv { cal: None, badge: 0.0, legend: None };
+        for m in self.markups.iter().filter(|m| m.sheet.as_deref() == Some(key.as_str())) {
+            for item in shapes(m, &env) {
+                match item {
+                    Item::Path(p) => {
+                        for sub in flatten(&p.d) {
+                            let pts: Vec<Pos2> = sub.pts.iter().map(|q| at(q[0], q[1])).collect();
+                            if pts.len() < 2 {
+                                continue;
+                            }
+                            if sub.closed
+                                && pts.len() >= 3
+                                && let Some(f) = p.fill.as_deref().and_then(|c| hex_color(c, p.falpha))
+                            {
+                                painter.add(egui::Shape::convex_polygon(pts.clone(), f, egui::Stroke::NONE));
+                            }
+                            if let Some(c) = p.stroke.as_deref().and_then(|c| hex_color(c, p.alpha)) {
+                                let mut line = pts;
+                                if sub.closed
+                                    && let Some(first) = line.first().copied()
+                                {
+                                    line.push(first);
+                                }
+                                let w = ((p.w * z) as f32).max(1.0);
+                                painter.add(egui::Shape::line(line, egui::Stroke::new(w, c)));
+                            }
+                        }
+                    }
+                    Item::Text(t) => {
+                        let Some(c) = hex_color(&t.color, t.alpha) else { continue };
+                        let (lines, _angle) = place_text(&t);
+                        let size = ((t.size * z) as f32).max(4.0);
+                        for l in lines {
+                            painter.text(at(l.x, l.y), egui::Align2::LEFT_BOTTOM, &l.s, egui::FontId::proportional(size), c);
+                        }
+                    }
+                    Item::Image(im) => {
+                        let (a, b) = (at(im.bbox[0], im.bbox[1]), at(im.bbox[2], im.bbox[3]));
+                        painter.rect_stroke(
+                            Rect::from_two_pos(a, b),
+                            0.0,
+                            egui::Stroke::new(1.0, Color32::from_gray(140)),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// How many markups the open page has.
+    pub fn page_markups(&self) -> usize {
+        let key = self.page_keys.get(self.page);
+        self.markups.iter().filter(|m| m.sheet.as_ref() == key).count()
     }
 
     /// What the status bar says.
@@ -195,9 +295,30 @@ impl PdfView {
     }
 }
 
+/// "#rrggbb" (or "#rgb") with an alpha → a colour; None for anything else (a markup's colours are data from the file).
+pub fn hex_color(s: &str, alpha: f64) -> Option<Color32> {
+    let h = s.strip_prefix('#')?;
+    let full: String = match h.len() {
+        3 => h.chars().flat_map(|c| [c, c]).collect(),
+        6 => h.to_string(),
+        _ => return None,
+    };
+    let v = u32::from_str_radix(&full, 16).ok()?;
+    let a = if alpha.is_finite() { alpha.clamp(0.0, 1.0) } else { 1.0 };
+    Some(Color32::from_rgba_unmultiplied((v >> 16) as u8, (v >> 8) as u8, v as u8, (a * 255.0).round() as u8))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn markup_colours() {
+        assert_eq!(hex_color("#e5322d", 1.0), Some(Color32::from_rgb(0xe5, 0x32, 0x2d)));
+        assert_eq!(hex_color("#fff", 1.0), Some(Color32::WHITE));
+        assert_eq!(hex_color("red", 1.0), None);
+        assert_eq!(hex_color("#12345", 1.0), None);
+    }
 
     #[test]
     fn render_scale_steps_and_caps() {

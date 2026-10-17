@@ -251,8 +251,9 @@ pub fn page_labels(pdf: &Pdf) -> Option<Vec<String>> {
 }
 
 /// A page rendered on white at `scale` (canvas size = the viewport's, rounded up), RGBA premultiplied (opaque: the
-/// background is white): (pixels, width, height). Refuses rasters over `MAX_PIXELS`.
-pub fn render_rgba(doc: &Doc, index: usize, scale: f64) -> Result<(Vec<u8>, usize, usize), String> {
+/// background is white): (pixels, width, height). `annotations`: draw the annotations' appearance streams too (pdf.js's
+/// default; MarkupCraft turns them off and draws its markups itself). Refuses rasters over `MAX_PIXELS`.
+pub fn render_rgba(doc: &Doc, index: usize, scale: f64, annotations: bool) -> Result<(Vec<u8>, usize, usize), String> {
     let page = doc.pdf.pages().get(index).ok_or("no such page")?;
     let view = page_view(page);
     let rot = rotation_deg(page.rotation());
@@ -266,7 +267,8 @@ pub fn render_rgba(doc: &Doc, index: usize, scale: f64) -> Result<(Vec<u8>, usiz
     let cache = RenderCache::new();
     let mut ctx = RenderContext::new(w, h);
     let transform = page.initial_transform(true).to_kurbo().then_scale(scale);
-    render_into(page, &cache, &InterpreterSettings::default(), &RenderSettings::default(), &mut ctx, transform);
+    let settings = InterpreterSettings { render_annotations: annotations, ..InterpreterSettings::default() };
+    render_into(page, &cache, &settings, &RenderSettings::default(), &mut ctx, transform);
     ctx.flush();
     let mut pixmap = Pixmap::new(w, h);
     ctx.render_with(
@@ -279,7 +281,7 @@ pub fn render_rgba(doc: &Doc, index: usize, scale: f64) -> Result<(Vec<u8>, usiz
 
 /// A page rendered on white at `scale` as ink (what auto count matches on).
 pub fn render_ink(doc: &Doc, index: usize, scale: f64) -> Result<Img, String> {
-    let (rgba, w, h) = render_rgba(doc, index, scale)?;
+    let (rgba, w, h) = render_rgba(doc, index, scale, true)?;
     Ok(to_ink(&rgba, w, h))
 }
 
