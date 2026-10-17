@@ -20,6 +20,8 @@ pub enum Act {
     Select(Option<Sel>),
     Display(String),
     Group(String, String),
+    /// a `civil.export` name (project, landxml, dxf, dwg, pdf, glb)
+    Export(String),
 }
 
 fn head(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
@@ -68,6 +70,8 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     head(ui, tk, &t0("ui.site"));
     let name = p.state.get("name").and_then(Value::as_str).unwrap_or("").to_string();
     rows(ui, tk, "cv_site", &[(t0("ui.site.name"), name), (t0("ui.site.units"), cc_civil::units::unit_of(&units).name())]);
+    export_group(cv, ui, tk, acts);
+    let p = &mut cv.project;
     // points
     head(ui, tk, &t0("ui.points"));
     let n = p.points.len();
@@ -222,6 +226,88 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
 }
 
 /// Every object of the project, as links that select it on the plan.
+/// The Export group (0.5's tool bar group: LandXML, DXF, DWG with the DWG dialog's format, PDF with the plot dialog's
+/// paper / scale / ink; GLB from the 3D bar; Save).
+fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
+    use cc_io_civil::plot;
+    head(ui, tk, &t0("ui.tb.group.export"));
+    let units = cv.project.units().to_string();
+    let mut btn = |ui: &mut egui::Ui, label: &str, tip: &str, name: &str| {
+        if ui.button(label).on_hover_text(tip).clicked() {
+            acts.push(Act::Export(name.to_string()));
+        }
+    };
+    ui.horizontal_wrapped(|ui| {
+        btn(ui, &t0("ui.tb.save"), &t0("ui.tb.save.title"), "project");
+        btn(ui, &t0("ui.tb.landxml"), &t0("ui.tb.landxml.title"), "landxml");
+        btn(ui, &t0("ui.tb.dxf"), &t0("ui.tb.dxf.title"), "dxf");
+        btn(ui, "GLB", &t0("v3d.glb.title"), "glb");
+    });
+    ui.horizontal(|ui| {
+        btn(ui, &t0("ui.tb.dwg"), &t0("ui.tb.dwg.title"), "dwg");
+        let year = |v: &str| crate::civilexport::DWG_YEAR.iter().find(|(k, _)| *k == v).map_or("", |(_, y)| *y).to_string();
+        let mut v = cv.export.dwg.clone();
+        egui::ComboBox::new("cv_dwg_format", t0("ui.dwg.format")).selected_text(year(&v)).width(70.0).show_ui(ui, |ui| {
+            for (k, y) in crate::civilexport::DWG_YEAR {
+                ui.selectable_value(&mut v, k.to_string(), y);
+            }
+        });
+        cv.export.dwg = v;
+    });
+    ui.horizontal(|ui| {
+        btn(ui, &t0("ui.tb.pdf"), &t0("ui.tb.pdf.title"), "pdf");
+        let mut mono = cv.export.mono;
+        egui::ComboBox::new("cv_plot_ink", t0("ui.plot.ink"))
+            .selected_text(t0(if mono { "ui.plot.mono" } else { "ui.plot.color" }))
+            .width(96.0)
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut mono, false, t0("ui.plot.color"));
+                ui.selectable_value(&mut mono, true, t0("ui.plot.mono"));
+            });
+        cv.export.mono = mono;
+    });
+    let paper = cv.export.paper.clone().unwrap_or_else(|| if units == "m" { "a3".into() } else { "tabloid".into() });
+    let mut pk = paper.clone();
+    egui::ComboBox::new("cv_plot_paper", t0("ui.plot.paper")).selected_text(plot::paper_name(&plot::paper_by(&pk))).width(170.0).show_ui(
+        ui,
+        |ui| {
+            for p in plot::PAPERS {
+                ui.selectable_value(&mut pk, p.key.to_string(), plot::paper_name(&p));
+            }
+        },
+    );
+    if pk != paper {
+        cv.export.paper = Some(pk.clone());
+        cv.export.scale = None;
+    }
+    let mut area_view = cv.export.area_view;
+    egui::ComboBox::new("cv_plot_area", t0("ui.plot.area"))
+        .selected_text(t0(if area_view { "ui.plot.view" } else { "ui.plot.all" }))
+        .width(170.0)
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut area_view, false, t0("ui.plot.all"));
+            ui.selectable_value(&mut area_view, true, t0("ui.plot.view"));
+        });
+    if area_view != cv.export.area_view {
+        cv.export.area_view = area_view;
+        cv.export.scale = None;
+    }
+    // the scale list with the one that fits marked (plotDialog fill())
+    let area = if area_view { crate::civilexport::view_bounds(&cv.view) } else { cv.export.extents(&mut cv.project) };
+    let fit = plot::fit_scale(&units, &area, &plot::paper_by(&pk), true).label;
+    let cur = cv.export.scale.clone().unwrap_or_else(|| fit.clone());
+    let shown = |l: &str| if l == fit { tr!("cv.plot.fits", scale = l) } else { l.to_string() };
+    let mut sel = cur.clone();
+    egui::ComboBox::new("cv_plot_scale", t0("ui.plot.scale")).selected_text(shown(&cur)).width(170.0).show_ui(ui, |ui| {
+        for s in plot::scales_for(&units) {
+            ui.selectable_value(&mut sel, s.label.clone(), shown(&s.label));
+        }
+    });
+    if sel != cur {
+        cv.export.scale = if sel == fit { None } else { Some(sel) };
+    }
+}
+
 fn objects(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let st = cv.project.state.clone();
     let mut any = false;

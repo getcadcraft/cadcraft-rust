@@ -76,6 +76,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{} → the status line lists the last open / parse / TIN / plan build (by stage) / 3D build / panel facts times in ms",
     ),
     ("civil.save", "Save the project", "Ctrl+S", "{} → the .civilcraft.json project file (0.5's format)"),
+    (
+        "civil.export",
+        "Export",
+        "",
+        "{name: \"project\"|\"landxml\"|\"dxf\"|\"dwg[:AC1015|AC1018|AC1021|AC1024|AC1027|AC1032]\"|\"pdf[:paper=…,scale=…,ink=mono|color,area=view|all]\"|\"glb\" + optional \"@<time ms>\" (a fixed clock; DWG GUIDs then a fixed sequence)} → the file 0.5 writes, through the save service",
+    ),
 ];
 
 /// What is selected (civilcraft.js `sel` / `picked`).
@@ -161,6 +167,8 @@ pub struct CivilView {
     pub last_labels: usize,
     /// scene build timings (ms) by step, for the status line and the benchmark
     pub timings: HashMap<&'static str, f64>,
+    /// the Export group's choices (DWG format, plot paper / scale / area / ink)
+    pub export: crate::civilexport::ExportOpts,
     dark: bool,
 }
 
@@ -210,6 +218,7 @@ impl CivilView {
             facts: Facts { version: u64::MAX, ..Facts::default() },
             last_labels: 0,
             timings: HashMap::new(),
+            export: crate::civilexport::ExportOpts::default(),
             dark: true,
         }
     }
@@ -1103,14 +1112,9 @@ impl CivilView {
         }
     }
 
-    /// The project file (civilcraft.js Save: `JSON.stringify(project.toJSON())`).
-    pub fn file_bytes(&mut self) -> (String, Vec<u8>) {
-        let mut j = self.project.to_json();
-        if let Some(m) = j.as_object_mut() {
-            m.insert("saved".into(), json!(0));
-        }
-        let name = format!("{}.civilcraft.json", stem(self.project.state.get("name").and_then(Value::as_str).unwrap_or("site")));
-        (name, cc_civil::project::js_stringify(&j).into_bytes())
+    /// The project file (civilcraft.js Save: `JSON.stringify(project.toJSON())`, `saved` = the time given).
+    pub fn file_bytes(&self, now_ms: f64) -> (String, Vec<u8>) {
+        crate::civilexport::project_file(&self.project, now_ms)
     }
 }
 
@@ -1271,7 +1275,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             cv.exag = f;
         }
         "civil.save" => {
-            let (fname, bytes) = cv.file_bytes();
+            let (fname, bytes) = cv.file_bytes(now_ms());
             let save = app.services.save.as_mut().ok_or("civil.save: saving is not available here")?;
             if let Some(to) = save(&fname, bytes)?
                 && let Some(cv) = app.civil.as_mut()
@@ -1280,9 +1284,32 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 cv.message = tr!("cv.saved.dl", name = to);
             }
         }
+        "civil.export" => {
+            // civilcraft.js exportLandXml / exportDxf / exportDwg / plot, site-view3d.js exportGLB, saveProject
+            match crate::civilexport::run(cv, &name, now_ms(), dark)? {
+                crate::civilexport::Outcome::Nothing(m) => cv.message = m,
+                crate::civilexport::Outcome::File(fname, bytes, msg) => {
+                    let project = name.trim_start().starts_with("project");
+                    let save = app.services.save.as_mut().ok_or("civil.export: saving is not available here")?;
+                    if save(&fname, bytes)?.is_some()
+                        && let Some(cv) = app.civil.as_mut()
+                    {
+                        if project {
+                            cv.project.saved = i64::try_from(cv.project.version).unwrap_or(0);
+                        }
+                        cv.message = msg;
+                    }
+                }
+            }
+        }
         other => return Err(format!("unknown command {other}")),
     }
     Ok(())
+}
+
+/// The wall clock in ms (what date-stamped exports use unless a test fixes it).
+fn now_ms() -> f64 {
+    web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
 fn site_exag_ok(f: f64) -> bool {
@@ -1367,6 +1394,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 }
                 crate::civilpanel::Act::Display(s) => cv.display(&s),
                 crate::civilpanel::Act::Group(g, u) => cv.group_use(&g, &u),
+                crate::civilpanel::Act::Export(k) => {
+                    cmd = Some(("civil.export", Params { name: Some(k), ..Default::default() }));
+                    Ok(())
+                }
             };
             if let Err(e) = r {
                 cv.message = e;
@@ -1476,8 +1507,8 @@ mod tests {
 
     #[test]
     fn the_project_file_opens_again() {
-        let mut cv = CivilView::demo().unwrap();
-        let (name, bytes) = cv.file_bytes();
+        let cv = CivilView::demo().unwrap();
+        let (name, bytes) = cv.file_bytes(0.0);
         assert!(name.ends_with(".civilcraft.json"));
         let again = CivilView::open(&name, &bytes).unwrap();
         assert_eq!(again.project.points.len(), 276);

@@ -19,6 +19,7 @@ pub mod autocount;
 pub mod bimtools;
 pub mod canvas;
 pub mod civil3d;
+pub mod civilexport;
 pub mod civilpanel;
 pub mod civilplan;
 pub mod civilview;

@@ -2,6 +2,28 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M11.5 CivilCraft exports in the app (agent, work/civilexp)
+
+- M11.5: `crates/ui-egui/src/civilexport.rs`: civilcraft.js `saveProject`, `exportLandXml`, `exportDxf`, `exportDwg`
+  and `plotDialog`, site-view3d.js `exportGLB`, composed from the engine's writers as 0.5 composes them. DXF / DWG / PDF
+  draw civilcraft.js `buildScene(mm)` in full (io-civil `plan_scene` over every point and the shown surface's contours,
+  plus sample lines, feature lines with z, parcels, line-code figures, daylighted feature lines), not the plan view's
+  trimmed draw lists. Names by `fileStem()` (GLB: site-view3d's `fileName`), status lines from the catalog (cv.lx.exported,
+  cv.dxf.done, cv.dwg.done, cv.plot.done, v3d.exported, cv.export.none …). The CivilCraft panel's Export group (catalog
+  labels): Save, LandXML, DXF, GLB, DWG with the format (2000–2018), PDF with ink, paper, area (everything / on screen)
+  and the scale list with the fitting one marked. `civil.export` command: project | landxml | dxf | dwg[:AC10xx|year] |
+  pdf[:paper=…,scale=…,ink=mono,area=view] | glb, plus `@<ms>` for a fixed clock (then the DWG's GUIDs are cc-io-dwg's
+  fixed sequence). The clock comes from the caller: the project's `saved`, LandXML's date, the DWG's created date, the
+  PDF's title strip and CreationDate (the engine reads the wall clock there; the view swaps in the caller's date).
+  `civil.save` writes the same project file (it had `"saved":0` at the end; now 0.5's ISO date after `version`).
+  Not done: map pictures in the DWG / PDF (the view has no GIS map layers yet).
+- Parity (forks/tools/cvuidiff.mjs: the app's files via cadcraft-shot `--save-dir` vs the frozen JS composition on the
+  project file the app saved): sample site, demo site (alignment + corridor, pad, network, parcel, feature line; all six
+  DWG years), site-topo.csv and the 500 k-vertex LandXML TIN: project, LandXML, DXF, DWG and GLB byte-identical, the
+  PDF identical in pdf.js read-back (33,919 operators, 263 texts on the big one) and with its Flate streams inflated;
+  every status line identical. Export ms on the 500 k TIN, app (release) vs JS in Node: project 1,118 / 426, LandXML
+  3,241 / 2,229, DXF 9,784 / 17,259, DWG 2000 6,524 / 9,551, DWG 2018 7,116 / 11,605, PDF 9,798 / 8,464, GLB 2,409 / 5,988.
+
 ## 2026-10-17 — M8.7 TakeoffCraft Auto count in the app
 
 - M8.7: `crates/ui-egui/src/autocount.rs`: takeoffcraft.js `runAutoCount` on the open sheet: box one symbol (drag with
