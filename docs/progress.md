@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M9 engines: TakeoffCraft, MarkupCraft; BimCraft's engine
+
+- M9.1 (agent): `cc-takeoff` + `cc-io-takeoff`: TakeoffCraft's DOM-free modules at exact parity (`tools/todiff.mjs
+  --seeds 1-10 --exact`: 18,442 records, 0 differences; PDF half 29/29 read back identical by the frozen pdf.js; XLSX
+  stored entries byte-identical). Formulas 4.4×, auto count 2× the JS; estimate and XLSX on par (JSON-value state kept
+  for parity). Rasters from hayro (match scores within 0.041 of pdf.js's).
+- M9.2 (agent): `cc-markup` + `cc-io-markup`: MarkupCraft at exact parity (`tools/mkdiff.mjs` seeds 1–60: 30,994
+  records; `tools/mkpdf.mjs` seeds 1–10: 2,262 comparisons; 0 differences). Open a 60-sheet set 6.2×, write 8.4×,
+  display lists 33×, BCF 10× the JS. Fuzzing found a panic inside hayro-syntax (`Dict::entries` on a bad hex string):
+  dictionaries are now read value by value (regression test).
+- M7.9–M7.10 (agent): `cc-bim`: BimCraft's engine (model load, property index, Color by, find, quantities, schedules,
+  checks, compare, clash, BCF, tree, visibility, element reading) at exact parity (`tools/bimdiff.mjs`: 38,788 cases
+  on fixtures + 119 public/corpus IFC files; BCF zips byte-identical). Load 2.8–5.4×, modules 1.2–4.9× the JS.
+- M6.15–M6.16: ModelCraft Select all / group / component / explode / delete / paint colours, Scenes, Components,
+  view styles (see below).
+
 ## 2026-10-16 — M6 ModelCraft and M7 BimCraft in the app
 
 - M6.8 (agent): `cc-m3d-tools` (L4): ModelCraft's camera.js, infer.js, collide.js, tools.js (all 29 tools), sun,
