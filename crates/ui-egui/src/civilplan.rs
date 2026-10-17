@@ -180,6 +180,8 @@ pub struct Plan {
     pub widths: Vec<f32>,
     pub labels: Vec<Label>,
     pub build_ms: f64,
+    /// time per build stage (ms)
+    pub stages: Vec<(&'static str, f64)>,
     pub segments: u64,
 }
 
@@ -353,11 +355,12 @@ pub fn shown_is_fg(p: &mut Project) -> bool {
 }
 
 /// civilcraft.js `buildScene(mm)` + view.js `buildPaths`: everything the plan draws at `mm` paper mm per unit.
-pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
+pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey, fixed: &mut Option<Fixed>) -> Plan {
     let t0 = web_time::Instant::now();
     let d = p.state.get("display").cloned();
     let d = d.as_ref();
     let units = p.units().to_string();
+    let mut stages: Vec<(&'static str, f64)> = Vec::new();
     let fg = shown_is_fg(p);
     let eg = p.eg();
     let graded = p.graded();
@@ -437,7 +440,8 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         // survey points are drawn below (crosses baked per bucket, labels in screen space)
         points: Vec::new(),
         surface,
-        contours: Some((interval, major, contours.as_ref().clone())),
+        // contours and the outline are drawn below from the engine's own lists (millions of vertices as JSON otherwise)
+        contours: None,
         breaklines,
         alignments,
         pads,
@@ -450,10 +454,10 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
     let show = Show {
         // TIN edges are written straight into the batches below (millions of JSON objects otherwise)
         triangles: Some(false),
-        contours: Some(bool_of(d, "contours", true)),
+        contours: Some(false),
         labels: Some(bool_of(d, "labels", true)),
         breaklines: Some(bool_of(d, "breaklines", true)),
-        outline: Some(bool_of(d, "outline", true)),
+        outline: Some(false),
         points: Some(false),
         point_labels: Some(false),
         slopes: Some(bool_of(d, "slopes", false)),
@@ -462,8 +466,12 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         pipes: Some(bool_of(d, "pipes", true)),
         point_label_text: None,
     };
+    stages.push(("engine", ms_since(t0)));
+    let t_scene = web_time::Instant::now();
     let mut items = scene::plan_scene(&st, mm, &show);
     drop(st);
+    stages.push(("planScene", ms_since(t_scene)));
+    let t_extra = web_time::Instant::now();
     // 0.4 V13 sample lines, V14 feature lines, V21 parcels, V16 line-code figures, V14 daylighted feature lines
     if d.and_then(|d| d.get("alignments")) != Some(&Value::Bool(false)) {
         for a in &als {
@@ -481,16 +489,6 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
     for pc in arr(p.state.get("parcels")) {
         items.extend(cc_civil::parcels::parcel_labels(&cc_civil::parcels::read_parcel(pc), &units, 1.0 / mm));
     }
-    if show_points && !p.points.is_empty() {
-        let groups = p.state.get("surface").and_then(|s| s.get("groups")).cloned().unwrap_or(Value::Null);
-        for f in p.figures(None) {
-            let g = groups.get(&f.group).and_then(Value::as_str).unwrap_or("points");
-            if f.coded && g != "breakline" && g != "off" {
-                let pts: Vec<Value> = f.pts.iter().map(|q| serde_json::json!({ "x": q.x, "y": q.y })).collect();
-                items.push(serde_json::json!({ "layer": "V-NODE-LINE", "kind": "poly", "pts": pts, "closed": f.closed }));
-            }
-        }
-    }
     for it in graded.items.iter().filter(|x| x.kind == "feature") {
         let dl = arr(it.info.get("daylight"));
         if dl.is_empty() {
@@ -505,6 +503,30 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         }
     }
 
+    stages.push(("screen items", ms_since(t_extra)));
+    // what does not change with the zoom: kept between buckets
+    let t_fixed = web_time::Instant::now();
+    let fkey = format!(
+        "{}|{}|{:p}|{:p}|{}",
+        fg,
+        p.points_version,
+        Arc::as_ptr(&eg),
+        Arc::as_ptr(&graded),
+        cc_civil::project::js_stringify(
+            &p.state
+                .get("surface")
+                .map(|s| serde_json::json!([s.get("descKeys"), s.get("lineCodes"), s.get("groups")]))
+                .unwrap_or(Value::Null)
+        )
+    );
+    if fixed.as_ref().is_none_or(|f| f.key != fkey) {
+        *fixed = Some(Fixed::make(p, surface, fkey));
+    }
+    stages.push(("fixed", ms_since(t_fixed)));
+    if let Some(fx) = fixed.as_ref() {
+        stages.push(("outline", fx.ms.0));
+        stages.push(("figures", fx.ms.1));
+    }
     let mut b = Builder::new();
     // elevation bands under everything (civilcraft.js bands(): band_levels over the shown surface, band colours)
     if bool_of(d, "bands", false)
@@ -540,6 +562,23 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         }
     }
     let unit_px = mm * PX_PER_MM; // CSS px per unit at this bucket
+    if let Some(fx) = fixed.as_ref() {
+        if bool_of(d, "outline", true) {
+            let col = pal.layer("C-TOPO-BNDY");
+            for r in &fx.outline {
+                b.line("C-TOPO-BNDY", col, width_of("C-TOPO-BNDY"), r.clone());
+            }
+        }
+        if bool_of(d, "contours", true) && surface.is_some() {
+            contour_lines(&mut b, &contours, interval, major, mm, bool_of(d, "labels", true), pal);
+        }
+        if show_points && !p.points.is_empty() {
+            let col = pal.layer("V-NODE-LINE");
+            for f in &fx.figures {
+                b.line("V-NODE-LINE", col, width_of("V-NODE-LINE"), f.clone());
+            }
+        }
+    }
     for it in &items {
         let layer = it.get("layer").and_then(Value::as_str).unwrap_or("0");
         let col = pal.layer(layer);
@@ -590,20 +629,11 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
     drop(items);
     // survey points: view.js crosses (2.5 px, 1.5 px for big sets zoomed out), baked at this bucket
     if show_points && !p.points.is_empty() {
-        let col = pal.green;
-        let k_px = if p.points.len() > 5000 && unit_px < 0.5 { 1.5 } else { 2.5 };
-        let k = k_px / unit_px;
-        let mut lines: Vec<Vec<f64>> = Vec::with_capacity(p.points.len() * 2);
+        // a batch with no lines: its crosses are written straight into the GPU bytes after build_geometry (a
+        // million points would otherwise be two million small Vecs)
+        let _ = b.lines_of("V-NODE", pal.green, width_of("V-NODE"));
         for q in &p.points {
-            if !(q.x.is_finite() && q.y.is_finite()) {
-                continue;
-            }
             b.grow(q.x, q.y);
-            lines.push(vec![q.x - k, q.y - k, q.x + k, q.y + k]);
-            lines.push(vec![q.x - k, q.y + k, q.x + k, q.y - k]);
-        }
-        if let Some(l) = b.lines_of("V-NODE", col, width_of("V-NODE")) {
-            l.extend(lines);
         }
         if point_labels {
             // scene.js point labels (the setting's "n z d" text)
@@ -648,8 +678,15 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         viewports: Vec::new(),
         images: Vec::new(),
     };
-    let geometry = cc_render::build_geometry(&space);
+    stages.push(("draw lists", ms_since(t_scene)));
+    let t_geo = web_time::Instant::now();
+    let mut geometry = cc_render::build_geometry(&space);
+    if show_points && !p.points.is_empty() {
+        let k_px = if p.points.len() > 5000 && unit_px < 0.5 { 1.5 } else { 2.5 };
+        point_crosses(&mut geometry, &space, &p.points, k_px / unit_px, pal.green);
+    }
     let segments = geometry.segments();
+    stages.push(("geometry", ms_since(t_geo)));
     Plan {
         mm,
         key,
@@ -660,6 +697,150 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey) -> Plan {
         labels: b.labels,
         build_ms: t0.elapsed().as_secs_f64() * 1000.0,
         segments,
+        stages,
+    }
+}
+
+/// The parts of a plan that do not change with the zoom (the TIN outline, line-code figures), kept between zoom
+/// buckets: on a million-point survey they cost seconds.
+pub struct Fixed {
+    key: String,
+    outline: Vec<Vec<f64>>,
+    figures: Vec<Vec<f64>>,
+    /// (outline ms, figures ms)
+    pub ms: (f64, f64),
+}
+
+impl Fixed {
+    fn make(p: &mut Project, surface: Option<&cc_civil::tin::Surface>, key: String) -> Fixed {
+        let t0 = web_time::Instant::now();
+        let outline = surface
+            .map(|s| {
+                s.outline()
+                    .iter()
+                    .map(|r| {
+                        let mut f: Vec<f64> = r.iter().flat_map(|q| [q.x, q.y]).collect();
+                        if let (Some(&x), Some(&y)) = (f.first(), f.get(1)) {
+                            f.push(x);
+                            f.push(y);
+                        }
+                        f
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let outline_ms = ms_since(t0);
+        let t1 = web_time::Instant::now();
+        // 0.4 V16: lines that line codes make in groups that are not breaklines (codes-ui.js sceneItems)
+        let mut figures = Vec::new();
+        if !p.points.is_empty() {
+            let groups = p.state.get("surface").and_then(|s| s.get("groups")).cloned().unwrap_or(Value::Null);
+            // only codes that carry a line-code control make drawn figures: the rest (a million plain ground shots)
+            // are left out before the engine sorts them; the figures that come back are the same
+            let lc = match p.state.get("surface").and_then(|s| s.get("lineCodes")).filter(|v| cc_civil::js::truthy(Some(v))) {
+                Some(v) => cc_civil::desckeys::read_line_codes(v),
+                None => cc_civil::desckeys::clean_line_codes(None),
+            };
+            let mut coded: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for q in p.points.iter().filter(|q| q.z.is_some()) {
+                let (code, ctrl, _) = cc_civil::desckeys::parse_desc(&q.d, &lc);
+                if ctrl.is_some() {
+                    coded.insert(code);
+                }
+            }
+            let subset: Vec<cc_civil::points::Pt> = if coded.is_empty() {
+                Vec::new()
+            } else {
+                p.points.iter().filter(|q| q.z.is_some() && coded.contains(&cc_civil::desckeys::parse_desc(&q.d, &lc).0)).cloned().collect()
+            };
+            let keys = p.state_keys();
+            for f in cc_civil::desckeys::figures(&subset, &keys, &lc, None) {
+                let g = groups.get(&f.group).and_then(Value::as_str).unwrap_or("points");
+                if f.coded && g != "breakline" && g != "off" {
+                    let mut flat: Vec<f64> = f.pts.iter().flat_map(|q| [q.x, q.y]).collect();
+                    if f.closed
+                        && let (Some(&x), Some(&y)) = (flat.first(), flat.get(1))
+                    {
+                        flat.push(x);
+                        flat.push(y);
+                    }
+                    figures.push(flat);
+                }
+            }
+        }
+        Fixed { key, outline, figures, ms: (outline_ms, ms_since(t1)) }
+    }
+}
+
+/// scene.js contours: minor / major layers, major labels every 60 paper mm (not on lines under 25 mm), masked.
+fn contour_lines(b: &mut Builder, list: &[cc_civil::tin::Contour], interval: f64, major_n: f64, mm: f64, labels: bool, pal: &Palette) {
+    let major = interval * if major_n != 0.0 && !major_n.is_nan() { major_n } else { 5.0 };
+    let is_major = |z: f64| (z / major - (z / major).round()).abs() < 1e-6;
+    // scene.js decimalsOf(interval)
+    let dec = {
+        let s = cc_civil::js::num_to_string(interval);
+        s.find('.').map_or(0, |i| (s.len() - i - 1).min(3))
+    };
+    let upm = 1.0 / mm;
+    let (cmaj, cmin, ctext) = (pal.layer("C-TOPO-MAJR"), pal.layer("C-TOPO-MINR"), pal.layer("C-TOPO-TEXT"));
+    for c in list {
+        let maj = is_major(c.z);
+        let mut flat: Vec<f64> = c.pts.iter().flat_map(|q| [q.x, q.y]).collect();
+        if c.closed
+            && let (Some(&x), Some(&y)) = (flat.first(), flat.get(1))
+        {
+            flat.push(x);
+            flat.push(y);
+        }
+        let layer = if maj { "C-TOPO-MAJR" } else { "C-TOPO-MINR" };
+        b.line(layer, if maj { cmaj } else { cmin }, width_of(layer), flat);
+        if maj && labels {
+            let pts: Vec<(f64, f64)> = c.pts.iter().map(|q| (q.x, q.y)).collect();
+            for (x, y, rot) in scene::labels_along(&pts, 60.0 * upm, 25.0 * upm) {
+                b.labels.push(Label {
+                    x,
+                    y,
+                    rot,
+                    mm: 2.0,
+                    align: 1,
+                    middle: true,
+                    mask: true,
+                    color: ctext,
+                    text: cc_civil::units::fixed(c.z, dec),
+                });
+            }
+        }
+    }
+}
+
+fn ms_since(t: web_time::Instant) -> f64 {
+    t.elapsed().as_secs_f64() * 1000.0
+}
+
+/// Survey point crosses (half size `k` world units) appended to the "V-NODE" batch's range in the GPU bytes, in the
+/// line layout cc-render reads (x0 y0 x1 y1 relative to the origin as f32, then RGBA).
+fn point_crosses(g: &mut SpaceGeometry, space: &Space, pts: &[cc_civil::points::Pt], k: f64, col: Color32) {
+    let Some(bi) = space.batches.iter().position(|b| b.layer == "V-NODE") else { return };
+    let (ox, oy) = g.origin;
+    let rgba = [col.r(), col.g(), col.b(), 255];
+    let l0 = g.segments();
+    g.line_bytes.reserve(pts.len().saturating_mul(40));
+    for q in pts {
+        if !(q.x.is_finite() && q.y.is_finite()) {
+            continue;
+        }
+        let (x, y) = (q.x - ox, q.y - oy);
+        for v in [[x - k, y - k, x + k, y + k], [x - k, y + k, x + k, y - k]] {
+            for c in v {
+                g.line_bytes.extend_from_slice(&(c as f32).to_le_bytes());
+            }
+            g.line_bytes.extend_from_slice(&rgba);
+        }
+    }
+    let l1 = g.segments();
+    if l1 > l0 {
+        let f = g.fill_vertices() as u32;
+        g.batches.push(cc_render::BatchRange { batch: bi, lines: l0 as u32..l1 as u32, fills: f..f });
     }
 }
 
@@ -855,6 +1036,18 @@ mod tests {
         let d = dashes(&[0.0, 0.0, 10.0, 0.0], 3.0, 2.0);
         assert_eq!(d.len(), 2, "{d:?}");
         assert_eq!(d.first().map(|x| x.as_slice()), Some([0.0, 0.0, 3.0, 0.0].as_slice()));
+    }
+
+    #[test]
+    fn prefiltered_figures_match_the_engine_s() {
+        let text = "1,100,100,10,EP B\n2,100,110,10,EP\n3,100,120,11,EP E\n4,105,100,10,GRD\n5,106,108,10,GRD\n7,90,95,9,TC B\n8,90,125,9,TC\n6,107,118,10,GRD\n";
+        let mut p = Project::new();
+        p.set_points(cc_civil::points::parse_points(text, "PNEZD", "PNEZD").points, "t.csv");
+        let want: Vec<Vec<f64>> =
+            p.figures(None).into_iter().filter(|f| f.coded).map(|f| f.pts.iter().flat_map(|q| [q.x, q.y]).collect()).collect();
+        assert_eq!(want.len(), 2, "{want:?}");
+        let fx = Fixed::make(&mut p, None, String::new());
+        assert_eq!(fx.figures, want);
     }
 
     #[test]

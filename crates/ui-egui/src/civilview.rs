@@ -69,6 +69,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("civil.redo", "Redo", "Ctrl+Y", "{}"),
     ("civil.camera", "3D view direction", "", "{name: iso|top|front|back|left|right}"),
     ("civil.exag", "Vertical exaggeration", "", "{factor: 1|2|3|5|10} → the 3D scene's vertical exaggeration"),
+    (
+        "civil.timings",
+        "Timings",
+        "",
+        "{} → the status line lists the last open / parse / TIN / plan build (by stage) / 3D build / panel facts times in ms",
+    ),
     ("civil.save", "Save the project", "Ctrl+S", "{} → the .civilcraft.json project file (0.5's format)"),
 ];
 
@@ -136,6 +142,7 @@ pub struct CivilView {
     pub view: View2D,
     pending_fit: bool,
     plan: Option<Plan>,
+    fixed: Option<civilplan::Fixed>,
     pub sel: Option<Sel>,
     pub hover_pt: Option<usize>,
     /// the 3D scene instead of the plan
@@ -190,6 +197,7 @@ impl CivilView {
             view: View2D::default(),
             pending_fit: true,
             plan: None,
+            fixed: None,
             sel: None,
             hover_pt: None,
             show3d: false,
@@ -538,7 +546,7 @@ impl CivilView {
             palette_ink: pal.ink.to_array(),
         };
         if self.plan.as_ref().is_none_or(|p| p.key != key) {
-            let plan = civilplan::build(&mut self.project, mm, pal, key);
+            let plan = civilplan::build(&mut self.project, mm, pal, key, &mut self.fixed);
             self.timings.insert("plan", plan.build_ms);
             self.plan = Some(plan);
         }
@@ -553,13 +561,32 @@ impl CivilView {
         EMPTY.get_or_init(|| {
             let mut p = Project::new();
             let pal = Palette::of(&Tokens::preset(Preset::Dark), true);
-            civilplan::build(&mut p, 1.0, &pal, PlanKey { version: 0, points_version: 0, mm_bits: 0, dark: true, palette_ink: [0; 4] })
+            civilplan::build(
+                &mut p,
+                1.0,
+                &pal,
+                PlanKey { version: 0, points_version: 0, mm_bits: 0, dark: true, palette_ink: [0; 4] },
+                &mut None,
+            )
         })
     }
 
     /// The plan's segment count and last build time (for the benchmark).
     pub fn plan_stats(&self) -> (u64, f64) {
         self.plan.as_ref().map_or((0, 0.0), |p| (p.segments, p.build_ms))
+    }
+
+    /// Every recorded timing in one line (ms).
+    pub fn timings_text(&self) -> String {
+        let mut keys: Vec<(&&str, &f64)> = self.timings.iter().collect();
+        keys.sort_by(|a, b| a.0.cmp(b.0));
+        let mut out: Vec<String> = keys.iter().map(|(k, v)| format!("{k} {v:.0}")).collect();
+        if let Some(p) = &self.plan {
+            let st: Vec<String> = p.stages.iter().map(|(k, v)| format!("{k} {v:.0}")).collect();
+            out.push(format!("plan stages [{}] · {} segments · {} labels", st.join(", "), p.segments, p.labels.len()));
+        }
+        out.push(format!("panel facts {:.0}", self.facts.ms));
+        format!("timings (ms): {}", out.join(" · "))
     }
 
     /// Recompute the panels' facts if the project changed.
@@ -1217,6 +1244,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             let (g, u) = name.split_once('=').ok_or("civil.group: name = \"GROUP=use\"")?;
             cv.group_use(g.trim(), u.trim())?;
         }
+        "civil.timings" => cv.message = cv.timings_text(),
         "civil.undo" => cv.undo(),
         "civil.redo" => cv.redo(),
         "civil.camera" => {

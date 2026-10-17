@@ -2,6 +2,24 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M11 CivilCraft in the app (agent, work/civilapp)
+
+- M11.1–M11.2: `crates/ui-egui/src/civil{view,plan,panel,3d}.rs`. Opens what 0.5 opens: `.civilcraft.json` (through
+  `Project::from_json`), LandXML (civilcraft.js `openLandXml`: first surface as TIN, alignments + first profile, first
+  pipe network, the rest in notes) and point files (CSV / text, format detected). Plan = io-civil `plan_scene` + the
+  screen's own items (sample lines, feature lines, parcels, line-code figures, daylighted feature lines) at the zoom
+  bucket (power of two, view.js), linework in one cc-render space relative to the plan centre, f64 view, picking
+  (civilcraft.js `pickAt`) and hover (E/N, ground, graded, station/offset) in f64. Panels: site, points and group use,
+  surface facts + report, display switches, objects; properties of alignment / pad / structure / pipe / point / feature
+  line / parcel; earthwork (grid method) and network check. 3D: cc-civil `build_site3d` in the shared viewport
+  (relative to the site origin; coloured lines as crossed ribbons; decluttered labels). `civil.*` UI commands.
+- M11.3: large surveys. Zoom-independent parts (TIN outline, line-code figures) cached between buckets; contours drawn
+  from the engine's lists (no JSON); point crosses written straight into the GPU bytes. Synthetic survey at x ≈ 500 000,
+  y ≈ 4 000 000 (`civil.synthetic`, debug build of the shot tool, busy machine): 100 k points: parse 210 ms, TIN 163 ms,
+  contours 50 ms, first plan 0.3 s; 1 M points: parse 2.8 s, TIN 2.4 s, contours 0.8 s, first plan 3.1 s (2.9 s of it
+  the engine's `Surface::outline`), plan rebuild on a zoom step 0.10 s (was 4.7 s), panel facts 0.2 s. 60 px/ft at
+  501 000 / 4 001 000: TIN edges meet the survey point exactly.
+
 ## 2026-10-17 — M9 engines: TakeoffCraft, MarkupCraft; BimCraft's engine
 
 - M9.1 (agent): `cc-takeoff` + `cc-io-takeoff`: TakeoffCraft's DOM-free modules at exact parity (`tools/todiff.mjs
