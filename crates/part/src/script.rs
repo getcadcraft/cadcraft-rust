@@ -37,7 +37,7 @@ pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle, crate::script2::handle])
+    run_with(script, &[handle, crate::script2::handle, crate::script3::handle])
 }
 
 /// A number argument ("$NaN" / "$Inf" / "$-Inf" carry the values JSON cannot).
