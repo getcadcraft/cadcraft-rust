@@ -137,6 +137,11 @@ impl std::fmt::Write for StackW {
 
 /// [`Digits`] of a finite positive x (Rust's shortest `{:e}`; the same digits V8 prints).
 pub fn shortest_digits(x: f64) -> Digits {
+    shortest_digits_with(x, true)
+}
+
+/// `quick`: skip the exact tie check when the binary value cannot be a tie (see `even_tie`).
+fn shortest_digits_with(x: f64, quick: bool) -> Digits {
     use std::fmt::Write as _;
     let mut w = StackW { buf: [0; 48], len: 0 };
     let mut d = Digits { buf: [0; 24], len: 0, n: 1 };
@@ -158,20 +163,41 @@ pub fn shortest_digits(x: f64) -> Digits {
     }
     let e: i64 = std::str::from_utf8(exp).ok().and_then(|t| t.parse().ok()).unwrap_or(0);
     d.n = e.saturating_add(1);
-    even_tie(x, &mut d);
+    even_tie(x, &mut d, quick);
     d
 }
 
 /// ECMAScript Number::toString picks, of two shortest digit strings equally close to x, the even one (V8 does);
 /// Rust's shortest form takes the upper. Ties happen when x sits exactly halfway, e.g. f32 values such as
 /// 248.032257080078125 → "248.03225708007812".
-fn even_tie(x: f64, d: &mut Digits) {
+fn even_tie(x: f64, d: &mut Digits, quick: bool) {
     use std::fmt::Write as _;
     let k = d.len;
     let km1 = k.saturating_sub(1);
     let Some(&last) = d.buf.get(k.wrapping_sub(1)) else { return };
     // two different strings of 15 digits or fewer never name the same double, so ties need 16 or 17
     if k < 16 || last % 2 == 0 {
+        return;
+    }
+    // A tie needs x's exact decimal expansion to end one digit past the k shown: x = m·2^e2 (m odd) has -e2 fractional
+    // digits, so when those reach past k + 1 significant digits there is no tie; this skips the exact expansion below
+    // for nearly every number (only short binary fractions, e.g. f32 values, and big integers go on)
+    let bits = x.to_bits();
+    let bexp = i64::try_from((bits >> 52) & 0x7ff).unwrap_or(0);
+    let mut m = bits & ((1u64 << 52) - 1);
+    let e = if bexp == 0 {
+        -1074
+    } else {
+        m |= 1u64 << 52;
+        bexp.saturating_sub(1075)
+    };
+    if m == 0 {
+        return;
+    }
+    let e2 = e.saturating_add(i64::from(m.trailing_zeros()));
+    let lead_zeros = 0i64.saturating_sub(d.n).max(0);
+    let k_i = i64::try_from(k).unwrap_or(i64::MAX);
+    if quick && e2 < 0 && 0i64.saturating_sub(e2).saturating_sub(lead_zeros) > k_i.saturating_add(1) {
         return;
     }
     // x's exact decimal digits (every f64 has a finite expansion; 800 places is past the longest)
@@ -529,6 +555,47 @@ pub fn finite(v: Option<&Value>) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The quick test in `even_tie` never skips a real tie: on f32 values (where ties live), short binary fractions,
+    /// big integers and random doubles, the digits equal those of the full exact check.
+    #[test]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss, clippy::arithmetic_side_effects)]
+    fn the_quick_tie_test_skips_no_tie() {
+        let mut s: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let mut ties = 0;
+        for i in 0..300_000u32 {
+            let r = next();
+            let x = match i % 4 {
+                0 => f64::from(f32::from_bits((r as u32) & 0x7f7f_ffff)),
+                1 => (r >> 11) as f64 / (1u64 << (r % 60)) as f64,
+                2 => ((r >> 8) | 1) as f64,
+                _ => f64::from_bits(r & 0x7fef_ffff_ffff_ffff),
+            };
+            if !(x.is_finite() && x > 0.0) {
+                continue;
+            }
+            let (a, b) = (shortest_digits_with(x, true), shortest_digits_with(x, false));
+            assert_eq!((a.buf, a.len, a.n), (b.buf, b.len, b.n), "{x:e}");
+            let mut plain = Digits { buf: [0; 24], len: 0, n: 1 };
+            let s = format!("{x:e}");
+            let mant = s.split('e').next().unwrap_or("");
+            for c in mant.bytes().filter(u8::is_ascii_digit) {
+                plain.buf[plain.len] = c;
+                plain.len += 1;
+            }
+            if plain.buf[..plain.len] != a.buf[..a.len] {
+                ties += 1;
+            }
+        }
+        // the f32 case has many ties: the check is exercised, not vacuous
+        assert!(ties > 100, "{ties} ties");
+    }
     #[test]
     fn number_strings() {
         assert_eq!(num_to_string(150.5), "150.5");

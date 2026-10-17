@@ -15,6 +15,12 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M7.9–M7.10 (agent): `cc-bim`: BimCraft's engine (model load, property index, Color by, find, quantities, schedules,
   checks, compare, clash, BCF, tree, visibility, element reading) at exact parity (`tools/bimdiff.mjs`: 38,788 cases
   on fixtures + 119 public/corpus IFC files; BCF zips byte-identical). Load 2.8–5.4×, modules 1.2–4.9× the JS.
+- M9.4 (agent): `cc-civil` + `cc-io-civil` + `cc-proj` (proj4 port): CivilCraft at parity (`tools/cvdiff.mjs` seeds
+  1–10: 67,101 calls, 4 accepted differences on byte-flipped LAZ / damaged rasters; seeds 2–10 move the fixtures to
+  survey coordinates). TIN 2.45×, contours 2.78×, grid volumes 1.24×, LandXML 1.16× the JS. Fuzzing found two `laz`
+  crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
+  `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
+  values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
 - M6.15–M6.16: ModelCraft Select all / group / component / explode / delete / paint colours, Scenes, Components,
   view styles (see below).
 
