@@ -1,6 +1,6 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-16 · Change: M5 done; M7/M8 engines done early; M6 in progress.
+Last updated 2026-10-17 · Change: every engine but PartCraft's rebuild kernel at parity; seven app views live; ids as used listed under M9+.
 
 | Date | Change |
 |---|---|
@@ -9,6 +9,7 @@ Last updated 2026-10-16 · Change: M5 done; M7/M8 engines done early; M6 in prog
 | 2026-10-16 | M3 done: viewer on desktop + web (WebGPU), live at rust.getcadcraft.com. |
 | 2026-10-16 | M4 done: drafting, Edit + Save as DWG / DXF at byte parity; M5+ re-planned (below). |
 | 2026-10-16 | M5 done; cc-ifc, cc-manifold, cc-skp at parity (the engines of M7/M8, run in parallel); M6 started (3D viewport). |
+| 2026-10-17 | M9+ engines at parity (TakeoffCraft, MarkupCraft, BimCraft, CivilCraft, DetailCraft, PartCraft without its rebuild kernel); app views for ModelCraft, BimCraft, PDF sheets with MarkupCraft and TakeoffCraft, CivilCraft. |
 
 Speed decides. Every milestone is measured against the CadCraft 0.5 JavaScript build (reference:
 `getcadcraft.com/public_html/assets/apps/<app>/dev/`, `lib/{dwg,ifc,skp,shapes}`, `docs/apps/*.md`) with
@@ -25,7 +26,14 @@ Parity on the corpus is the gate (AGENTS.md section 15).
 | M6 | ModelCraft | ModelCraft (≈36,000 lines JS) on m3d: 3D viewport (wgpu, BVH picking, inference), push/pull … , SKP import through M8's reader once it lands; frame time on a 1M-triangle model | in progress: kernel, tools (exact parity) and formats (801/801) done; the app edits and exports models on desktop + web; next: the panels (outliner, entity info, tags, scenes, materials), components, render, print check |
 | M7 | cc-ifc + BimCraft | `lib/ifc` (≈6,300 lines, 22 files) at parity on the IFC corpus with the kit, then BimCraft's views on it (≈54,000 lines JS: plan from the DWG work, 3D from M6) | engine done 2026-10-16 (118/118, 115/115 with booleans); app started: IFC 3D view, picking, properties, storeys/classes, section cut |
 | M8 | cc-skp | `lib/skp` (≈2,500 lines) at parity; must beat both cc-skp JS and OpenSKP (black-box baseline) on the big files | reader done 2026-10-16 (27/27, 5–14× JS, faster than OpenSKP on every file); import into ModelCraft with M6 |
-| M9+ | The other apps | PartCraft, CivilCraft (large coordinates), DetailCraft, TakeoffCraft, MarkupCraft, then Studio; order re-planned after M6 with measured numbers | planned |
+| M9+ | The other apps | PartCraft, CivilCraft (large coordinates), DetailCraft, TakeoffCraft, MarkupCraft, then Studio; order re-planned after M6 with measured numbers | engines: TakeoffCraft 18,442 records, MarkupCraft 30,994, BimCraft 38,788 cases, CivilCraft 67,101 calls (4 accepted), DetailCraft 55,714 calls, PartCraft 239,669 records, all 0 differences; PartCraft's rebuild kernel on cc-manifold in progress (M12). App views: see below |
+
+Task ids after M8, as they were used (some numbers overlap the milestone table; the commit titles are the record):
+M8.6–M8.8 TakeoffCraft exports and Auto count in the app; M9.4 CivilCraft engine; M9.6–M9.12 PDF sheet view, markups,
+MarkupCraft tools (two commits carry M9.12: TakeoffCraft mode and the measuring tools); M10.1–M10.6 PartCraft engine;
+M10.20–M10.23 DetailCraft engine; M11.x CivilCraft app view; M12.x cc-manifold API + PartCraft kernel.
+
+Next: PartCraft app view on the kernel, CivilCraft exports and editing tools, DetailCraft view, Studio, wasm threads.
 
 ## Tablets (AGENTS.md section 10, Mobile)
 

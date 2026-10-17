@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-16 · Change: drafting and DWG/DXF saving closed (M4). Ranked; shrink as features land.
+Last updated 2026-10-17 · Change: app views for six apps; per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -13,8 +13,17 @@ Last updated 2026-10-16 · Change: drafting and DWG/DXF saving closed (M4). Rank
    feature line, parcel, traverse), no grips / point moves, no profile and section panels, no import dialog (format is
    detected), no LandXML / DXF / DWG / PDF / GLB export from the view (the engine has them), no GIS layers or basemaps,
    no copy / paste of points; `Surface::outline` takes 2.9 s on a 1 M-point TIN (once per surface).
-5. The other seven apps, cc-ifc, cc-skp, m3d (M5+).
-6. Accessibility: full screen-reader support is a **known issue, skipped** (owner, 2026-10-15). Icon buttons get
+5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
+6. **BimCraft** (M7): IFC 3D view, picking, properties, Find / Quantity; no plan drawing, no BIM Draw tools, no IFC save
+   from the view.
+7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): markup tools (pen … text, Length, Area, Callout, Calibrate),
+   save marked-up PDF, takeoff count / linear / area, exports, Auto count. Missing: the rest of MarkupCraft's 30+ tools
+   (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, TakeoffCraft's assemblies,
+   bid areas, alternates, deducts and slopes in the UI (the engine has them), several PDFs per project.
+8. **PartCraft, DetailCraft, Studio**: engines at parity (PartCraft's rebuild kernel in progress), no app view yet.
+9. Panel buttons in the new views are partly plain English rather than 0.5 catalog words (MarkupCraft's tool bar and
+   TakeoffCraft's export row use the catalogs).
+10. Accessibility: full screen-reader support is a **known issue, skipped** (owner, 2026-10-15). Icon buttons get
    accesskit labels where it is free. The desktop build leaves out eframe's `accesskit` bridge (2026-10-17): on Linux it
    pulled zbus crates RustSec lists as unmaintained (RUSTSEC-2026-0370/0371/0372, no upgrade); it comes back with the
    screen-reader work.
