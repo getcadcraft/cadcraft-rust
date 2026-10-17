@@ -10,7 +10,10 @@
 //!   threads.js file readers), [`form`] (the form cage reader), [`gdt`], [`bom`], [`configs`];
 //! - [`expr`], [`params`], [`params_part`]: the expression language, the parametric engine, the part adapter;
 //! - [`sketch`], [`spline`], [`solver`]: the sketcher;
-//! - [`threads`]: thread tables, profiles and callouts; [`font`]: Helvetica metrics.
+//! - [`threads`]: thread tables, profiles and callouts; [`font`]: Helvetica metrics;
+//! - [`kernel`] (kernel.js: `regenerate`, the mesh kernel on cc-manifold, with [`kernel_edge`] for fillet / chamfer /
+//!   shell / draft / threads), [`kernel_section`] (drawing.js `meshSection`), [`kernel_asm`] (assembly.js
+//!   `interference` and `motionCheck`); exact-only features answer `kernel.feature.not_built` as the 0.5 build does.
 //!
 //! Where the JS relies on the engine (V8's TypeError texts, `Object.prototype` names in plain-object tables) the
 //! behaviour is reproduced where a file can reach it, and otherwise written next to the code as a "Spec gap".
@@ -52,6 +55,10 @@ pub mod i18n;
 pub mod ifc_export;
 pub mod js;
 pub mod jv;
+pub mod kernel;
+pub mod kernel_asm;
+pub mod kernel_edge;
+pub mod kernel_section;
 pub mod measure;
 pub mod meshfaces;
 pub mod omap;
@@ -68,6 +75,7 @@ pub mod script2;
 pub mod script3;
 pub mod script4;
 pub mod script5;
+pub mod script6;
 pub mod shapes_parts;
 pub mod sketch;
 pub mod sketch_intersect;

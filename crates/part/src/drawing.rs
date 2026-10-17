@@ -1,8 +1,8 @@
 //! drawing.js — a drawing sheet from the part: front, top and right orthographic views in third-angle projection plus
 //! an isometric view, hidden edges dashed, a section view (from the views data) with hatching, a detail view, overall
 //! dimensions, GD&T notes, a hole table, the title block and the revision block; written as a vector PDF.
-//! meshSection (the mesh kernel's section view) needs manifold trimByPlane and is not built here: a section comes in
-//! with the views data (`views.section`). Spec gap: the PDF's content stream is compressed with miniz_oxide (the JS
+//! meshSection (the mesh kernel's section view, on cc-manifold's trimByPlane) is in kernel_section.rs; here a section
+//! comes in with the views data (`views.section`). Spec gap: the PDF's content stream is compressed with miniz_oxide (the JS
 //! uses the browser's CompressionStream) and carries the time it was written, so the PDF bytes differ; the content
 //! stream before compression is the JS's byte for byte.
 

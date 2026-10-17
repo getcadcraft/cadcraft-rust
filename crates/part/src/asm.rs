@@ -3,8 +3,8 @@
 //! limits, placement walked from the grounded instance through the joints, free instances moved by hand,
 //! interference filters, exploded views (explode.rs) and the untrusted-file reader. Kernel results ("builds") come in as
 //! data: per part the feature results, face candidates, revolve and hole axes and reference geometry, as the mesh
-//! kernel's `regenerate()` gives them (kernel.js `planeFrame` is ported here). Interference and motion checks need
-//! solid booleans with volumes and are not built (see the crate's merge notes).
+//! kernel's `regenerate()` gives them (kernel.js `planeFrame` is ported here). The interference and motion checks,
+//! which need solid booleans, are in kernel_asm.rs (on cc-manifold).
 
 use crate::bom;
 use crate::explode;

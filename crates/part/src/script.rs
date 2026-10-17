@@ -15,10 +15,19 @@ pub type Handler = fn(&str, &[Value]) -> Option<Result<Value, String>>;
 
 /// Run a script through the handlers (tried in order).
 pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
+    crate::script6::reset();
     let mut out = Vec::new();
     for c in jv::arr(script.get("calls")) {
         let op = jv::as_str(c.get("op")).unwrap_or("");
-        let args = jv::arr(c.get("args"));
+        // "$k" / "$call" placeholders: meshes rebuilt by this side's own kernel (script6.rs)
+        let resolved = crate::script6::resolve(c.get("args").unwrap_or(&Value::Null), handlers, 0);
+        let args = match &resolved {
+            Ok(v) => jv::arr(Some(v)),
+            Err(e) => {
+                out.push(json!({ "err": e }));
+                continue;
+            }
+        };
         let mut res = None;
         for h in handlers {
             res = h(op, args);
@@ -37,7 +46,10 @@ pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle, crate::script2::handle, crate::script3::handle, crate::script4::handle, crate::script5::handle])
+    run_with(
+        script,
+        &[handle, crate::script2::handle, crate::script3::handle, crate::script4::handle, crate::script5::handle, crate::script6::handle],
+    )
 }
 
 /// A number argument ("$NaN" / "$Inf" / "$-Inf" carry the values JSON cannot).
