@@ -19,6 +19,7 @@
 //! `OriginalID`, the properties (`Volume`, `SurfaceArea`, `Genus`, `BoundingBox`, `NumTri`, the `Decompose` count),
 //! the constructors `Cube`, `Sphere` (subdivision.cpp's triangle refinement), `Extrude`, `Revolve`, `TrimByPlane`,
 //! `MinGap` (tri_dist.h), the convex hull (quickhull.cpp) and `MinkowskiSum` / `MinkowskiDifference` (minkowski.cpp).
+//! The 2D `CrossSection` (cross_section.cpp) runs on a pure-Rust port of the parts of Clipper2 it uses (clipper/).
 //! Not ported: SDF, smoothing and refinement, `Split`, `Slice`, `Project`, ray casts, `Warp`, `SetProperties`.
 //!
 //! Parity notes:
@@ -84,8 +85,10 @@
 
 mod boolean3;
 mod boolean_result;
+mod clipper;
 mod collider;
 mod constructors;
+mod cross_section;
 mod csg;
 mod disjoint;
 mod edge_op;
@@ -106,6 +109,7 @@ mod sort;
 mod transform;
 mod util;
 
+pub use cross_section::{ClipError, CrossSection, FillRule, MAX_CIRCLE_SEGMENTS, MAX_CS_POINTS, circular_segments};
 pub use csg::Manifold;
 
 /// Largest accepted input: triangles per mesh.

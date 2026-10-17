@@ -29,6 +29,10 @@ Version 2.0. Manifold's own notices are kept in the headers of the ported files.
   Copyright (c) 2019 wi-re, Copyright 2023 The Manifold Authors, MIT licence (the full notice is in mat.rs).
 - the triangle distance of src/tri_dist.h (crates/manifold/src/transform.rs), from NVIDIA-Omniverse PhysX,
   BSD 3-Clause licence (https://github.com/NVIDIA-Omniverse/PhysX/blob/main/LICENSE.md).
+- the polygon clipper under CrossSection: a Rust port of parts of Clipper2 (https://github.com/AngusJohnson/Clipper2,
+  commit 46f6391), Copyright (c) Angus Johnson, Boost Software License 1.0 (the full text is in
+  crates/manifold/src/clipper/mod.rs); its intersection sort follows libc++'s std::sort (LLVM, Apache-2.0 WITH
+  LLVM-exception).
 - the convex hull of src/quickhull.cpp (crates/manifold/src/quickhull.rs), derived from the public-domain QuickHull of
   Antti Kuukka (https://github.com/akuukka/quickhull).
 

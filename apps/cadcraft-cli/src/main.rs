@@ -21,6 +21,7 @@
 //!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
 //!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
 //!   cadcraft-cli manifold <cases.json> [--bench N]   dev: boolean scripts through cc-manifold (forks/tools/mfdiff.mjs) → JSON
+//!   cadcraft-cli manifold-cs <cases.json> [--bench N]   dev: CrossSection scripts through cc-manifold (forks/tools/csdiff.mjs) → JSON
 //!   cadcraft-cli manifold-hull <cases.json> [--bench N]   dev: convex hulls through cc-manifold (forks/tools/hulldiff.mjs) → JSON
 //!   cadcraft-cli m3d <script.json> | --cases <cases.json> | --bench <script.json> [--runs N]
 //!                                                dev: the 3D model kernel (cc-m3d) on op scripts (forks/tools/mdiff.mjs), m3d.rs
@@ -44,6 +45,7 @@
 mod bim;
 mod civil;
 mod cmds;
+mod crosssection;
 mod detail;
 mod hull;
 mod ifc;
@@ -91,6 +93,7 @@ fn main() -> ExitCode {
         "dxf-out" => iocad::dxf_out(&rest),
         "save" => iocad::save(&rest),
         "manifold" => manifold::manifold(&rest),
+        "manifold-cs" => crosssection::run(&rest),
         "manifold-hull" => hull::run(&rest),
         "m3d" => m3d::m3d(&rest),
         "m3dtools" => m3dtools::m3dtools(&rest),
