@@ -114,15 +114,15 @@ pub fn asin(x: f64) -> f64 {
 }
 /// `Math.exp`.
 pub fn exp(x: f64) -> f64 {
-    libm::exp(x)
+    crate::fdlibm::exp(x)
 }
 /// `Math.log`.
 pub fn ln(x: f64) -> f64 {
-    libm::log(x)
+    crate::fdlibm::log(x)
 }
 /// `Math.log10`.
 pub fn log10(x: f64) -> f64 {
-    libm::log10(x)
+    crate::fdlibm::log10(x)
 }
 /// `a ** b` / `Math.pow(a, b)`.
 pub fn pow(a: f64, b: f64) -> f64 {

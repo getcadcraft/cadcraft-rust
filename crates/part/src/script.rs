@@ -37,7 +37,7 @@ pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle, crate::script2::handle, crate::script3::handle, crate::script4::handle])
+    run_with(script, &[handle, crate::script2::handle, crate::script3::handle, crate::script4::handle, crate::script5::handle])
 }
 
 /// A number argument ("$NaN" / "$Inf" / "$-Inf" carry the values JSON cannot).
@@ -492,7 +492,7 @@ fn gdt_ops(op: &str, a: &[Value]) -> Option<Result<Value, String>> {
     Some(match op {
         "gdt.readNotes" => gdt::read_notes(a.first()).map(Value::Array),
         "gdt.validate" => Ok(gdt::validate(a.first()).map_or(Value::Null, Value::String)),
-        "gdt.describe" => Ok(Value::String(gdt::describe(arg(a, 0)))),
+        "gdt.describe" => gdt::describe(arg(a, 0)).map(Value::String),
         "gdt.newAnnotation" => gdt::new_annotation(&s_arg(a, 0), arg(a, 1)),
         "gdt.geometry" => gdt::annotation_geometry(arg(a, 0), p2(arg(a, 1))).map(|g| g.to_json()),
         "gdt.textW" => Ok(jv::num(gdt::text_w(&s_arg(a, 0), num_arg(a.get(1))))),

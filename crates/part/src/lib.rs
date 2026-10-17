@@ -33,19 +33,26 @@
 // the JS's shapes are kept (closures over the document, many small arguments)
 #![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
+pub mod analysis;
 pub mod asm;
+pub mod asm_drawing;
 pub mod bom;
 pub mod clipboard;
 pub mod configs;
+pub mod drawing;
 pub mod explode;
+pub mod export;
 pub mod expr;
 pub mod faces;
+pub mod fdlibm;
 pub mod font;
 pub mod form;
 pub mod gdt;
 pub mod i18n;
+pub mod ifc_export;
 pub mod js;
 pub mod jv;
+pub mod measure;
 pub mod meshfaces;
 pub mod omap;
 pub mod params;
@@ -60,6 +67,7 @@ pub mod script;
 pub mod script2;
 pub mod script3;
 pub mod script4;
+pub mod script5;
 pub mod shapes_parts;
 pub mod sketch;
 pub mod sketch_intersect;

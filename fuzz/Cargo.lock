@@ -405,6 +405,7 @@ dependencies = [
  "cc-m3d",
  "cc-manifold",
  "libm",
+ "miniz_oxide 0.8.9",
  "serde_json",
  "unicode-normalization",
 ]

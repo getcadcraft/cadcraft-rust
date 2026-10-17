@@ -350,24 +350,31 @@ fn num4(v: f64) -> String {
 }
 
 /// `describe(a)`.
-pub fn describe(a: &Value) -> String {
+pub fn describe(a: &Value) -> Result<String, String> {
     let kind = jv::s(a, "kind");
     if kind == "datum" {
-        return t("model.gdt.describe.datum", &[("letter", F::S(js::str_of(a.get("letter"))))]);
+        return Ok(t("model.gdt.describe.datum", &[("letter", F::S(js::str_of(a.get("letter"))))]));
     }
     if kind == "finish" {
         let ra = num4(jv::n(a, "ra"));
         let pr = process_label(jv::s(a, "process"));
-        return if jv::truthy(a.get("note")) {
+        return Ok(if jv::truthy(a.get("note")) {
             t("model.gdt.describe.finish_note", &[("ra", F::S(ra)), ("process", F::S(pr)), ("note", F::S(js::str_of(a.get("note"))))])
         } else {
             t("model.gdt.describe.finish", &[("ra", F::S(ra)), ("process", F::S(pr))])
-        };
+        });
     }
     let lab = match char_of(jv::s(a, "char")) {
         Some(Ok(c)) => label(c),
-        _ => String::new(),
+        Some(Err(())) => return Err("Cannot read properties of undefined (reading 'replace')".into()),
+        None => return Err("Cannot read properties of undefined (reading 'label')".into()),
     };
+    match a.get("datums") {
+        Some(Value::Array(_)) => {}
+        None => return Err("Cannot read properties of undefined (reading 'map')".into()),
+        Some(Value::Null) => return Err("Cannot read properties of null (reading 'map')".into()),
+        Some(_) => return Err("a.datums.map is not a function".into()),
+    }
     let lab = match lab.rfind(" (") {
         Some(i) if lab.ends_with(')') => lab.get(..i).unwrap_or("").to_string(),
         _ => lab,
@@ -383,7 +390,7 @@ pub fn describe(a: &Value) -> String {
     for d in jv::arr(a.get("datums")) {
         parts.push(format!("{}{}", js::str_of(d.get("letter")), m(&js::str_of(d.get("mod")))));
     }
-    parts.join(" | ")
+    Ok(parts.join(" | "))
 }
 
 // ---------------------------------------------------------------- geometry

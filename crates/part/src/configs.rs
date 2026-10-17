@@ -21,11 +21,101 @@ fn clean_str(s: &str) -> String {
     js::slice16(js::trim(&js::strip_ctrl(s)), CONFIG_NAME_MAX)
 }
 
-/// One row: name + values (parameter → number, insertion order).
+/// A row value: a number, or whatever else a caller handed `saveRow` (the JS copies any value through; only the
+/// reader insists on finite numbers).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cell {
+    Num(f64),
+    Other(Value),
+}
+impl Cell {
+    fn from_json(x: &Value) -> Cell {
+        match x {
+            Value::String(s) if s == "$NaN" => Cell::Num(f64::NAN),
+            Value::String(s) if s == "$Inf" => Cell::Num(f64::INFINITY),
+            Value::String(s) if s == "$-Inf" => Cell::Num(f64::NEG_INFINITY),
+            _ => jv::as_num(Some(x)).map_or_else(|| Cell::Other(x.clone()), Cell::Num),
+        }
+    }
+    fn to_json(&self) -> Value {
+        match self {
+            Cell::Num(x) => jv::num(*x),
+            Cell::Other(v) => v.clone(),
+        }
+    }
+    /// `ToNumber(v)`.
+    pub fn number(&self) -> f64 {
+        match self {
+            Cell::Num(x) => *x,
+            Cell::Other(v) => to_number(v, 0),
+        }
+    }
+    /// `formatNumber(v)`.
+    fn format(&self) -> String {
+        match self {
+            Cell::Num(x) => expr::format_number(*x),
+            Cell::Other(v) => js::string_of(Some(v)),
+        }
+    }
+}
+/// JS `ToNumber` of a JSON value (objects → NaN; a one-element array → its element's string).
+fn to_number(v: &Value, depth: usize) -> f64 {
+    match v {
+        Value::Null => 0.0,
+        Value::Bool(b) => f64::from(u8::from(*b)),
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) => string_to_number(s),
+        Value::Array(a) if a.is_empty() => 0.0,
+        Value::Array(a) if a.len() == 1 && depth < 32 => match a.first() {
+            Some(x @ Value::Array(_)) => to_number(x, depth.saturating_add(1)),
+            Some(Value::Null) => 0.0,
+            Some(x) => string_to_number(&js::string_of(Some(x))),
+            None => 0.0,
+        },
+        _ => f64::NAN,
+    }
+}
+fn string_to_number(s: &str) -> f64 {
+    let t = js::trim(s);
+    if t.is_empty() {
+        return 0.0;
+    }
+    let (sign, body) = match t.strip_prefix('-') {
+        Some(b) => (-1.0, b),
+        None => (1.0, t.strip_prefix('+').unwrap_or(t)),
+    };
+    if body == "Infinity" {
+        return sign * f64::INFINITY;
+    }
+    if sign > 0.0 && t.len() > 2 {
+        let radix = match t.get(..2) {
+            Some("0x" | "0X") => 16,
+            Some("0o" | "0O") => 8,
+            Some("0b" | "0B") => 2,
+            _ => 0,
+        };
+        if radix != 0 {
+            let digits = t.get(2..).unwrap_or("");
+            return digits
+                .chars()
+                .try_fold(0.0f64, |acc, c| c.to_digit(radix).map(|d| acc * f64::from(radix) + f64::from(d)))
+                .unwrap_or(f64::NAN);
+        }
+    }
+    let ok = !body.is_empty()
+        && body.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E' | '+' | '-'))
+        && body.chars().next().is_some_and(|c| c.is_ascii_digit() || c == '.');
+    if !ok {
+        return f64::NAN;
+    }
+    body.parse::<f64>().map_or(f64::NAN, |x| sign * x)
+}
+
+/// One row: name + values (parameter → value, insertion order).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Row {
     pub name: String,
-    pub values: Vec<(String, f64)>,
+    pub values: Vec<(String, Cell)>,
 }
 /// `{ rows, active }`.
 #[derive(Clone, Debug, PartialEq)]
@@ -38,17 +128,16 @@ impl Row {
     pub fn to_json(&self) -> Value {
         let mut vals = jv::Obj::new();
         for (k, v) in &self.values {
-            vals.insert(k.clone(), jv::num(*v));
+            vals.insert(k.clone(), v.to_json());
         }
         jv::obj(vec![("name", self.name.as_str().into()), ("values", Value::Object(vals))])
     }
     pub fn from_json(v: &Value) -> Row {
-        let values = jv::as_obj(v.get("values"))
-            .map(|o| o.iter().map(|(k, x)| (k.clone(), x.as_f64().unwrap_or(f64::NAN))).collect())
-            .unwrap_or_default();
+        let values =
+            jv::as_obj(v.get("values")).map(|o| o.iter().map(|(k, x)| (k.clone(), Cell::from_json(x))).collect()).unwrap_or_default();
         Row { name: js::str_of(v.get("name")), values }
     }
-    fn set(&mut self, k: &str, v: f64) {
+    fn set(&mut self, k: &str, v: Cell) {
         match self.values.iter_mut().find(|(n, _)| n == k) {
             Some(s) => s.1 = v,
             None => self.values.push((k.to_string(), v)),
@@ -100,7 +189,7 @@ pub fn read_configs(raw: Option<&Value>, p: Option<&Params>) -> Result<Option<Co
                 return Err(t("configs.err.unknown", &[("name", F::S(name)), ("param", F::S(js::slice16(k, 40)))]));
             }
             match jv::finite(Some(v)) {
-                Some(x) => values.push((k.clone(), x)),
+                Some(x) => values.push((k.clone(), Cell::Num(x))),
                 None => return Err(t("configs.err.number", &[("name", F::S(name)), ("param", F::S(k.clone()))])),
             }
         }
@@ -123,9 +212,9 @@ pub fn row_from_current(p: Option<&Params>, name: Option<&Value>) -> Row {
         if params::is_driving(v)
             && let Some(x) = vals.get(&v.name).filter(|x| x.is_finite())
         {
-            match values.iter_mut().find(|(n, _): &&mut (String, f64)| *n == v.name) {
-                Some(s) => s.1 = *x,
-                None => values.push((v.name.clone(), *x)),
+            match values.iter_mut().find(|(n, _): &&mut (String, Cell)| *n == v.name) {
+                Some(s) => s.1 = Cell::Num(*x),
+                None => values.push((v.name.clone(), Cell::Num(*x))),
             }
         }
     }
@@ -158,7 +247,7 @@ pub fn apply_row(p: &mut Params, row: &Row) -> Result<(), String> {
         let Some(w) = p.vars.iter_mut().find(|x| x.name == *k) else {
             return Err(t("configs.err.missing", &[("name", F::S(row.name.clone())), ("param", F::S(k.clone()))]));
         };
-        w.expr = expr::format_number(*v);
+        w.expr = v.format();
     }
     Ok(())
 }
@@ -167,7 +256,10 @@ pub fn apply_row(p: &mut Params, row: &Row) -> Result<(), String> {
 pub fn row_matches(p: Option<&Params>, row: &Row) -> bool {
     let empty = Params::default();
     let vals = params::evaluate_vars(p.unwrap_or(&empty), None).values;
-    row.values.iter().all(|(k, v)| vals.get(k).is_some_and(|c| c.is_finite() && (c - v).abs() <= 1e-12 * js::max(1.0, v.abs())))
+    row.values.iter().all(|(k, v)| {
+        let v = v.number();
+        vals.get(k).is_some_and(|c| c.is_finite() && (c - v).abs() <= 1e-12 * js::max(1.0, v.abs()))
+    })
 }
 
 /// `renameRow(cfg, from, to)`.
@@ -224,7 +316,7 @@ pub fn follow_params(cfg: Option<&Configs>, before: Option<&Params>, after: Opti
             for (k, v) in &r.values {
                 let n = ren.iter().find(|(x, _)| x == k).map_or_else(|| k.clone(), |(_, y)| y.clone());
                 if names.contains(&n) {
-                    out.set(&n, *v);
+                    out.set(&n, v.clone());
                 }
             }
             out
@@ -241,7 +333,7 @@ pub fn rows_from_table(csv: &str, p: &Params) -> Result<Vec<Row>, String> {
         .map(|r| {
             let mut row = Row { name: clean_str(&r.name), values: Vec::new() };
             for (k, v) in r.overrides.iter() {
-                row.set(k, *v);
+                row.set(k, Cell::Num(*v));
             }
             row
         })
@@ -275,7 +367,7 @@ pub fn configs_csv(cfg: Option<&Configs>) -> String {
     for r in rows {
         let mut l = vec![r.name.clone()];
         for c in &cols {
-            l.push(r.values.iter().find(|(k, _)| k == c).map_or_else(String::new, |(_, v)| expr::format_number(*v)));
+            l.push(r.values.iter().find(|(k, _)| k == c).map_or_else(String::new, |(_, v)| v.format()));
         }
         lines.push(l);
     }

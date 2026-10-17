@@ -25,3 +25,5 @@ serde_json.workspace = true
 libm = "0.2.16"
 # NFD for the PDF font metrics (font.js `charAdvance`: an accented letter takes its base letter's width)
 unicode-normalization = "0.1.26"
+# zlib for the drawing PDF's content stream (the JS uses the browser's CompressionStream)
+miniz_oxide = "0.8"
