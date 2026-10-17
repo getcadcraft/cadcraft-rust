@@ -75,7 +75,12 @@ pub struct ModelView {
     pub message: String,
     /// the scene last gone to or saved (-1: none)
     pub scene_index: isize,
+    /// a scene transition under way: (from, to, start time in ms)
+    anim: Option<(Camera, Camera, f64)>,
 }
+
+/// How long a scene transition takes (goScene's 650 ms).
+const SCENE_MS: f64 = 650.0;
 
 /// What the Scenes panel asked for this frame.
 enum SceneAct {
@@ -122,6 +127,7 @@ impl ModelView {
             vcb: String::new(),
             message: String::new(),
             scene_index: -1,
+            anim: None,
         };
         v.rebuild();
         v.fit();
@@ -207,6 +213,7 @@ impl ModelView {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         self.tools.host.cam.set_size(f64::from(rect.width()), f64::from(rect.height()));
         self.input(ui, &resp, rect);
+        self.step_anim(ui);
         self.rebuild();
         let c = &self.tools.host.cam;
         let cam = Cam3 {
@@ -677,6 +684,11 @@ impl ModelView {
 
     /// goScene(i) without the animation: the scene's style, what it shows and its camera.
     pub fn go_scene(&mut self, i: usize) {
+        self.go_scene_with(i, true);
+    }
+
+    /// goScene(i, animate).
+    pub fn go_scene_with(&mut self, i: usize, animate: bool) {
         let Some(sc) = self.tools.host.model.scenes.get(i).cloned() else { return };
         self.scene_index = i as isize;
         self.style.faces = sc.mode != "wire";
@@ -687,8 +699,51 @@ impl ModelView {
             self.tools.host.model.apply_vis(v);
             self.tools.host.sel.retain(|x| x.t != "i");
         }
-        self.tools.host.cam.set(sc.eye, sc.target, Some(sc.fov), Some(sc.persp));
+        // goScene: move there over 650 ms (smoothstep), unless asked to go straight there
+        let from = self.tools.host.cam.clone();
+        let mut to = from.clone();
+        to.set(sc.eye, sc.target, Some(sc.fov), Some(sc.persp));
+        if animate {
+            self.anim = Some((from, to, self.now()));
+        } else {
+            self.anim = None;
+            self.tools.host.cam = to;
+        }
         self.message = mt("app.scene.go", &[("name", &sc.name)]);
+    }
+
+    /// One step of a scene transition (any input in the view ends it where it is).
+    fn step_anim(&mut self, ui: &egui::Ui) {
+        let Some((from, to, t0)) = &self.anim else { return };
+        if self.held.is_some() {
+            self.anim = None;
+            return;
+        }
+        let k = ((self.now() - t0) / SCENE_MS).clamp(0.0, 1.0);
+        let (eye, target, fov, persp) = cc_m3d_tools::camera::lerp_cam(from, to, k);
+        let (w, h) = (self.tools.host.cam.w, self.tools.host.cam.h);
+        if k >= 1.0 {
+            self.tools.host.cam = to.clone();
+            self.anim = None;
+        } else {
+            self.tools.host.cam.set(eye, target, Some(fov), Some(persp));
+            ui.ctx().request_repaint();
+        }
+        self.tools.host.cam.set_size(w, h);
+    }
+
+    /// Go straight to the end of a scene transition (scripts, shots).
+    pub fn finish_anim(&mut self) {
+        if let Some((_, to, _)) = self.anim.take() {
+            let (w, h) = (self.tools.host.cam.w, self.tools.host.cam.h);
+            self.tools.host.cam = to;
+            self.tools.host.cam.set_size(w, h);
+        }
+    }
+
+    /// Whether a scene transition is under way.
+    pub fn animating(&self) -> bool {
+        self.anim.is_some()
     }
 
     /// stepScene(d): the next / previous scene, wrapping round.

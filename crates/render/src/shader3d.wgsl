@@ -14,6 +14,8 @@ struct Frame {
     // section cut: xyz = normal, w = offset, in the scene-origin frame; what lies where dot(n, p) > w is not drawn
     // (a zero normal: no cut)
     clip: vec4<f32>,
+    // a = 1: faces drawn in this colour, unlit, both sides (hidden line)
+    fill: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> fr: Frame;
 
@@ -57,6 +59,9 @@ fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c:
 fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     if cut(v.rel) {
         discard;
+    }
+    if fr.fill.a > 0.0 {
+        return vec4<f32>(fr.fill.rgb, 1.0);
     }
     let len_n = length(v.n);
     var n = select(vec3<f32>(0.0, 0.0, 1.0), v.n / len_n, len_n > 1e-12);

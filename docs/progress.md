@@ -20,7 +20,9 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M6.14–M6.15: side panel (Entity Info, Outliner, Tags, Paint colour from `paint::PALETTE`), es-MX/en catalogs;
   Select all (Ctrl+A), Make group (Ctrl+G), Make component (Ctrl+Shift+G), Explode and Delete as modelcraft.js does them
   (one undo step each, purge after erase); scriptable as `model.edit`. Scenes panel (add, go to, update, delete, Previous / Next, Page Up / Down;
-  camera, style and visibility as goScene, without the move animation yet) and Components panel (count, Place).
+  camera, style and visibility as goScene, moving there over 650 ms as goScene does) and Components panel (count, Place). M6.16: view styles
+  (Shaded, Hidden line, Wireframe, X-ray, Edges) for ModelCraft and the IFC view; hidden line fills faces with the
+  background colour.
 - Checked in Chromium over WebGPU on rust.getcadcraft.com: `?model` (orbit), `?ifc` (click → properties), Open → SKP.
 - Measured for M9: hayro renders the Carey PDF sheet 9× faster than pdf.js at 1× (roadmap § M9 inputs).
 

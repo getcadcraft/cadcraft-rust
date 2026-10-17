@@ -330,7 +330,7 @@ impl MeshData {
 
 const VSTRIDE: u64 = 28; // pos 12 + normal 12 + colour 4
 const ISTRIDE: u64 = 128; // m 64 + normal matrix 48 + tint 16
-const FRAME: u64 = 144;
+const FRAME: u64 = 160;
 
 /// A mesh on the GPU.
 #[derive(Debug)]
@@ -689,6 +689,12 @@ impl Renderer3 {
                 fb.extend_from_slice(&[n[0] as f32, n[1] as f32, n[2] as f32, w as f32]);
             }
             None => fb.extend_from_slice(&[0.0; 4]),
+        }
+        // hidden line: every face filled with the background colour, so only the edges in front show
+        if style.hidden_line {
+            fb.extend_from_slice(&[style.background[0], style.background[1], style.background[2], 1.0]);
+        } else {
+            fb.extend_from_slice(&[0.0; 4]);
         }
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);

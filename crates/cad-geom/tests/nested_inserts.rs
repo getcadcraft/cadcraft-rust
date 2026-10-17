@@ -21,7 +21,8 @@ fn nested_inserts_stop_at_the_budget() {
     let t = std::time::Instant::now();
     let ps = prims(&e, Some(&d.blocks));
     assert_eq!(ps.len(), MAX_PRIMS);
-    assert!(t.elapsed().as_secs() < 20, "bounded work: {:?}", t.elapsed());
+    // the length is the real bound (unbounded: gigabytes); the time only catches a runaway, loaded machines included
+    assert!(t.elapsed().as_secs() < 600, "bounded work: {:?}", t.elapsed());
     // a small nest is untouched: 30 inserts of 2 lines
     let mut d2 = Doc::new();
     d2.load(&json!({ "blocks": blocks[..2].to_vec(), "entities": [{ "type": "insert", "block": "B1", "x": 0, "y": 0 }] }));
@@ -55,5 +56,7 @@ fn a_walk_of_nested_inserts_ends() {
     let t = std::time::Instant::now();
     walk(&d, &ents, &mut c, &WalkOpts::default());
     assert!(c.0 > 0 && c.0 < cc_cad_geom::walk::MAX_WALK_VISITS, "{}", c.0);
-    assert!(t.elapsed().as_secs() < 60, "bounded work: {:?}", t.elapsed());
+    // the visit count above is the real bound; unbounded, this walk takes hours, so a loaded machine's debug build may
+    // take a minute or two without anything being wrong
+    assert!(t.elapsed().as_secs() < 600, "bounded work: {:?}", t.elapsed());
 }

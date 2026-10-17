@@ -784,9 +784,36 @@ impl UiApp {
                     "explode" => mc.explode_sel(),
                     "erase" => mc.erase_selection(),
                     "scene-add" => mc.add_scene(),
-                    "scene-next" => mc.step_scene(1),
-                    "scene-prev" => mc.step_scene(-1),
+                    "scene-next" => {
+                        mc.step_scene(1);
+                        mc.finish_anim();
+                    }
+                    "scene-prev" => {
+                        mc.step_scene(-1);
+                        mc.finish_anim();
+                    }
                     other => return Err(format!("model.edit: unknown action {other}")),
+                }
+            }
+            "view.style" => {
+                // modelcraft.js style modes (shaded, hidden, wire, xray) and the edges switch; BimCraft's 3D view too
+                let n = params.name.clone().ok_or("view.style: name is required")?;
+                let style = match (self.mc.as_mut(), self.scene3.as_mut()) {
+                    (Some(mc), _) => &mut mc.style,
+                    (None, Some((_, v))) => &mut v.style,
+                    _ => return Err("view.style: open a model first".into()),
+                };
+                match n.as_str() {
+                    "edges" => style.edges = !style.edges,
+                    "shaded" | "hidden" | "wire" | "xray" => {
+                        style.faces = n != "wire";
+                        style.xray = n == "xray";
+                        style.hidden_line = n == "hidden";
+                        if n == "wire" {
+                            style.edges = true;
+                        }
+                    }
+                    other => return Err(format!("view.style: unknown style {other}")),
                 }
             }
             "model.undo" => {
@@ -1185,6 +1212,35 @@ impl UiApp {
                             .map_or_else(|| self.mc.as_ref().is_some_and(|m| m.tools.host.cam.persp), |(_, v)| v.cam.persp);
                         if ui.button(if persp { "Parallel" } else { "Perspective" }).on_hover_text("Switch the projection").clicked() {
                             self.run_ui("view.projection", &Params::default());
+                        }
+                        let st = self.mc.as_ref().map(|m| m.style).or_else(|| self.scene3.as_ref().map(|(_, v)| v.style));
+                        if let Some(st) = st {
+                            let cur = if !st.faces {
+                                "Wireframe"
+                            } else if st.xray {
+                                "X-ray"
+                            } else if st.hidden_line {
+                                "Hidden line"
+                            } else {
+                                "Shaded"
+                            };
+                            let mut pick: Option<&str> = None;
+                            egui::ComboBox::new("style3", "Style").selected_text(cur).width(96.0).show_ui(ui, |ui| {
+                                for (id, label) in
+                                    [("shaded", "Shaded"), ("hidden", "Hidden line"), ("wire", "Wireframe"), ("xray", "X-ray")]
+                                {
+                                    if ui.selectable_label(cur == label, label).clicked() {
+                                        pick = Some(id);
+                                    }
+                                }
+                            });
+                            let mut edges = st.edges;
+                            if ui.checkbox(&mut edges, "Edges").changed() {
+                                pick = Some("edges");
+                            }
+                            if let Some(p) = pick {
+                                self.run_ui("view.style", &Params { name: Some(p.into()), ..Default::default() });
+                            }
                         }
                     }
                     if ui.add_enabled(self.doc.is_some(), egui::Button::new("Layers")).clicked() {
