@@ -32,7 +32,7 @@ fn pick_open() -> Option<Result<ImportedFile, String>> {
     let path = rfd::FileDialog::new()
         .add_filter(
             "Drawings and models",
-            &["dwg", "dxf", "DWG", "DXF", "modelcraft", "ifc", "IFC", "skp", "SKP", "obj", "glb", "gltf", "dae"],
+            &["dwg", "dxf", "DWG", "DXF", "modelcraft", "ifc", "IFC", "skp", "SKP", "obj", "glb", "gltf", "dae", "pdf", "PDF"],
         )
         .pick_file()?;
     Some(read_path(&path))

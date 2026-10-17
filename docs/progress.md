@@ -21,6 +21,13 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M9.7: crash fix (gate fuzz smoke, `civil_las` OOM): a layered LAZ chunk listing a 4 GB layer made laz-rs size a buffer
+  to it before reading; every chunk's layer sizes are now checked against the bytes left before laz-rs reads it (chunks
+  found by chunk_size or the chunk table); regression fixture + unit tests + seed; crs-las parity unchanged (358 calls,
+  the same 2 accepted differences on byte-flipped files).
+- M9.6: PDF plan sets open in the app (the sheet view MarkupCraft and TakeoffCraft build on): sheets by page label,
+  hayro render into one texture re-rendered per half-octave of zoom (capped 8192 px a side), pan / wheel zoom / Page
+  Up-Down; the kitchen fixture sheet renders in ~22 ms. `pdf.page` command.
 - M7.11: BimCraft's Find (rules on any property, every / any, shows only or hides what it finds) and Quantity totals
   (group by, add up a quantity, CSV as totalsCsv) on the IFC view, on cc-bim; the property index is built on first use;
   BimCraft's 0.5 catalogs (en, es-MX) shipped unchanged; `bim.find`, `bim.totals`, `view.show_all` commands.

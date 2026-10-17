@@ -22,6 +22,7 @@ pub mod edit;
 pub mod ifc3d;
 pub mod model3d;
 pub mod modelcraft;
+pub mod pdfview;
 pub mod theme;
 pub mod view3d;
 
@@ -136,6 +137,8 @@ pub struct UiApp {
     pub bim: bimtools::BimTools,
     /// the open IFC file's name
     ifc_name: String,
+    /// an open PDF plan set
+    pub pdf: Option<pdfview::PdfView>,
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -189,6 +192,7 @@ impl Default for UiApp {
             iso3: None,
             bim: bimtools::BimTools::default(),
             ifc_name: String::new(),
+            pdf: None,
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),
@@ -233,6 +237,25 @@ impl UiApp {
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
         let lower = f.name.to_ascii_lowercase();
+        if lower.ends_with(".pdf") {
+            match pdfview::PdfView::open(&f.name, &f.bytes) {
+                Ok(v) => {
+                    self.doc = None;
+                    self.editor = None;
+                    self.source = None;
+                    self.error = None;
+                    self.model3 = None;
+                    self.mc = None;
+                    self.scene3 = None;
+                    self.ifc3 = None;
+                    self.ifc_groups.clear();
+                    self.pdf = Some(v);
+                }
+                Err(e) => self.error = Some(format!("{}: {e}", f.name)),
+            }
+            return;
+        }
+        self.pdf = None;
         if lower.ends_with(".modelcraft") {
             self.open_model(f);
             return;
@@ -778,6 +801,9 @@ impl UiApp {
             }
             "view.fit" => {
                 self.pending_fit = true;
+                if let Some(p) = self.pdf.as_mut() {
+                    p.fit();
+                }
                 if let Some(mc) = self.mc.as_mut() {
                     mc.fit();
                 }
@@ -863,6 +889,11 @@ impl UiApp {
                 let spec = params.name.clone().ok_or("bim.totals: name is required (group[:sum])")?;
                 let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone()).ok_or("bim.totals: open an IFC model first")?;
                 self.bim.totals_by(&bytes, &spec);
+            }
+            "pdf.page" => {
+                // go to a sheet of the open PDF (1-based)
+                let n = params.factor.filter(|f| f.is_finite() && *f >= 1.0).ok_or("pdf.page: factor = page number (1-based)")?;
+                self.pdf.as_mut().ok_or("pdf.page: open a PDF first")?.go(n as usize - 1);
             }
             "view.show_all" => self.bim_act(bimtools::BimAct::ShowAll),
             "view.style" => {
@@ -1145,7 +1176,20 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        if self.mc.is_some() {
+        if let Some(pdf) = self.pdf.as_mut() {
+            let t = self.tokens;
+            let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+            egui::Panel::left("pdf_sheets").default_size(180.0).size_range(120.0..=320.0).resizable(true).frame(frame).show(ui, |ui| {
+                ui.label(RichText::new("Sheets").strong().color(t.text_strong));
+                ui.separator();
+                pdf.sheets(ui, &t);
+            });
+            egui::CentralPanel::no_frame().show(ui, |ui| {
+                let rect = ui.max_rect();
+                pdf.show(ui, rect, &t);
+            });
+            self.message = pdf.status();
+        } else if self.mc.is_some() {
             self.tool_palette(ui);
             let t = self.tokens;
             if let Some(mc) = self.mc.as_mut() {
@@ -1261,7 +1305,10 @@ impl UiApp {
                         }
                     }
                     if ui
-                        .add_enabled(self.doc.is_some() || self.scene3.is_some() || self.mc.is_some(), egui::Button::new("Fit"))
+                        .add_enabled(
+                            self.doc.is_some() || self.scene3.is_some() || self.mc.is_some() || self.pdf.is_some(),
+                            egui::Button::new("Fit"),
+                        )
                         .on_hover_text("Zoom to the drawing or model (Home)")
                         .clicked()
                     {

@@ -110,7 +110,7 @@ mod web {
                                     let Some(f) = rfd::AsyncFileDialog::new()
                                         .add_filter(
                                             "Drawings and models",
-                                            &["dwg", "dxf", "modelcraft", "ifc", "skp", "obj", "glb", "gltf", "dae"],
+                                            &["dwg", "dxf", "modelcraft", "ifc", "skp", "obj", "glb", "gltf", "dae", "pdf"],
                                         )
                                         .pick_file()
                                         .await

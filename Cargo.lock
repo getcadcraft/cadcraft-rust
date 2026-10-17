@@ -944,6 +944,7 @@ dependencies = [
  "cc-io-cad",
  "cc-io-dwg",
  "cc-io-ifc",
+ "cc-io-takeoff",
  "cc-m3d",
  "cc-m3d-files",
  "cc-m3d-tools",

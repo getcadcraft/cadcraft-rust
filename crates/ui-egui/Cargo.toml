@@ -20,6 +20,7 @@ cc-m3d-files.workspace = true
 cc-m3d-tools.workspace = true
 cc-io-ifc.workspace = true
 cc-bim.workspace = true
+cc-io-takeoff.workspace = true
 cc-m3d.workspace = true
 cc-drawing.workspace = true
 cc-cad.workspace = true

@@ -250,8 +250,9 @@ pub fn page_labels(pdf: &Pdf) -> Option<Vec<String>> {
     Some(out)
 }
 
-/// A page rendered on white at `scale` (canvas size = the viewport's, rounded up) as RGBA, then as ink.
-pub fn render_ink(doc: &Doc, index: usize, scale: f64) -> Result<Img, String> {
+/// A page rendered on white at `scale` (canvas size = the viewport's, rounded up), RGBA premultiplied (opaque: the
+/// background is white): (pixels, width, height). Refuses rasters over `MAX_PIXELS`.
+pub fn render_rgba(doc: &Doc, index: usize, scale: f64) -> Result<(Vec<u8>, usize, usize), String> {
     let page = doc.pdf.pages().get(index).ok_or("no such page")?;
     let view = page_view(page);
     let rot = rotation_deg(page.rotation());
@@ -273,7 +274,13 @@ pub fn render_ink(doc: &Doc, index: usize, scale: f64) -> Result<Img, String> {
         &mut hayro::vello_cpu::Resources::default(),
         hayro::vello_cpu::RasterizerSettings { target_init: hayro::vello_cpu::TargetInit::Clear(WHITE), ..Default::default() },
     );
-    Ok(to_ink(pixmap.data_as_u8_slice(), usize::from(w), usize::from(h)))
+    Ok((pixmap.data_as_u8_slice().to_vec(), usize::from(w), usize::from(h)))
+}
+
+/// A page rendered on white at `scale` as ink (what auto count matches on).
+pub fn render_ink(doc: &Doc, index: usize, scale: f64) -> Result<Img, String> {
+    let (rgba, w, h) = render_rgba(doc, index, scale)?;
+    Ok(to_ink(&rgba, w, h))
 }
 
 /// The linework of a page (in user space, through each path's CTM), as snap.rs reads pdf.js's operator list.
