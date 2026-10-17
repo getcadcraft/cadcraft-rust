@@ -43,6 +43,8 @@ mod m3d;
 mod m3dio;
 mod m3dtools;
 mod manifold;
+mod markup;
+mod markup2;
 mod skp;
 mod takeoff;
 mod takeoff_pdf;
@@ -83,6 +85,7 @@ fn main() -> ExitCode {
         "m3dtools" => m3dtools::m3dtools(&rest),
         "m3dio" => m3dio::m3dio(&rest),
         "takeoff" => takeoff::takeoff(&rest),
+        "markup" => markup::markup(&rest),
         _ => usage(),
     }
 }

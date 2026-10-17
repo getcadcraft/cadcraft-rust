@@ -554,12 +554,14 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-m3d",
+ "cc-io-markup",
  "cc-io-skp",
  "cc-io-takeoff",
  "cc-m3d",
  "cc-m3d-files",
  "cc-m3d-tools",
  "cc-manifold",
+ "cc-markup",
  "cc-takeoff",
  "flate2",
  "serde_json",
@@ -723,6 +725,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-io-markup"
+version = "0.0.1"
+dependencies = [
+ "cc-m3d",
+ "cc-markup",
+ "hayro-syntax",
+ "indexmap",
+ "miniz_oxide 0.8.9",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-io-skp"
 version = "0.0.1"
 dependencies = [
@@ -778,6 +792,17 @@ dependencies = [
 name = "cc-manifold"
 version = "0.0.1"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cc-markup"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-m3d",
+ "indexmap",
+ "miniz_oxide 0.8.9",
  "serde_json",
 ]
 
@@ -3682,9 +3707,9 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unicode-normalization"
-version = "0.1.25"
+version = "0.1.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+checksum = "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
 dependencies = [
  "tinyvec",
 ]

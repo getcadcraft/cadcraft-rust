@@ -1,0 +1,25 @@
+[package]
+name = "cc-io-markup"
+description = "CadCraft L3: MarkupCraft's PDF reading and writing (pdf-read.js, pdf-write.js) — annotations in and out, threads, calibrations, page labels, title blocks from page text."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-markup.workspace = true
+cc-m3d.workspace = true
+serde_json.workspace = true
+indexmap = "2.14"
+# the cross-reference / object / filter / decryption layer for the reading side (pdf.js's role); pure Rust, Apache-2.0 OR MIT
+hayro-syntax = { version = "0.8", default-features = false, features = ["std"] }
+miniz_oxide = "0.8"

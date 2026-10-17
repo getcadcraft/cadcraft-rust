@@ -119,11 +119,13 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-m3d",
+ "cc-io-markup",
  "cc-io-skp",
  "cc-io-takeoff",
  "cc-m3d",
  "cc-m3d-tools",
  "cc-manifold",
+ "cc-markup",
  "cc-takeoff",
  "libfuzzer-sys",
  "serde_json",
@@ -219,6 +221,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-io-markup"
+version = "0.0.1"
+dependencies = [
+ "cc-m3d",
+ "cc-markup",
+ "hayro-syntax",
+ "indexmap",
+ "miniz_oxide 0.8.9",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-io-skp"
 version = "0.0.1"
 dependencies = [
@@ -262,6 +276,17 @@ dependencies = [
 [[package]]
 name = "cc-manifold"
 version = "0.0.1"
+
+[[package]]
+name = "cc-markup"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-m3d",
+ "indexmap",
+ "miniz_oxide 0.8.9",
+ "serde_json",
+]
 
 [[package]]
 name = "cc-takeoff"

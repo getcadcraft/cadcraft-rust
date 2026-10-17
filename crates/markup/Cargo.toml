@@ -1,0 +1,23 @@
+[package]
+name = "cc-markup"
+description = "CadCraft L2: MarkupCraft's engine (model.js Store with undo, shapes.js display lists, geom.js, font.js, units.js, arcs.js, holes.js, titleblock.js, chest.js, clip.js, csv.js, bcf.js, bcf-read.js, compare.js, xlsx.js, summary.js, slip.js, link.js, spaces.js, sketch.js, legend.js, textsearch.js, vecdiff.js, blank.js, pages.js, bookmarks.js)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 2
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-cad.workspace = true
+cc-m3d.workspace = true
+serde_json.workspace = true
+indexmap = "2.14"
+miniz_oxide = "0.8"

@@ -18,6 +18,9 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | zlib-rs | io-skp | raw-deflate inflate of SketchUp 2021+ ZIP entries (fastest pure-Rust inflater measured: 16 ms vs 21 ms for miniz_oxide on a 16 MB model.dat); `rust-allocator` feature, no C | Zlib |
 | crc32fast | io-skp | CRC-32 check of unpacked ZIP entries (SIMD at run time) | MIT OR Apache-2.0 |
 | memchr | io-skp | substring search for record markers in classic SketchUp files | Unlicense OR MIT (used under MIT) |
+| hayro-syntax | io-markup | PDF object syntax for MarkupCraft's pdf.js-side reading (xref tables and streams, object streams, repair, decryption); `std` feature only, no rendering | Apache-2.0 OR MIT |
+| miniz_oxide | markup, io-markup | deflate / inflate for PDF streams (pdf-lib's flate streams), PNG pictures and the XLSX / BCF zips | MIT OR Zlib OR Apache-2.0 |
+| indexmap | markup, io-markup | insertion-ordered maps (the JS Map / object order of markups, fields and refs) | Apache-2.0 OR MIT |
 
 ## Ported source code (no crate dependency)
 

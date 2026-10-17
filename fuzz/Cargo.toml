@@ -23,6 +23,8 @@ cc-m3d-tools = { path = "../crates/m3d-tools" }
 cc-io-m3d = { path = "../crates/io-m3d" }
 cc-takeoff = { path = "../crates/takeoff" }
 cc-io-takeoff = { path = "../crates/io-takeoff" }
+cc-markup = { path = "../crates/markup" }
+cc-io-markup = { path = "../crates/io-markup" }
 
 [[bin]]
 name = "dwg_read"
@@ -113,8 +115,29 @@ doc = false
 bench = false
 
 [[bin]]
+name = "markup_pdf_read"
+path = "fuzz_targets/markup_pdf_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "takeoff_formula"
 path = "fuzz_targets/takeoff_formula.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "markup_chest_clip"
+path = "fuzz_targets/markup_chest_clip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "markup_bcf_read"
+path = "fuzz_targets/markup_bcf_read.rs"
 test = false
 doc = false
 bench = false
