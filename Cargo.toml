@@ -48,6 +48,8 @@ cc-bim = { path = "crates/bim" }
 cc-civil = { path = "crates/civil" }
 cc-io-civil = { path = "crates/io-civil" }
 cc-proj = { path = "crates/proj" }
+cc-detail = { path = "crates/detail" }
+cc-io-detail = { path = "crates/io-detail" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"

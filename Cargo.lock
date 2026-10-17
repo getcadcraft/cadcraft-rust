@@ -310,6 +310,7 @@ dependencies = [
  "cc-cad",
  "cc-cad-geom",
  "cc-civil",
+ "cc-detail",
  "cc-engine",
  "cc-geom",
  "cc-io-cad",
@@ -439,6 +440,17 @@ dependencies = [
  "fancy-regex",
  "libm",
  "robust",
+ "serde_json",
+]
+
+[[package]]
+name = "cc-detail"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-civil",
+ "cc-m3d",
+ "libm",
  "serde_json",
 ]
 

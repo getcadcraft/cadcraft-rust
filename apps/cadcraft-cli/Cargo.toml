@@ -34,6 +34,7 @@ cc-markup.workspace = true
 cc-io-markup.workspace = true
 cc-civil.workspace = true
 cc-io-civil.workspace = true
+cc-detail.workspace = true
 serde_json.workspace = true
 cc-takeoff.workspace = true
 cc-io-takeoff.workspace = true

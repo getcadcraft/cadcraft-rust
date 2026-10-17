@@ -41,6 +41,7 @@
 mod bim;
 mod civil;
 mod cmds;
+mod detail;
 mod ifc;
 mod iocad;
 mod m3d;
@@ -92,6 +93,7 @@ fn main() -> ExitCode {
         "markup" => markup::markup(&rest),
         "bim" => bim::bim(&rest),
         "civil" => civil::civil(&rest),
+        "detail" => detail::detail(&rest),
         _ => usage(),
     }
 }

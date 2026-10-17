@@ -28,6 +28,7 @@ cc-io-markup = { path = "../crates/io-markup" }
 cc-bim = { path = "../crates/bim" }
 cc-civil = { path = "../crates/civil" }
 cc-io-civil = { path = "../crates/io-civil" }
+cc-detail = { path = "../crates/detail" }
 
 [[bin]]
 name = "dwg_read"
@@ -225,6 +226,13 @@ bench = false
 [[bin]]
 name = "civil_zip"
 path = "fuzz_targets/civil_zip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "detail_model"
+path = "fuzz_targets/detail_model.rs"
 test = false
 doc = false
 bench = false
