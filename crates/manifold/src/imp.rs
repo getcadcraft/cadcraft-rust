@@ -554,14 +554,12 @@ impl Impl {
     }
 
     /// impl.h `AllHaveNormals`: every relation records normals (false when there are none).
-    #[allow(dead_code)]
     pub(crate) fn all_have_normals(&self) -> bool {
         !self.mesh_relation.mesh_id_transform.is_empty() && self.mesh_relation.mesh_id_transform.values().all(|r| r.has_normals)
     }
 
     /// `InitializeOriginal`: this mesh becomes an original with one new mesh ID (every triangle refers to it, the
     /// coplanar IDs stay).
-    #[allow(dead_code)]
     pub(crate) fn initialize_original(&mut self) {
         let mesh_id = reserve_ids(1) as i32;
         self.mesh_relation.original_id = mesh_id;

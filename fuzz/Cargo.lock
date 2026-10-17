@@ -385,6 +385,9 @@ dependencies = [
 [[package]]
 name = "cc-manifold"
 version = "0.0.1"
+dependencies = [
+ "libm",
+]
 
 [[package]]
 name = "cc-markup"

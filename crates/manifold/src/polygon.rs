@@ -802,6 +802,61 @@ impl EarClip {
     }
 }
 
+/// polygon.cpp `IsConvex`: no reflex vertex (exactly colinear and zero-length edges count as reflex).
+fn is_convex(polys: &[Vec<PolyVert>], epsilon: f64) -> bool {
+    for poly in polys {
+        let (Some(first), Some(last)) = (poly.first(), poly.last()) else { return false };
+        let first_edge = first.pos - last.pos;
+        let mut last_edge = crate::linalg::normalize2(first_edge);
+        for v in 0..poly.len() {
+            let edge = match (poly.get(v + 1), poly.get(v)) {
+                (Some(b), Some(a)) => b.pos - a.pos,
+                _ => first_edge,
+            };
+            let det = crate::linalg::det2(last_edge, edge);
+            if det <= 0.0 || (det.abs() < epsilon && crate::linalg::dot2(last_edge, edge) < 0.0) {
+                return false;
+            }
+            last_edge = crate::linalg::normalize2(edge);
+        }
+    }
+    true
+}
+
+/// polygon.cpp `TriangulateConvex`: alternating strips instead of fans.
+fn triangulate_convex(polys: &[Vec<PolyVert>]) -> R<HalfedgeTriangulation> {
+    let mut result = HalfedgeTriangulation::default();
+    result.add_contours(polys)?;
+    for poly in polys {
+        let mut i = 0usize;
+        let mut k = poly.len().saturating_sub(1);
+        let mut right = true;
+        while i + 1 < k {
+            let j = if right { i + 1 } else { k - 1 };
+            result.add_triangle(poly.atu(i)?.idx, poly.atu(j)?.idx, poly.atu(k)?.idx)?;
+            if right {
+                i = j;
+            } else {
+                k = j;
+            }
+            right = !right;
+        }
+    }
+    Ok(result)
+}
+
+/// polygon.cpp `TriangulateIdx(polys, epsilon, allowConvex)`: the triangles, as vertex index triples.
+pub(crate) fn triangulate_idx(polys: &[Vec<PolyVert>], epsilon: f64, allow_convex: bool) -> R<Vec<[i32; 3]>> {
+    let r = if allow_convex && is_convex(polys, epsilon) { triangulate_convex(polys)? } else { triangulate_idx_halfedges(polys, epsilon)? };
+    let mut out = Vec::with_capacity(r.num_tri());
+    let mut e = r.contour_end;
+    while e + 2 < r.halfedges.len() {
+        out.push([r.halfedges.atu(e)?.start_vert, r.halfedges.atu(e + 1)?.start_vert, r.halfedges.atu(e + 2)?.start_vert]);
+        e += 3;
+    }
+    Ok(out)
+}
+
 /// `TriangulateIdxHalfedges(polys, epsilon, allowConvex = false)`.
 pub(crate) fn triangulate_idx_halfedges(polys: &[Vec<PolyVert>], epsilon: f64) -> R<HalfedgeTriangulation> {
     EarClip::new(polys, epsilon)?.triangulate()

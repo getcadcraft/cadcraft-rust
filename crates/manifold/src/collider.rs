@@ -180,6 +180,18 @@ impl Collider {
     }
 
     /// `UpdateBoxes`: leaf boxes in, internal boxes built bottom-up (the second child to arrive builds the union).
+    /// `IsAxisAligned(transform)`: every row of the linear part has exactly two zeros.
+    pub(crate) fn is_axis_aligned(t: &crate::mat::Mat34) -> bool {
+        (0..3).all(|row| (0..3).filter(|&col| t.at(col, row) == 0.0).count() == 2)
+    }
+
+    /// `Transform(transform)`: every node box transformed (axis-aligned transforms only).
+    pub(crate) fn transform(&mut self, t: &crate::mat::Mat34) {
+        for b in &mut self.node_bbox {
+            *b = b.transform(t);
+        }
+    }
+
     pub(crate) fn update_boxes(&mut self, leaf_bb: &[Box3]) -> R<()> {
         for (i, b) in leaf_bb.iter().enumerate() {
             self.node_bbox.setu(2 * i, *b)?;

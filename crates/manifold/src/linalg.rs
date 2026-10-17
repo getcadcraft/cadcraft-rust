@@ -318,20 +318,6 @@ impl Box3 {
     pub(crate) fn is_finite(&self) -> bool {
         self.min.is_finite() && self.max.is_finite()
     }
-    /// `Box::Transform` by the identity 3×4 matrix (the only transform the CadCraft paths use): `1·x + 0·y + 0·z +
-    /// 0·1` per row, which turns infinite corners into NaN exactly as the C++ does.
-    pub(crate) fn transform_identity(&self) -> Box3 {
-        let t = |p: V3| -> V3 {
-            v3(
-                1.0 * p.x + 0.0 * p.y + 0.0 * p.z + 0.0 * 1.0,
-                0.0 * p.x + 1.0 * p.y + 0.0 * p.z + 0.0 * 1.0,
-                0.0 * p.x + 0.0 * p.y + 1.0 * p.z + 0.0 * 1.0,
-            )
-        };
-        let a = t(self.min);
-        let b = t(self.max);
-        Box3 { min: min3(a, b), max: max3(a, b) }
-    }
 }
 
 /// common.h `Rect`: axis-aligned 2D box.

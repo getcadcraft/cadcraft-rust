@@ -73,6 +73,57 @@ fn mesh_json(m: &Mesh) -> Value {
     })
 }
 
+/// An f64 as its IEEE bits, `[low u32, high u32]` (exact in JSON, -0 included).
+fn f64_bits(x: f64) -> Value {
+    let b = x.to_bits();
+    json!([b & 0xffff_ffff, b >> 32])
+}
+
+fn nums_f64(v: &Value) -> Result<Vec<f64>, String> {
+    v.as_array().ok_or("expected an array")?.iter().map(num_f64).collect()
+}
+
+/// A number, or `[lo, hi]` IEEE bits, or "NaN" / "Infinity" / "-Infinity".
+fn num_f64(x: &Value) -> Result<f64, String> {
+    if let Some(n) = x.as_f64() {
+        return Ok(n);
+    }
+    if let Some(a) = x.as_array() {
+        let lo = a.first().and_then(Value::as_u64).ok_or("bits")?;
+        let hi = a.get(1).and_then(Value::as_u64).ok_or("bits")?;
+        return Ok(f64::from_bits((hi << 32) | (lo & 0xffff_ffff)));
+    }
+    match x.as_str() {
+        Some("NaN") => Ok(f64::NAN),
+        Some("Infinity") => Ok(f64::INFINITY),
+        Some("-Infinity") => Ok(f64::NEG_INFINITY),
+        _ => Err("expected a number".into()),
+    }
+}
+
+fn f64_arg(step: &[Value], i: usize) -> Result<f64, String> {
+    num_f64(step.get(i).ok_or_else(|| format!("step argument {i}"))?)
+}
+
+fn i32_arg(step: &[Value], i: usize) -> Result<i32, String> {
+    step.get(i).and_then(Value::as_i64).and_then(|n| i32::try_from(n).ok()).ok_or_else(|| format!("step argument {i}"))
+}
+
+fn vec3_arg(step: &[Value], i: usize) -> Result<[f64; 3], String> {
+    let v = nums_f64(step.get(i).ok_or_else(|| format!("step argument {i}"))?)?;
+    v.try_into().map_err(|_| format!("step argument {i}: three numbers"))
+}
+
+fn polys_arg(step: &[Value], i: usize) -> Result<Vec<Vec<[f64; 2]>>, String> {
+    let a = step.get(i).and_then(Value::as_array).ok_or_else(|| format!("step argument {i}"))?;
+    a.iter()
+        .map(|poly| {
+            let p = nums_f64(poly)?;
+            Ok(p.as_chunks::<2>().0.to_vec())
+        })
+        .collect()
+}
+
 fn s(step: &[Value], i: usize) -> Result<&str, String> {
     step.get(i).and_then(Value::as_str).ok_or_else(|| format!("step argument {i}"))
 }
@@ -129,6 +180,92 @@ fn run_case(case: &Value, meshes: &[Mesh], emit: bool) -> Result<Vec<Value>, Str
             }
             "delete" => {
                 vars.remove(s(step, 1)?);
+            }
+            "cube" => {
+                let size = vec3_arg(step, 2)?;
+                let center = step.get(3).and_then(Value::as_bool).unwrap_or(false);
+                vars.insert(s(step, 1)?.to_string(), Manifold::cube(size, center));
+            }
+            "sphere" => {
+                let r = f64_arg(step, 2)?;
+                let seg = i32_arg(step, 3)?;
+                vars.insert(s(step, 1)?.to_string(), Manifold::sphere(r, seg));
+            }
+            "extrude" => {
+                let polys = polys_arg(step, 2)?;
+                let scale = step.get(6).map(nums_f64).transpose()?.unwrap_or_else(|| vec![1.0, 1.0]);
+                let st = [scale.first().copied().unwrap_or(1.0), scale.get(1).copied().unwrap_or(1.0)];
+                let m = Manifold::extrude(&polys, f64_arg(step, 3)?, i32_arg(step, 4)?, f64_arg(step, 5)?, st);
+                vars.insert(s(step, 1)?.to_string(), m);
+            }
+            "revolve" => {
+                let polys = polys_arg(step, 2)?;
+                let m = Manifold::revolve(&polys, i32_arg(step, 3)?, f64_arg(step, 4)?);
+                vars.insert(s(step, 1)?.to_string(), m);
+            }
+            "hullPts" => {
+                let pts = nums_f64(step.get(2).ok_or("points")?)?;
+                let pts: Vec<[f64; 3]> = pts.as_chunks::<3>().0.to_vec();
+                vars.insert(s(step, 1)?.to_string(), Manifold::hull_points(&pts));
+            }
+            "translate" | "rotate" | "scale" | "mirror" | "transform" | "asOriginal" | "hull" | "trimByPlane" => {
+                let Some(a) = vars.get(s(step, 2)?) else { continue };
+                let r = match op {
+                    "translate" => a.translate(vec3_arg(step, 3)?),
+                    "rotate" => {
+                        let v = vec3_arg(step, 3)?;
+                        a.rotate(v[0], v[1], v[2])
+                    }
+                    "scale" => a.scale(vec3_arg(step, 3)?),
+                    "mirror" => a.mirror(vec3_arg(step, 3)?),
+                    "transform" => {
+                        let m = nums_f64(step.get(3).ok_or("matrix")?)?;
+                        let m: [f64; 16] = m.try_into().map_err(|_| "a 4x4 matrix has 16 numbers".to_string())?;
+                        a.transform_mat4(&m)
+                    }
+                    "asOriginal" => a.as_original(),
+                    "hull" => a.hull(),
+                    _ => a.trim_by_plane(vec3_arg(step, 3)?, f64_arg(step, 4)?),
+                };
+                vars.insert(s(step, 1)?.to_string(), r);
+            }
+            "minkowskiSum" | "minkowskiDifference" => {
+                let r = match (vars.get(s(step, 2)?), vars.get(s(step, 3)?)) {
+                    (Some(a), Some(b)) => {
+                        if op == "minkowskiSum" {
+                            a.minkowski_sum(b)
+                        } else {
+                            a.minkowski_difference(b)
+                        }
+                    }
+                    _ => continue,
+                };
+                vars.insert(s(step, 1)?.to_string(), r);
+            }
+            "props" => {
+                let Some(m) = vars.get(s(step, 1)?) else {
+                    out.push(json!({ "missing": true }));
+                    continue;
+                };
+                let (lo, hi) = m.bounding_box();
+                let bbox: Vec<Value> = lo.iter().chain(hi.iter()).map(|&x| f64_bits(x)).collect();
+                out.push(json!({
+                    "status": m.status().as_str(),
+                    "numTri": m.num_tri(),
+                    "volume": f64_bits(m.volume()),
+                    "area": f64_bits(m.surface_area()),
+                    "genus": m.genus(),
+                    "originalID": m.original_id(),
+                    "bbox": bbox,
+                    "decompose": m.decompose_count(),
+                }));
+            }
+            "minGap" => {
+                let (Some(a), Some(b)) = (vars.get(s(step, 1)?), vars.get(s(step, 2)?)) else {
+                    out.push(json!({ "missing": true }));
+                    continue;
+                };
+                out.push(json!({ "minGap": f64_bits(a.min_gap(b, f64_arg(step, 3)?)) }));
             }
             "get" | "status" | "isEmpty" => {
                 let Some(m) = vars.get(s(step, 1)?) else {

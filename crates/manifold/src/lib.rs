@@ -10,18 +10,25 @@
 //! (`vendor/manifold-3d/3.5.4`): same vertex and triangle counts, same order, bit-equal floats.
 //!
 //! What is ported is what CadCraft calls (cc-ifc's geo-bool.js for IFC openings and boolean results, ModelCraft's
-//! solids.js): `MeshGL::Merge`, the `Manifold(MeshGL)` constructor with its validation and status codes, the boolean
+//! solids.js, PartCraft's kernel.js, drawing.js `meshSection` and assembly.js interference / motion checks):
+//! `MeshGL::Merge`, the `Manifold(MeshGL)` constructor with its validation and status codes, the boolean
 //! (boolean3.cpp, boolean_result.cpp), edge collapse and swap (edge_op.cpp), face triangulation (face_op.cpp,
-//! polygon.cpp, tree2d.cpp), sorting (sort.cpp), the collider, the parts of impl.cpp / properties.cpp the boolean uses,
-//! the lazy CSG tree with batch union / intersection of a list (csg_tree.cpp) and `GetMeshGL`. Not ported: SDF,
-//! smoothing and refinement, cross sections, hulls, Minkowski, transforms (CadCraft moves meshes before handing them
-//! in), ray casts.
+//! polygon.cpp incl. the convex fast path, tree2d.cpp), sorting (sort.cpp), the collider, the lazy CSG tree with lazy
+//! transforms and batch union / intersection of a list (csg_tree.cpp), `GetMeshGL`; transforms (`Transform`,
+//! `Translate`, `Rotate`, `Scale`, `Mirror`, impl.cpp `Impl::Transform` with svd.h's spectral norm), `AsOriginal`,
+//! `OriginalID`, the properties (`Volume`, `SurfaceArea`, `Genus`, `BoundingBox`, `NumTri`, the `Decompose` count),
+//! the constructors `Cube`, `Sphere` (subdivision.cpp's triangle refinement), `Extrude`, `Revolve`, `TrimByPlane`,
+//! `MinGap` (tri_dist.h), the convex hull (quickhull.cpp) and `MinkowskiSum` / `MinkowskiDifference` (minkowski.cpp).
+//! Not ported: SDF, smoothing and refinement, `Split`, `Slice`, `Project`, ray casts, `Warp`, `SetProperties`.
 //!
 //! Parity notes:
 //! - The wasm build is single-threaded (`MANIFOLD_PAR=OFF`) with `-ffp-contract=off`: this port follows the sequential
 //!   paths of parallel.h and never fuses a multiply-add; Manifold's own deterministic `math::acos` is ported.
 //! - Mesh IDs come from one process-wide counter starting at 1, as in the C++; they appear in `run_original_id` and
-//!   order the output runs, so a sequence of calls numbers its results as the same sequence does in the wasm.
+//!   order the output runs, so a sequence of calls numbers its results as the same sequence does in the wasm (every
+//!   constructor, hull and `AsOriginal` takes its IDs in the C++ order).
+//! - Transforms stay lazy as in the C++ (composed as `m * Mat4(t)`, applied when a mesh is needed, read unapplied by
+//!   `Compose` and the batch union's box tests), so the same chain of calls gives the same floats.
 //! - The lazy CSG tree collapses nested operations only when no other [`Manifold`] holds the inner node, exactly as
 //!   the C++ checks `use_count`: dropping a `Manifold` here matches calling `.delete()` on it in JavaScript.
 //! - Where the C++ reads out of bounds or would loop forever (only on hostile input), this port stops with
@@ -78,19 +85,25 @@
 mod boolean3;
 mod boolean_result;
 mod collider;
+mod constructors;
 mod csg;
 mod disjoint;
 mod edge_op;
 mod export;
 mod face_op;
 mod halfedge;
+mod hull;
 mod imp;
 mod import;
 mod linalg;
+mod mat;
 mod math;
 mod merge;
+mod minkowski;
 mod polygon;
+mod quickhull;
 mod sort;
+mod transform;
 mod util;
 
 pub use csg::Manifold;

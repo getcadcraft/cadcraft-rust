@@ -13,8 +13,6 @@
 #![allow(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 // the fdlibm constants as written there; `x - x` is how it makes a NaN
 #![allow(clippy::excessive_precision, clippy::approx_constant, clippy::eq_op)]
-// the constructors and transforms that use these land next (M12)
-#![allow(dead_code)]
 
 /// math.h `acos`.
 pub(crate) fn acos(x: f64) -> f64 {
