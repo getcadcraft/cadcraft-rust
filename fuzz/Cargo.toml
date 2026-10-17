@@ -26,6 +26,8 @@ cc-io-takeoff = { path = "../crates/io-takeoff" }
 cc-markup = { path = "../crates/markup" }
 cc-io-markup = { path = "../crates/io-markup" }
 cc-bim = { path = "../crates/bim" }
+cc-civil = { path = "../crates/civil" }
+cc-io-civil = { path = "../crates/io-civil" }
 
 [[bin]]
 name = "dwg_read"
@@ -116,8 +118,22 @@ doc = false
 bench = false
 
 [[bin]]
+name = "civil_project"
+path = "fuzz_targets/civil_project.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "bim_bcf"
 path = "fuzz_targets/bim_bcf.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_landxml"
+path = "fuzz_targets/civil_landxml.rs"
 test = false
 doc = false
 bench = false
@@ -130,8 +146,22 @@ doc = false
 bench = false
 
 [[bin]]
+name = "civil_points"
+path = "fuzz_targets/civil_points.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "takeoff_formula"
 path = "fuzz_targets/takeoff_formula.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_raster"
+path = "fuzz_targets/civil_raster.rs"
 test = false
 doc = false
 bench = false
@@ -144,6 +174,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "civil_las"
+path = "fuzz_targets/civil_las.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "markup_bcf_read"
 path = "fuzz_targets/markup_bcf_read.rs"
 test = false
@@ -151,8 +188,43 @@ doc = false
 bench = false
 
 [[bin]]
+name = "civil_shapefile"
+path = "fuzz_targets/civil_shapefile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "bim_sets"
 path = "fuzz_targets/bim_sets.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_geojson"
+path = "fuzz_targets/civil_geojson.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_kml"
+path = "fuzz_targets/civil_kml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_gpkg"
+path = "fuzz_targets/civil_gpkg.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "civil_zip"
+path = "fuzz_targets/civil_zip.rs"
 test = false
 doc = false
 bench = false

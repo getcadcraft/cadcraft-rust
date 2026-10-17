@@ -39,6 +39,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
 mod bim;
+mod civil;
 mod cmds;
 mod ifc;
 mod iocad;
@@ -90,6 +91,7 @@ fn main() -> ExitCode {
         "takeoff" => takeoff::takeoff(&rest),
         "markup" => markup::markup(&rest),
         "bim" => bim::bim(&rest),
+        "civil" => civil::civil(&rest),
         _ => usage(),
     }
 }

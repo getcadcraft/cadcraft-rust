@@ -1,0 +1,23 @@
+[package]
+name = "cc-proj"
+description = "CadCraft L2: coordinate reference systems — a one-for-one Rust port of proj4js 2.22.0 (MIT) with its WKT reader, giving the numbers the 0.5 apps' vendored proj4 gives."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 2
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-m3d.workspace = true
+cc-cad.workspace = true
+libm = "0.2.16"
+# zlib inflate for Deflate-compressed GeoTIFF blocks (what pako.inflate does in geotiff.js)
+miniz_oxide = "0.8"

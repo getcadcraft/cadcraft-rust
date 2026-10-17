@@ -1,0 +1,40 @@
+[package]
+name = "cc-io-civil"
+description = "CadCraft L4: CivilCraft's files — LandXML, point files, DXF/DWG out, PDF plots, GIS formats (GeoJSON, Shapefile, KML, GeoPackage, grids, LAS) and coordinate systems — at exact parity with the 0.5 JavaScript."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+# Layer 4, not 3: CivilCraft's DWG export reuses cc-io-dwg's writer (L3) where the bytes are the same.
+[package.metadata.layer]
+layer = 4
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-civil.workspace = true
+cc-io-dwg.workspace = true
+cc-cad.workspace = true
+cc-m3d.workspace = true
+serde_json.workspace = true
+libm = "0.2.16"
+cc-proj.workspace = true
+# crs.js / raster.js patterns
+regex = "1"
+# LAZ (LASzip) point decompression: laz-rs
+laz = "0.13"
+# DBF / shapefile code pages
+encoding_rs = "0.8"
+# WMS / WMTS / XYZ map URLs
+url = "2.5.8"
+# zip entries of shapefile / KMZ archives (raw deflate)
+zlib-rs = { version = "0.6.8", default-features = false, features = ["rust-allocator"] }
+# zlib streams of the PDF writer and the GeoTIFF export (and their inflate)
+miniz_oxide = "0.8"
+# NFD of a character for its Helvetica width (font.js charAdvance)
+unicode-normalization = "0.1"

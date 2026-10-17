@@ -158,7 +158,48 @@ pub fn shortest_digits(x: f64) -> Digits {
     }
     let e: i64 = std::str::from_utf8(exp).ok().and_then(|t| t.parse().ok()).unwrap_or(0);
     d.n = e.saturating_add(1);
+    even_tie(x, &mut d);
     d
+}
+
+/// ECMAScript Number::toString picks, of two shortest digit strings equally close to x, the even one (V8 does);
+/// Rust's shortest form takes the upper. Ties happen when x sits exactly halfway, e.g. f32 values such as
+/// 248.032257080078125 → "248.03225708007812".
+fn even_tie(x: f64, d: &mut Digits) {
+    use std::fmt::Write as _;
+    let k = d.len;
+    let km1 = k.saturating_sub(1);
+    let Some(&last) = d.buf.get(k.wrapping_sub(1)) else { return };
+    // two different strings of 15 digits or fewer never name the same double, so ties need 16 or 17
+    if k < 16 || last % 2 == 0 {
+        return;
+    }
+    // x's exact decimal digits (every f64 has a finite expansion; 800 places is past the longest)
+    let mut exact = String::new();
+    if write!(exact, "{x:.800e}").is_err() {
+        return;
+    }
+    let mant: Vec<u8> = exact.split('e').next().unwrap_or("").bytes().filter(u8::is_ascii_digit).collect();
+    let same_exp = exact.split('e').nth(1).and_then(|t| t.parse::<i64>().ok()) == Some(d.n.saturating_sub(1));
+    if !same_exp || mant.get(..km1) != d.buf.get(..km1) {
+        return;
+    }
+    let half_zero = mant.get(k) == Some(&b'5') && mant.get(k.saturating_add(1)..).is_some_and(|r| r.iter().all(|&c| c == b'0'));
+    if !half_zero {
+        return;
+    }
+    let e_last = mant.get(km1).copied().unwrap_or(0);
+    if e_last == last.saturating_sub(1) {
+        // exact = (last − 1).5: the lower neighbour is as close and even
+        if let Some(slot) = d.buf.get_mut(km1) {
+            *slot = last.saturating_sub(1);
+        }
+    } else if e_last == last && last < b'9' {
+        // exact = last.5: the upper neighbour is as close and even
+        if let Some(slot) = d.buf.get_mut(km1) {
+            *slot = last.saturating_add(1);
+        }
+    }
 }
 
 fn push_digits(out: &mut String, d: &[u8]) {

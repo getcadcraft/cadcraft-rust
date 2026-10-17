@@ -32,3 +32,20 @@ cc-m3d (crates/m3d/src/earcut.rs) is a port of ModelCraft's earcut.js, which fol
 ISC License — Copyright (c) 2016, Mapbox. Permission to use, copy, modify, and/or distribute this software for any
 purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice
 appear in all copies. THE SOFTWARE IS PROVIDED "AS IS" AND ISC DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE.
+
+cc-civil (crates/civil/src/delaunator.rs) is a port of delaunator 5.1.0 (https://github.com/mapbox/delaunator):
+ISC License — Copyright (c) 2026, Mapbox. Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice
+appear in all copies. THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+SOFTWARE.
+
+cc-civil (crates/civil/src/predicates.rs) ports orient2d from robust-predicates 3.0.3
+(https://github.com/mourner/robust-predicates), released into the public domain under the Unlicense, after Jonathan
+Richard Shewchuk's public-domain predicates.
+
+cc-proj (crates/proj) is a Rust port of proj4js 2.22.0 (https://github.com/proj4js/proj4js, MIT, Copyright (c) 2014
+Mike Adair, Richard Greenwood, Didier Richard, Stephen Irons, Olivier Terral and Calvin Metcalf) with the wkt-parser it
+bundles (MIT, Copyright (c) 2017 Calvin Metcalf), and of the GeoTIFF reader of geotiff.js 3.0.5
+(https://github.com/geotiffjs/geotiff.js, MIT, Copyright (c) 2015 EOX IT Services GmbH). Its log() is fdlibm 5.3 e_log.c
+(Sun Microsystems notice above). The full MIT texts are in crates/proj/NOTICE.
+cc-io-civil (crates/io-civil/src/crs.rs) keeps a private copy of cc-civil's localeCompare collation elements (our code).
