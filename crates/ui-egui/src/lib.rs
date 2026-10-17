@@ -263,6 +263,7 @@ impl UiApp {
                     self.scene3 = None;
                     self.ifc3 = None;
                     self.ifc_groups.clear();
+                    self.civil = None;
                     self.pdf = Some(v);
                 }
                 Err(e) => self.error = Some(format!("{}: {e}", f.name)),
