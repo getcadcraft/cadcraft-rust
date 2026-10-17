@@ -687,7 +687,7 @@ pub fn read_part(raw: &Value) -> Result<Value, String> {
             jv::set(&mut g, "suppressed", true.into());
         }
         let need = |cond: bool, key: &str| if cond { Ok(()) } else { Err(t(key, &[("name", F::from(fname.as_str()))])) };
-        let c = Ctx { ids: &ids, types: &types };
+        let c = Ctx { ids: &ids, types: &types, any_id: false };
         let sketch_ref = |out: &Vec<Value>| -> Result<Value, String> {
             let sk = f.get("sketch");
             let ok = c.ids.contains(jv::as_str(sk).unwrap_or("\u{0}"))

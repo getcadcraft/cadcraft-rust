@@ -33,8 +33,11 @@
 // the JS's shapes are kept (closures over the document, many small arguments)
 #![allow(clippy::type_complexity, clippy::too_many_arguments)]
 
+pub mod asm;
 pub mod bom;
+pub mod clipboard;
 pub mod configs;
+pub mod explode;
 pub mod expr;
 pub mod faces;
 pub mod font;
@@ -56,11 +59,14 @@ pub mod refgeom;
 pub mod script;
 pub mod script2;
 pub mod script3;
+pub mod script4;
+pub mod shapes_parts;
 pub mod sketch;
 pub mod sketch_intersect;
 pub mod sketch_tools;
 pub mod solver;
 pub mod spline;
+pub mod stdparts;
 pub mod threads;
 pub mod v8json;
 pub mod vec;

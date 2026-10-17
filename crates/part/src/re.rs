@@ -13,6 +13,19 @@ pub fn feature_id(s: &str) -> bool {
     }
 }
 
+/// `/^<prefix>\d{1,9}$/` (assembly ids: p parts, i instances, j joints, v views, s steps).
+pub fn prefixed_id(s: &str, prefix: char) -> bool {
+    let b = s.as_bytes();
+    u8::try_from(u32::from(prefix)).is_ok_and(|p| b.first() == Some(&p)) && {
+        let n = digits(b, 1);
+        (1..=9).contains(&n) && n.saturating_add(1) == b.len()
+    }
+}
+/// `/^i\d{1,9}$/`.
+pub fn inst_id(s: &str) -> bool {
+    prefixed_id(s, 'i')
+}
+
 /// NAME_RE = /^f\d{1,9}\.[a-z]+(:[A-Za-z0-9_:-]{1,40})?([@~]f\d{1,9}(#(\d{1,4}|m))?){0,24}$/.
 pub fn face_name(s: &str) -> bool {
     let b = s.as_bytes();

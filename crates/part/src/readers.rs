@@ -16,10 +16,15 @@ use std::collections::{HashMap, HashSet};
 pub struct Ctx<'a> {
     pub ids: &'a HashSet<String>,
     pub types: &'a HashMap<String, String>,
+    /// assembly.js: `{ has: (id) => /^f\d{1,9}$/.test(id) }` — any feature id is let through
+    pub any_id: bool,
 }
 impl Ctx<'_> {
     fn has(&self, v: Option<&Value>) -> bool {
-        v.and_then(Value::as_str).is_some_and(|s| self.ids.contains(s))
+        v.and_then(Value::as_str).is_some_and(|s| self.has_str(s))
+    }
+    fn has_str(&self, s: &str) -> bool {
+        if self.any_id { re::feature_id(s) } else { self.ids.contains(s) }
     }
     fn ty(&self, v: Option<&Value>) -> Option<&str> {
         v.and_then(Value::as_str).and_then(|s| self.types.get(s)).map(String::as_str)
@@ -94,7 +99,7 @@ pub fn read_plane(p: Option<&Value>, c: &Ctx, with_types: bool) -> Result<Value,
     if kind == "face" && face == Some("named") && good_name(p.get("name")) {
         let name = jv::s(p, "name");
         let first = re::name_features(name).into_iter().next();
-        if let Some(f0) = first.filter(|f| c.ids.contains(f)) {
+        if let Some(f0) = first.filter(|f| c.has_str(f)) {
             return Ok(jv::obj(vec![("kind", "face".into()), ("feature", f0.into()), ("face", "named".into()), ("name", name.into())]));
         }
     }
