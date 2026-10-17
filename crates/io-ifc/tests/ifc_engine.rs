@@ -46,6 +46,28 @@ fn st(t: &str) -> JsStr {
 
 // ---- I.1 STEP reading ----
 
+/// This thread's CPU time in ms (Linux: /proc/thread-self/stat utime + stime, 100 ticks a second), so a busy machine
+/// does not fail the bound; elsewhere None and the caller falls back to wall time.
+fn thread_cpu_ms() -> Option<f64> {
+    let s = std::fs::read_to_string("/proc/thread-self/stat").ok()?;
+    // fields after the command name (which may hold spaces) start at state; utime and stime are fields 14 and 15
+    let rest = s.rsplit_once(')')?.1;
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let ticks = f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?;
+    Some(ticks * 10.0)
+}
+
+/// How long `f` took: CPU time where the system tells it, wall time otherwise.
+fn cost_ms<T>(f: impl FnOnce() -> T) -> (T, f64) {
+    let (c0, t0) = (thread_cpu_ms(), std::time::Instant::now());
+    let v = f();
+    let ms = match (c0, thread_cpu_ms()) {
+        (Some(a), Some(b)) => b - a,
+        _ => t0.elapsed().as_secs_f64() * 1000.0,
+    };
+    (v, ms)
+}
+
 #[test]
 fn i1_tokens() {
     let v = p("('a''b',$,*,#12,.T.,(1,2.5,-3.E-2),IFCLABEL('x'),\"0FF\")");
@@ -109,13 +131,11 @@ fn i1_big_file() {
         lines.push_str(&format!("#{}=IFCCARTESIANPOINT(({}.,{:.1},0.));\n", 1000 + i, i, f64::from(i) * 0.5));
     }
     let big = ifc(&lines, "IFC4", true);
-    let t0 = std::time::Instant::now();
-    let f = IfcFile::open(&big).unwrap();
-    let ms = t0.elapsed().as_secs_f64() * 1000.0;
+    let (f, ms) = cost_ms(|| IfcFile::open(&big).unwrap());
     assert_eq!(f.of_type("IFCCARTESIANPOINT", false).len(), 300_001);
     let last = f.params(300_999.0).unwrap().unwrap();
     assert_eq!(last[0].as_list().unwrap()[0], Value::Num(299_999.0), "the last line read");
-    assert!(ms < 3000.0, "indexed in {ms:.0} ms");
+    assert!(ms < 3000.0, "indexed in {ms:.0} ms of CPU");
 }
 
 // ---- I.2 schema tables ----

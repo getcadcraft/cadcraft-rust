@@ -6,6 +6,28 @@ use cc_cad::Doc;
 use cc_cad_geom::geom::{MAX_PRIMS, prims};
 use serde_json::json;
 
+/// This thread's CPU time in ms (Linux: /proc/thread-self/stat utime + stime, 100 ticks a second), so a busy machine
+/// does not fail the bound; elsewhere None and the caller falls back to wall time.
+fn thread_cpu_ms() -> Option<f64> {
+    let s = std::fs::read_to_string("/proc/thread-self/stat").ok()?;
+    // fields after the command name (which may hold spaces) start at state; utime and stime are fields 14 and 15
+    let rest = s.rsplit_once(')')?.1;
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let ticks = f.get(11)?.parse::<f64>().ok()? + f.get(12)?.parse::<f64>().ok()?;
+    Some(ticks * 10.0)
+}
+
+/// How long `f` took: CPU time where the system tells it, wall time otherwise.
+fn cost_ms<T>(f: impl FnOnce() -> T) -> (T, f64) {
+    let (c0, t0) = (thread_cpu_ms(), std::time::Instant::now());
+    let v = f();
+    let ms = match (c0, thread_cpu_ms()) {
+        (Some(a), Some(b)) => b - a,
+        _ => t0.elapsed().as_secs_f64() * 1000.0,
+    };
+    (v, ms)
+}
+
 #[test]
 fn nested_inserts_stop_at_the_budget() {
     let mut blocks = vec![json!({ "name": "B0", "base": { "x": 0, "y": 0 }, "entities": [
@@ -18,11 +40,9 @@ fn nested_inserts_stop_at_the_budget() {
     let mut d = Doc::new();
     d.load(&json!({ "blocks": blocks, "entities": [{ "type": "insert", "block": "B5", "x": 0, "y": 0 }] }));
     let e = d.model().next().unwrap().clone();
-    let t = std::time::Instant::now();
-    let ps = prims(&e, Some(&d.blocks));
+    let (ps, ms) = cost_ms(|| prims(&e, Some(&d.blocks)));
     assert_eq!(ps.len(), MAX_PRIMS);
-    // the length is the real bound (unbounded: gigabytes); the time only catches a runaway, loaded machines included
-    assert!(t.elapsed().as_secs() < 600, "bounded work: {:?}", t.elapsed());
+    assert!(ms < 20_000.0, "bounded work: {ms:.0} ms of CPU");
     // a small nest is untouched: 30 inserts of 2 lines
     let mut d2 = Doc::new();
     d2.load(&json!({ "blocks": blocks[..2].to_vec(), "entities": [{ "type": "insert", "block": "B1", "x": 0, "y": 0 }] }));
@@ -53,10 +73,7 @@ fn a_walk_of_nested_inserts_ends() {
     d.load(&json!({ "blocks": blocks, "entities": [{ "type": "insert", "block": "B7", "x": 0, "y": 0 }] }));
     let ents: Vec<cc_cad::Entity> = d.model().cloned().collect();
     let mut c = Count(0);
-    let t = std::time::Instant::now();
-    walk(&d, &ents, &mut c, &WalkOpts::default());
+    let ((), ms) = cost_ms(|| walk(&d, &ents, &mut c, &WalkOpts::default()));
     assert!(c.0 > 0 && c.0 < cc_cad_geom::walk::MAX_WALK_VISITS, "{}", c.0);
-    // the visit count above is the real bound; unbounded, this walk takes hours, so a loaded machine's debug build may
-    // take a minute or two without anything being wrong
-    assert!(t.elapsed().as_secs() < 600, "bounded work: {:?}", t.elapsed());
+    assert!(ms < 60_000.0, "bounded work: {ms:.0} ms of CPU");
 }
