@@ -2,6 +2,17 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M9.12 MarkupCraft measuring tools
+
+- M9.12: Length, Area, Callout and Calibrate on the sheet view, labelled from MarkupCraft's catalog (`tool.*`, `cal.*`,
+  `hint.*`; the tool bar no longer has plain-English tool names). Calibrate: drag across a known distance, type it
+  (`parseLength`: 24'-0", 7.2 m, …) in a unit, Set scale → `calibrationFrom` in one `cal.set` undo step, then Length is
+  next (as 0.5). Scale presets (SCALE_PRESETS) and Remove scale in the bar; `markup.scale` and `markup.finish` commands.
+  Dimensions and areas read in the sheet's units (ShapeEnv gets the sheet's calibration). Area: a corner per click,
+  double-click / Enter ends, Esc drops. Callout: tip at the press, box past the release (finishCallout sizes).
+  Fixed: drag tools began where egui saw the drag (a few px late), now at the press origin. On the 612 × 792 pt grid at
+  1/4" = 1'-0": a 404 pt dimension reads 22'-5 13/16", a 278 × 202 pt trapezoid 173.77 sq ft. Shot tool: `--mouse-move`.
+
 ## 2026-10-17 — M11 CivilCraft in the app (agent, work/civilapp)
 
 - M11.1–M11.2: `crates/ui-egui/src/civil{view,plan,panel,3d}.rs`. Opens what 0.5 opens: `.civilcraft.json` (through

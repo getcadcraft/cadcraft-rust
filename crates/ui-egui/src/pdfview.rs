@@ -209,16 +209,38 @@ impl PdfView {
             && (resp.dragged_by(egui::PointerButton::Middle)
                 || resp.dragged_by(egui::PointerButton::Secondary)
                 || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select"));
+        self.tools.px = 1.0 / self.zoom;
         if self.mode == "takeoff" {
         } else if pan_drag {
             self.pan += resp.drag_delta();
-        } else if self.tools.draws() {
+        } else if self.tools.clicks() {
+            // an outline: a corner per click, double-click or Enter ends it, Esc drops it
             let key = self.sheet_key();
-            if resp.drag_started_by(egui::PointerButton::Primary)
+            self.tools.hover = resp.hover_pos().map(|p| self.to_pdf(origin, p));
+            if resp.dragged_by(egui::PointerButton::Primary) {
+                self.pan += resp.drag_delta();
+            } else if resp.double_clicked() {
+                self.tools.finish(&mut self.store, &key);
+            } else if resp.clicked()
                 && let Some(p) = resp.interact_pointer_pos()
             {
                 let q = self.to_pdf(origin, p);
+                self.tools.click(q);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.tools.finish(&mut self.store, &key);
+            }
+        } else if self.tools.draws() {
+            let key = self.sheet_key();
+            // the gesture starts where the button went down, not where egui saw it become a drag (a few px later)
+            if resp.drag_started_by(egui::PointerButton::Primary)
+                && let Some(p) = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos())
+            {
+                let q = self.to_pdf(origin, p);
                 self.tools.begin(q);
+                if let Some(now) = resp.interact_pointer_pos() {
+                    self.tools.moved(self.to_pdf(origin, now));
+                }
             } else if resp.dragged_by(egui::PointerButton::Primary)
                 && let Some(p) = resp.interact_pointer_pos()
             {
@@ -227,7 +249,7 @@ impl PdfView {
             } else if resp.drag_stopped() {
                 self.tools.end(&mut self.store, &key);
             } else if resp.clicked()
-                && self.tools.tool == "text"
+                && matches!(self.tools.tool.as_str(), "text" | "callout")
                 && let Some(p) = resp.interact_pointer_pos()
             {
                 let q = self.to_pdf(origin, p);
@@ -245,6 +267,9 @@ impl PdfView {
                 let px = 1.0 / self.zoom;
                 self.tools.pick(&self.store, &key, q, px);
             }
+        }
+        if self.mode != "takeoff" && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.tools.cancel();
         }
         if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
             self.tools.delete_selected(&mut self.store);
@@ -311,7 +336,8 @@ impl PdfView {
             let (vx, vy) = pdfread::to_viewport(&tr, x, y);
             origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
         };
-        let env = ShapeEnv { cal: None, badge: 0.0, legend: None };
+        // the sheet's scale: dimensions and areas read in real units once it is calibrated
+        let env = ShapeEnv { cal: self.store.calibrations.get(key).cloned(), badge: 0.0, legend: None };
         let preview = self.tools.preview(key);
         let sel = self.tools.selected.as_deref();
         let list: Vec<&cc_markup::model::Markup> =
@@ -433,9 +459,11 @@ impl PdfView {
                 ui.label(egui::RichText::new("Pick an item on the right, then click the sheet: a count at each click; double-click or Enter ends a length or area; Esc drops it").color(t.text_dim));
                 return;
             }
-            for (id, label) in crate::markuptools::TOOLS {
-                if ui.selectable_label(self.tools.tool == *id, *label).clicked() {
+            for id in crate::markuptools::TOOLS {
+                if ui.selectable_label(self.tools.tool == *id, crate::markuptools::tool_label(id)).clicked() {
                     self.tools.tool = (*id).to_string();
+                    self.tools.cancel();
+                    self.tools.message = crate::markuptools::tool_hint(id);
                 }
             }
             ui.separator();
@@ -451,9 +479,10 @@ impl PdfView {
                 }
             }
             ui.separator();
-            if self.tools.tool == "text" {
+            if matches!(self.tools.tool.as_str(), "text" | "callout") {
                 ui.add(egui::TextEdit::singleline(&mut self.tools.text).desired_width(140.0));
             }
+            self.scale_row(ui);
             if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new("Undo")).clicked() {
                 self.tools.message = self.store.undo().map(|l| format!("Undo {l}")).unwrap_or_default();
             }
@@ -468,6 +497,49 @@ impl PdfView {
             }
         });
         save
+    }
+
+    /// The sheet's scale: the calibrate line's real distance (once one is drawn), a preset, or remove it.
+    fn scale_row(&mut self, ui: &mut egui::Ui) {
+        use cc_markup::i18n::t0;
+        use cc_markup::units::{preset_calibration, scale_presets, units};
+        let key = self.sheet_key();
+        let cal = self.store.calibrations.get(&key).cloned();
+        if self.tools.cal_len.is_some() {
+            let label = ui.label(t0("cal.real"));
+            let field = ui
+                .add(egui::TextEdit::singleline(&mut self.tools.cal_text).hint_text(t0("cal.placeholder")).desired_width(110.0))
+                .labelled_by(label.id);
+            let unit_name = units().into_iter().find(|(u, _)| *u == self.tools.cal_unit).map(|(_, n)| n).unwrap_or_default();
+            egui::ComboBox::new("mc-cal-unit", t0("set.unit")).selected_text(unit_name).show_ui(ui, |ui| {
+                for (u, name) in units() {
+                    ui.selectable_value(&mut self.tools.cal_unit, u.to_string(), name);
+                }
+            });
+            let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if ui.button(t0("cal.set")).clicked() || enter {
+                self.tools.apply_calibration(&mut self.store, &key);
+            }
+        }
+        let shown = cal.as_ref().map_or_else(|| t0("status.scale.none"), |c| c.label.clone());
+        let mut pick: Option<cc_markup::units::Cal> = None;
+        egui::ComboBox::new("mc-scale", t0("props.scale")).selected_text(shown).show_ui(ui, |ui| {
+            for (group, list, unit) in scale_presets() {
+                ui.label(egui::RichText::new(group).strong());
+                for (label, ratio) in list {
+                    let on = cal.as_ref().is_some_and(|c| c.label == label);
+                    if ui.selectable_label(on, label).clicked() {
+                        pick = Some(preset_calibration(label, ratio, unit));
+                    }
+                }
+            }
+        });
+        if let Some(c) = pick {
+            self.tools.set_scale(&mut self.store, &key, Some(c));
+        }
+        if cal.is_some() && ui.button(t0("cal.remove")).clicked() {
+            self.tools.set_scale(&mut self.store, &key, None);
+        }
     }
 
     /// What the status bar says.
@@ -489,7 +561,8 @@ impl PdfView {
 
 /// "#rrggbb" (or "#rgb") with an alpha → a colour; None for anything else (a markup's colours are data from the file).
 pub fn hex_color(s: &str, alpha: f64) -> Option<Color32> {
-    let h = s.strip_prefix('#')?;
+    // shapes.js names the sheet's own white "paper" (callout and note boxes)
+    let h = if s == "paper" { "fff" } else { s.strip_prefix('#')? };
     let full: String = match h.len() {
         3 => h.chars().flat_map(|c| [c, c]).collect(),
         6 => h.to_string(),

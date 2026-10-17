@@ -910,9 +910,10 @@ impl UiApp {
                 self.bim.totals_by(&bytes, &spec);
             }
             "markup.tool" => {
-                // MarkupCraft tool on the sheet view: select, pan, pen, highlight, line, arrow, rect, ellipse, cloudrect, text
+                // MarkupCraft tool on the sheet view: select, pan, pen, highlight, line, arrow, rect, ellipse, cloudrect, callout,
+                // text, measure, area, calibrate
                 let n = params.name.clone().ok_or("markup.tool: name is required")?;
-                if !markuptools::TOOLS.iter().any(|(id, _)| *id == n) {
+                if !markuptools::TOOLS.contains(&n.as_str()) {
                     return Err(format!("markup.tool: unknown tool {n}"));
                 }
                 self.pdf.as_mut().ok_or("markup.tool: open a PDF first")?.tools.tool = n;
@@ -940,6 +941,28 @@ impl UiApp {
                 let p = self.pdf.as_mut().ok_or("takeoff.finish: open a PDF first")?;
                 let key = p.takeoff.sheet(p.page);
                 p.takeoff.finish(&key);
+            }
+            "markup.scale" => {
+                // the open sheet's MarkupCraft scale: a SCALE_PRESETS label (1/4" = 1'-0", 1:100, …) or "none"
+                let n = params.name.clone().ok_or("markup.scale: name = preset label or none")?;
+                let p = self.pdf.as_mut().ok_or("markup.scale: open a PDF first")?;
+                let key = p.sheet_key();
+                let cal = if n == "none" {
+                    None
+                } else {
+                    let hit = cc_markup::units::scale_presets()
+                        .into_iter()
+                        .find_map(|(_, list, unit)| list.into_iter().find(|(l, _)| *l == n).map(|(l, r)| (l, r, unit)));
+                    let (l, r, u) = hit.ok_or_else(|| format!("markup.scale: unknown scale {n}"))?;
+                    Some(cc_markup::units::preset_calibration(l, r, u))
+                };
+                p.tools.set_scale(&mut p.store, &key, cal);
+            }
+            "markup.finish" => {
+                // end the area outline being clicked (as Enter)
+                let p = self.pdf.as_mut().ok_or("markup.finish: open a PDF first")?;
+                let key = p.sheet_key();
+                p.tools.finish(&mut p.store, &key);
             }
             "markup.undo" => {
                 let p = self.pdf.as_mut().ok_or("markup.undo: open a PDF first")?;
