@@ -444,9 +444,48 @@ fn chunk_table_sane(b: &[u8], start: f64) -> bool {
     }
     let Ok(o) = usize::try_from(off) else { return true };
     match b.get(o.saturating_add(4)..o.saturating_add(8)).and_then(|s| <[u8; 4]>::try_from(s).ok()) {
-        Some(n) => (u32::from_le_bytes(n) as usize) <= b.len(),
+        // every entry takes some of the bytes after the table's start
+        Some(n) => (u32::from_le_bytes(n) as usize) <= b.len().saturating_sub(o),
         None => true, // past the end: laz-rs fails to read it
     }
+}
+
+/// How many layer sizes (u32 each) a layered LAZ chunk (LAS 1.4 point formats, compressor v3/v4) lists after its raw first
+/// point and its point count, one per layer of each item; None for the older point-wise items (no layers).
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn layer_words(lv: &laz::LazVlr) -> Option<usize> {
+    let mut k = 0usize;
+    for it in lv.items() {
+        let w = match it.item_type() {
+            laz::LazItemType::Point14 => 9,
+            laz::LazItemType::RGB14 | laz::LazItemType::WavePacket14 => 1,
+            laz::LazItemType::RGBNIR14 => 2,
+            laz::LazItemType::Byte14(n) => usize::from(n),
+            _ => return None,
+        };
+        k = k.checked_add(w)?;
+    }
+    Some(k)
+}
+
+/// The chunk at `pos` of a layered LAZ file: its layer sizes all fit in the bytes after its header, and so does their
+/// sum. laz-rs sizes a buffer to each before reading it, so a forged size is a 4 GB allocation (fuzz 2026-10-17,
+/// `civil_las` oom-56ae06ee). Returns where the next chunk starts.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn layered_chunk_end(b: &[u8], pos: usize, record: usize, words: usize) -> Option<usize> {
+    let header = pos.checked_add(record)?.checked_add(4)?;
+    let data = header.checked_add(words.checked_mul(4)?)?;
+    let sizes = b.get(header..data)?;
+    let room = b.len().checked_sub(data)?;
+    let mut sum = 0usize;
+    for w in sizes.as_chunks::<4>().0 {
+        let v = usize::try_from(u32::from_le_bytes(*w)).ok()?;
+        if v > room {
+            return None;
+        }
+        sum = sum.checked_add(v)?;
+    }
+    (sum <= room).then(|| data.saturating_add(sum))
 }
 
 // The laz crate can still panic on a hostile file (fuzzing found two; both guarded, more may exist). Natively the
@@ -483,12 +522,46 @@ fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f6
     }
     let mut cursor = std::io::Cursor::new(b);
     cursor.set_position(start);
-    let dec = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| laz::LasZipDecompressor::new(cursor, lv)));
+    let dec = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| laz::LasZipDecompressor::new(cursor, lv.clone())));
     let Ok(Ok(mut dec)) = dec else { return Err(bad("las.bad.laz_open")) };
     let mut buf = vec![0u8; len];
     let mut read = 0.0;
     let mut i = 0.0;
+    // layered chunks: check each chunk's layer sizes before laz-rs reads them (it allocates from them first); a chunk
+    // holds `chunk_size` points (fixed) or what the chunk table says (variable), and starts where the last one's layers end
+    let words = layer_words(&lv);
+    let per_chunk: Option<Vec<u64>> = match (words, lv.uses_variable_size_chunks()) {
+        (Some(_), true) => {
+            let mut c = std::io::Cursor::new(b);
+            c.set_position(start);
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| laz::laszip::ChunkTable::read_from(&mut c, &lv))) {
+                Ok(Ok(t)) => Some(t.as_ref().iter().map(|e| e.point_count).collect()),
+                _ => return Err(bad("las.bad.laz_open")),
+            }
+        }
+        _ => None,
+    };
+    let fixed = u64::from(lv.chunk_size()).max(1);
+    let mut chunk_at = usize::try_from(start).ok().and_then(|s| s.checked_add(8));
+    let mut chunk_index = 0usize;
+    let mut left_in_chunk = 0u64;
     while i < n {
+        if let Some(k) = words
+            && left_in_chunk == 0
+        {
+            let next = chunk_at.and_then(|at| layered_chunk_end(b, at, len, k));
+            let Some(next) = next else {
+                h.notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
+                break;
+            };
+            chunk_at = Some(next);
+            left_in_chunk = match &per_chunk {
+                Some(t) => t.get(chunk_index).copied().unwrap_or(0).max(1),
+                None => fixed,
+            };
+            chunk_index = chunk_index.saturating_add(1);
+        }
+        left_in_chunk = left_in_chunk.saturating_sub(1);
         let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dec.decompress_one(&mut buf)));
         if !matches!(ok, Ok(Ok(()))) {
             h.notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
@@ -499,4 +572,30 @@ fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f6
         i += 1.0;
     }
     Ok(read)
+}
+
+#[cfg(test)]
+mod layered_tests {
+    use super::layered_chunk_end;
+
+    /// A chunk: `record` raw bytes, the point count, the layer sizes, then `data` bytes of layers.
+    fn chunk(record: usize, sizes: &[u32], data: usize) -> Vec<u8> {
+        let mut b = vec![0u8; record];
+        b.extend_from_slice(&7u32.to_le_bytes());
+        for s in sizes {
+            b.extend_from_slice(&s.to_le_bytes());
+        }
+        b.extend(std::iter::repeat_n(0u8, data));
+        b
+    }
+
+    #[test]
+    fn layer_sizes_must_fit_the_file() {
+        let ok = chunk(30, &[10, 0, 5], 15);
+        assert_eq!(layered_chunk_end(&ok, 0, 30, 3), Some(ok.len()));
+        // a forged 4 GB layer (the fuzz find), a sum past the end, a header past the end
+        assert_eq!(layered_chunk_end(&chunk(30, &[u32::MAX, 0, 0], 15), 0, 30, 3), None);
+        assert_eq!(layered_chunk_end(&chunk(30, &[10, 10, 10], 15), 0, 30, 3), None);
+        assert_eq!(layered_chunk_end(&ok, 40, 30, 3), None);
+    }
 }

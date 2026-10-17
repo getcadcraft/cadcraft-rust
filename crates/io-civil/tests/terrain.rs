@@ -260,6 +260,19 @@ fn laz_chunk_table_count_is_bounded() {
     }
 }
 
+/// Fuzz find (civil_las, 2026-10-17): a layered LAZ chunk listing a 4 GB layer made laz-rs size a buffer to it before
+/// reading; the chunk header is checked first and the scan stops with the "stopped" note.
+#[test]
+fn laz_layer_sizes_are_checked() {
+    crs::set_catalog();
+    let f = InFile { name: "o.laz".into(), bytes: include_bytes!("fixtures/laz-layer-size-oom.laz").to_vec() };
+    if let Ok(mut h) = las::read_las_header(&f) {
+        let t0 = std::time::Instant::now();
+        let _ = las::scan_points(&f, &mut h, &mut |_, _, _, _| {});
+        assert!(t0.elapsed().as_secs() < 60);
+    }
+}
+
 /// Fuzz find (civil_las): damaged compressed points make laz-rs panic inside its arithmetic decoder; the scan stops with
 /// the JS's "stopped" note instead (native builds; see las.rs).
 #[test]
