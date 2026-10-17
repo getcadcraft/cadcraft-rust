@@ -711,6 +711,7 @@ dependencies = [
  "cc-m3d-tools",
  "cc-markup",
  "cc-render",
+ "cc-takeoff",
  "egui",
  "egui-wgpu",
  "rayon",

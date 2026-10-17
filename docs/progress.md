@@ -21,6 +21,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M9.12: TakeoffCraft mode on the sheet view: sheet scale (the 0.5 presets), count / linear / area items, marks clicked
+  on the sheet (double-click or Enter ends a length or area), live quantities and the estimate total from cc-takeoff
+  (`quantities`, `estimate`), undo / redo through `Takeoff`; `takeoff.mode`, `takeoff.scale`, `takeoff.item`,
+  `takeoff.finish` commands. Kitchen sheet at 1/4" = 1'-0": the serving line measures 40.47 ft.
 - M10.20–M10.22 (agent): `cc-detail` + `cc-io-detail`: DetailCraft at exact parity (`tools/dcdiff.mjs` seeds 1–10:
   55,714 calls, 0 differences; writers byte-for-byte, PDFs inflated-equal; IFC import on 117 corpus files). Mark parts
   3–8×, clash 2–3×, PDF 2–8×, IFC out 2–2.6×, IFC import 2–4× the JS; readModel / build / KISS slower (JSON-value state

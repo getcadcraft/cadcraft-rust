@@ -24,6 +24,7 @@ pub mod markuptools;
 pub mod model3d;
 pub mod modelcraft;
 pub mod pdfview;
+pub mod takeofftools;
 pub mod theme;
 pub mod view3d;
 
@@ -899,6 +900,30 @@ impl UiApp {
                 }
                 self.pdf.as_mut().ok_or("markup.tool: open a PDF first")?.tools.tool = n;
             }
+            "takeoff.mode" => {
+                // the sheet view's TakeoffCraft tools ("markup" goes back)
+                let p = self.pdf.as_mut().ok_or("takeoff.mode: open a PDF first")?;
+                p.mode = if params.name.as_deref() == Some("markup") { "markup" } else { "takeoff" };
+            }
+            "takeoff.scale" => {
+                // a preset scale for the open sheet (a1/4, m100, …)
+                let k = params.name.clone().ok_or("takeoff.scale: name = preset key")?;
+                let p = self.pdf.as_mut().ok_or("takeoff.scale: open a PDF first")?;
+                let (key, uu) = (p.takeoff.sheet(p.page), p.pages.get(p.page).map_or(1.0, |i| i.user_unit));
+                p.takeoff.set_preset(&key, &k, uu);
+            }
+            "takeoff.item" => {
+                // add an item "type:name" (count, linear, area) and make it current
+                let spec = params.name.clone().ok_or("takeoff.item: name = type:name")?;
+                let (ty, name) = spec.split_once(':').unwrap_or(("count", spec.as_str()));
+                self.pdf.as_mut().ok_or("takeoff.item: open a PDF first")?.takeoff.add_item(name, ty);
+            }
+            "takeoff.finish" => {
+                // end the length / area being clicked (as Enter)
+                let p = self.pdf.as_mut().ok_or("takeoff.finish: open a PDF first")?;
+                let key = p.takeoff.sheet(p.page);
+                p.takeoff.finish(&key);
+            }
             "markup.undo" => {
                 let p = self.pdf.as_mut().ok_or("markup.undo: open a PDF first")?;
                 p.tools.message = p.store.undo().unwrap_or_default();
@@ -1197,6 +1222,11 @@ impl UiApp {
                 ui.separator();
                 pdf.sheets(ui, &t);
             });
+            if pdf.mode == "takeoff" {
+                egui::Panel::right("tk_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t));
+                });
+            }
             let mut save = false;
             egui::Panel::top("pdf_tools").frame(egui::Frame::new().fill(t.panel).inner_margin(4)).show(ui, |ui| {
                 save = pdf.tool_bar(ui, &t);

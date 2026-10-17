@@ -34,6 +34,10 @@ pub struct PdfView {
     pub store: cc_markup::model::Store,
     /// MarkupCraft's drawing tools
     pub tools: crate::markuptools::MarkupTools,
+    /// "markup" or "takeoff": which app's tools the sheet view has
+    pub mode: &'static str,
+    /// TakeoffCraft's takeoff of this plan set
+    pub takeoff: crate::takeofftools::TakeoffMode,
     /// the file as opened (Save writes a marked-up copy of it)
     bytes: std::sync::Arc<Vec<u8>>,
     /// each page's key ("f1:<index>") markups name their sheet by
@@ -82,6 +86,8 @@ impl PdfView {
         Ok(PdfView {
             store,
             tools: crate::markuptools::MarkupTools::default(),
+            mode: "markup",
+            takeoff: crate::takeofftools::TakeoffMode::new(&doc.hash),
             bytes: std::sync::Arc::new(bytes.to_vec()),
             page_keys,
             annots_drawn,
@@ -180,10 +186,31 @@ impl PdfView {
             self.fit_to(rect.size());
         }
         let origin = rect.min + self.pan;
-        let pan_drag = resp.dragged_by(egui::PointerButton::Middle)
-            || resp.dragged_by(egui::PointerButton::Secondary)
-            || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select");
-        if pan_drag {
+        if self.mode == "takeoff" {
+            let key = self.takeoff.sheet(self.page);
+            if resp.dragged() {
+                self.pan += resp.drag_delta();
+            } else if resp.double_clicked() {
+                self.takeoff.finish(&key);
+            } else if resp.clicked()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let q = self.to_pdf(origin, p);
+                self.takeoff.click(&key, q);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.takeoff.finish(&key);
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.takeoff.pts.clear();
+            }
+        }
+        let pan_drag = self.mode != "takeoff"
+            && (resp.dragged_by(egui::PointerButton::Middle)
+                || resp.dragged_by(egui::PointerButton::Secondary)
+                || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select"));
+        if self.mode == "takeoff" {
+        } else if pan_drag {
             self.pan += resp.drag_delta();
         } else if self.tools.draws() {
             let key = self.sheet_key();
@@ -259,6 +286,14 @@ impl PdfView {
         }
         if self.show_markups || self.tools.draws() {
             self.draw_markups(&painter, page_rect.min);
+        }
+        if let Some(info) = self.pages.get(self.page) {
+            let (tr, z, o) = (info.transform, self.zoom, page_rect.min);
+            let at = move |x: f64, y: f64| {
+                let (vx, vy) = pdfread::to_viewport(&tr, x, y);
+                o + Vec2::new((vx * z) as f32, (vy * z) as f32)
+            };
+            self.takeoff.draw(&painter, &self.takeoff.sheet(self.page), &at);
         }
         if let Some(e) = &self.error {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, e, egui::FontId::proportional(14.0), t.text);
@@ -341,6 +376,13 @@ impl PdfView {
         self.page_keys.get(self.page).map_or(0, |k| self.store.on_sheet(k).len())
     }
 
+    /// TakeoffCraft's panel for the open sheet.
+    pub fn takeoff_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let key = self.takeoff.sheet(self.page);
+        let uu = self.pages.get(self.page).map_or(1.0, |p| p.user_unit);
+        self.takeoff.panel(ui, t, &key, uu);
+    }
+
     /// The open sheet's key ("f1:<index>"): what its markups name.
     pub fn sheet_key(&self) -> String {
         self.page_keys.get(self.page).cloned().unwrap_or_else(|| format!("f1:{}", self.page))
@@ -380,6 +422,17 @@ impl PdfView {
     pub fn tool_bar(&mut self, ui: &mut egui::Ui, t: &Tokens) -> bool {
         let mut save = false;
         ui.horizontal_wrapped(|ui| {
+            for (m, label) in [("markup", "Markup"), ("takeoff", "Takeoff")] {
+                if ui.selectable_label(self.mode == m, egui::RichText::new(label).strong()).clicked() {
+                    self.mode = m;
+                    self.takeoff.pts.clear();
+                }
+            }
+            ui.separator();
+            if self.mode == "takeoff" {
+                ui.label(egui::RichText::new("Pick an item on the right, then click the sheet: a count at each click; double-click or Enter ends a length or area; Esc drops it").color(t.text_dim));
+                return;
+            }
             for (id, label) in crate::markuptools::TOOLS {
                 if ui.selectable_label(self.tools.tool == *id, *label).clicked() {
                     self.tools.tool = (*id).to_string();
