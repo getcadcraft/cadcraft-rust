@@ -152,6 +152,30 @@ fn shot(args: &[String]) -> Result<(), String> {
                     hs.run_steps(2);
                 }
             }
+            "--mouse-drag" => {
+                // a real primary-button drag at window coordinates: "x1,y1:x2,y2", in eight moves
+                if let Some((a, b)) = v.split_once(':')
+                    && let (Some((x1, y1)), Some((x2, y2))) = (xy(a), xy(b))
+                {
+                    let at = |k: f64| egui::pos2((x1 + (x2 - x1) * k) as f32, (y1 + (y2 - y1) * k) as f32);
+                    let button = |pos, pressed| egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    };
+                    hs.event(egui::Event::PointerMoved(at(0.0)));
+                    hs.run_steps(1);
+                    hs.event(button(at(0.0), true));
+                    hs.run_steps(1);
+                    for i in 1..=8 {
+                        hs.event(egui::Event::PointerMoved(at(f64::from(i) / 8.0)));
+                        hs.run_steps(1);
+                    }
+                    hs.event(button(at(1.0), false));
+                    hs.run_steps(2);
+                }
+            }
             "--hover" => {
                 if let Some((x, y)) = xy(&v) {
                     hs.state_mut().hover_world(x, y);

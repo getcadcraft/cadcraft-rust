@@ -20,6 +20,7 @@ pub mod canvas;
 pub mod document;
 pub mod edit;
 pub mod ifc3d;
+pub mod markuptools;
 pub mod model3d;
 pub mod modelcraft;
 pub mod pdfview;
@@ -890,6 +891,18 @@ impl UiApp {
                 let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone()).ok_or("bim.totals: open an IFC model first")?;
                 self.bim.totals_by(&bytes, &spec);
             }
+            "markup.tool" => {
+                // MarkupCraft tool on the sheet view: select, pan, pen, highlight, line, arrow, rect, ellipse, cloudrect, text
+                let n = params.name.clone().ok_or("markup.tool: name is required")?;
+                if !markuptools::TOOLS.iter().any(|(id, _)| *id == n) {
+                    return Err(format!("markup.tool: unknown tool {n}"));
+                }
+                self.pdf.as_mut().ok_or("markup.tool: open a PDF first")?.tools.tool = n;
+            }
+            "markup.undo" => {
+                let p = self.pdf.as_mut().ok_or("markup.undo: open a PDF first")?;
+                p.tools.message = p.store.undo().unwrap_or_default();
+            }
             "pdf.page" => {
                 // go to a sheet of the open PDF (1-based)
                 let n = params.factor.filter(|f| f.is_finite() && *f >= 1.0).ok_or("pdf.page: factor = page number (1-based)")?;
@@ -1184,11 +1197,30 @@ impl UiApp {
                 ui.separator();
                 pdf.sheets(ui, &t);
             });
+            let mut save = false;
+            egui::Panel::top("pdf_tools").frame(egui::Frame::new().fill(t.panel).inner_margin(4)).show(ui, |ui| {
+                save = pdf.tool_bar(ui, &t);
+            });
             egui::CentralPanel::no_frame().show(ui, |ui| {
                 let rect = ui.max_rect();
                 pdf.show(ui, rect, &t);
             });
             self.message = pdf.status();
+            if !pdf.tools.message.is_empty() {
+                self.message = format!("{}   · {}", self.message, pdf.tools.message);
+            }
+            if save {
+                let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+                match pdf.save_marked(now) {
+                    Ok((name, bytes)) => match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                        Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                        Some(Ok(None)) => {}
+                        Some(Err(e)) => self.error = Some(e),
+                        None => self.error = Some("Saving is not available here".into()),
+                    },
+                    Err(e) => self.error = Some(e),
+                }
+            }
         } else if self.mc.is_some() {
             self.tool_palette(ui);
             let t = self.tokens;

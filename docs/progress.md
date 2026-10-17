@@ -21,6 +21,12 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M9.11: desktop eframe without `accesskit` (screen readers are the skipped known issue): its Linux bridge pulled zbus
+  crates RustSec marked unmaintained today (RUSTSEC-2026-0370/0371/0372, no upgrade), failing `cargo deny`.
+- M9.10: MarkupCraft tools on the sheet view: Select (listDistance pick), Pan, Pen, Highlighter, Line, Arrow,
+  Rectangle, Ellipse, Cloud, Text; colours; each gesture one `Store::change` step through makeMarkup (the 0.5 ids, styles,
+  undo labels), drawn while dragging from the same display list; Undo / Redo / Delete (Ctrl+Z, Delete); Save marked-up
+  PDF through cc-io-markup writeMarkedUp; `markup.tool`, `markup.undo` commands; shot tool `--mouse-drag`.
 - M9.8: MarkupCraft markups on the sheet view: read with cc-io-markup openPdf when the PDF opens, drawn from cc-markup's
   display lists (shapes.js: the list the saved PDF's appearances come from) through the page's viewport transform;
   pages MarkupCraft draws itself (annotMode "disable") render without their annotations' own appearances (hayro

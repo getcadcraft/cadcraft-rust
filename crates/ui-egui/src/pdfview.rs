@@ -30,8 +30,12 @@ pub struct PdfView {
     /// how long the last render took (ms)
     pub render_ms: f64,
     pub error: Option<String>,
-    /// the markups read back from the file (MarkupCraft's openPdf), when it has any
-    pub markups: Vec<cc_markup::model::Markup>,
+    /// the plan set's markups (read back with MarkupCraft's openPdf; the tools add to it with undo)
+    pub store: cc_markup::model::Store,
+    /// MarkupCraft's drawing tools
+    pub tools: crate::markuptools::MarkupTools,
+    /// the file as opened (Save writes a marked-up copy of it)
+    bytes: std::sync::Arc<Vec<u8>>,
     /// each page's key ("f1:<index>") markups name their sheet by
     page_keys: Vec<String>,
     /// pages whose annotations MarkupCraft draws itself (annotMode "disable"): rendered without them while markups show
@@ -71,8 +75,14 @@ impl PdfView {
             }
             Err(_) => (Vec::new(), Vec::new(), Vec::new()),
         };
+        let mut store = cc_markup::model::Store::new();
+        for m in markups {
+            store.markups.insert(m.id.clone(), m);
+        }
         Ok(PdfView {
-            markups,
+            store,
+            tools: crate::markuptools::MarkupTools::default(),
+            bytes: std::sync::Arc::new(bytes.to_vec()),
             page_keys,
             annots_drawn,
             show_markups: true,
@@ -141,8 +151,8 @@ impl PdfView {
     /// The sheet list (page labels).
     pub fn sheets(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let mut go: Option<usize> = None;
-        if !self.markups.is_empty() {
-            let label = format!("Markups ({} on this sheet, {} in all)", self.page_markups(), self.markups.len());
+        if !self.store.markups.is_empty() {
+            let label = format!("Markups ({} on this sheet, {} in all)", self.page_markups(), self.store.markups.len());
             if ui.checkbox(&mut self.show_markups, egui::RichText::new(label).color(t.text)).changed() {
                 // the page is drawn with or without its annotations' own appearances
                 self.tex = None;
@@ -169,8 +179,52 @@ impl PdfView {
         if !self.fitted {
             self.fit_to(rect.size());
         }
-        if resp.dragged() {
+        let origin = rect.min + self.pan;
+        let pan_drag = resp.dragged_by(egui::PointerButton::Middle)
+            || resp.dragged_by(egui::PointerButton::Secondary)
+            || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select");
+        if pan_drag {
             self.pan += resp.drag_delta();
+        } else if self.tools.draws() {
+            let key = self.sheet_key();
+            if resp.drag_started_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let q = self.to_pdf(origin, p);
+                self.tools.begin(q);
+            } else if resp.dragged_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let q = self.to_pdf(origin, p);
+                self.tools.moved(q);
+            } else if resp.drag_stopped() {
+                self.tools.end(&mut self.store, &key);
+            } else if resp.clicked()
+                && self.tools.tool == "text"
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let q = self.to_pdf(origin, p);
+                self.tools.begin(q);
+                self.tools.end(&mut self.store, &key);
+            }
+        } else if self.tools.tool == "select" {
+            if resp.dragged_by(egui::PointerButton::Primary) {
+                self.pan += resp.drag_delta();
+            } else if resp.clicked()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let key = self.sheet_key();
+                let q = self.to_pdf(origin, p);
+                let px = 1.0 / self.zoom;
+                self.tools.pick(&self.store, &key, q, px);
+            }
+        }
+        if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+            self.tools.delete_selected(&mut self.store);
+        }
+        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
+            let r = if ui.input(|i| i.modifiers.shift) { self.store.redo() } else { self.store.undo() };
+            self.tools.message = r.unwrap_or_default();
         }
         if let Some(p) = resp.hover_pos() {
             let (scroll, zoom_delta) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -203,7 +257,7 @@ impl PdfView {
         if let Some((tex, _, _)) = &self.tex {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
-        if self.show_markups {
+        if self.show_markups || self.tools.draws() {
             self.draw_markups(&painter, page_rect.min);
         }
         if let Some(e) = &self.error {
@@ -223,7 +277,17 @@ impl PdfView {
             origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
         };
         let env = ShapeEnv { cal: None, badge: 0.0, legend: None };
-        for m in self.markups.iter().filter(|m| m.sheet.as_deref() == Some(key.as_str())) {
+        let preview = self.tools.preview(key);
+        let sel = self.tools.selected.as_deref();
+        let list: Vec<&cc_markup::model::Markup> =
+            self.store.on_sheet(key).into_iter().filter(|m| self.store.shown(m)).chain(preview.iter()).collect();
+        for m in list {
+            if sel == Some(m.id.as_str())
+                && let Some(b) = cc_markup::shapes::list_bounds(&shapes(m, &env))
+            {
+                let r = Rect::from_two_pos(at(b[0], b[1]), at(b[2], b[3])).expand(4.0);
+                painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, Color32::from_rgb(0x1f, 0x6f, 0xeb)), egui::StrokeKind::Outside);
+            }
             for item in shapes(m, &env) {
                 match item {
                     Item::Path(p) => {
@@ -274,8 +338,83 @@ impl PdfView {
 
     /// How many markups the open page has.
     pub fn page_markups(&self) -> usize {
-        let key = self.page_keys.get(self.page);
-        self.markups.iter().filter(|m| m.sheet.as_ref() == key).count()
+        self.page_keys.get(self.page).map_or(0, |k| self.store.on_sheet(k).len())
+    }
+
+    /// The open sheet's key ("f1:<index>"): what its markups name.
+    pub fn sheet_key(&self) -> String {
+        self.page_keys.get(self.page).cloned().unwrap_or_else(|| format!("f1:{}", self.page))
+    }
+
+    /// A screen point → PDF user space of the open page.
+    fn to_pdf(&self, origin: Pos2, p: Pos2) -> [f64; 2] {
+        let tr = self.pages.get(self.page).map_or([1.0, 0.0, 0.0, -1.0, 0.0, 0.0], |i| i.transform);
+        let (x, y) = pdfread::to_pdf(&tr, f64::from(p.x - origin.x) / self.zoom, f64::from(p.y - origin.y) / self.zoom);
+        [x, y]
+    }
+
+    /// The marked-up copy: every sheet's markups as annotations (cc-io-markup writeMarkedUp), named "<name>-marked.pdf".
+    pub fn save_marked(&self, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+        let pages = (0..self.pages.len())
+            .map(|i| {
+                let key = self.page_keys.get(i).cloned().unwrap_or_else(|| format!("f1:{i}"));
+                cc_io_markup::write::WritePage {
+                    index: i,
+                    markups: self.store.on_sheet(&key).into_iter().cloned().collect(),
+                    cal: self.store.calibrations.get(&key).cloned(),
+                    cal_json: None,
+                    badge: 0.0,
+                    sheet_name: None,
+                    cal_cleared: false,
+                    legends: Vec::new(),
+                }
+            })
+            .collect();
+        let opts = cc_io_markup::write::WriteOpts { pages, now_ms, ..Default::default() };
+        let (pdf, _report) = cc_io_markup::write::write_marked_up(&self.bytes, &opts)?;
+        let stem = self.name.rsplit_once('.').map_or(self.name.as_str(), |(a, _)| a);
+        Ok((format!("{stem}-marked.pdf"), pdf))
+    }
+
+    /// The markup tool bar (above the sheet): tools, colour, the text a Text markup gets, undo / redo, delete.
+    pub fn tool_bar(&mut self, ui: &mut egui::Ui, t: &Tokens) -> bool {
+        let mut save = false;
+        ui.horizontal_wrapped(|ui| {
+            for (id, label) in crate::markuptools::TOOLS {
+                if ui.selectable_label(self.tools.tool == *id, *label).clicked() {
+                    self.tools.tool = (*id).to_string();
+                }
+            }
+            ui.separator();
+            for c in crate::markuptools::COLORS {
+                let col = hex_color(c, 1.0).unwrap_or(Color32::RED);
+                let (r, resp) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
+                ui.painter().rect_filled(r, 2.0, col);
+                if self.tools.color == *c {
+                    ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(2.0, t.text_strong), egui::StrokeKind::Outside);
+                }
+                if resp.clicked() {
+                    self.tools.color = (*c).to_string();
+                }
+            }
+            ui.separator();
+            if self.tools.tool == "text" {
+                ui.add(egui::TextEdit::singleline(&mut self.tools.text).desired_width(140.0));
+            }
+            if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new("Undo")).clicked() {
+                self.tools.message = self.store.undo().map(|l| format!("Undo {l}")).unwrap_or_default();
+            }
+            if ui.add_enabled(!self.store.redo_stack.is_empty(), egui::Button::new("Redo")).clicked() {
+                self.tools.message = self.store.redo().map(|l| format!("Redo {l}")).unwrap_or_default();
+            }
+            if ui.add_enabled(self.tools.selected.is_some(), egui::Button::new("Delete")).clicked() {
+                self.tools.delete_selected(&mut self.store);
+            }
+            if ui.button("Save marked-up PDF").clicked() {
+                save = true;
+            }
+        });
+        save
     }
 
     /// What the status bar says.
