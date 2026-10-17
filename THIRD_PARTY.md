@@ -4,12 +4,16 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 
 | Crate | Used by | Why | Licence |
 |---|---|---|---|
-| serde, serde_json | io-dwg, engine, mcp, m3d, io-m3d, xtask | JSON for `convert --json`, commands, MCP | MIT OR Apache-2.0 |
+| serde, serde_json | io-dwg, engine, mcp, m3d, io-m3d, takeoff, io-takeoff, xtask | JSON for `convert --json`, commands, MCP | MIT OR Apache-2.0 |
 | thiserror | io-dwg, engine | error types | MIT OR Apache-2.0 |
 | encoding_rs | io-dwg | DWG code-page text (windows-125x, Shift-JIS, GBK, Big5, EUC-KR …) | (Apache-2.0 OR MIT) AND BSD-3-Clause |
 | rayon | io-dwg, io-skp (native only) | parallel object decoding / conversion / page decompression | MIT OR Apache-2.0 |
-| libm | cad-geom, m3d, io-m3d | fdlibm maths (tan, atan, atan2, acos) bit-identical to V8, so geometry matches the 0.5 JS exactly | MIT |
+| libm | cad-geom, m3d, io-m3d, takeoff, io-takeoff | fdlibm maths (tan, atan, atan2, acos) bit-identical to V8, so geometry matches the 0.5 JS exactly | MIT |
 | unicode-general-category | io-m3d | Unicode general categories for the Collada writer's NCName check (the JS uses `\p{L}`/`\p{N}`… regex classes); build.rs only writes a lookup table into OUT_DIR | Apache-2.0 |
+| hayro (0.8) | io-takeoff | pure-Rust PDF reader and renderer: page boxes, labels and attachments for the plan set, ink rasters for auto count, the vector paths snapping reads (the JS uses pdf.js) | Apache-2.0 OR MIT |
+| sha2 | io-takeoff | SHA-256 of a PDF's bytes: a sheet is known by its file's hash, as `pdfset.js` does with SubtleCrypto | MIT OR Apache-2.0 |
+| miniz_oxide | io-takeoff | raw deflate for the XLSX zip entries (the JS uses CompressionStream) | MIT OR Zlib OR Apache-2.0 |
+| unicode-normalization | takeoff | NFC/NFD for the ICU-style `localeCompare` the item and division sorts use | MIT OR Apache-2.0 |
 | libfuzzer-sys | fuzz/ (not shipped) | cargo-fuzz targets | MIT OR Apache-2.0 OR NCSA |
 | zlib-rs | io-skp | raw-deflate inflate of SketchUp 2021+ ZIP entries (fastest pure-Rust inflater measured: 16 ms vs 21 ms for miniz_oxide on a 16 MB model.dat); `rust-allocator` feature, no C | Zlib |
 | crc32fast | io-skp | CRC-32 check of unpacked ZIP entries (SIMD at run time) | MIT OR Apache-2.0 |
@@ -23,4 +27,4 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | — its math.h `acos` (FreeBSD msun via musl) | crates/manifold/src/math.rs | deterministic vertex pseudo-normals | SunPro notice (permissive), see NOTICE |
 | — its disjoint_sets.h (github.com/wjakob/dset) | crates/manifold/src/disjoint.rs | union-find | Zlib |
 | — its linalg.h (based on linalg.h 2.2, Sterling Orsten) | crates/manifold/src/linalg.rs | the vector operations, same evaluation order | Apache-2.0 / public domain |
-
+| Adobe Core14 font metrics (Helvetica, Helvetica-Bold AFM) as pdf-lib 1.17.1 ships them | crates/io-takeoff/src/stdfont.rs (generated widths + kerning for WinAnsi) | the marked PDF and the proposal measure and wrap text exactly as pdf-lib's `widthOfTextAtSize` | Adobe AFM notice (redistribution permitted with the notice; kept in the file); pdf-lib MIT |

@@ -1,0 +1,25 @@
+[package]
+name = "cc-takeoff"
+description = "CadCraft L2: TakeoffCraft's engine (units.js, geom.js, formula.js, model.js, bid.js, library.js, packs.js, clipboard.js, snap.js, typein.js, overlay.js, match.js, scaletext.js, roomfill.js, scene3d.js)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 2
+
+[lints]
+workspace = true
+
+[dependencies]
+# V8's Math helpers (hypot, round, Number#toString, toFixed, fdlibm sin / cos) and earcut, ported once in cc-m3d
+cc-m3d.workspace = true
+serde_json.workspace = true
+# FreeBSD msun (fdlibm) in Rust: the same atan / atan2 / tan / pow V8 uses, bit for bit
+libm = "0.2.16"
+# String.prototype.normalize('NFKD') (libraryPack's keys)
+unicode-normalization = "0.1"

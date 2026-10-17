@@ -29,6 +29,9 @@
 //!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
 //!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
+//!   cadcraft-cli takeoff <script.json> | export | match | count | marks | proposal | embed | bench
+//!                                                TakeoffCraft's engine (cc-takeoff, cc-io-takeoff), takeoff.rs
+//!
 //! Exit codes: 0 ok, 1 refused file / error, 2 usage, 3 engine not ported yet.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
@@ -41,6 +44,8 @@ mod m3dio;
 mod m3dtools;
 mod manifold;
 mod skp;
+mod takeoff;
+mod takeoff_pdf;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -77,6 +82,7 @@ fn main() -> ExitCode {
         "m3d" => m3d::m3d(&rest),
         "m3dtools" => m3dtools::m3dtools(&rest),
         "m3dio" => m3dio::m3dio(&rest),
+        "takeoff" => takeoff::takeoff(&rest),
         _ => usage(),
     }
 }

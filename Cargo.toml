@@ -40,6 +40,8 @@ cc-engine = { path = "crates/engine" }
 cc-ui-egui = { path = "crates/ui-egui" }
 cc-mcp = { path = "crates/mcp" }
 cc-manifold = { path = "crates/manifold" }
+cc-takeoff = { path = "crates/takeoff" }
+cc-io-takeoff = { path = "crates/io-takeoff" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"
@@ -65,6 +67,12 @@ overflow-checks = true
 overflow-checks = true
 
 [profile.release.package.cc-io-m3d]
+overflow-checks = true
+
+[profile.release.package.cc-io-takeoff]
+overflow-checks = true
+
+[profile.release.package.cc-takeoff]
 overflow-checks = true
 
 [profile.bench]

@@ -1,0 +1,28 @@
+[package]
+name = "cc-io-takeoff"
+description = "CadCraft L3: TakeoffCraft's files (xlsx.js, export.js, pdfmarks.js, bid.js's proposal, embed.js, glb.js, pdfset.js) and PDF rasters for auto count, on cc-takeoff."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-takeoff.workspace = true
+serde_json.workspace = true
+cc-m3d.workspace = true
+libm = "0.2.16"
+# raw deflate for the XLSX zip (MIT / Zlib / Apache-2.0, already in the lock file)
+miniz_oxide = "0.8.9"
+# PDF pages rendered for auto count, and the PDF objects read (Apache-2.0 OR MIT, pure Rust)
+hayro = "0.8"
+# the plan set's file hashes (MIT OR Apache-2.0)
+sha2 = "0.10"

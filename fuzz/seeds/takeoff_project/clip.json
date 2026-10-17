@@ -1,0 +1,1 @@
+{"format":"takeoffcraft-clip","version":1,"items":[{"id":"i1","name":"W","type":"linear"}],"marks":[{"item":"i1","kind":"linear","pts":[[0,0],[10,0,0.5]]}],"sheet":{"ftPerUnit":0.05,"view":[0,0,612,792]},"anchor":{"x":0,"y":0}}

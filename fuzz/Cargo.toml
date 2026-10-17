@@ -21,6 +21,8 @@ cc-manifold = { path = "../crates/manifold" }
 cc-m3d = { path = "../crates/m3d" }
 cc-m3d-tools = { path = "../crates/m3d-tools" }
 cc-io-m3d = { path = "../crates/io-m3d" }
+cc-takeoff = { path = "../crates/takeoff" }
+cc-io-takeoff = { path = "../crates/io-takeoff" }
 
 [[bin]]
 name = "dwg_read"
@@ -99,6 +101,20 @@ bench = false
 [[bin]]
 name = "m3d_import"
 path = "fuzz_targets/m3d_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "takeoff_project"
+path = "fuzz_targets/takeoff_project.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "takeoff_formula"
+path = "fuzz_targets/takeoff_formula.rs"
 test = false
 doc = false
 bench = false
