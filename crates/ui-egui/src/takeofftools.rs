@@ -32,6 +32,9 @@ pub struct TakeoffMode {
     pub ac_any: bool,
     pub ac_box: Option<([f64; 2], [f64; 2])>,
     pub ac: Option<crate::autocount::AutoCount>,
+    /// a search running on its own thread (desktop): its result arrives here
+    #[cfg(not(target_arch = "wasm32"))]
+    pub ac_job: Option<std::sync::mpsc::Receiver<Result<crate::autocount::AutoCount, String>>>,
 }
 
 impl std::fmt::Debug for TakeoffMode {
@@ -103,6 +106,8 @@ impl TakeoffMode {
             ac_any: false,
             ac_box: None,
             ac: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            ac_job: None,
         }
     }
 

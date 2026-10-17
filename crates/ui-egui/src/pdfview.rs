@@ -188,7 +188,12 @@ impl PdfView {
             self.fit_to(rect.size());
         }
         let origin = rect.min + self.pan;
-        if self.mode == "takeoff" && self.takeoff.ac_tool && self.takeoff.ac.is_none() {
+        self.poll_autocount(ui.ctx());
+        if self.mode == "takeoff" && self.autocount_busy() {
+            if resp.dragged() {
+                self.pan += resp.drag_delta();
+            }
+        } else if self.mode == "takeoff" && self.takeoff.ac_tool && self.takeoff.ac.is_none() {
             // Auto count: a primary drag boxes the symbol, release searches this sheet
             let key = self.takeoff.sheet(self.page);
             if resp.drag_started_by(egui::PointerButton::Primary)
@@ -203,7 +208,7 @@ impl PdfView {
             } else if resp.drag_stopped()
                 && let Some((a, b)) = self.takeoff.ac_box.take()
             {
-                self.run_autocount(&key, a, b);
+                self.run_autocount(&key, a, b, true);
             } else if resp.dragged() {
                 self.pan += resp.drag_delta();
             }
@@ -448,15 +453,43 @@ impl PdfView {
         self.takeoff.panel(ui, t, &key, uu);
     }
 
-    /// Auto count on the open sheet for the symbol boxed from `a` to `b` (PDF user space).
-    pub fn run_autocount(&mut self, sheet: &str, a: [f64; 2], b: [f64; 2]) {
+    /// Auto count on the open sheet for the symbol boxed from `a` to `b` (PDF user space). The search runs here
+    /// (scripts, the web build) or, with `background` on the desktop, on its own thread (as the JS uses a worker): the
+    /// result is picked up by `poll_autocount`.
+    pub fn run_autocount(&mut self, sheet: &str, a: [f64; 2], b: [f64; 2], background: bool) {
         if !self.takeoff.ensure_count() {
             return;
         }
         let Some(info) = self.pages.get(self.page).cloned() else { return };
         let item = self.takeoff.item.clone().unwrap_or_default();
         let own = self.takeoff.own_counts(sheet);
-        match crate::autocount::run(&self.doc, &info, &item, sheet, (a, b), self.takeoff.ac_any, &own) {
+        let any = self.takeoff.ac_any;
+        #[cfg(not(target_arch = "wasm32"))]
+        if background {
+            // the thread opens its own copy of the PDF (the reader's document is not shared across threads)
+            let bytes = std::sync::Arc::clone(&self.bytes);
+            let sheet = sheet.to_string();
+            let (tx, rx) = std::sync::mpsc::channel();
+            let spawned = std::thread::Builder::new().name("autocount".into()).spawn(move || {
+                let r = pdfread::open(&bytes).and_then(|doc| crate::autocount::run(&doc, &info, &item, &sheet, (a, b), any, &own));
+                let _ = tx.send(r);
+            });
+            match spawned {
+                Ok(_) => {
+                    self.takeoff.ac_job = Some(rx);
+                    self.takeoff.message = cc_takeoff::i18n::t("ac.searching.one");
+                }
+                Err(e) => self.takeoff.message = e.to_string(),
+            }
+            return;
+        }
+        let _ = background;
+        let r = crate::autocount::run(&self.doc, &info, &item, sheet, (a, b), any, &own);
+        self.finish_autocount(r);
+    }
+
+    fn finish_autocount(&mut self, r: Result<crate::autocount::AutoCount, String>) {
+        match r {
             Ok(ac) => {
                 self.takeoff.message = if ac.visible().is_empty() {
                     cc_takeoff::i18n::t("ac.none")
@@ -467,6 +500,33 @@ impl PdfView {
             }
             Err(e) => self.takeoff.message = e,
         }
+    }
+
+    /// A background search that has finished becomes the review; while one runs the view keeps repainting.
+    pub fn poll_autocount(&mut self, ctx: &egui::Context) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(rx) = self.takeoff.ac_job.as_ref() {
+            match rx.try_recv() {
+                Ok(r) => {
+                    self.takeoff.ac_job = None;
+                    self.finish_autocount(r);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(50)),
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.takeoff.ac_job = None;
+                    self.takeoff.message = cc_takeoff::i18n::tf("ac.failed", &[("reason", cc_takeoff::i18n::F::S("stopped".into()))]);
+                }
+            }
+        }
+        let _ = ctx;
+    }
+
+    /// Whether a background search is running.
+    pub fn autocount_busy(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        return self.takeoff.ac_job.is_some();
+        #[cfg(target_arch = "wasm32")]
+        false
     }
 
     /// A TakeoffCraft export of this plan set (see `TakeoffMode::export_file`).

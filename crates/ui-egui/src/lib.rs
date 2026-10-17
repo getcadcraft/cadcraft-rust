@@ -960,13 +960,14 @@ impl UiApp {
                 p.tools.set_scale(&mut p.store, &key, cal);
             }
             "takeoff.autocount" => {
-                // Auto count on the open sheet: name = "x0,y0,x1,y1" (the symbol's box, PDF user space; "any:" first for
+                // Auto count on the open sheet: "tool" switches the box tool (a drag searches on a thread); name = "x0,y0,x1,y1" (the symbol's box, PDF user space; "any:" first for
                 // every 15°), then "accept" adds the kept matches, "discard" drops them; a number (or factor) sets the match threshold
                 let spec = params.name.clone().ok_or("takeoff.autocount: name = x0,y0,x1,y1 | accept | discard")?;
                 let p = self.pdf.as_mut().ok_or("takeoff.autocount: open a PDF first")?;
                 match spec.as_str() {
                     // a bare number is the match threshold (the review's slider)
                     _ if spec.parse::<f64>().is_ok() => {}
+                    "tool" => p.takeoff.ac_tool = !p.takeoff.ac_tool,
                     "accept" => p.takeoff.accept_autocount(),
                     "discard" => p.takeoff.ac = None,
                     _ => {
@@ -975,7 +976,7 @@ impl UiApp {
                         let [x0, y0, x1, y1] = v[..] else { return Err("takeoff.autocount: the box is x0,y0,x1,y1".into()) };
                         p.takeoff.ac_any = any;
                         let key = p.takeoff.sheet(p.page);
-                        p.run_autocount(&key, [x0, y0], [x1, y1]);
+                        p.run_autocount(&key, [x0, y0], [x1, y1], false);
                     }
                 }
                 if let (Some(f), Some(ac)) = (params.factor, p.takeoff.ac.as_mut()) {
