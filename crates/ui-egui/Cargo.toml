@@ -17,6 +17,8 @@ workspace = true
 
 [dependencies]
 cc-m3d-files.workspace = true
+cc-civil.workspace = true
+cc-io-civil.workspace = true
 cc-m3d-tools.workspace = true
 cc-io-ifc.workspace = true
 cc-bim.workspace = true

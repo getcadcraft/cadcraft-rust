@@ -17,6 +17,10 @@
 
 pub mod bimtools;
 pub mod canvas;
+pub mod civil3d;
+pub mod civilpanel;
+pub mod civilplan;
+pub mod civilview;
 pub mod document;
 pub mod edit;
 pub mod ifc3d;
@@ -178,6 +182,8 @@ pub struct UiApp {
     pub save_format: String,
     /// input events held back to the next frame (everything after an Enter: one answer per frame)
     held: Vec<egui::Event>,
+    /// an open CivilCraft project (civilview.rs)
+    pub civil: Option<civilview::CivilView>,
 }
 
 impl Default for UiApp {
@@ -222,6 +228,7 @@ impl Default for UiApp {
             source: None,
             save_format: "2018".into(),
             held: Vec::new(),
+            civil: None,
         }
     }
 }
@@ -239,6 +246,11 @@ impl UiApp {
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
         let lower = f.name.to_ascii_lowercase();
+        if civilview::is_civil_file(&lower, &f.bytes) {
+            civilview::open_file(self, f);
+            return;
+        }
+        self.civil = None;
         if lower.ends_with(".pdf") {
             match pdfview::PdfView::open(&f.name, &f.bytes) {
                 Ok(v) => {
@@ -722,6 +734,7 @@ impl UiApp {
     }
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
+        self.civil = None;
         self.scene3 = None;
         self.model3 = None;
         self.mc = None;
@@ -803,6 +816,9 @@ impl UiApp {
             }
             "view.fit" => {
                 self.pending_fit = true;
+                if let Some(c) = self.civil.as_mut() {
+                    c.fit();
+                }
                 if let Some(p) = self.pdf.as_mut() {
                     p.fit();
                 }
@@ -986,6 +1002,7 @@ impl UiApp {
                 );
             }
             "file.new" => {
+                self.civil = None;
                 self.scene3 = None;
                 self.model3 = None;
                 self.model3 = None;
@@ -1061,6 +1078,7 @@ impl UiApp {
                     }
                 }
             }
+            id if id.starts_with("civil.") => return civilview::run(self, id, params),
             other => return Err(format!("unknown command {other}")),
         }
         Ok(())
@@ -1290,6 +1308,8 @@ impl UiApp {
                 // the Properties panel was laid out before the click in this frame: draw it in the next one
                 ui.ctx().request_repaint();
             }
+        } else if self.civil.is_some() {
+            civilview::ui(self, ui);
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         }
@@ -1317,6 +1337,10 @@ impl UiApp {
                     }
                     if ui.button("3D sample").on_hover_text("Open a sample 3D model (ModelCraft's model kernel)").clicked() {
                         self.run_ui("view.model.sample", &Params::default());
+                    }
+                    if ui.button("Site sample").on_hover_text("Open CivilCraft's sample site (survey points, surface, contours)").clicked()
+                    {
+                        self.run_ui("civil.sample", &Params::default());
                     }
                     if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
                         self.run_ui("file.new", &Params::default());
@@ -1368,7 +1392,7 @@ impl UiApp {
                     }
                     if ui
                         .add_enabled(
-                            self.doc.is_some() || self.scene3.is_some() || self.mc.is_some() || self.pdf.is_some(),
+                            self.doc.is_some() || self.scene3.is_some() || self.mc.is_some() || self.pdf.is_some() || self.civil.is_some(),
                             egui::Button::new("Fit"),
                         )
                         .on_hover_text("Zoom to the drawing or model (Home)")
