@@ -279,6 +279,15 @@ fn g(z: &Value, k: &str) -> f64 {
 
 /// `partSizes(id)`.
 pub fn part_sizes(id: &str) -> Vec<Value> {
+    sizes_ref(id).to_vec()
+}
+/// The size table of a family, built once (the tables are constants).
+fn sizes_ref(id: &str) -> &'static [Value] {
+    static CACHE: std::sync::OnceLock<Vec<(&'static str, Vec<Value>)>> = std::sync::OnceLock::new();
+    let all = CACHE.get_or_init(|| PART_FAMILIES.iter().map(|f| (f.id, build_sizes(f.id))).collect());
+    all.iter().find(|(k, _)| *k == id).map_or(&[], |(_, v)| v.as_slice())
+}
+fn build_sizes(id: &str) -> Vec<Value> {
     match id {
         "iso4014" | "iso4017" => METRIC
             .iter()
@@ -370,7 +379,7 @@ pub fn part_sizes(id: &str) -> Vec<Value> {
 }
 
 fn size_row(id: &str, size: &str) -> Option<Value> {
-    part_sizes(id).into_iter().find(|z| jv::is_str(z.get("size"), size))
+    sizes_ref(id).iter().find(|z| jv::is_str(z.get("size"), size)).cloned()
 }
 
 /// `partOptions(id, size)`.

@@ -47,13 +47,20 @@ fn num_text(v: f64) -> String {
 }
 
 /// One configuration row: (name, size, values in the template's parameter order).
+#[derive(Clone)]
 struct Row {
     name: String,
     size: String,
     values: Vec<(&'static str, f64)>,
 }
 
-fn rows(id: &str) -> Vec<Row> {
+/// The configuration rows of a template, built once per id (they come from constant tables).
+fn rows(id: &str) -> &'static [Row] {
+    static CACHE: std::sync::OnceLock<Vec<(&'static str, Vec<Row>)>> = std::sync::OnceLock::new();
+    let all = CACHE.get_or_init(|| TEMPLATES.iter().map(|(k, _)| (*k, build_rows(k))).collect());
+    all.iter().find(|(k, _)| *k == id).map_or(&[], |(_, v)| v.as_slice())
+}
+fn build_rows(id: &str) -> Vec<Row> {
     sp::part_sizes(id)
         .iter()
         .map(|z| {

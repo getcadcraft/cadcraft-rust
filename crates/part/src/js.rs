@@ -9,12 +9,85 @@ pub use cc_m3d::jsmath::JsMath;
 pub fn num_str(x: f64) -> String {
     cc_cad::js::num_to_string(x)
 }
-/// `x.toFixed(f)`.
+/// The shortest round-trip digits of a positive finite x and its decimal exponent (x = d.ddd × 10^e).
+fn shortest(ax: f64) -> (String, i64) {
+    let e = format!("{ax:e}");
+    let (m, ex) = e.split_once('e').unwrap_or((e.as_str(), "0"));
+    (m.chars().filter(char::is_ascii_digit).collect(), ex.parse().unwrap_or(0))
+}
+/// Is the tail of a longer rounding exactly "5000…"? Then the value may be an exact tie, which Rust rounds half to
+/// even and JS half up, and the exact (slow) path decides.
+fn maybe_tie(tail: &str) -> bool {
+    let mut it = tail.bytes();
+    it.next() == Some(b'5') && it.all(|b| b == b'0')
+}
+/// `x.toFixed(f)`. Fast path: Rust's `{:.f}` rounds the exact binary value, as JS does, except on exact ties
+/// (detected, then cc-cad's exact expansion answers).
 pub fn to_fixed(x: f64, f: usize) -> String {
+    if x.is_finite() && x.abs() < 1e21 && f <= 60 {
+        let ax = x.abs();
+        // an exact tie needs an expansion ending at digit f + 1, so the shortest digits are at most that long
+        let short = shortest(ax);
+        let frac = usize::try_from(i64::try_from(short.0.len()).unwrap_or(0).saturating_sub(short.1.saturating_add(1)).max(0)).unwrap_or(0);
+        let no_tie = frac > f.saturating_add(1) || !format!("{:.*}", f.saturating_add(1), ax).ends_with('5') || {
+            let long = format!("{:.*}", f.saturating_add(20), ax);
+            let cut = long.find('.').map_or(long.len(), |d| d.saturating_add(1).saturating_add(f));
+            !maybe_tie(long.get(cut..).unwrap_or(""))
+        };
+        if no_tie {
+            let s = format!("{ax:.f$}");
+            return if x < 0.0 { format!("-{s}") } else { s };
+        }
+    }
     cc_cad::js::to_fixed(x, f)
 }
-/// `x.toPrecision(p)`.
+/// `x.toPrecision(p)`. Fast path as [`to_fixed`], from Rust's `{:.Ne}`.
 pub fn to_precision(x: f64, p: usize) -> String {
+    if x.is_finite() && x != 0.0 && (1..=60).contains(&p) {
+        let ax = x.abs();
+        let no_tie =
+            shortest(ax).0.len() > p.saturating_add(1) || !format!("{:.*e}", p, ax).split('e').next().unwrap_or("").ends_with('5') || {
+                let long = format!("{:.*e}", p.saturating_add(19), ax);
+                !maybe_tie(long.split('e').next().and_then(|m| m.get(p.saturating_add(1)..)).unwrap_or(""))
+            };
+        if no_tie {
+            let e_s = format!("{:.*e}", p.saturating_sub(1), ax);
+            if let Some((mant, ex)) = e_s.split_once('e')
+                && let Ok(e) = ex.parse::<i64>()
+            {
+                let digits: String = mant.chars().filter(char::is_ascii_digit).collect();
+                let pi = i64::try_from(p).unwrap_or(i64::MAX);
+                let mut out = String::new();
+                if x < 0.0 {
+                    out.push('-');
+                }
+                if e < -6 || e >= pi {
+                    out.push_str(digits.get(..1).unwrap_or(""));
+                    if p > 1 {
+                        out.push('.');
+                        out.push_str(digits.get(1..).unwrap_or(""));
+                    }
+                    out.push('e');
+                    out.push(if e < 0 { '-' } else { '+' });
+                    out.push_str(&e.unsigned_abs().to_string());
+                } else if e >= 0 {
+                    let k = usize::try_from(e).unwrap_or(0).saturating_add(1);
+                    out.push_str(digits.get(..k).unwrap_or(""));
+                    if k < p {
+                        out.push('.');
+                        out.push_str(digits.get(k..).unwrap_or(""));
+                    }
+                } else {
+                    out.push_str("0.");
+                    for _ in 0..e.unsigned_abs().saturating_sub(1) {
+                        out.push('0');
+                    }
+                    out.push_str(&digits);
+                }
+                return out;
+            }
+        }
+    }
     cc_m3d::js::to_precision(x, p)
 }
 /// `Number(s)` / `+s`.
@@ -227,4 +300,36 @@ pub fn count(x: f64, cap: usize) -> usize {
     }
     let c = f(cap);
     if x >= c { cap } else { x as usize }
+}
+
+#[cfg(test)]
+mod fast_fmt_tests {
+    /// The fast toFixed / toPrecision paths against the exact expansions.
+    #[test]
+    fn fast_paths_match_exact() {
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let mut xs: Vec<f64> = vec![0.5, 1.5, 2.5, -2.5, 0.125, 1.005, 123.456, 1e-7, 9.995, 0.05, -0.0, 1e20, 5e-324, 0.000001, 999999.5];
+        for _ in 0..20000 {
+            let r = next();
+            let m = (r >> 11) as f64 / (1u64 << 53) as f64;
+            let e = ((r & 0x3f) as i32) - 30;
+            let v = m * 10f64.powi(e);
+            xs.push(if r & 0x40 != 0 { -v } else { v });
+            xs.push(((r >> 20) % 100000) as f64 / 1000.0);
+        }
+        for x in xs {
+            for f in [0usize, 1, 2, 3, 4, 6, 9, 12] {
+                assert_eq!(super::to_fixed(x, f), cc_cad::js::to_fixed(x, f), "toFixed({x}, {f})");
+            }
+            for p in [1usize, 2, 4, 6, 9, 12, 15, 17] {
+                assert_eq!(super::to_precision(x, p), cc_m3d::js::to_precision(x, p), "toPrecision({x}, {p})");
+            }
+        }
+    }
 }
