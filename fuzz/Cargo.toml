@@ -30,6 +30,7 @@ cc-civil = { path = "../crates/civil" }
 cc-io-civil = { path = "../crates/io-civil" }
 cc-detail = { path = "../crates/detail" }
 cc-io-detail = { path = "../crates/io-detail" }
+cc-part = { path = "../crates/part" }
 
 [[bin]]
 name = "dwg_read"
@@ -239,6 +240,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "part_read"
+path = "fuzz_targets/part_read.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "detail_clip"
 path = "fuzz_targets/detail_clip.rs"
 test = false
@@ -255,6 +263,13 @@ bench = false
 [[bin]]
 name = "detail_ifc_import"
 path = "fuzz_targets/detail_ifc_import.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "part_expr"
+path = "fuzz_targets/part_expr.rs"
 test = false
 doc = false
 bench = false

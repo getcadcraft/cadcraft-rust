@@ -1,0 +1,27 @@
+[package]
+name = "cc-part"
+description = "CadCraft L2: PartCraft's engine (the part document, parameters and configurations, the sketcher and its solver, the mesh kernel's feature logic, assemblies, standard parts, BOM) at exact parity with the 0.5 JavaScript."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 2
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-cad.workspace = true
+cc-m3d.workspace = true
+cc-manifold.workspace = true
+serde_json.workspace = true
+# FreeBSD msun (fdlibm) in Rust: asin / exp / log / log10 as V8 computes them (sin / cos / tan / atan / acos / atan2 / pow
+# through cc-m3d's JsMath)
+libm = "0.2.16"
+# NFD for the PDF font metrics (font.js `charAdvance`: an accented letter takes its base letter's width)
+unicode-normalization = "0.1.26"

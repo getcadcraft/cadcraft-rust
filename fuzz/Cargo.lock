@@ -161,6 +161,7 @@ dependencies = [
  "cc-m3d-tools",
  "cc-manifold",
  "cc-markup",
+ "cc-part",
  "cc-takeoff",
  "libfuzzer-sys",
  "serde_json",
@@ -394,6 +395,18 @@ dependencies = [
  "indexmap",
  "miniz_oxide 0.8.9",
  "serde_json",
+]
+
+[[package]]
+name = "cc-part"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-m3d",
+ "cc-manifold",
+ "libm",
+ "serde_json",
+ "unicode-normalization",
 ]
 
 [[package]]

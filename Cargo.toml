@@ -50,6 +50,7 @@ cc-io-civil = { path = "crates/io-civil" }
 cc-proj = { path = "crates/proj" }
 cc-detail = { path = "crates/detail" }
 cc-io-detail = { path = "crates/io-detail" }
+cc-part = { path = "crates/part" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"
@@ -90,6 +91,9 @@ overflow-checks = true
 overflow-checks = true
 
 [profile.release.package.cc-civil]
+overflow-checks = true
+
+[profile.release.package.cc-part]
 overflow-checks = true
 
 [profile.bench]

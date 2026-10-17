@@ -31,6 +31,8 @@
 //!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
 //!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
+//!   cadcraft-cli part <script.json> | --bench <script.json> [--runs N]
+//!                                                PartCraft's engine (cc-part) on call scripts (forks/tools/pcdiff.mjs), part.rs
 //!   cadcraft-cli takeoff <script.json> | export | match | count | marks | proposal | embed | bench
 //!                                                TakeoffCraft's engine (cc-takeoff, cc-io-takeoff), takeoff.rs
 //!
@@ -50,6 +52,7 @@ mod m3dtools;
 mod manifold;
 mod markup;
 mod markup2;
+mod part;
 mod skp;
 mod takeoff;
 mod takeoff_pdf;
@@ -94,6 +97,7 @@ fn main() -> ExitCode {
         "bim" => bim::bim(&rest),
         "civil" => civil::civil(&rest),
         "detail" => detail::detail(&rest),
+        "part" => part::part(&rest),
         _ => usage(),
     }
 }

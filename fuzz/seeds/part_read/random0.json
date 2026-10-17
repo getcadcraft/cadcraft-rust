@@ -1,0 +1,265 @@
+{
+ "format": "partcraft",
+ "version": 3,
+ "name": "Bracket",
+ "units": "mm",
+ "resolution": 64,
+ "seq": 6,
+ "rollback": null,
+ "features": [
+  {
+   "id": "f1",
+   "type": "sketch",
+   "name": "Sketch1",
+   "plane": {
+    "kind": "base",
+    "name": "front"
+   },
+   "sketch": {
+    "seq": 24,
+    "entities": [
+     {
+      "id": "p1",
+      "type": "point",
+      "x": 3,
+      "y": 4
+     },
+     {
+      "id": "p2",
+      "type": "point",
+      "x": 57.3,
+      "y": 4
+     },
+     {
+      "id": "l3",
+      "type": "line",
+      "p1": "p1",
+      "p2": "p2"
+     },
+     {
+      "id": "p4",
+      "type": "point",
+      "x": 57.3,
+      "y": 4
+     },
+     {
+      "id": "p5",
+      "type": "point",
+      "x": 57.3,
+      "y": 61
+     },
+     {
+      "id": "l6",
+      "type": "line",
+      "p1": "p4",
+      "p2": "p5"
+     },
+     {
+      "id": "p7",
+      "type": "point",
+      "x": 57.3,
+      "y": 61
+     },
+     {
+      "id": "p8",
+      "type": "point",
+      "x": 3,
+      "y": 61
+     },
+     {
+      "id": "l9",
+      "type": "line",
+      "p1": "p7",
+      "p2": "p8"
+     },
+     {
+      "id": "p10",
+      "type": "point",
+      "x": 3,
+      "y": 61
+     },
+     {
+      "id": "p11",
+      "type": "point",
+      "x": 3,
+      "y": 4
+     },
+     {
+      "id": "l12",
+      "type": "line",
+      "p1": "p10",
+      "p2": "p11"
+     }
+    ],
+    "constraints": [
+     {
+      "id": "k13",
+      "type": "coincident",
+      "refs": [
+       "p2",
+       "p4"
+      ]
+     },
+     {
+      "id": "k14",
+      "type": "coincident",
+      "refs": [
+       "p5",
+       "p7"
+      ]
+     },
+     {
+      "id": "k15",
+      "type": "coincident",
+      "refs": [
+       "p8",
+       "p10"
+      ]
+     },
+     {
+      "id": "k16",
+      "type": "coincident",
+      "refs": [
+       "p11",
+       "p1"
+      ]
+     },
+     {
+      "id": "k17",
+      "type": "horizontal",
+      "refs": [
+       "l3"
+      ]
+     },
+     {
+      "id": "k18",
+      "type": "horizontal",
+      "refs": [
+       "l9"
+      ]
+     },
+     {
+      "id": "k19",
+      "type": "vertical",
+      "refs": [
+       "l6"
+      ]
+     },
+     {
+      "id": "k20",
+      "type": "vertical",
+      "refs": [
+       "l12"
+      ]
+     },
+     {
+      "id": "k21",
+      "type": "coincident",
+      "refs": [
+       "p1",
+       "O"
+      ]
+     },
+     {
+      "id": "k22",
+      "type": "distance",
+      "refs": [
+       "l3"
+      ],
+      "value": 62.3
+     },
+     {
+      "id": "k23",
+      "type": "distance",
+      "refs": [
+       "l6"
+      ],
+      "value": 58
+     }
+    ]
+   }
+  },
+  {
+   "id": "f2",
+   "type": "extrude",
+   "name": "Extrude1",
+   "sketch": "f1",
+   "op": "add",
+   "end": "mid",
+   "depth": 15.06,
+   "reverse": false
+  },
+  {
+   "id": "f3",
+   "type": "draft",
+   "name": "Draft1",
+   "faces": [
+    {
+     "name": "f1.wall:p3"
+    }
+   ],
+   "neutral": {
+    "kind": "base",
+    "name": "top"
+   },
+   "pull": null,
+   "angle": 0.9
+  },
+  {
+   "id": "f4",
+   "type": "loft",
+   "name": "Loft1",
+   "sections": [
+    {
+     "sketch": "f1"
+    },
+    {
+     "point": {
+      "kind": "fixed",
+      "p": [
+       0,
+       50,
+       0
+      ]
+     }
+    }
+   ],
+   "op": "add",
+   "ruled": false,
+   "suppressed": true
+  },
+  {
+   "id": "f5",
+   "type": "sheetbase",
+   "name": "BaseFlange1",
+   "t": 2,
+   "r": 2,
+   "k": 0.44,
+   "depth": 50,
+   "reverse": false,
+   "sketch": "f1"
+  }
+ ],
+ "material": {
+  "name": " Brass ",
+  "density": 8.5
+ },
+ "params": {
+  "vars": [
+   {
+    "name": "a1",
+    "expr": "28.21"
+   }
+  ],
+  "links": [
+   {
+    "target": "f5.r",
+    "expr": "a1"
+   },
+   {
+    "target": "f3.angle",
+    "expr": "a1 * 2"
+   }
+  ]
+ }
+}
