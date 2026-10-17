@@ -21,6 +21,9 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M7.11: BimCraft's Find (rules on any property, every / any, shows only or hides what it finds) and Quantity totals
+  (group by, add up a quantity, CSV as totalsCsv) on the IFC view, on cc-bim; the property index is built on first use;
+  BimCraft's 0.5 catalogs (en, es-MX) shipped unchanged; `bim.find`, `bim.totals`, `view.show_all` commands.
 - M6.15–M6.16: ModelCraft Select all / group / component / explode / delete / paint colours, Scenes, Components,
   view styles (see below).
 

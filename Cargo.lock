@@ -935,6 +935,7 @@ dependencies = [
 name = "cc-ui-egui"
 version = "0.0.1"
 dependencies = [
+ "cc-bim",
  "cc-cad",
  "cc-cad-geom",
  "cc-drawing",

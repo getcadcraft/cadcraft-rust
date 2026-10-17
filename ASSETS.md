@@ -13,6 +13,8 @@ Prefer art generated in code.
 | assets/samples/kitchen-equipment.dwg | CadCraft | CadCraft's own public test fixture (getcadcraft.com `fixtures/dwg/kitchen-equipment.dwg`, also in the public app repos; links base-plan.dwg) | Apache-2.0 |
 | assets/samples/bimcraft-house.ifc | CadCraft | CadCraft's own public showcase model (getcadcraft.com `fixtures/showcase/bimcraft-house.ifc`), the 3D IFC sample | Apache-2.0 |
 | apps/cadcraft-web/favicon.svg | CadCraft | drawn for this repo (a pick box on the brand blue) | Apache-2.0 |
+| assets/lang/bimcraft/en.json | CadCraft | BimCraft 0.5's own language catalog (`public_html/assets/apps/bimcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
+| assets/lang/bimcraft/es-MX.json | CadCraft | BimCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 | assets/lang/cadcraft/en.json | CadCraft | CadCraft 0.5's own language catalog (`public_html/assets/apps/cadcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
 | assets/lang/cadcraft/es-MX.json | CadCraft | CadCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 | assets/lang/modelcraft/en.json | CadCraft | ModelCraft 0.5's own language catalog (`public_html/assets/apps/modelcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |

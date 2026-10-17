@@ -15,6 +15,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod bimtools;
 pub mod canvas;
 pub mod document;
 pub mod edit;
@@ -129,6 +130,12 @@ pub struct UiApp {
     /// each scene instance's (storey, class) for the Model panel, and what is hidden there ("s:<storey>", "c:<class>")
     ifc_groups: Vec<(String, String)>,
     pub hidden3: HashSet<String>,
+    /// Find's result on the IFC view: (show only these, product expressIDs as bits); None = no filter
+    iso3: Option<(bool, HashSet<u64>)>,
+    /// BimCraft's Find and Quantity totals on the open IFC model
+    pub bim: bimtools::BimTools,
+    /// the open IFC file's name
+    ifc_name: String,
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -179,6 +186,9 @@ impl Default for UiApp {
             ifc3: None,
             ifc_groups: Vec::new(),
             hidden3: HashSet::new(),
+            iso3: None,
+            bim: bimtools::BimTools::default(),
+            ifc_name: String::new(),
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),
@@ -296,6 +306,9 @@ impl UiApp {
                 self.ifc3 = Some((std::sync::Arc::new(f.bytes.clone()), v.pieces.iter().map(|p| p.product).collect()));
                 self.ifc_groups = v.pieces.iter().map(|p| (p.storey.clone(), p.ty.clone())).collect();
                 self.hidden3.clear();
+                self.iso3 = None;
+                self.bim = bimtools::BimTools::default();
+                self.ifc_name = f.name.clone();
             }
             Err(e) => self.error = Some(format!("{}: {}", f.name, e.0)),
         }
@@ -393,13 +406,48 @@ impl UiApp {
         } else if !self.hidden3.remove(key) {
             self.hidden3.insert(key.to_string());
         }
+        self.apply_hidden3();
+    }
+
+    /// What the IFC view hides: storeys / classes switched off, and Find's isolate or hide.
+    fn apply_hidden3(&mut self) {
         let groups = &self.ifc_groups;
         let hidden = &self.hidden3;
+        let iso = &self.iso3;
+        let products = self.ifc3.as_ref().map(|(_, p)| p);
         if let Some((scene, _)) = self.scene3.as_mut() {
             scene.set_hidden(&|i| {
-                groups.get(i).is_some_and(|(st, ty)| hidden.contains(&format!("s:{st}")) || hidden.contains(&format!("c:{ty}")))
+                let by_group =
+                    groups.get(i).is_some_and(|(st, ty)| hidden.contains(&format!("s:{st}")) || hidden.contains(&format!("c:{ty}")));
+                let by_find = match (iso, products.and_then(|p| p.get(i))) {
+                    (Some((only, set)), Some(p)) => set.contains(&p.to_bits()) != *only,
+                    _ => false,
+                };
+                by_group || by_find
             });
         }
+    }
+
+    /// Carry out what the BimCraft panels asked for.
+    fn bim_act(&mut self, a: bimtools::BimAct) {
+        match a {
+            bimtools::BimAct::Isolate(keys) => self.iso3 = Some((true, keys.iter().map(|k| k.to_bits()).collect())),
+            bimtools::BimAct::Hide(keys) => self.iso3 = Some((false, keys.iter().map(|k| k.to_bits()).collect())),
+            bimtools::BimAct::ShowAll => {
+                self.iso3 = None;
+                self.hidden3.clear();
+            }
+            bimtools::BimAct::Save(name, bytes) => {
+                match self.services.save.as_mut().map(|save| save(&name, bytes)) {
+                    Some(Ok(Some(to))) => self.message = bimtools::bt("qto.downloaded", &[("name", &to)]),
+                    Some(Ok(None)) => {}
+                    Some(Err(e)) => self.error = Some(e),
+                    None => self.error = Some("Saving is not available here".into()),
+                }
+                return;
+            }
+        }
+        self.apply_hidden3();
     }
 
     fn tool_palette(&mut self, ui: &mut egui::Ui) {
@@ -457,6 +505,8 @@ impl UiApp {
         }
         classes.sort_by(|a, b| a.0.cmp(&b.0));
         let mut toggle: Option<String> = None;
+        let mut bim_act: Option<bimtools::BimAct> = None;
+        let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone());
         let mut cut = self.cut3;
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
         egui::Panel::left("model3").default_size(230.0).size_range(160.0..=380.0).resizable(true).frame(frame).show(ui, |ui| {
@@ -484,8 +534,14 @@ impl UiApp {
                         }
                     });
                 }
+                if let Some(bytes) = &bytes {
+                    bim_act = self.bim.panels(ui, &t, bytes, &self.ifc_name);
+                }
             });
         });
+        if let Some(a) = bim_act {
+            self.bim_act(a);
+        }
         if let Some(k) = toggle {
             self.toggle3(&k);
         }
@@ -795,6 +851,20 @@ impl UiApp {
                     other => return Err(format!("model.edit: unknown action {other}")),
                 }
             }
+            "bim.find" => {
+                // BimCraft Find with one rule "field:op:value" (e.g. "cls:is:IfcWall"); shows only what it finds
+                let spec = params.name.clone().ok_or("bim.find: name is required (field:op:value)")?;
+                let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone()).ok_or("bim.find: open an IFC model first")?;
+                let keys = self.bim.find_rule(&bytes, &spec)?;
+                self.bim_act(bimtools::BimAct::Isolate(keys));
+            }
+            "bim.totals" => {
+                // BimCraft Quantity totals grouped by a field, optionally adding up a number field ("cls:Qto….NetVolume")
+                let spec = params.name.clone().ok_or("bim.totals: name is required (group[:sum])")?;
+                let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone()).ok_or("bim.totals: open an IFC model first")?;
+                self.bim.totals_by(&bytes, &spec);
+            }
+            "view.show_all" => self.bim_act(bimtools::BimAct::ShowAll),
             "view.style" => {
                 // modelcraft.js style modes (shaded, hidden, wire, xray) and the edges switch; BimCraft's 3D view too
                 let n = params.name.clone().ok_or("view.style: name is required")?;
