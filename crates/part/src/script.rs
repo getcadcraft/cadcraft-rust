@@ -37,7 +37,7 @@ pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
 
 /// Run a script with this crate's ops.
 pub fn run(script: &Value) -> Value {
-    run_with(script, &[handle])
+    run_with(script, &[handle, crate::script2::handle])
 }
 
 /// A number argument ("$NaN" / "$Inf" / "$-Inf" carry the values JSON cannot).
@@ -95,7 +95,7 @@ fn pts_json(p: &[[f64; 2]]) -> Value {
 fn expr_err(e: &expr::ExprError) -> Value {
     jv::obj(vec![("ok", false.into()), ("error", e.message.as_str().into()), ("pos", e.pos.map_or(Value::Null, jv::unum))])
 }
-fn curve_arg(v: &Value) -> spline::Curve {
+pub(crate) fn curve_arg(v: &Value) -> spline::Curve {
     let poles = p2s(v.get("poles").unwrap_or(&Value::Null));
     let knots: Vec<f64> = jv::arr(v.get("knots")).iter().map(|x| num_arg(Some(x))).collect();
     let deg = jv::as_num(v.get("deg")).and_then(js::idx).unwrap_or(3);

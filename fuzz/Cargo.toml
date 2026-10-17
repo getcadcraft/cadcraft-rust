@@ -273,3 +273,10 @@ path = "fuzz_targets/part_expr.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "part_script"
+path = "fuzz_targets/part_script.rs"
+test = false
+doc = false
+bench = false

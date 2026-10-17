@@ -164,10 +164,10 @@ pub fn entities(sk: &Value) -> &[Value] {
 pub fn constraints(sk: &Value) -> &[Value] {
     jv::arr(sk.get("constraints"))
 }
-fn entities_mut(sk: &mut Value) -> Option<&mut Vec<Value>> {
+pub fn entities_mut(sk: &mut Value) -> Option<&mut Vec<Value>> {
     sk.get_mut("entities").and_then(Value::as_array_mut)
 }
-fn constraints_mut(sk: &mut Value) -> Option<&mut Vec<Value>> {
+pub fn constraints_mut(sk: &mut Value) -> Option<&mut Vec<Value>> {
     sk.get_mut("constraints").and_then(Value::as_array_mut)
 }
 
@@ -178,7 +178,7 @@ pub fn by_id<'a>(sk: &'a Value, id: &str) -> Option<Ent<'a>> {
     }
     entities(sk).iter().find(|e| jv::is_str(e.get("id"), id)).map(Ent::E)
 }
-fn by_id_mut<'a>(sk: &'a mut Value, id: &str) -> Option<&'a mut Value> {
+pub fn by_id_mut<'a>(sk: &'a mut Value, id: &str) -> Option<&'a mut Value> {
     entities_mut(sk)?.iter_mut().find(|e| jv::is_str(e.get("id"), id))
 }
 /// `kindOf(e)`: P / L / S / R.
@@ -336,7 +336,7 @@ pub fn arc_angles(sk: &Value, a: &Ent) -> (P2, f64, f64, f64) {
 
 // ---------------------------------------------------------------- building
 
-fn next_id(sk: &mut Value, prefix: &str) -> String {
+pub fn next_id(sk: &mut Value, prefix: &str) -> String {
     let n = jv::n(sk, "seq");
     jv::set(sk, "seq", jv::num(n + 1.0));
     format!("{prefix}{}", js::num_str(n))

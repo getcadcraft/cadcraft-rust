@@ -1,0 +1,18 @@
+pcscript 1
+part X
+sketch S
+  on fixed 0, 0, 10 normal 0, 0, 1
+  point a 0, 0
+  point b 10, 0
+  point c 10, 10
+  arc r1 a b c [construction]
+  spline s1 fit a b c [closed]
+  d1: distance a b 10
+  offsetlink a b [of d1]
+extrude E
+  sketch S
+  depth 5
+  reverse
+material json {"name":"Steel"}
+import I
+  step-file "x.step"
