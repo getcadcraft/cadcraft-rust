@@ -73,6 +73,17 @@ pub struct ModelView {
     pub vcb: String,
     /// the last message the tools printed
     pub message: String,
+    /// the scene last gone to or saved (-1: none)
+    pub scene_index: isize,
+}
+
+/// What the Scenes panel asked for this frame.
+enum SceneAct {
+    Add,
+    Go(usize),
+    Update(usize),
+    Delete(usize),
+    Step(isize),
 }
 
 impl std::fmt::Debug for ModelView {
@@ -110,6 +121,7 @@ impl ModelView {
             clock: web_time::Instant::now(),
             vcb: String::new(),
             message: String::new(),
+            scene_index: -1,
         };
         v.rebuild();
         v.fit();
@@ -313,6 +325,22 @@ impl ModelView {
             self.redo();
             return;
         }
+        if key == Key::PageUp || key == Key::PageDown {
+            self.step_scene(if key == Key::PageUp { -1 } else { 1 });
+            return;
+        }
+        if m.command && key == Key::A {
+            self.select_all();
+            return;
+        }
+        if m.command && m.shift && key == Key::G {
+            self.make_group("component");
+            return;
+        }
+        if m.command && key == Key::G {
+            self.make_group("group");
+            return;
+        }
         match key {
             Key::Escape => {
                 if !self.vcb.is_empty() {
@@ -331,9 +359,10 @@ impl ModelView {
                     let _ = self.tools.value(&text);
                 }
             }
-            Key::Backspace => {
+            Key::Backspace if !self.vcb.is_empty() => {
                 self.vcb.pop();
             }
+            Key::Delete | Key::Backspace if self.vcb.is_empty() && !self.tools.busy() => self.erase_selection(),
             Key::Delete => {
                 let _ = self.tools.key("Delete");
             }
@@ -502,6 +531,213 @@ impl ModelView {
         }
     }
 
+    /// modelcraft.js makeGroup(kind): what is selected (not guides, dimensions or sections) into a new group / component.
+    pub fn make_group(&mut self, kind: &str) {
+        let sel: Vec<Sel> = self.tools.host.sel.iter().filter(|s| !matches!(s.t.as_str(), "g" | "d" | "s")).cloned().collect();
+        if sel.is_empty() {
+            self.message = mt("app.group.none", &[]);
+            return;
+        }
+        let path = self.tools.host.path.clone();
+        let label = mt(if kind == "group" { "app.undo.make_group" } else { "app.undo.make_component" }, &[]);
+        let k = kind.to_string();
+        let r = self.tools.host.model.change(&label, |m| {
+            let def = m.context(&path).map(|c| c.def).unwrap_or_else(|| "root".into());
+            m.make_group(&def, &sel, &k, None)
+        });
+        if let Ok(Some(iid)) = r {
+            self.tools.host.set_sel(vec![Sel::new("i", iid)]);
+            let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
+            let name = self
+                .tools
+                .host
+                .model
+                .def(&ctx.def)
+                .and_then(|d| d.insts.get(iid))
+                .and_then(|i| self.tools.host.model.def(&i.def))
+                .map(|d| d.name.clone())
+                .unwrap_or_default();
+            self.message = mt(if kind == "group" { "app.group.done" } else { "app.component.done" }, &[("name", &name)]);
+        }
+    }
+
+    /// modelcraft.js selectAll: what is visible in the open context (soft edges left out).
+    pub fn select_all(&mut self) {
+        let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
+        let Some(def) = self.tools.host.model.def(&ctx.def) else { return };
+        let mut sel: Vec<Sel> = def.faces.iter().filter(|(_, f)| !f.hidden).map(|(id, _)| Sel::new("f", id)).collect();
+        sel.extend(def.edges.iter().filter(|(_, e)| !e.soft && !e.hidden).map(|(id, _)| Sel::new("e", id)));
+        sel.extend(def.insts.iter().filter(|(_, i)| !i.hidden).map(|(id, _)| Sel::new("i", id)));
+        self.tools.host.set_sel(sel);
+    }
+
+    /// modelcraft.js explodeSel: the selected groups and components back into their contents.
+    pub fn explode_sel(&mut self) {
+        let insts: Vec<f64> = self.tools.host.sel.iter().filter(|s| s.t == "i").map(|s| s.id).collect();
+        if insts.is_empty() {
+            self.message = mt("app.explode.none", &[]);
+            return;
+        }
+        let path = self.tools.host.path.clone();
+        let out = self.tools.host.model.change(&mt("app.undo.explode", &[]), |m| {
+            let def = m.context(&path).map(|c| c.def).unwrap_or_else(|| "root".into());
+            let mut all = Vec::new();
+            for iid in &insts {
+                all.extend(m.explode(&def, *iid)?);
+            }
+            Ok(all)
+        });
+        self.tools.host.set_sel(out.unwrap_or_default());
+    }
+
+    /// modelcraft.js eraseSelection (Delete): one undo step, then purge.
+    pub fn erase_selection(&mut self) {
+        if self.tools.host.sel.is_empty() {
+            return;
+        }
+        let sel = self.tools.host.sel.clone();
+        let path = self.tools.host.path.clone();
+        let _ = self.tools.host.model.change(&mt("app.undo.erase", &[]), |m| {
+            let def = m.context(&path).map(|c| c.def).unwrap_or_else(|| "root".into());
+            let geo: Vec<Sel> = sel.iter().filter(|s| !matches!(s.t.as_str(), "g" | "d" | "s")).cloned().collect();
+            if let Some(d) = m.defs.get_mut(&def) {
+                cc_m3d::ops::erase_sel(d, &geo);
+            }
+            for s in &sel {
+                match s.t.as_str() {
+                    "g" => {
+                        m.guides.delete(s.id);
+                    }
+                    "d" => {
+                        m.dims.delete(s.id);
+                    }
+                    "s" => m.delete_section(s.id),
+                    _ => {}
+                }
+            }
+            m.purge();
+            Ok(())
+        });
+        self.tools.host.set_sel(Vec::new());
+    }
+
+    /// The style a scene keeps (cleanScene's mode / edges), from the view's.
+    fn style_mode(&self) -> &'static str {
+        if !self.style.faces {
+            "wire"
+        } else if self.style.xray {
+            "xray"
+        } else if self.style.hidden_line {
+            "hidden"
+        } else {
+            "shaded"
+        }
+    }
+
+    fn scene_here(&self, name: String) -> cc_m3d::model::Scene {
+        let c = &self.tools.host.cam;
+        let d = cc_m3d::model::Scene {
+            vis: Some(self.tools.host.model.capture_vis()),
+            name,
+            eye: c.eye,
+            target: c.target,
+            fov: c.fov,
+            persp: c.persp,
+            height: c.height(),
+            mode: self.style_mode().to_string(),
+            edges: self.style.edges,
+            shadows: false,
+            month: 6.0,
+            day: 21.0,
+            hour: 15.0,
+            lat: 40.0,
+            lon: -105.0,
+            tz: -7.0,
+        };
+        // the sun keeps what the file has (this view has no sun settings yet)
+        match self.tools.host.model.scenes.first() {
+            Some(f) => {
+                cc_m3d::model::Scene { shadows: f.shadows, month: f.month, day: f.day, hour: f.hour, lat: f.lat, lon: f.lon, tz: f.tz, ..d }
+            }
+            None => d,
+        }
+    }
+
+    /// modelcraft.js "Add scene": this camera, style and what is hidden, as a new scene.
+    pub fn add_scene(&mut self) {
+        let name = mt("app.scene.default", &[("n", &(self.tools.host.model.scenes.len() + 1).to_string())]);
+        let sc = self.scene_here(name.clone());
+        let _ = self.tools.host.model.change(&mt("ui.scenes.add", &[]), |m| {
+            m.scenes.push(sc);
+            Ok(())
+        });
+        self.scene_index = self.tools.host.model.scenes.len() as isize - 1;
+        self.message = mt("app.scene.saved", &[("name", &name)]);
+    }
+
+    /// goScene(i) without the animation: the scene's style, what it shows and its camera.
+    pub fn go_scene(&mut self, i: usize) {
+        let Some(sc) = self.tools.host.model.scenes.get(i).cloned() else { return };
+        self.scene_index = i as isize;
+        self.style.faces = sc.mode != "wire";
+        self.style.xray = sc.mode == "xray";
+        self.style.hidden_line = sc.mode == "hidden";
+        self.style.edges = sc.edges;
+        if let Some(v) = &sc.vis {
+            self.tools.host.model.apply_vis(v);
+            self.tools.host.sel.retain(|x| x.t != "i");
+        }
+        self.tools.host.cam.set(sc.eye, sc.target, Some(sc.fov), Some(sc.persp));
+        self.message = mt("app.scene.go", &[("name", &sc.name)]);
+    }
+
+    /// stepScene(d): the next / previous scene, wrapping round.
+    pub fn step_scene(&mut self, d: isize) {
+        let n = self.tools.host.model.scenes.len() as isize;
+        if n == 0 {
+            return;
+        }
+        let from = if self.scene_index < 0 { if d > 0 { -1 } else { 0 } } else { self.scene_index };
+        self.go_scene((from + d).rem_euclid(n) as usize);
+    }
+
+    /// updateScene(i): the current camera, style and visibility saved into scene i.
+    pub fn update_scene(&mut self, i: usize) {
+        let Some(name) = self.tools.host.model.scenes.get(i).map(|x| x.name.clone()) else { return };
+        let sc = self.scene_here(name.clone());
+        let _ = self.tools.host.model.change(&mt("app.undo.scene_update", &[]), |m| {
+            if let Some(x) = m.scenes.get_mut(i) {
+                *x = sc;
+            }
+            Ok(())
+        });
+        self.scene_index = i as isize;
+        self.message = mt("app.scene.updated", &[("name", &name)]);
+    }
+
+    /// deleteScene(i).
+    pub fn delete_scene(&mut self, i: usize) {
+        let Some(name) = self.tools.host.model.scenes.get(i).map(|x| x.name.clone()) else { return };
+        let _ = self.tools.host.model.change(&mt("app.undo.scene_delete", &[]), |m| {
+            if i < m.scenes.len() {
+                m.scenes.remove(i);
+            }
+            Ok(())
+        });
+        let n = self.tools.host.model.scenes.len() as isize;
+        if self.scene_index >= n {
+            self.scene_index = n - 1;
+        }
+        self.message = mt("app.scene.deleted", &[("name", &name)]);
+    }
+
+    /// The Components panel's Place: the Place tool with that definition.
+    pub fn place_component(&mut self, def_id: &str) {
+        let name = self.tools.host.model.def(def_id).map(|d| d.name.clone()).unwrap_or_default();
+        let _ = self.tools.set("place", ToolArg::Place { def_id: def_id.to_string(), align: true, hint: None });
+        self.message = mt("app.comp.place.where", &[("name", &name)]);
+    }
+
     /// Show or hide a tag (modelcraft.js showTag): one undo step; what hides cannot stay selected, and a group being
     /// edited inside closes above the first hidden one.
     pub fn show_tag(&mut self, name: &str, on: bool) {
@@ -545,6 +781,8 @@ impl ModelView {
         let mut open: Option<f64> = None;
         let mut close = false;
         let mut tag_toggle: Option<(String, bool)> = None;
+        let mut scene_act: Option<SceneAct> = None;
+        let mut place: Option<String> = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             // Entity Info
             egui::CollapsingHeader::new(RichText::new("Entity Info").color(t.text_strong)).default_open(true).show(ui, |ui| {
@@ -608,6 +846,48 @@ impl ModelView {
                     }
                 }
             });
+            // Edit: grouping and erasing what is selected; the Paint tool's colour
+            let mut act: Option<&str> = None;
+            ui.horizontal_wrapped(|ui| {
+                let any = !self.tools.host.sel.is_empty();
+                if ui.add_enabled(any, egui::Button::new("Make group")).clicked() {
+                    act = Some("group");
+                }
+                if ui.add_enabled(any, egui::Button::new("Make component")).clicked() {
+                    act = Some("component");
+                }
+                if ui.add_enabled(self.tools.host.sel.iter().any(|s| s.t == "i"), egui::Button::new("Explode")).clicked() {
+                    act = Some("explode");
+                }
+                if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
+                    act = Some("erase");
+                }
+            });
+            match act {
+                Some("group") => self.make_group("group"),
+                Some("component") => self.make_group("component"),
+                Some("explode") => self.explode_sel(),
+                Some("erase") => self.erase_selection(),
+                _ => {}
+            }
+            if self.tools.name == "paint" {
+                ui.label(RichText::new("Paint colour").color(t.text_strong));
+                ui.horizontal_wrapped(|ui| {
+                    for (_name, hex) in cc_m3d::paint::PALETTE {
+                        let c = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0);
+                        let col = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
+                        let on = self.tools.paint_color.as_deref() == Some(hex);
+                        let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
+                        ui.painter().rect_filled(r, 2.0, col);
+                        if on {
+                            ui.painter().rect_stroke(r, 2.0, Stroke::new(2.0, t.text_strong), egui::StrokeKind::Outside);
+                        }
+                        if resp.clicked() {
+                            self.tools.paint_color = Some(hex.to_string());
+                        }
+                    }
+                });
+            }
             // Outliner: the open context's groups and components
             egui::CollapsingHeader::new(RichText::new("Outliner").color(t.text_strong)).default_open(true).show(ui, |ui| {
                 if !self.tools.host.path.is_empty() && ui.small_button("Close group").clicked() {
@@ -652,7 +932,76 @@ impl ModelView {
                     }
                 }
             });
+            // Components: every component definition, how many are placed, Place
+            egui::CollapsingHeader::new(RichText::new(mt("ui.comps", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+                let model = &self.tools.host.model;
+                let counts = model.instance_counts();
+                let mut any = false;
+                for d in model.defs.values().filter(|d| d.kind == "component") {
+                    any = true;
+                    ui.horizontal(|ui| {
+                        ui.label(&d.name);
+                        ui.label(RichText::new(format!("{}×", counts.get(&d.id).copied().unwrap_or(0.0))).color(t.text_dim));
+                        if ui.small_button(mt("app.comp.place", &[])).clicked() {
+                            place = Some(d.id.clone());
+                        }
+                    });
+                }
+                if !any {
+                    ui.label(RichText::new(mt("ui.comps.empty", &[("key", "Ctrl+Shift+G")])).color(t.text_dim));
+                }
+            });
+            // Scenes: saved cameras with their style and what they hide
+            egui::CollapsingHeader::new(RichText::new(mt("ui.scenes", &[])).color(t.text_strong)).default_open(true).show(ui, |ui| {
+                let scenes = &self.tools.host.model.scenes;
+                ui.horizontal_wrapped(|ui| {
+                    if ui.small_button(mt("ui.scenes.add", &[])).clicked() {
+                        scene_act = Some(SceneAct::Add);
+                    }
+                    if !scenes.is_empty() {
+                        if ui.small_button(mt("ui.scenes.prev", &[])).clicked() {
+                            scene_act = Some(SceneAct::Step(-1));
+                        }
+                        if ui.small_button(mt("ui.scenes.next", &[])).clicked() {
+                            scene_act = Some(SceneAct::Step(1));
+                        }
+                    }
+                });
+                if scenes.is_empty() {
+                    ui.label(RichText::new(mt("ui.scenes.empty", &[("up", "Page Up"), ("down", "Page Down")])).color(t.text_dim));
+                }
+                for (i, sc) in scenes.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        let cur = i as isize == self.scene_index;
+                        if ui.selectable_label(cur, &sc.name).on_hover_text(mt("app.scene.go.title", &[])).clicked() {
+                            scene_act = Some(SceneAct::Go(i));
+                        }
+                        if ui
+                            .small_button(mt("app.scene.update.aria", &[("name", "")]).trim())
+                            .on_hover_text(mt("app.scene.update.title", &[("name", &sc.name)]))
+                            .clicked()
+                        {
+                            scene_act = Some(SceneAct::Update(i));
+                        }
+                        if ui.small_button(mt("app.scene.delete", &[])).clicked() {
+                            scene_act = Some(SceneAct::Delete(i));
+                        }
+                    });
+                }
+            });
         });
+        if let Some(a) = scene_act {
+            match a {
+                SceneAct::Add => self.add_scene(),
+                SceneAct::Go(i) => self.go_scene(i),
+                SceneAct::Update(i) => self.update_scene(i),
+                SceneAct::Delete(i) => self.delete_scene(i),
+                SceneAct::Step(d) => self.step_scene(d),
+            }
+        }
+        if let Some(d) = place {
+            self.place_component(&d);
+        }
         if let Some(s) = select {
             self.tools.host.set_sel(s);
         }

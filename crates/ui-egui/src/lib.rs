@@ -773,6 +773,22 @@ impl UiApp {
                 let mc = self.mc.as_mut().ok_or("tool.value: open a model first")?;
                 let _ = mc.tools.value(&n);
             }
+            "model.edit" => {
+                // modelcraft.js menu actions: select-all, make-group, make-component, explode, erase
+                let n = params.name.clone().ok_or("model.edit: name is required")?;
+                let mc = self.mc.as_mut().ok_or("model.edit: open a model first")?;
+                match n.as_str() {
+                    "select-all" => mc.select_all(),
+                    "make-group" => mc.make_group("group"),
+                    "make-component" => mc.make_group("component"),
+                    "explode" => mc.explode_sel(),
+                    "erase" => mc.erase_selection(),
+                    "scene-add" => mc.add_scene(),
+                    "scene-next" => mc.step_scene(1),
+                    "scene-prev" => mc.step_scene(-1),
+                    other => return Err(format!("model.edit: unknown action {other}")),
+                }
+            }
             "model.undo" => {
                 if let Some(mc) = self.mc.as_mut() {
                     mc.undo();

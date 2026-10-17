@@ -17,6 +17,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   picking (box tree + exact ray–triangle), Properties panel (attributes, property sets, quantities, type), Model panel
   (storeys, classes, hide/show), section cut (clip plane). Clinic_Architectural (2,586 products, 168,703 triangles)
   read and drawn in ~320 ms.
+- M6.14–M6.15: side panel (Entity Info, Outliner, Tags, Paint colour from `paint::PALETTE`), es-MX/en catalogs;
+  Select all (Ctrl+A), Make group (Ctrl+G), Make component (Ctrl+Shift+G), Explode and Delete as modelcraft.js does them
+  (one undo step each, purge after erase); scriptable as `model.edit`. Scenes panel (add, go to, update, delete, Previous / Next, Page Up / Down;
+  camera, style and visibility as goScene, without the move animation yet) and Components panel (count, Place).
 - Checked in Chromium over WebGPU on rust.getcadcraft.com: `?model` (orbit), `?ifc` (click → properties), Open → SKP.
 - Measured for M9: hayro renders the Carey PDF sheet 9× faster than pdf.js at 1× (roadmap § M9 inputs).
 

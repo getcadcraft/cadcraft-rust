@@ -55,6 +55,8 @@ fn harness<'a>(app: UiApp, w: f32, h: f32) -> egui_kittest::Harness<'a, UiApp> {
     egui_kittest::Harness::builder()
         .with_size(egui::vec2(w, h))
         .with_pixels_per_point(1.0)
+        // shots render users' files: a character no bundled font has draws as a box, as in the app
+        .allow_missing_glyphs()
         .renderer(renderer)
         .build_ui_state(|ui, app: &mut UiApp| app.ui(ui), app)
 }
