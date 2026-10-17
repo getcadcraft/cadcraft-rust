@@ -631,6 +631,7 @@ dependencies = [
 name = "cc-manifold"
 version = "0.0.1"
 dependencies = [
+ "libm",
  "serde_json",
 ]
 

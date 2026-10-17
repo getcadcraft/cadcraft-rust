@@ -16,6 +16,8 @@ layer = 1
 workspace = true
 
 [dependencies]
+# FreeBSD msun via musl in Rust: remquo, as the wasm build links it (sind / cosd / RemPio2)
+libm = "0.2.16"
 
 [dev-dependencies]
 serde_json.workspace = true

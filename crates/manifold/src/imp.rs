@@ -553,6 +553,30 @@ impl Impl {
         Ok(())
     }
 
+    /// impl.h `AllHaveNormals`: every relation records normals (false when there are none).
+    #[allow(dead_code)]
+    pub(crate) fn all_have_normals(&self) -> bool {
+        !self.mesh_relation.mesh_id_transform.is_empty() && self.mesh_relation.mesh_id_transform.values().all(|r| r.has_normals)
+    }
+
+    /// `InitializeOriginal`: this mesh becomes an original with one new mesh ID (every triangle refers to it, the
+    /// coplanar IDs stay).
+    #[allow(dead_code)]
+    pub(crate) fn initialize_original(&mut self) {
+        let mesh_id = reserve_ids(1) as i32;
+        self.mesh_relation.original_id = mesh_id;
+        let nt = self.num_tri();
+        self.mesh_relation.tri_ref.resize(nt, TriRef::default());
+        for r in &mut self.mesh_relation.tri_ref {
+            *r = TriRef { mesh_id, original_id: mesh_id, face_id: -1, coplanar_id: r.coplanar_id };
+        }
+        let had_normals = self.all_have_normals();
+        self.mesh_relation.mesh_id_transform.clear();
+        self.mesh_relation
+            .mesh_id_transform
+            .insert(mesh_id, Relation { original_id: mesh_id, transform: IDENTITY34, back_side: false, has_normals: had_normals });
+    }
+
     /// `IncrementMeshIDs`: new instance IDs for every mesh in this Impl.
     pub(crate) fn increment_mesh_ids(&mut self) -> R<()> {
         let old = core::mem::take(&mut self.mesh_relation.mesh_id_transform);

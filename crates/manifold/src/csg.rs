@@ -79,6 +79,12 @@ impl Manifold {
         Arc::clone(&lock(&self.node))
     }
 
+    /// `Manifold(std::shared_ptr<Impl>)`: a leaf around a finished Impl.
+    #[allow(dead_code)]
+    pub(crate) fn from_impl(imp: Impl) -> Manifold {
+        Manifold::from_node(Node::leaf(imp))
+    }
+
     /// `Manifold(const MeshGL&)` plus manifold-3d's status check: the solid, or why the mesh is not one.
     pub fn from_mesh(mesh: &Mesh) -> Result<Manifold, Status> {
         let imp = Impl::from_mesh(mesh);
