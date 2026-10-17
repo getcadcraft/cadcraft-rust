@@ -188,7 +188,44 @@ impl PdfView {
             self.fit_to(rect.size());
         }
         let origin = rect.min + self.pan;
-        if self.mode == "takeoff" {
+        if self.mode == "takeoff" && self.takeoff.ac_tool && self.takeoff.ac.is_none() {
+            // Auto count: a primary drag boxes the symbol, release searches this sheet
+            let key = self.takeoff.sheet(self.page);
+            if resp.drag_started_by(egui::PointerButton::Primary)
+                && let Some(p) = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos())
+            {
+                let q = self.to_pdf(origin, p);
+                self.takeoff.ac_box = Some((q, q));
+            } else if resp.dragged_by(egui::PointerButton::Primary)
+                && let (Some(p), Some((a, _))) = (resp.interact_pointer_pos(), self.takeoff.ac_box)
+            {
+                self.takeoff.ac_box = Some((a, self.to_pdf(origin, p)));
+            } else if resp.drag_stopped()
+                && let Some((a, b)) = self.takeoff.ac_box.take()
+            {
+                self.run_autocount(&key, a, b);
+            } else if resp.dragged() {
+                self.pan += resp.drag_delta();
+            }
+        } else if self.mode == "takeoff" && self.takeoff.ac.is_some() {
+            // the review: a click rejects or restores a match, Enter adds them, Esc discards
+            if resp.dragged() {
+                self.pan += resp.drag_delta();
+            } else if resp.clicked()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                let q = self.to_pdf(origin, p);
+                if let Some(ac) = self.takeoff.ac.as_mut() {
+                    ac.toggle(q);
+                }
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.takeoff.accept_autocount();
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.takeoff.ac = None;
+            }
+        } else if self.mode == "takeoff" {
             let key = self.takeoff.sheet(self.page);
             if resp.dragged() {
                 self.pan += resp.drag_delta();
@@ -409,6 +446,27 @@ impl PdfView {
         let key = self.takeoff.sheet(self.page);
         let uu = self.pages.get(self.page).map_or(1.0, |p| p.user_unit);
         self.takeoff.panel(ui, t, &key, uu);
+    }
+
+    /// Auto count on the open sheet for the symbol boxed from `a` to `b` (PDF user space).
+    pub fn run_autocount(&mut self, sheet: &str, a: [f64; 2], b: [f64; 2]) {
+        if !self.takeoff.ensure_count() {
+            return;
+        }
+        let Some(info) = self.pages.get(self.page).cloned() else { return };
+        let item = self.takeoff.item.clone().unwrap_or_default();
+        let own = self.takeoff.own_counts(sheet);
+        match crate::autocount::run(&self.doc, &info, &item, sheet, (a, b), self.takeoff.ac_any, &own) {
+            Ok(ac) => {
+                self.takeoff.message = if ac.visible().is_empty() {
+                    cc_takeoff::i18n::t("ac.none")
+                } else {
+                    format!("{} ({:.0} ms)", cc_takeoff::i18n::t("ac.done"), ac.ms)
+                };
+                self.takeoff.ac = Some(ac);
+            }
+            Err(e) => self.takeoff.message = e,
+        }
     }
 
     /// A TakeoffCraft export of this plan set (see `TakeoffMode::export_file`).

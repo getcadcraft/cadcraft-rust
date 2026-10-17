@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M8.7 TakeoffCraft Auto count in the app
+
+- M8.7: `crates/ui-egui/src/autocount.rs`: takeoffcraft.js `runAutoCount` on the open sheet: box one symbol (drag with
+  Auto count on), render at the work scale, cut and trim the template, search with cc-takeoff's matcher (right angles,
+  or every 15° with "Any angle"), review (`suppress` at the slider's threshold, 75 % to start; a click rejects or restores
+  a match; matches over the item's own marks start rejected), then "Add n marks" as one undo step ("Auto count: n item").
+  `ensureItem('count')` as 0.5. `takeoff.autocount` command (box, threshold, accept, discard). Kitchen fixture, the
+  harness's shelving box: 22 matches at 75 % in 0.8 s, all 22 known shelves marked within 12 pt. Search runs on the UI
+  thread (a worker is next; the web build has no threads yet).
+
 ## 2026-10-17 — M8.6 TakeoffCraft exports in the app
 
 - M8.6: the takeoff panel's Export row (catalog labels): XLSX, CSV, Marked PDF, Save takeoff, and the

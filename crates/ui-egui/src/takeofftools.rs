@@ -27,6 +27,11 @@ pub struct TakeoffMode {
     new_type: String,
     /// an export the panel asked for ("xlsx", "csv", "pdf", "project"): the host writes it (it owns saving)
     pub export: Option<&'static str>,
+    /// Auto count: the tool is on (a drag boxes a symbol), search at any angle, the box being dragged, the matches
+    pub ac_tool: bool,
+    pub ac_any: bool,
+    pub ac_box: Option<([f64; 2], [f64; 2])>,
+    pub ac: Option<crate::autocount::AutoCount>,
 }
 
 impl std::fmt::Debug for TakeoffMode {
@@ -94,6 +99,10 @@ impl TakeoffMode {
             new_name: String::new(),
             new_type: "count".into(),
             export: None,
+            ac_tool: false,
+            ac_any: false,
+            ac_box: None,
+            ac: None,
         }
     }
 
@@ -316,6 +325,7 @@ impl TakeoffMode {
         if e.unscaled > 0.0 {
             ui.label(RichText::new(format!("{} marks are on sheets without a scale", qty(e.unscaled))).color(t.text_dim));
         }
+        self.autocount_panel(ui, t);
         ui.separator();
         ui.label(RichText::new(cc_takeoff::i18n::t("group.export")).small());
         ui.horizontal_wrapped(|ui| {
@@ -337,6 +347,105 @@ impl TakeoffMode {
         });
         if !self.message.is_empty() {
             ui.label(RichText::new(&self.message).color(t.text_dim));
+        }
+    }
+
+    /// The current item's count marks on `sheet` (Auto count marks matches over them as already counted).
+    pub fn own_counts(&self, sheet: &str) -> Vec<[f64; 2]> {
+        let Some(item) = self.item.as_deref() else { return Vec::new() };
+        self.tk
+            .marks()
+            .iter()
+            .filter(|m| m.get("item").and_then(Value::as_str) == Some(item) && m.get("sheet").and_then(Value::as_str) == Some(sheet))
+            .filter_map(|m| cc_takeoff::model::pts_of(m.get("pts")).first().map(|p| [p.x, p.y]))
+            .collect()
+    }
+
+    /// Whether the current item takes count marks (Auto count needs one).
+    pub fn counts(&self) -> bool {
+        self.item
+            .as_deref()
+            .and_then(|i| self.tk.item(i))
+            .is_some_and(|it| cc_takeoff::model::kinds_of(Some(it)).iter().any(|k| k == "count"))
+    }
+
+    /// `ensureItem('count')`: the current item if it takes counts, else the last count item, else ask for one.
+    pub fn ensure_count(&mut self) -> bool {
+        if self.counts() {
+            return true;
+        }
+        let last = self.tk.items().iter().rev().find(|i| i.get("type").and_then(Value::as_str) == Some("count")).cloned();
+        match last {
+            Some(it) => {
+                self.item = it.get("id").and_then(Value::as_str).map(str::to_string);
+                let name = it.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                self.message = tf("tool.taking", &[("item", F::S(name))]);
+                true
+            }
+            None => {
+                self.message = t("tool.make.count");
+                false
+            }
+        }
+    }
+
+    /// Auto count's part of the panel: the tool, any angle, then the review (summary, match slider, add / discard).
+    fn autocount_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        use cc_takeoff::i18n::{t as tr, tn};
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            let b = ui.selectable_label(self.ac_tool, tr("tool.autocount")).on_hover_text(tr("tool.autocount.title"));
+            if b.clicked() {
+                self.ac_tool = !self.ac_tool;
+                self.ac_box = None;
+                if self.ac_tool {
+                    self.ensure_count();
+                }
+            }
+            ui.checkbox(&mut self.ac_any, tr("ac.angle"));
+        });
+        let mut accept = false;
+        let mut discard = false;
+        if let Some(ac) = self.ac.as_mut() {
+            ui.label(RichText::new(ac.summary()).color(t.text));
+            ui.horizontal(|ui| {
+                let l = ui.label(tr("ac.match"));
+                ui.add(
+                    egui::Slider::new(&mut ac.threshold, crate::autocount::FLOOR..=1.0)
+                        .custom_formatter(|v, _| format!("{:.0}%", v * 100.0)),
+                )
+                .labelled_by(l.id);
+            });
+            let n = ac.adding().len();
+            ui.horizontal(|ui| {
+                if ui.add_enabled(n > 0, egui::Button::new(tn("ac.accept", n as f64))).clicked() {
+                    accept = true;
+                }
+                if ui.button(tr("ac.discard")).clicked() {
+                    discard = true;
+                }
+            });
+        }
+        if accept {
+            self.accept_autocount();
+        }
+        if discard {
+            self.ac = None;
+            self.message = tr("ac.discarded");
+        }
+    }
+
+    /// Add the kept matches (one undo step) and end the review.
+    pub fn accept_autocount(&mut self) {
+        let Some(ac) = self.ac.take() else { return };
+        let name = self.tk.item(&ac.item).and_then(|it| it.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
+        match ac.accept(&mut self.tk) {
+            Ok(0) => {}
+            Ok(n) => {
+                let fills = [("n", F::N(n as f64)), ("item", F::S(name)), ("mod", F::S("Ctrl".into()))];
+                self.message = tf("ac.added", &fills);
+            }
+            Err(e) => self.message = e,
         }
     }
 
@@ -374,6 +483,27 @@ impl TakeoffMode {
                 }
                 _ => {
                     painter.add(egui::Shape::line(pts, egui::Stroke::new(2.5, c)));
+                }
+            }
+        }
+        if let Some((a, b)) = self.ac_box {
+            let r = egui::Rect::from_two_pos(at(a[0], a[1]), at(b[0], b[1]));
+            let stroke = egui::Stroke::new(1.5, Color32::from_rgb(0x2f, 0x6f, 0xde));
+            let ring = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+            painter.add(egui::Shape::dashed_line(&ring, stroke, 5.0, 3.0));
+        }
+        if let Some(ac) = self.ac.as_ref().filter(|ac| ac.sheet == sheet) {
+            let c = color_of(&ac.item);
+            for i in ac.visible() {
+                let Some(m) = ac.matches.get(i) else { continue };
+                let mut ring: Vec<Pos2> = m.corners.iter().map(|q| at(q[0], q[1])).collect();
+                if let Some(f) = ring.first().copied() {
+                    ring.push(f);
+                }
+                if m.rejected {
+                    painter.add(egui::Shape::dashed_line(&ring, egui::Stroke::new(1.0, Color32::GRAY), 4.0, 3.0));
+                } else {
+                    painter.add(egui::Shape::line(ring, egui::Stroke::new(2.0, c)));
                 }
             }
         }

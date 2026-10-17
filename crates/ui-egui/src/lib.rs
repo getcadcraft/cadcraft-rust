@@ -15,6 +15,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod autocount;
 pub mod bimtools;
 pub mod canvas;
 pub mod civil3d;
@@ -957,6 +958,29 @@ impl UiApp {
                     Some(cc_markup::units::preset_calibration(l, r, u))
                 };
                 p.tools.set_scale(&mut p.store, &key, cal);
+            }
+            "takeoff.autocount" => {
+                // Auto count on the open sheet: name = "x0,y0,x1,y1" (the symbol's box, PDF user space; "any:" first for
+                // every 15°), then "accept" adds the kept matches, "discard" drops them; a number (or factor) sets the match threshold
+                let spec = params.name.clone().ok_or("takeoff.autocount: name = x0,y0,x1,y1 | accept | discard")?;
+                let p = self.pdf.as_mut().ok_or("takeoff.autocount: open a PDF first")?;
+                match spec.as_str() {
+                    // a bare number is the match threshold (the review's slider)
+                    _ if spec.parse::<f64>().is_ok() => {}
+                    "accept" => p.takeoff.accept_autocount(),
+                    "discard" => p.takeoff.ac = None,
+                    _ => {
+                        let (any, nums) = spec.strip_prefix("any:").map_or((false, spec.as_str()), |r| (true, r));
+                        let v: Vec<f64> = nums.split(',').filter_map(|x| x.trim().parse().ok()).filter(|x: &f64| x.is_finite()).collect();
+                        let [x0, y0, x1, y1] = v[..] else { return Err("takeoff.autocount: the box is x0,y0,x1,y1".into()) };
+                        p.takeoff.ac_any = any;
+                        let key = p.takeoff.sheet(p.page);
+                        p.run_autocount(&key, [x0, y0], [x1, y1]);
+                    }
+                }
+                if let (Some(f), Some(ac)) = (params.factor, p.takeoff.ac.as_mut()) {
+                    ac.threshold = f.clamp(crate::autocount::FLOOR, 1.0);
+                }
             }
             "takeoff.export" => {
                 // a TakeoffCraft export of the open plan set written to `path`: name = xlsx, csv, pdf (marked) or project
