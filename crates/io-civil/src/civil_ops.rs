@@ -370,6 +370,7 @@ pub fn handle2(reg: &mut Registry, c: &Call) -> R {
                 &notes,
                 &hidden,
                 &images,
+                plot::now_ms(),
             );
             let j = sheet_norm(&sheet);
             keep(reg, c, vec![sheet]);
@@ -383,11 +384,11 @@ pub fn handle2(reg: &mut Registry, c: &Call) -> R {
             let mono = o.and_then(|o| o.get("mono")).and_then(Value::as_bool).unwrap_or(false);
             let (bytes, report) = if c.op == "plot.toPdf" {
                 match sheets.first() {
-                    Some(s) => plot::to_pdf(s, mono),
+                    Some(s) => plot::to_pdf(s, mono, plot::now_ms()),
                     None => return Some(Err("no sheet".into())),
                 }
             } else {
-                plot::to_pdf_pages(sheets, mono, o.and_then(|o| o.get("title")).and_then(Value::as_str).unwrap_or(""))
+                plot::to_pdf_pages(sheets, mono, o.and_then(|o| o.get("title")).and_then(Value::as_str).unwrap_or(""), plot::now_ms())
             };
             Some(Ok(pdf_result(&bytes, report)))
         }
@@ -447,6 +448,7 @@ pub fn handle2(reg: &mut Registry, c: &Call) -> R {
                 o.get("name").and_then(Value::as_str).unwrap_or(""),
                 g("from", f64::NAN),
                 g("to", f64::NAN),
+                plot::now_ms(),
             );
             let j = serde_json::json!({
                 "sheets": sheets.iter().map(sheet_norm).collect::<Vec<_>>(), "vex": vex.j(), "notes": notes,
@@ -472,6 +474,7 @@ pub fn handle2(reg: &mut Registry, c: &Call) -> R {
                 o.get("name").and_then(Value::as_str).unwrap_or(""),
                 g("from", f64::NEG_INFINITY),
                 g("to", f64::INFINITY),
+                plot::now_ms(),
             );
             let j = serde_json::json!({
                 "sheets": sheets.iter().map(sheet_norm).collect::<Vec<_>>(),
@@ -491,6 +494,7 @@ pub fn handle2(reg: &mut Registry, c: &Call) -> R {
                 o.get("units").and_then(Value::as_str).unwrap_or("ft"),
                 o.get("title").and_then(Value::as_str).unwrap_or(""),
                 o.get("name").and_then(Value::as_str).unwrap_or(""),
+                plot::now_ms(),
             );
             let j = serde_json::json!({ "sheets": sheets.iter().map(sheet_norm).collect::<Vec<_>>(), "perPage": per_page.j() });
             keep(reg, c, sheets);

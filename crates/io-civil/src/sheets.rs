@@ -1,7 +1,7 @@
 //! pp-sheets.js (plan and profile sheets, 0.4 V15), section-sheets.js (cross-section sheets, 0.4 V17) and the staking
 //! table pages of staking.js (0.4 V23): page layouts for plot.js `toPdfPages`.
 
-use crate::plot::{Fill, MARGIN, PText, Scale, Sheet, Stroke, TITLE_H, View, orient, paper_by, rgb_of, today, width_of};
+use crate::plot::{Fill, MARGIN, PText, Scale, Sheet, Stroke, TITLE_H, View, day_of, orient, paper_by, rgb_of, width_of};
 use cc_civil::alignment::Alignment;
 use cc_civil::i18n::t;
 use cc_civil::js::{J, JsMath, hypot, max, max_of, min, num_to_string, round, round_fixed};
@@ -117,6 +117,7 @@ pub fn plan_profile_sheets(
     name: &str,
     from: f64,
     to: f64,
+    made_ms: f64,
 ) -> (Vec<Sheet>, f64, Vec<String>, (f64, Vec<(f64, f64)>)) {
     let (length, stations) = sheet_plan(al, paper, landscape, scale, from, to, units);
     let lay = layout(paper, landscape);
@@ -425,7 +426,7 @@ pub fn plan_profile_sheets(
             ),
         ));
         tt.push(tx(INK, pw_ - MARGIN - 4.0, MARGIN + TITLE_H - 6.0, 4.0, 0.0, "right", None, tr!("pp.sheet", n = k + 1, N = n_sheets)));
-        tt.push(tx(INK, pw_ - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = today())));
+        tt.push(tx(INK, pw_ - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = day_of(made_ms))));
         let na = (pwin.2 - 10.0, pwin.3 - 14.0);
         let nd = (th.jsin(), th.jcos());
         let (nx, ny) = (-nd.1, nd.0);
@@ -474,6 +475,7 @@ pub fn section_sheets(
     name: &str,
     from: f64,
     to: f64,
+    made_ms: f64,
 ) -> (Vec<Sheet>, Option<(f64, f64, f64, f64)>, f64, f64, Vec<String>) {
     let secs: Vec<&cc_civil::sections::Sec> = set.sections.iter().filter(|x| x.sta >= from - 1e-9 && x.sta <= to + 1e-9).collect();
     let mut notes = Vec::new();
@@ -682,7 +684,7 @@ pub fn section_sheets(
             ),
         ));
         tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + TITLE_H - 6.0, 4.0, 0.0, "right", None, tr!("pp.sheet", n = pg + 1, N = pages)));
-        tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = today())));
+        tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = day_of(made_ms))));
         sheets.push(Sheet {
             w: pw,
             h: ph,
@@ -709,7 +711,8 @@ pub fn section_sheets(
 /// `stakingSheets(rows, { paper, landscape, units, title, name })` → (sheets, perPage).
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::arithmetic_side_effects)] // bounded counters and indices (page numbers, padding, digit math)
-pub fn staking_sheets(rows: &[Row], paper: &str, landscape: bool, units: &str, title: &str, name: &str) -> (Vec<Sheet>, f64) {
+#[allow(clippy::too_many_arguments)]
+pub fn staking_sheets(rows: &[Row], paper: &str, landscape: bool, units: &str, title: &str, name: &str, made_ms: f64) -> (Vec<Sheet>, f64) {
     let (pw, ph) = orient(&paper_by(paper), landscape);
     let x0 = MARGIN + 4.0;
     let x1 = pw - MARGIN - 4.0;
@@ -793,7 +796,7 @@ pub fn staking_sheets(rows: &[Row], paper: &str, landscape: bool, units: &str, t
         tt.push(tx(INK, MARGIN + 4.0, MARGIN + TITLE_H - 6.0, 4.0, 0.0, "left", None, ttl.clone()));
         tt.push(tx(INK, MARGIN + 4.0, MARGIN + 3.5, 2.2, 0.0, "left", None, tr!("sk.strip", name = name, n = rows.len(), u = u)));
         tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + TITLE_H - 6.0, 4.0, 0.0, "right", None, tr!("pp.sheet", n = pg + 1, N = pages)));
-        tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = today())));
+        tt.push(tx(INK, pw - MARGIN - 4.0, MARGIN + 3.5, 2.2, 0.0, "right", None, tr!("pp.made", date = day_of(made_ms))));
         sheets.push(Sheet {
             w: pw,
             h: ph,

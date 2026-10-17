@@ -634,11 +634,6 @@ pub fn view_bounds(v: &cc_render::View2D) -> Ext {
     e
 }
 
-/// `plot.made` with the date of `ms` (`toISOString().slice(0, 10)`).
-fn made(ms: f64) -> String {
-    tr!("plot.made", date = iso_time(ms).chars().take(10).collect::<String>())
-}
-
 /// civilcraft.js `plotDialog` "Download PDF": the plan scene on one sheet.
 pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64) -> Outcome {
     let units = units_of(p);
@@ -654,19 +649,9 @@ pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64) -> Outcome {
         ));
     }
     let title = site_name(p);
-    let before = made(plot::now_ms());
-    let mut sheet = plot::plan_sheet(&sc, &c.area, &c.paper, true, &c.scale, Some(&title), &units, &notes, &[], &[]);
+    let sheet = plot::plan_sheet(&sc, &c.area, &c.paper, true, &c.scale, Some(&title), &units, &notes, &[], &[], now_ms);
     drop(sc);
-    // the title strip's date and the info's CreationDate are the caller's clock (the engine reads the wall clock)
-    let after = made(plot::now_ms());
-    let want = made(now_ms);
-    for tx in &mut sheet.chrome_texts {
-        if tx.text == before || tx.text == after {
-            tx.text.clone_from(&want);
-        }
-    }
-    let (mut bytes, report) = plot::to_pdf(&sheet, c.mono);
-    set_creation_date(&mut bytes, now_ms);
+    let (bytes, report) = plot::to_pdf(&sheet, c.mono, now_ms);
     let stem = file_stem(&site_name(p));
     let missing = report.get("missing").map_or(0.0, |v| numf(Some(v)));
     let mut msg = tr!("cv.plot.done", file = format!("{stem}.pdf"), scale = c.scale.label.as_str());
@@ -675,24 +660,6 @@ pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64) -> Outcome {
         msg.push_str(&tr!("pp.ui.missing", n = missing));
     }
     Outcome::File(format!("{stem}.pdf"), bytes, msg)
-}
-
-/// Overwrite the info's `/CreationDate (D:YYYYMMDDHHMMSSZ)` with `ms` (same length: offsets stay).
-fn set_creation_date(bytes: &mut [u8], ms: f64) {
-    let key = b"/CreationDate (D:";
-    let Some(at) = bytes.windows(key.len()).rposition(|w| w == key) else { return };
-    let (y, mo, d, h, mi, s) = cc_io_civil::landxml::date_parts(ms);
-    let stamp = format!("{y}{mo:02}{d:02}{h:02}{mi:02}{s:02}Z)");
-    let start = at.saturating_add(key.len());
-    let Some(end) = bytes.get(start..).and_then(|r| r.iter().position(|&b| b == b')')).map(|i| start.saturating_add(i).saturating_add(1))
-    else {
-        return;
-    };
-    if end.saturating_sub(start) == stamp.len()
-        && let Some(dst) = bytes.get_mut(start..end)
-    {
-        dst.copy_from_slice(stamp.as_bytes());
-    }
 }
 
 // ------------------------------------------------------------------------------------------------ GLB

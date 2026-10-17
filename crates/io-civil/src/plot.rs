@@ -271,13 +271,14 @@ pub fn sheet_window(ext: &Ext, paper: &str, landscape: bool, scale: &Scale) -> E
     Ext { min_x: cx - hw, max_x: cx + hw, min_y: cy - hh, max_y: cy + hh }
 }
 
-/// The date the JS writes (`new Date().toISOString().slice(0, 10)`).
-pub fn today() -> String {
-    let ms = now_ms();
+/// The date the JS writes (`new Date().toISOString().slice(0, 10)`) for the time `ms` the caller passes: the engine
+/// never reads the clock itself (on the web there is none here, and exports must be reproducible).
+pub fn day_of(ms: f64) -> String {
     let (y, m, d, _, _, _) = crate::landxml::date_parts(ms);
     format!("{}-{}-{}", pad_start(&y.to_string(), 4, '0'), pad_start(&m.to_string(), 2, '0'), pad_start(&d.to_string(), 2, '0'))
 }
-/// Milliseconds since 1970 (0 on targets without a clock).
+/// Milliseconds since 1970 (0 on targets without a clock): for tools and the parity harness, which stamp what they
+/// write with the time they run; the app passes its own clock.
 pub fn now_ms() -> f64 {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -310,6 +311,7 @@ pub fn plan_sheet(
     notes: &[String],
     hidden: &[String],
     images: &[SceneImage],
+    made_ms: f64,
 ) -> Sheet {
     let (pw, ph) = orient(&paper_by(paper), landscape);
     let frame = (MARGIN, MARGIN + TITLE_H, pw - MARGIN, ph - MARGIN);
@@ -402,7 +404,7 @@ pub fn plan_sheet(
     let mut tt = vec![
         pt(frame.0 + 4.0, MARGIN + TITLE_H - 6.0, 4.0, title_s.clone(), "left"),
         pt(frame.0 + 4.0, MARGIN + 3.5, 2.2, line2.join("   ·   "), "left"),
-        pt(frame.2 - 4.0, MARGIN + 3.5, 2.2, tr!("plot.made", date = today()), "right"),
+        pt(frame.2 - 4.0, MARGIN + 3.5, 2.2, tr!("plot.made", date = day_of(made_ms)), "right"),
     ];
     let na = (frame.2 - 12.0, frame.3 - 20.0);
     chrome.push(st(0.35, vec![(na.0, na.1 - 6.0), (na.0, na.1 + 8.0)], None));
@@ -647,19 +649,19 @@ fn deflate(b: &[u8]) -> Vec<u8> {
     miniz_oxide::deflate::compress_to_vec_zlib(b, 6)
 }
 
-/// `toPdf(sheet, { mono })` → (bytes, report).
-pub fn to_pdf(sheet: &Sheet, mono: bool) -> (Vec<u8>, Value) {
+/// `toPdf(sheet, { mono })` → (bytes, report); `date_ms` is the CreationDate.
+pub fn to_pdf(sheet: &Sheet, mono: bool, date_ms: f64) -> (Vec<u8>, Value) {
     let imgs = images_of(sheet);
     let names: Vec<String> = (0..imgs.len()).map(|i| format!("Im{}", i.saturating_add(1))).collect();
     let (content, missing) = page_content(sheet, mono, &names);
     let packed = deflate(&content);
-    let bytes = assemble(&[Page { w: sheet.w, h: sheet.h, content: packed, flate: true, images: imgs }], &sheet.name);
+    let bytes = assemble(&[Page { w: sheet.w, h: sheet.h, content: packed, flate: true, images: imgs }], &sheet.name, date_ms);
     let size = bytes.len();
     (bytes, json!({ "missing": missing, "size": size, "compressed": true }))
 }
 
-/// `toPdfPages(sheets, { mono, title })` → (bytes, report).
-pub fn to_pdf_pages(sheets: &[Sheet], mono: bool, title: &str) -> (Vec<u8>, Value) {
+/// `toPdfPages(sheets, { mono, title })` → (bytes, report); `date_ms` is the CreationDate.
+pub fn to_pdf_pages(sheets: &[Sheet], mono: bool, title: &str, date_ms: f64) -> (Vec<u8>, Value) {
     let mut pages = Vec::new();
     let mut missing = 0usize;
     for sh in sheets {
@@ -670,17 +672,17 @@ pub fn to_pdf_pages(sheets: &[Sheet], mono: bool, title: &str) -> (Vec<u8>, Valu
         pages.push(Page { w: sh.w, h: sh.h, content: deflate(&content), flate: true, images: imgs });
     }
     let title = if title.is_empty() { sheets.first().map_or("", |s| s.name.as_str()) } else { title };
-    let bytes = assemble(&pages, title);
+    let bytes = assemble(&pages, title, date_ms);
     let size = bytes.len();
     let n = pages.len();
     (bytes, json!({ "missing": missing, "size": size, "compressed": true, "pages": n }))
 }
 
-fn assemble(pages: &[Page], title: &str) -> Vec<u8> {
+fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut offsets: Vec<usize> = Vec::new();
     let pt = |mm: f64| num(mm * 72.0 / 25.4);
-    let (y, mo, d, h, mi, s) = crate::landxml::date_parts(now_ms());
+    let (y, mo, d, h, mi, s) = crate::landxml::date_parts(date_ms);
     let p2 = |x: i64| pad_start(&x.to_string(), 2, '0');
     let date = format!("D:{}{}{}{}{}{}Z", y, p2(mo), p2(d), p2(h), p2(mi), p2(s));
     let pdf_text = |s: &str| format!("({})", win_ansi(s).0);

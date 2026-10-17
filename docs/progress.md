@@ -2,6 +2,14 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M11.6 plot dates from the caller
+
+- M11.6: io-civil's plot and sheet builders no longer read the clock: `plan_sheet`, `plan_profile_sheets`,
+  `section_sheets`, `staking_sheets` take the "made" date and `to_pdf` / `to_pdf_pages` the CreationDate from the
+  caller (the web build has no clock there, so its plot PDFs said 1970). The app passes its own time; the harness the
+  time it runs. Replaces M11.5's after-the-fact patch of the PDF. cvuidiff --demo all identical; cvdiff seeds 1–3:
+  20,240 calls, the 1 accepted byte-flipped LAZ difference.
+
 ## 2026-10-17 — M11.5 CivilCraft exports in the app (agent, work/civilexp)
 
 - M11.5: `crates/ui-egui/src/civilexport.rs`: civilcraft.js `saveProject`, `exportLandXml`, `exportDxf`, `exportDwg`
