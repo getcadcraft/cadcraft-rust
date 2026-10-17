@@ -39,6 +39,13 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   crate crashes (guarded, regression seeds); LAZ is not decoded in the web build, where a panic cannot be caught.
   `num_to_string` now picks the even digit on 17-digit ties as V8 does, behind a cheap binary test (proved on 300,000
   values) so the exact expansion runs almost never; wdiff 468/468, idiff 220/220, iodiff 801/801 unchanged.
+- M10.1–M10.5.1 (agent): `cc-part`: PartCraft's engine without the rebuild kernel — document model, params,
+  configurations, sketch + solver, threads, GD&T, BOM, .pcscript, mesh faces / named faces, reference geometry,
+  assemblies + joints, standard parts, drawings and exports (STL, 3MF, DXF, STEP, PDF, IFC4) — at exact parity
+  (`tools/pcdiff.mjs` seeds 1–20: 239,669 records, 0 differences). measure 31×, refgeom 26×, analysis 5× the JS.
+  Open: `kernel.js` rebuild / meshSection / interference need cc-manifold extrude, revolve, trimByPlane, CrossSection …
+- M11.1–M11.4 (agent + lead): CivilCraft in the app (project / LandXML / points; plan at survey coordinates; panels;
+  3D site; `civil.*` commands); 1 M points: zoom-step rebuild 0.10 s.
 - M9.12: TakeoffCraft mode on the sheet view: sheet scale (the 0.5 presets), count / linear / area items, marks clicked
   on the sheet (double-click or Enter ends a length or area), live quantities and the estimate total from cc-takeoff
   (`quantities`, `estimate`), undo / redo through `Takeoff`; `takeoff.mode`, `takeoff.scale`, `takeoff.item`,
