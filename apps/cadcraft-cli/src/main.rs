@@ -26,6 +26,8 @@
 //!   cadcraft-cli m3dtools <script.json> | --bench <bench.json> [--runs N]
 //!                                                dev: ModelCraft's tools (cc-m3d-tools) on scripted sessions
 //!                                                (forks/tools/tdiff.mjs), m3dtools.rs
+//!   cadcraft-cli bim <job.json> [--bench N]          dev: BimCraft's engine modules (cc-bim) on a parity job
+//!                                                (forks/tools/bimdiff.mjs), bim.rs
 //!   cadcraft-cli save <in.dwg|in.dxf> <2000|…|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq]
 //!                                                    import → Doc → saveDwg / writeDxf / writeDxf2000, iocad.rs
 //!
@@ -36,6 +38,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
+mod bim;
 mod cmds;
 mod ifc;
 mod iocad;
@@ -86,6 +89,7 @@ fn main() -> ExitCode {
         "m3dio" => m3dio::m3dio(&rest),
         "takeoff" => takeoff::takeoff(&rest),
         "markup" => markup::markup(&rest),
+        "bim" => bim::bim(&rest),
         _ => usage(),
     }
 }

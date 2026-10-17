@@ -44,6 +44,7 @@ cc-takeoff = { path = "crates/takeoff" }
 cc-io-takeoff = { path = "crates/io-takeoff" }
 cc-markup = { path = "crates/markup" }
 cc-io-markup = { path = "crates/io-markup" }
+cc-bim = { path = "crates/bim" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"

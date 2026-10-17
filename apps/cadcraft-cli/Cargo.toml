@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 cc-io-dwg.workspace = true
 cc-io-ifc.workspace = true
+cc-bim.workspace = true
 cc-io-cad.workspace = true
 cc-io-skp.workspace = true
 cc-cad.workspace = true
