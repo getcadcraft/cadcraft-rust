@@ -958,6 +958,17 @@ impl UiApp {
                 };
                 p.tools.set_scale(&mut p.store, &key, cal);
             }
+            "takeoff.export" => {
+                // a TakeoffCraft export of the open plan set written to `path`: name = xlsx, csv, pdf (marked) or project
+                let kind = params.name.clone().ok_or("takeoff.export: name = xlsx, csv, pdf or project")?;
+                let p = self.pdf.as_ref().ok_or("takeoff.export: open a PDF first")?;
+                let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+                let (name, bytes) = p.takeoff_export(&kind, now)?;
+                let save = self.services.save.as_mut().ok_or("takeoff.export: saving is not available here")?;
+                if let Some(to) = save(&name, bytes)? {
+                    self.message = format!("Saved {to}");
+                }
+            }
             "markup.finish" => {
                 // end the area outline being clicked (as Enter)
                 let p = self.pdf.as_mut().ok_or("markup.finish: open a PDF first")?;
@@ -1281,8 +1292,19 @@ impl UiApp {
             if !pdf.tools.message.is_empty() {
                 self.message = format!("{}   · {}", self.message, pdf.tools.message);
             }
+            let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+            if let Some(kind) = pdf.takeoff.export.take() {
+                match pdf.takeoff_export(kind, now) {
+                    Ok((name, bytes)) => match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                        Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                        Some(Ok(None)) => {}
+                        Some(Err(e)) => self.error = Some(e),
+                        None => self.error = Some("Saving is not available here".into()),
+                    },
+                    Err(e) => pdf.takeoff.message = e,
+                }
+            }
             if save {
-                let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
                 match pdf.save_marked(now) {
                     Ok((name, bytes)) => match self.services.save.as_mut().map(|f| f(&name, bytes)) {
                         Some(Ok(Some(to))) => self.message = format!("Saved {to}"),

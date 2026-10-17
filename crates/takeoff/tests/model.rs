@@ -777,3 +777,12 @@ fn hostile_inputs_never_panic() {
     let _ = t.move_item("x", f64::NAN);
     let _ = t.add_group(Some(&json!(null)), Some(&json!("x")), &[]);
 }
+
+#[test]
+fn the_project_is_written_as_json_stringify_with_indent_1() {
+    // node -e 'console.log(JSON.stringify({a:[1,{b:[]},{}],c:"x\"y",d:{e:null,f:1.5}},null,1))'
+    let v = serde_json::json!({ "a": [1, { "b": [] }, {}], "c": "x\"y", "d": { "e": null, "f": 1.5 } });
+    let want =
+        "{\n \"a\": [\n  1,\n  {\n   \"b\": []\n  },\n  {}\n ],\n \"c\": \"x\\\"y\",\n \"d\": {\n  \"e\": null,\n  \"f\": 1.5\n }\n}";
+    assert_eq!(cc_takeoff::jv::stringify_indent(&v, 1), want);
+}

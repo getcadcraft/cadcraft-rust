@@ -260,6 +260,55 @@ fn write_json(out: &mut String, v: &Value) {
         }
     }
 }
+/// `JSON.stringify(v, null, indent)`: the saved project's layout (takeoffcraft.js saves with an indent of 1).
+/// Nesting deeper than `MAX_DEPTH` is written compact (validated projects are far shallower).
+pub fn stringify_indent(v: &Value, indent: usize) -> String {
+    let mut out = String::new();
+    write_indent(&mut out, v, indent.min(10), 0);
+    out
+}
+const MAX_DEPTH: usize = 64;
+fn newline(out: &mut String, indent: usize, depth: usize) {
+    out.push('\n');
+    for _ in 0..indent.saturating_mul(depth) {
+        out.push(' ');
+    }
+}
+fn write_indent(out: &mut String, v: &Value, indent: usize, depth: usize) {
+    if indent == 0 || depth >= MAX_DEPTH {
+        return write_json(out, v);
+    }
+    let inner = depth.saturating_add(1);
+    match v {
+        Value::Array(a) if !a.is_empty() => {
+            out.push('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                newline(out, indent, inner);
+                write_indent(out, x, indent, inner);
+            }
+            newline(out, indent, depth);
+            out.push(']');
+        }
+        Value::Object(o) if !o.is_empty() => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                newline(out, indent, inner);
+                quote(out, k);
+                out.push_str(": ");
+                write_indent(out, x, indent, inner);
+            }
+            newline(out, indent, depth);
+            out.push('}');
+        }
+        _ => write_json(out, v),
+    }
+}
 /// JSON string quoting as `JSON.stringify` does it.
 pub fn quote(out: &mut String, s: &str) {
     out.push('"');

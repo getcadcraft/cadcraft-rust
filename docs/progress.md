@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-17 — M8.6 TakeoffCraft exports in the app
+
+- M8.6: the takeoff panel's Export row (catalog labels): XLSX, CSV, Marked PDF, Save takeoff, and the
+  `takeoff.export` command (xlsx, csv, pdf, project). Named and written as takeoffcraft.js does: `safeName(name)`
+  + .xlsx / .csv (BOM, baseEstimate) / "<pdf> (takeoff).pdf" (with the legend) / .takeoff.json (`JSON.stringify(…, null,
+  1)`: new `jv::stringify_indent`). The open PDF joins the project's files, so sheets are labelled "<file>, page n".
+  Checked against the frozen JS on a UI-made takeoff (3 counts, a 3-point run, 1/4" = 1'-0"; tools/tkuidiff.mjs):
+  project, CSV and every workbook entry but its dates byte-identical; the marked PDF reads back identical in pdf.js
+  (95 operators, legend text) and is the same file as the parity-checked CLI path. Shot tool: `--save-dir`.
+
 ## 2026-10-17 — M9.12 MarkupCraft measuring tools
 
 - M9.12: Length, Area, Callout and Calibrate on the sheet view, labelled from MarkupCraft's catalog (`tool.*`, `cal.*`,

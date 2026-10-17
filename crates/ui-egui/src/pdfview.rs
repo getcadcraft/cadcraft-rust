@@ -83,11 +83,13 @@ impl PdfView {
         for m in markups {
             store.markups.insert(m.id.clone(), m);
         }
+        let mut takeoff = crate::takeofftools::TakeoffMode::new(&doc.hash);
+        takeoff.add_file(name, bytes.len(), pages.len());
         Ok(PdfView {
             store,
             tools: crate::markuptools::MarkupTools::default(),
             mode: "markup",
-            takeoff: crate::takeofftools::TakeoffMode::new(&doc.hash),
+            takeoff,
             bytes: std::sync::Arc::new(bytes.to_vec()),
             page_keys,
             annots_drawn,
@@ -407,6 +409,11 @@ impl PdfView {
         let key = self.takeoff.sheet(self.page);
         let uu = self.pages.get(self.page).map_or(1.0, |p| p.user_unit);
         self.takeoff.panel(ui, t, &key, uu);
+    }
+
+    /// A TakeoffCraft export of this plan set (see `TakeoffMode::export_file`).
+    pub fn takeoff_export(&self, kind: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+        self.takeoff.export_file(kind, &self.bytes, &self.name, now_ms)
     }
 
     /// The open sheet's key ("f1:<index>"): what its markups name.

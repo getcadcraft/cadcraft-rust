@@ -3,6 +3,7 @@
 //! edit goes through `Takeoff` (one undo step, the 0.5 labels and ids); marks are kept in PDF user space and the sheet
 //! is known by its file's hash, as `sheetKey(hash, page)` in the JS.
 
+use cc_takeoff::i18n::{F, t, tf};
 use cc_takeoff::model::{QOpts, Takeoff, estimate, quantities, sheet_key};
 use egui::{Color32, Pos2, RichText};
 use serde_json::{Map, Value, json};
@@ -24,6 +25,8 @@ pub struct TakeoffMode {
     /// the name and type the "Add item" row uses
     new_name: String,
     new_type: String,
+    /// an export the panel asked for ("xlsx", "csv", "pdf", "project"): the host writes it (it owns saving)
+    pub export: Option<&'static str>,
 }
 
 impl std::fmt::Debug for TakeoffMode {
@@ -48,6 +51,37 @@ fn qty(x: f64) -> String {
     s.trim_end_matches('0').trim_end_matches('.').to_string()
 }
 
+/// ui-util.js `safeName`: path and control characters become spaces, runs of space one, at most 120 characters.
+fn safe_name(s: &str) -> String {
+    let mapped: String =
+        s.chars().map(|c| if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c < ' ' { ' ' } else { c }).collect();
+    let joined = mapped.split_whitespace().collect::<Vec<_>>().join(" ");
+    // .slice(0, 120) counts UTF-16 units; cut at a char boundary at or under that
+    let mut units = 0usize;
+    let cut: String = joined
+        .chars()
+        .take_while(|c| {
+            units = units.saturating_add(c.len_utf16());
+            units <= 120
+        })
+        .collect();
+    if cut.is_empty() { "Takeoff".into() } else { cut }
+}
+
+/// The name without a trailing ".pdf" (any case), as `name.replace(/\.pdf$/i, '')`.
+fn strip_pdf(n: &str) -> &str {
+    match n.len().checked_sub(4).and_then(|i| n.get(i..).map(|tail| (i, tail))) {
+        Some((i, tail)) if tail.eq_ignore_ascii_case(".pdf") => n.get(..i).unwrap_or(n),
+        _ => n,
+    }
+}
+
+/// `new Date(ms).toISOString()`.
+fn iso_time(ms: f64) -> String {
+    let s = cc_io_takeoff::xlsx::Stamp::from_ms(ms);
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", s.year, s.month, s.day, s.hour, s.min, s.sec, s.ms)
+}
+
 impl TakeoffMode {
     /// A new takeoff of the file whose SHA-256 is `hash`.
     pub fn new(hash: &str) -> TakeoffMode {
@@ -59,6 +93,63 @@ impl TakeoffMode {
             message: String::new(),
             new_name: String::new(),
             new_type: "count".into(),
+            export: None,
+        }
+    }
+
+    /// The open PDF joins the project's file list (not an undo step, as in the JS): its name labels its sheets.
+    pub fn add_file(&mut self, name: &str, size: usize, pages: usize) {
+        let f = obj(json!({ "hash": self.hash, "name": name, "size": size, "pages": pages }));
+        self.tk.add_file(&f);
+    }
+
+    /// `sheetLabel(key)` for a sheet nobody named: "<file>, page <n>".
+    fn sheet_label(&self, key: &str) -> String {
+        let (hash, idx) = key.split_once(':').unwrap_or((key, "0"));
+        let file = self
+            .tk
+            .state
+            .get("files")
+            .and_then(Value::as_array)
+            .and_then(|fs| fs.iter().find(|f| f.get("hash").and_then(Value::as_str) == Some(hash)))
+            .and_then(|f| f.get("name").and_then(Value::as_str))
+            .map_or_else(|| t("sheet.unknown"), |n| strip_pdf(n).to_string());
+        let n = idx.parse::<f64>().map_or(1.0, |i| i + 1.0);
+        tf("sheet.page", &[("file", F::S(file)), ("n", F::N(n))])
+    }
+
+    /// One of the 0.5 exports, named as takeoffcraft.js names it: the estimate as XLSX or CSV (with a BOM), the PDF
+    /// with the takeoff drawn in ("<pdf> (takeoff).pdf"), or the project ("<name>.takeoff.json", indent 1).
+    /// `now_ms` is local time: the workbook's dates and the project's savedAt.
+    pub fn export_file(&self, kind: &str, pdf: &[u8], pdf_name: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+        let name = safe_name(self.tk.state.get("name").and_then(Value::as_str).unwrap_or(""));
+        let has_items = !self.tk.items().is_empty();
+        match kind {
+            "xlsx" | "csv" if !has_items => Err(t("export.empty")),
+            "xlsx" => {
+                let label = |k: &str| self.sheet_label(k);
+                let stamp = cc_io_takeoff::xlsx::Stamp::from_ms(now_ms);
+                Ok((format!("{name}.xlsx"), cc_io_takeoff::export::estimate_xlsx(&self.tk.state, &label, true, &stamp)))
+            }
+            "csv" => {
+                // exportCsv: the estimate without bid alternates (baseEstimate), as the JS writes it
+                let e = cc_takeoff::model::base_estimate(&self.tk.state);
+                let csv = cc_io_takeoff::export::estimate_csv(&self.tk.state, &e);
+                Ok((format!("{name}.csv"), format!("\u{feff}{csv}").into_bytes()))
+            }
+            "pdf" => {
+                let out = cc_io_takeoff::pdfmarks::pdf_with_marks(pdf, &self.hash, &self.tk.state, true)?; // exportPdf: with the legend (the default)
+                if out.marks == 0 {
+                    return Err(t("export.pdf.none"));
+                }
+                Ok((format!("{} (takeoff).pdf", safe_name(strip_pdf(pdf_name))), out.bytes))
+            }
+            "project" => {
+                let saved_at = iso_time(now_ms);
+                let text = cc_takeoff::jv::stringify_indent(&self.tk.to_json(&saved_at), 1);
+                Ok((format!("{name}.takeoff.json"), text.into_bytes()))
+            }
+            _ => Err(format!("takeoff export: unknown kind {kind} (xlsx, csv, pdf, project)")),
         }
     }
 
@@ -225,6 +316,17 @@ impl TakeoffMode {
         if e.unscaled > 0.0 {
             ui.label(RichText::new(format!("{} marks are on sheets without a scale", qty(e.unscaled))).color(t.text_dim));
         }
+        ui.separator();
+        ui.label(RichText::new(cc_takeoff::i18n::t("group.export")).small());
+        ui.horizontal_wrapped(|ui| {
+            for (kind, key) in
+                [("xlsx", "tool.export-xlsx"), ("csv", "tool.export-csv"), ("pdf", "tool.export-pdf"), ("project", "tool.save-project")]
+            {
+                if ui.button(cc_takeoff::i18n::t(key)).on_hover_text(cc_takeoff::i18n::t(&format!("{key}.title"))).clicked() {
+                    self.export = Some(kind);
+                }
+            }
+        });
         ui.horizontal(|ui| {
             if ui.add_enabled(self.tk.can_undo(), egui::Button::new("Undo")).clicked() {
                 self.message = self.tk.undo().map(|l| format!("Undo {l}")).unwrap_or_default();
@@ -289,6 +391,34 @@ impl TakeoffMode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_are_made_safe_as_the_js_does() {
+        assert_eq!(safe_name("A/B: c*?  d"), "A B c d");
+        assert_eq!(safe_name("  "), "Takeoff");
+        assert_eq!(strip_pdf("Plans.PDF"), "Plans");
+        assert_eq!(strip_pdf("pdf"), "pdf");
+        assert_eq!(iso_time(0.0), "1970-01-01T00:00:00.000Z");
+    }
+
+    #[test]
+    fn exports_need_items_and_are_named_from_the_takeoff() {
+        let mut m = TakeoffMode::new("abc");
+        m.add_file("Kitchen.pdf", 10, 1);
+        assert_eq!(m.sheet_label("abc:0"), "Kitchen, page 1");
+        assert_eq!(m.export_file("csv", &[], "Kitchen.pdf", 0.0).unwrap_err(), t("export.empty"));
+        m.add_item("Outlets", "count");
+        let (name, bytes) = m.export_file("csv", &[], "Kitchen.pdf", 0.0).unwrap();
+        assert!(name.ends_with(".csv"));
+        assert!(bytes.starts_with("\u{feff}".as_bytes()));
+        let (name, bytes) = m.export_file("xlsx", &[], "Kitchen.pdf", 0.0).unwrap();
+        assert!(name.ends_with(".xlsx") && bytes.starts_with(b"PK"));
+        let (name, bytes) = m.export_file("project", &[], "Kitchen.pdf", 0.0).unwrap();
+        assert!(name.ends_with(".takeoff.json"));
+        let back: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back["items"].as_array().map(Vec::len), Some(1));
+        assert!(m.export_file("nope", &[], "", 0.0).is_err());
+    }
 
     #[test]
     fn counts_and_lengths_on_a_scaled_sheet() {
