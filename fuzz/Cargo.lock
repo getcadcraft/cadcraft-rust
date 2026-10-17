@@ -113,6 +113,7 @@ checksum = "8f1fe948ff07f4bd06c30984e69f5b4899c516a3ef74f34df92a2df2ab535495"
 name = "cadcraft-fuzz"
 version = "0.0.0"
 dependencies = [
+ "cc-bim",
  "cc-cad",
  "cc-cad-geom",
  "cc-io-cad",
@@ -141,6 +142,19 @@ dependencies = [
  "jobserver",
  "libc",
  "shlex",
+]
+
+[[package]]
+name = "cc-bim"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-io-dwg",
+ "cc-io-ifc",
+ "cc-io-skp",
+ "cc-m3d",
+ "serde_json",
+ "zlib-rs",
 ]
 
 [[package]]

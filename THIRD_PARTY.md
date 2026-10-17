@@ -15,7 +15,7 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | miniz_oxide | io-takeoff | raw deflate for the XLSX zip entries (the JS uses CompressionStream) | MIT OR Zlib OR Apache-2.0 |
 | unicode-normalization | takeoff | NFC/NFD for the ICU-style `localeCompare` the item and division sorts use | MIT OR Apache-2.0 |
 | libfuzzer-sys | fuzz/ (not shipped) | cargo-fuzz targets | MIT OR Apache-2.0 OR NCSA |
-| zlib-rs | io-skp | raw-deflate inflate of SketchUp 2021+ ZIP entries (fastest pure-Rust inflater measured: 16 ms vs 21 ms for miniz_oxide on a 16 MB model.dat); `rust-allocator` feature, no C | Zlib |
+| zlib-rs | io-skp, bim | raw-deflate inflate of SketchUp 2021+ ZIP entries (fastest pure-Rust inflater measured: 16 ms vs 21 ms for miniz_oxide on a 16 MB model.dat); `rust-allocator` feature, no C | Zlib |
 | crc32fast | io-skp | CRC-32 check of unpacked ZIP entries (SIMD at run time) | MIT OR Apache-2.0 |
 | memchr | io-skp | substring search for record markers in classic SketchUp files | Unlicense OR MIT (used under MIT) |
 | hayro-syntax | io-markup | PDF object syntax for MarkupCraft's pdf.js-side reading (xref tables and streams, object streams, repair, decryption); `std` feature only, no rendering | Apache-2.0 OR MIT |
