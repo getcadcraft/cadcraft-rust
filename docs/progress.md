@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M11.7 CivilCraft drawing tools, typed dialogs and grips (agent, work/civiltools)
+
+- M11.7: `crates/ui-egui/src/civiltools.rs`: the plan's tools as 0.5 CivilCraft has them — Select, Alignment, Pad,
+  Pipes, Breakline, Boundary, Feature line, Parcel — toolbar buttons and keys (V A G P B O L), a click per point, Enter or
+  a double click finishes, Backspace drops the last point, Esc cancels; the hint over the plan, the rubber band, the
+  Breakline snap square, the alignment's length and bearing at the pointer. Each finish is civilcraft.js `finishDraft`
+  (features-ui.js / parcels-ui.js `finish`): one `Project::change`, same ids, names, JSON, undo labels and status words
+  (fitted PI radii, pad elevation from the ground, structures joined and pipe inverts from `auto_inverts` against the
+  graded-else-EG surface, feature-line z from points or the ground, parcels closing on the first corner). Grips: the
+  selected alignment's PIs, pad corners, feature line vertices, a structure and the one selected survey point drag
+  (4 px slack, preview, one undo step on release; Esc puts a point back); Delete removes the selection; a PI row's
+  Remove. `civildialogs.rs`: the Traverse dialog (traverse-ui.js) and Parcel from deed calls (parcels-ui.js), read as
+  typed with the engine's parsers, added as survey points / a parcel in one step, the traverse report as CSV.
+- Everything is a command: `civil.tool`, `civil.click` / `civil.dblclick` (world x,y; same code as the canvas click),
+  `civil.finish`, `civil.back`, `civil.cancel`, `civil.delete`, `civil.grip` (x1,y1:x2,y2), `civil.pi.remove`,
+  `civil.traverse` / `civil.calls` (JSON form, `add`). `cadcraft-shot --trace` prints the status line after every
+  `--run` (and goes on past a refused command).
+- Parity (`forks/tools/cvtooldiff.mjs`, new): 10 scenarios (every tool, too-few-points, repeats, close-on-first,
+  joins, grips of each kind, a survey point drag, undo/redo, PI remove, Delete of each kind, traverse by bearings and
+  by angles to a point, deed calls with a curve and with a gap, refused forms) on four sites — the sample (state-plane
+  feet), the synthetic survey (x ≈ 500 000, y ≈ 4 000 000), the demo (network, pads), a metric site at survey
+  coordinates: **40/40 saved projects byte-identical, 572/572 status lines identical** to the frozen 0.5 JS.
+- Speed on the 500k-point survey (`testfiles/generated/civil/survey-500k.civilcraft.json`, new, in LARGE-FILES.md;
+  `forks/tools/cvtoolbench.mjs`): snap search per pointer move 16.5 ms JS vs a whole 6 ms frame; breakline finish +
+  rebuilt surface + next plan 2550 vs 1211 ms; pad finish + graded surface + volumes 3655 vs 2000 ms; open 2776 vs
+  1477 ms. The plan's TIN outline now uses a flat edge table (`civilplan::fast_outline`, same rings as
+  `Surface::outline`, tested): 2.6 s → 0.15–0.3 s on a million triangles; a pad edit no longer rebuilds it.
+- Plain English where 0.5 has no key: the command palette labels/params of the new `civil.*` commands.
+- Next: profile and section panels (PVI editing), point add (0.5 has paste/duplicate), multi-point selection.
 ## 2026-10-18 — M7.13 BimCraft's IFC editing, plan view and Draw tools in the app (agent, work/bimdraw)
 
 - M7.13 (crates/ui-egui `bimedit.rs`, `bimplan.rs`; cc-bim `draw::schedule`): the IFC view edits and saves. Properties

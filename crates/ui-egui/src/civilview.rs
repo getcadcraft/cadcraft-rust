@@ -64,6 +64,52 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: \"x,y\" | \"x,y,zoom\"} → centres the plan on a world point (zoom: screen pixels per unit)",
     ),
+    (
+        "civil.tool",
+        "Drawing tool",
+        "",
+        "{name: select|alignment|pad|breakline|boundary|pipe|feature|parcel} → as the toolbar button or its key (V A G B O P L): the tool already on goes back to Select",
+    ),
+    (
+        "civil.click",
+        "Click with the tool",
+        "",
+        "{name: \"x,y\"} → world coordinates: Select picks, a drawing tool adds a point (snaps as a click on the plan does at the current zoom)",
+    ),
+    (
+        "civil.dblclick",
+        "Double-click with the tool",
+        "",
+        "{name: \"x,y\"} → two clicks there, then the draft finishes without the repeated point",
+    ),
+    ("civil.finish", "Finish the draft", "Enter", "{} → the line, pad, run or parcel being drawn is made (one undo step)"),
+    ("civil.back", "Drop the last point", "Backspace", "{}"),
+    ("civil.cancel", "Cancel", "Esc", "{} → drops the draft; with none, back to Select and nothing selected"),
+    (
+        "civil.delete",
+        "Delete the selection",
+        "Delete",
+        "{} → the selected alignment, pad, structure, pipe, feature line, parcel or survey point (one undo step)",
+    ),
+    (
+        "civil.grip",
+        "Drag a grip",
+        "",
+        "{name: \"x1,y1:x2,y2\"} → world coordinates: drags the selection's grip at x1,y1 (PI, pad corner, feature line vertex, structure, the selected survey point) to x2,y2 (one undo step)",
+    ),
+    ("civil.pi.remove", "Remove a PI", "", "{index: PI number from 0} → removes a PI of the selected alignment (three or more PIs)"),
+    (
+        "civil.traverse",
+        "Traverse",
+        "",
+        "{name: JSON {start?, north?, east?, mode?: angles|bearings, bs?, az?, ends?: loop|pt, end?, legs?, add?: points|parcel|csv}} → fills the Traverse dialog (and opens it); add makes the stations survey points, the loop a parcel, or saves the report (one undo step)",
+    ),
+    (
+        "civil.calls",
+        "Parcel from deed calls",
+        "",
+        "{name: JSON {name?, start?, north?, east?, calls?, add?: true}} → fills the deed calls dialog (and opens it); add makes the parcel (one undo step)",
+    ),
     ("civil.group", "Point group use", "", "{name: \"GROUP=points|breakline|off\"} → how a point group builds the surface (one undo step)"),
     ("civil.undo", "Undo", "Ctrl+Z", "{}"),
     ("civil.redo", "Redo", "Ctrl+Y", "{}"),
@@ -169,6 +215,12 @@ pub struct CivilView {
     pub timings: HashMap<&'static str, f64>,
     /// the Export group's choices (DWG format, plot paper / scale / area / ink)
     pub export: crate::civilexport::ExportOpts,
+    /// the drawing tool, its draft and a grip being dragged (civiltools.rs)
+    pub tools: crate::civiltools::Tools,
+    /// the Traverse and deed calls dialogs (civildialogs.rs)
+    pub dialogs: crate::civildialogs::Dialogs,
+    /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
+    pub ppp: f64,
     dark: bool,
 }
 
@@ -219,6 +271,9 @@ impl CivilView {
             last_labels: 0,
             timings: HashMap::new(),
             export: crate::civilexport::ExportOpts::default(),
+            tools: crate::civiltools::Tools::default(),
+            dialogs: crate::civildialogs::Dialogs::default(),
+            ppp: 1.0,
             dark: true,
         }
     }
@@ -812,12 +867,36 @@ impl CivilView {
         if self.pending_fit {
             self.fit_now();
         }
-        // input: drag pans (any button), wheel / pinch zooms about the pointer, click picks, Esc clears
-        if resp.dragged() {
+        self.ppp = ppp;
+        let to_px = |p: Pos2| (f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp);
+        // input (civilcraft.js pointer handling): a press on a grip of the selection drags it (Select); any other drag
+        // pans; wheel / pinch zooms about the pointer; a click picks (Select) or adds a point (a drawing tool); a double
+        // click finishes the draft
+        let (pressed, released, press_at) =
+            ui.ctx().input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.press_origin()));
+        let mut grip_used = false;
+        if pressed
+            && resp.hovered()
+            && let Some(p) = press_at
+        {
+            let (sx, sy) = to_px(p);
+            let (wx, wy) = self.view.to_world(sx, sy);
+            grip_used = self.grip_press(wx, wy);
+        }
+        if self.tools.drag.is_some() {
+            grip_used = true;
+            if let Some(p) = ui.ctx().input(|i| i.pointer.latest_pos()) {
+                let (sx, sy) = to_px(p);
+                let (wx, wy) = self.view.to_world(sx, sy);
+                self.grip_move(wx, wy);
+            }
+            if released || !ui.ctx().input(|i| i.pointer.primary_down()) {
+                self.grip_release();
+            }
+        } else if resp.dragged() {
             let d = resp.drag_delta();
             self.view.pan(f64::from(d.x) * ppp, f64::from(d.y) * ppp);
         }
-        let to_px = |p: Pos2| (f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp);
         if let Some(p) = resp.hover_pos() {
             let (sx, sy) = to_px(p);
             let (scroll, zoom) = ui.ctx().input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
@@ -829,17 +908,28 @@ impl CivilView {
             }
             let (wx, wy) = self.view.to_world(sx, sy);
             self.cursor = Some((wx, wy));
-            self.hover_pt = self.nearest_point(wx, wy, 6.0 * ppp / self.view.zoom);
+            let s = (sx / ppp, sy / ppp);
+            self.hover_pt = if self.tools.tool == crate::civiltools::Tool::Select && self.tools.drag.is_none() {
+                self.nearest_px(s, 6.0, false)
+            } else {
+                None
+            };
+            self.tools.snap = if self.tools.tool == crate::civiltools::Tool::Breakline { self.nearest_px(s, 14.0, true) } else { None };
         } else {
             self.hover_pt = None;
+            self.tools.snap = None;
         }
-        if resp.clicked_by(egui::PointerButton::Primary)
+        if !grip_used
+            && resp.clicked_by(egui::PointerButton::Primary)
             && let Some(p) = resp.interact_pointer_pos()
         {
             let (sx, sy) = to_px(p);
             let (wx, wy) = self.view.to_world(sx, sy);
-            let zoom = self.view.zoom / ppp;
-            self.sel = self.pick_at(wx, wy, zoom);
+            self.click(wx, wy);
+            if resp.double_clicked() && self.tools.tool != crate::civiltools::Tool::Select && !self.tools.draft.is_empty() {
+                self.tools.draft.pop();
+                self.finish();
+            }
         }
         self.keys(ui);
         let pal = Palette::of(t, dark);
@@ -854,15 +944,44 @@ impl CivilView {
         if ui.ctx().memory(|m| m.focused().is_some()) {
             return;
         }
-        let (esc, undo, redo) = ui.ctx().input(|i| {
+        use crate::civiltools::TOOLS;
+        let (esc, undo, redo, enter, back, del) = ui.ctx().input(|i| {
             (
                 i.key_pressed(egui::Key::Escape),
                 i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z),
                 i.modifiers.command && (i.key_pressed(egui::Key::Y) || (i.modifiers.shift && i.key_pressed(egui::Key::Z))),
+                i.key_pressed(egui::Key::Enter),
+                i.key_pressed(egui::Key::Backspace),
+                i.key_pressed(egui::Key::Delete),
             )
         });
+        // civilcraft.js keydown: Esc, Enter / Backspace while drawing, Delete, then the single-key tools (no modifier)
         if esc {
-            self.sel = None;
+            self.cancel();
+        }
+        if enter && !self.tools.draft.is_empty() {
+            self.finish();
+        }
+        if back && !self.tools.draft.is_empty() {
+            self.tools.draft.pop();
+        } else if del {
+            self.delete_selected();
+        }
+        let plain = ui.ctx().input(|i| !i.modifiers.any());
+        if plain {
+            for tl in TOOLS {
+                if let Some(k) = tl.key()
+                    && ui.ctx().input(|i| i.key_pressed(k))
+                {
+                    self.tool_command(tl);
+                }
+            }
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::F)) {
+                self.fit();
+            }
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::D)) {
+                self.show3d = !self.show3d;
+            }
         }
         if undo {
             self.undo();
@@ -988,6 +1107,163 @@ impl CivilView {
         if let Some(p) = self.hover_pt.and_then(|i| self.project.points.get(i)) {
             painter.circle_stroke(s(p.x, p.y), 7.0, egui::Stroke::new(1.5, act));
         }
+        self.tool_overlay(&painter, rect, pal, ppp);
+        self.tool_hint(&painter, rect, pal);
+    }
+
+    /// The draft being drawn, the snap marker and a grip being dragged (civilcraft.js drawOverlay's tool part).
+    fn tool_overlay(&self, painter: &egui::Painter, rect: Rect, pal: &Palette, ppp: f64) {
+        use crate::civiltools::{Grip, Tool};
+        let view = self.view;
+        let s = |x: f64, y: f64| {
+            let (sx, sy) = view.to_screen(x, y);
+            Pos2::new(rect.min.x + (sx / ppp) as f32, rect.min.y + (sy / ppp) as f32)
+        };
+        let act = pal.action;
+        let grip = |p: Pos2, hot: bool| {
+            let r = Rect::from_center_size(p, egui::vec2(9.0, 9.0));
+            painter.rect_filled(r, 0.0, if hot { act } else { pal.bg });
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(1.5, act), egui::StrokeKind::Middle);
+        };
+        if let Some(d) = &self.tools.drag
+            && d.moved
+            && !d.cancelled
+        {
+            let to = s(d.at.0, d.at.1);
+            let neighbours: Vec<(f64, f64)> = {
+                let st = &self.project.state;
+                let around = |list: &[Value], i: usize, closed: bool| {
+                    let n = list.len();
+                    let mut out = Vec::new();
+                    let xy = |v: &Value| (numf(v.get("x")), numf(v.get("y")));
+                    if i > 0 {
+                        out.extend(list.get(i - 1).map(xy));
+                    } else if closed && n > 2 {
+                        out.extend(list.last().map(xy));
+                    }
+                    if i + 1 < n {
+                        out.extend(list.get(i + 1).map(xy));
+                    } else if closed && n > 2 {
+                        out.extend(list.first().map(xy));
+                    }
+                    out
+                };
+                let find =
+                    |list: &str, id: &str| arr(st.get(list)).iter().find(|o| o.get("id").and_then(Value::as_str) == Some(id)).cloned();
+                match &d.grip {
+                    Grip::Pi(id, i) => find("alignments", id).map(|a| around(arr(a.get("pis")), *i, false)).unwrap_or_default(),
+                    Grip::Corner(id, i) => find("pads", id).map(|a| around(arr(a.get("pts")), *i, true)).unwrap_or_default(),
+                    Grip::Feature(id, i) => find("features", id)
+                        .map(|f| around(arr(f.get("pts")), *i, f.get("closed") == Some(&Value::Bool(true))))
+                        .unwrap_or_default(),
+                    Grip::Structure(id) => st
+                        .get("network")
+                        .map(|n| {
+                            let sts = arr(n.get("structures"));
+                            let at =
+                                |sid: Option<&Value>| sts.iter().find(|x| x.get("id") == sid).map(|x| (numf(x.get("x")), numf(x.get("y"))));
+                            arr(n.get("pipes"))
+                                .iter()
+                                .filter_map(|p| {
+                                    if p.get("from").and_then(Value::as_str) == Some(id.as_str()) {
+                                        at(p.get("to"))
+                                    } else if p.get("to").and_then(Value::as_str) == Some(id.as_str()) {
+                                        at(p.get("from"))
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    Grip::Point(_) => vec![d.from],
+                }
+            };
+            for (x, y) in neighbours {
+                painter.add(egui::Shape::dashed_line(&[s(x, y), to], egui::Stroke::new(1.5, act), 5.0, 4.0));
+            }
+            grip(to, true);
+        }
+        let tool = self.tools.tool;
+        if tool == Tool::Select {
+            return;
+        }
+        let draft = &self.tools.draft;
+        let snap = self.tools.snap.and_then(|i| self.project.points.get(i));
+        if draft.is_empty() && snap.is_none() {
+            return;
+        }
+        let mut pts: Vec<Pos2> = draft.iter().map(|p| s(p.x, p.y)).collect();
+        if tool == Tool::Breakline {
+            if let Some(p) = snap {
+                pts.push(s(p.x, p.y));
+            }
+        } else if let Some((x, y)) = self.cursor {
+            pts.push(s(x, y));
+        }
+        let col = match tool {
+            Tool::Parcel | Tool::Boundary => pal.ink2,
+            Tool::Pad | Tool::Pipe => pal.blue,
+            Tool::Alignment => pal.red,
+            Tool::Feature => pal.green,
+            _ => pal.orange,
+        };
+        let stroke = egui::Stroke::new(2.0, col);
+        if pts.len() >= 2 {
+            let closed = matches!(tool, Tool::Pad | Tool::Boundary | Tool::Parcel) && pts.len() >= 3;
+            let mut ring = pts.clone();
+            if closed && let Some(p0) = pts.first().copied() {
+                ring.push(p0);
+            }
+            if tool == Tool::Boundary {
+                painter.add(egui::Shape::dashed_line(&ring, stroke, 7.0, 5.0));
+            } else {
+                painter.add(egui::Shape::line(ring, stroke));
+            }
+        }
+        for p in draft {
+            grip(s(p.x, p.y), true);
+        }
+        if let Some(p) = snap {
+            painter.rect_stroke(
+                Rect::from_center_size(s(p.x, p.y), egui::vec2(12.0, 12.0)),
+                0.0,
+                egui::Stroke::new(2.0, pal.orange),
+                egui::StrokeKind::Middle,
+            );
+        }
+        if tool == Tool::Alignment
+            && let (Some((cx, cy)), Some(last)) = (self.cursor, draft.last())
+        {
+            let l = (cx - last.x).hypot(cy - last.y);
+            let text = format!(
+                "{} {}  {}",
+                fixed(l, 2),
+                cc_civil::units::unit_of(self.project.units()).short,
+                cc_civil::units::bearing((cy - last.y).atan2(cx - last.x))
+            );
+            let q = s(cx, cy);
+            let galley = painter.layout_no_wrap(text, egui::FontId::proportional(12.0), pal.ink);
+            let at = q + egui::vec2(12.0, -8.0 - galley.size().y);
+            painter.rect_filled(Rect::from_min_size(at, galley.size()).expand(3.0), 2.0, pal.bg.gamma_multiply(0.85));
+            painter.galley(at, galley, pal.ink);
+        }
+    }
+
+    /// The tool's hint over the plan's top left corner (civilcraft.js `ui.toolhint`).
+    fn tool_hint(&self, painter: &egui::Painter, rect: Rect, pal: &Palette) {
+        let Some(key) = self.tools.tool.hint_key() else { return };
+        let width = (rect.width() - 24.0).clamp(120.0, 560.0);
+        let galley = painter.layout(t0(key), egui::FontId::proportional(12.0), pal.ink, width);
+        let at = rect.min + egui::vec2(12.0, 10.0);
+        painter.rect_filled(Rect::from_min_size(at, galley.size()).expand(6.0), 3.0, pal.bg.gamma_multiply(0.92));
+        painter.rect_stroke(
+            Rect::from_min_size(at, galley.size()).expand(6.0),
+            3.0,
+            egui::Stroke::new(1.0, pal.line),
+            egui::StrokeKind::Middle,
+        );
+        painter.galley(at, galley, pal.ink);
     }
 
     fn show_3d(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens, dark: bool) {
@@ -1212,6 +1488,29 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         _ => {}
     }
     let dark = app.preset == Preset::Dark;
+    let started = web_time::Instant::now();
+    let r = run_open(app, id, &name, params, dark);
+    if matches!(
+        id,
+        "civil.click"
+            | "civil.dblclick"
+            | "civil.finish"
+            | "civil.grip"
+            | "civil.delete"
+            | "civil.traverse"
+            | "civil.calls"
+            | "civil.pi.remove"
+    ) && let Some(cv) = app.civil.as_mut()
+    {
+        // the last edit's time (the command itself; the plan rebuilds on the next frame: "plan")
+        cv.timings.insert("tool", ms(started));
+    }
+    r
+}
+
+/// The commands that need an open project.
+fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) -> Result<(), String> {
+    let name = name.to_string();
     let cv = app.civil.as_mut().ok_or_else(|| format!("{id}: open a CivilCraft project first (civil.sample)"))?;
     match id {
         "civil.view" => {
@@ -1250,6 +1549,45 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             let (g, u) = name.split_once('=').ok_or("civil.group: name = \"GROUP=use\"")?;
             cv.group_use(g.trim(), u.trim())?;
         }
+        "civil.tool" => {
+            let tl = crate::civiltools::Tool::parse(&name).ok_or_else(|| format!("civil.tool: unknown tool {name}"))?;
+            cv.tool_command(tl);
+        }
+        "civil.click" | "civil.dblclick" => {
+            let v = xy_param(&name).ok_or_else(|| format!("{id}: name = \"x,y\" (world)"))?;
+            let (x, y) = (v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0));
+            if id == "civil.click" {
+                cv.click(x, y);
+            } else {
+                cv.double_click(x, y);
+            }
+        }
+        "civil.finish" => cv.finish(),
+        "civil.back" => cv.back(),
+        "civil.cancel" => cv.cancel(),
+        "civil.delete" => cv.delete_selected(),
+        "civil.grip" => {
+            let (a, b) = name.split_once(':').ok_or("civil.grip: name = \"x1,y1:x2,y2\"")?;
+            let (p, q) = (xy_param(a).ok_or("civil.grip: x1,y1")?, xy_param(b).ok_or("civil.grip: x2,y2")?);
+            let at = |v: &[f64], i: usize| v.get(i).copied().unwrap_or(0.0);
+            cv.grip_drag((at(&p, 0), at(&p, 1)), (at(&q, 0), at(&q, 1)))?;
+        }
+        "civil.pi.remove" => {
+            let i = params.index.or_else(|| name.trim().parse().ok()).ok_or("civil.pi.remove: index = PI number from 0")?;
+            let Some(Sel::Alignment(aid)) = cv.sel.clone() else { return Err("civil.pi.remove: select an alignment first".into()) };
+            cv.remove_pi(&aid, i)?;
+        }
+        "civil.traverse" => {
+            if let Some((fname, bytes)) = crate::civildialogs::traverse_command(cv, &name)? {
+                let save = app.services.save.as_mut().ok_or("civil.traverse: saving is not available here")?;
+                if let Some(to) = save(&fname, bytes)?
+                    && let Some(cv) = app.civil.as_mut()
+                {
+                    cv.message = tr!("cv.saved.dl", name = to);
+                }
+            }
+        }
+        "civil.calls" => crate::civildialogs::calls_command(cv, &name)?,
         "civil.timings" => cv.message = cv.timings_text(),
         "civil.undo" => cv.undo(),
         "civil.redo" => cv.redo(),
@@ -1324,6 +1662,8 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let dark = app.preset == Preset::Dark;
     let mut cmd: Option<(&'static str, Params)> = None;
+    let mut save_file: Option<(String, Vec<u8>)> = None;
+    let frame_started = web_time::Instant::now();
     if let Some(cv) = app.civil.as_mut() {
         egui::Panel::top("civil_bar")
             .exact_size(30.0)
@@ -1359,6 +1699,15 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     }
                     if ui.button(t0("ui.tb.save")).on_hover_text(t0("ui.tb.save.title")).clicked() {
                         cmd = Some(("civil.save", Params::default()));
+                    }
+                    if !cv.show3d {
+                        ui.separator();
+                        for tl in crate::civiltools::TOOLS {
+                            let (label, title) = tl.label_keys();
+                            if ui.selectable_label(cv.tools.tool == tl, t0(label)).on_hover_text(t0(title)).clicked() {
+                                cmd = Some(("civil.tool", Params { name: Some(tl.id().into()), ..Default::default() }));
+                            }
+                        }
                     }
                     if cv.show3d {
                         ui.separator();
@@ -1400,6 +1749,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     cmd = Some(("civil.export", Params { name: Some(k), ..Default::default() }));
                     Ok(())
                 }
+                crate::civilpanel::Act::Run(id, k) => {
+                    cmd = Some((id, Params { name: Some(k), ..Default::default() }));
+                    Ok(())
+                }
             };
             if let Err(e) = r {
                 cv.message = e;
@@ -1409,13 +1762,35 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             let rect = ui.max_rect();
             cv.show(ui, rect, &t, dark);
         });
+        let mut dacts = Vec::new();
+        crate::civildialogs::show(cv, ui.ctx(), &t, &mut dacts);
+        for a in dacts {
+            match a {
+                crate::civildialogs::DlgAct::Save(n, b) => save_file = Some((n, b)),
+            }
+        }
         app.cursor = if cv.show3d { None } else { cv.cursor };
         app.message = cv.status();
+        // the whole CivilCraft frame (panels, plan, overlays), for civil.timings
+        cv.timings.insert("frame", ms(frame_started));
     }
     if let Some((id, p)) = cmd
         && let Err(e) = run(app, id, &p)
     {
         app.error = Some(e);
+    }
+    if let Some((n, b)) = save_file
+        && let Some(save) = app.services.save.as_mut()
+    {
+        match save(&n, b) {
+            Ok(Some(to)) => {
+                if let Some(cv) = app.civil.as_mut() {
+                    cv.message = tr!("cv.saved.dl", name = to);
+                }
+            }
+            Ok(None) => {}
+            Err(e) => app.error = Some(e),
+        }
     }
 }
 

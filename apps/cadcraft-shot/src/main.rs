@@ -3,7 +3,7 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
@@ -128,6 +128,7 @@ fn shot(args: &[String]) -> Result<(), String> {
         let (a, b) = v.split_once(',')?;
         Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
     };
+    let trace = args.iter().any(|a| a == "--trace");
     let mut i = 0;
     while let Some(a) = args.get(i) {
         let v = args.get(i + 1).cloned().unwrap_or_default();
@@ -146,8 +147,21 @@ fn shot(args: &[String]) -> Result<(), String> {
                 // any UI command: --run "model.toggle=c:IFCSLAB" (name after '=')
                 let (id, name) = v.split_once('=').map_or((v.as_str(), None), |(a, b)| (a, Some(b.to_string())));
                 let factor = name.as_deref().and_then(|n| n.parse::<f64>().ok());
-                hs.state_mut().run(id, &Params { name, factor, ..Default::default() })?;
+                let r = hs.state_mut().run(id, &Params { name, factor, ..Default::default() });
+                if let Err(e) = r {
+                    if !trace {
+                        return Err(e);
+                    }
+                    // with --trace a refused command is a line too, and the run goes on
+                    println!("trace\t{id}\tERROR: {}", e.replace('\n', " "));
+                    i += 1;
+                    continue;
+                }
                 hs.run_steps(2);
+                if trace {
+                    // one line per command: what the status line says after it (harnesses compare these)
+                    println!("trace\t{id}\t{}", hs.state().message.replace('\n', " "));
+                }
             }
             "--mouse-click" => {
                 // a real click at window coordinates (points), through egui's input like a mouse

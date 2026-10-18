@@ -511,7 +511,8 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey, fixed: &mut 
         fg,
         p.points_version,
         Arc::as_ptr(&eg),
-        Arc::as_ptr(&graded),
+        // the graded surface only matters when it is the one shown (a pad edit keeps the EG outline)
+        if fg { Arc::as_ptr(&graded) } else { std::ptr::null() },
         cc_civil::project::js_stringify(
             &p.state
                 .get("surface")
@@ -716,7 +717,7 @@ impl Fixed {
         let t0 = web_time::Instant::now();
         let outline = surface
             .map(|s| {
-                s.outline()
+                fast_outline(s)
                     .iter()
                     .map(|r| {
                         let mut f: Vec<f64> = r.iter().flat_map(|q| [q.x, q.y]).collect();
@@ -770,6 +771,114 @@ impl Fixed {
         }
         Fixed { key, outline, figures, ms: (outline_ms, ms_since(t1)) }
     }
+}
+
+/// A set of directed edges (a << 32 | b), open addressing with a multiplicative hash: membership only.
+struct EdgeSet {
+    slots: Vec<u64>,
+    mask: usize,
+    shift: u32,
+    has_max: bool,
+}
+
+impl EdgeSet {
+    fn with_capacity(n: usize) -> EdgeSet {
+        let cap = (n.saturating_mul(2)).max(16).next_power_of_two();
+        EdgeSet { slots: vec![u64::MAX; cap], mask: cap - 1, shift: 64 - cap.trailing_zeros(), has_max: false }
+    }
+    #[inline]
+    fn slot(&self, k: u64) -> usize {
+        (k.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> self.shift) as usize
+    }
+    /// true when `k` was not in the set
+    fn insert(&mut self, k: u64) -> bool {
+        if k == u64::MAX {
+            let was = self.has_max;
+            self.has_max = true;
+            return !was;
+        }
+        let mut i = self.slot(k);
+        loop {
+            match self.slots.get(i).copied() {
+                Some(u64::MAX) => {
+                    if let Some(s) = self.slots.get_mut(i) {
+                        *s = k;
+                    }
+                    return true;
+                }
+                Some(v) if v == k => return false,
+                Some(_) => i = (i + 1) & self.mask,
+                None => return false,
+            }
+        }
+    }
+    fn contains(&self, k: u64) -> bool {
+        if k == u64::MAX {
+            return self.has_max;
+        }
+        let mut i = self.slot(k);
+        loop {
+            match self.slots.get(i).copied() {
+                Some(u64::MAX) | None => return false,
+                Some(v) if v == k => return true,
+                Some(_) => i = (i + 1) & self.mask,
+            }
+        }
+    }
+}
+
+/// `Surface::outline()` (tin.js `outline`) with the same rings in the same order, an order of magnitude faster on a
+/// million triangles (its directed-edge set is a flat table here, not a SipHash set): the plan rebuilds it after every
+/// surface edit.
+pub fn fast_outline(s: &cc_civil::tin::Surface) -> Vec<Vec<cc_civil::geo::P2>> {
+    let tris: &[u32] = &s.tris;
+    let tri = |i: usize| tris.get(i).copied().unwrap_or(0);
+    let key = |a: u32, b: u32| (u64::from(a) << 32) | u64::from(b);
+    let mut seen = EdgeSet::with_capacity(tris.len());
+    let mut count: Vec<(u32, u32)> = Vec::with_capacity(tris.len());
+    for t in (0..tris.len().saturating_sub(2)).step_by(3) {
+        for k in 0..3 {
+            let (a, b) = (tri(t + k), tri(t + (k + 1) % 3));
+            if seen.insert(key(a, b)) {
+                count.push((a, b));
+            }
+        }
+    }
+    let mut order: Vec<u32> = Vec::new();
+    let mut next_of: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    for &(a, b) in &count {
+        if !seen.contains(key(b, a)) {
+            if !next_of.contains_key(&a) {
+                order.push(a);
+            }
+            next_of.insert(a, b);
+        }
+    }
+    let at = |v: u32| {
+        let i = v as usize;
+        cc_civil::geo::P2 { x: s.x.get(i).copied().unwrap_or(f64::NAN) + s.ox, y: s.y.get(i).copied().unwrap_or(f64::NAN) + s.oy }
+    };
+    let mut loops = Vec::new();
+    let mut cursor = 0usize;
+    while !next_of.is_empty() {
+        while cursor < order.len() && order.get(cursor).is_some_and(|v| !next_of.contains_key(v)) {
+            cursor += 1;
+        }
+        let Some(&start) = order.get(cursor) else { break };
+        let mut ring = Vec::new();
+        let mut v = start;
+        let mut g = 0usize;
+        while g < 10_000_000 {
+            let Some(n) = next_of.remove(&v) else { break };
+            ring.push(at(v));
+            v = n;
+            g += 1;
+        }
+        if ring.len() >= 3 {
+            loops.push(ring);
+        }
+    }
+    loops
 }
 
 /// scene.js contours: minor / major layers, major labels every 60 paper mm (not on lines under 25 mm), masked.
@@ -1022,6 +1131,25 @@ pub fn paint(ui: &egui::Ui, rect: Rect, plan: &Plan, view: &View2D, pal: &Palett
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_fast_outline_is_the_engine_s() {
+        let mut cv = crate::civilview::CivilView::synthetic(4000);
+        let b = cv.project.eg();
+        let s = b.surface.as_ref().unwrap();
+        let (a, e) = (fast_outline(s), s.outline());
+        assert!(!a.is_empty());
+        assert_eq!(a.len(), e.len());
+        for (r, q) in a.iter().zip(e.iter()) {
+            assert_eq!(r.len(), q.len());
+            assert!(r.iter().zip(q.iter()).all(|(p, o)| p.x.to_bits() == o.x.to_bits() && p.y.to_bits() == o.y.to_bits()));
+        }
+        // a surface with a hole (a boundary cuts triangles away) keeps its rings and their order too
+        let mut cv = crate::civilview::CivilView::sample();
+        let b = cv.project.eg();
+        let s = b.surface.as_ref().unwrap();
+        assert_eq!(fast_outline(s).len(), s.outline().len());
+    }
 
     #[test]
     fn buckets_are_powers_of_two() {

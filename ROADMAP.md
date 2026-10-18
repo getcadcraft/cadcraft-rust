@@ -120,6 +120,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M11.7: CivilCraft drawing tools (alignment, pad, pipes, breakline, boundary, feature line, parcel), traverse and deed-calls dialogs, grips and Delete in the app; 40/40 projects byte-identical to 0.5 after the same clicks; 1.8–2.8× the JS on a 500k-point survey.
 - 2026-10-18 M9.15 Several PDFs per plan set (MarkupCraft + TakeoffCraft) and Compare sheets by changed lines with Cloud the changes; saved files identical to the 0.5 JS.
 - 2026-10-18 M9.14 MarkupCraft: every 0.5 drawing tool, select / move / grips, text editor and Properties panel in the app; saved PDFs identical to the 0.5 JS (16/16); open 40-270×, save 10-24× the JS.
 - 2026-10-18 M9.13 TakeoffCraft panels in the app (item settings, assemblies, bid areas + alternates, deducts, slopes, cut-outs): 12/12 exports identical to the 0.5 JS after 166 edits.

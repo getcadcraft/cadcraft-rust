@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7); PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -10,10 +10,10 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
    and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
 3. **Viewer details** vs CadCraft 0.5: raster images (IMAGE) not drawn, per-viewport frozen layers, print view /
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
-4. **CivilCraft app view** (M11, read-mostly): no drawing tools yet (alignment, pad, pipe, breakline, boundary,
-   feature line, parcel, traverse), no grips / point moves, no profile and section panels, no import dialog (format is
-   detected), no GIS layers or basemaps (so exports carry no map pictures),
-   no copy / paste of points; `Surface::outline` takes 2.9 s on a 1 M-point TIN (once per surface).
+4. **CivilCraft app view** (M11): drawing tools, typed traverse / deed calls, grips, point moves and Delete are in
+   (M11.7, byte parity). Missing: the profile and section panels (PVI add / drag), the import dialog (format is
+   detected), GIS layers and basemaps (so exports carry no map pictures), copy / paste / duplicate of points,
+   multi-point selection (Shift+click, box, lasso), the catchment tool, touch's draft bar.
 5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
 6. **BimCraft** (M7): no grips (dragging wall ends, sliding doors / windows), no residential sync (res-follow.js), no
    Library items placed from the plan.

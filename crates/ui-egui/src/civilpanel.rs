@@ -22,6 +22,8 @@ pub enum Act {
     Group(String, String),
     /// a `civil.export` name (project, landxml, dxf, dwg, pdf, glb)
     Export(String),
+    /// any `civil.*` command with its name (the Parcels and Traverse blocks' buttons)
+    Run(&'static str, String),
 }
 
 fn head(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
@@ -223,6 +225,7 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     }
     // objects
     objects(cv, ui, tk, acts);
+    parcel_blocks(ui, tk, acts);
 }
 
 /// Every object of the project, as links that select it on the plan.
@@ -361,6 +364,24 @@ fn objects(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
                     }
                 }
             });
+    }
+}
+
+/// The Parcels and Traverse blocks (parcels-ui.js `block`, traverse-ui.js `block`): draw, deed calls, traverse.
+fn parcel_blocks(ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
+    head(ui, tk, &t0("pc.head"));
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(t0("pc.draw")).on_hover_text(t0("pc.hint")).clicked() {
+            acts.push(Act::Run("civil.tool", "parcel".into()));
+        }
+        if ui.button(t0("pc.calls")).on_hover_text(t0("pc.dlg.title")).clicked() {
+            acts.push(Act::Run("civil.calls", String::new()));
+        }
+    });
+    head(ui, tk, &t0("tv.head"));
+    note(ui, tk, &t0("tv.lede"));
+    if ui.button(t0("tv.open")).clicked() {
+        acts.push(Act::Run("civil.traverse", String::new()));
     }
 }
 
