@@ -1,0 +1,7 @@
+POST /mcp HTTP/1.1
+Host: 127.0.0.1:47615
+Authorization: Bearer fuzz-token-0123456789abcdefghijklmnopqrstu
+Content-Type: application/json
+Content-Length: 46
+
+{"jsonrpc":"2.0","id":1,"method":"initialize"}

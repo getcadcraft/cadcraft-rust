@@ -2,6 +2,17 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.1 the control channel (agent, work/studio)
+
+- `crates/mcp`: the dispatcher (0.5 tools/mcp/core.mjs, answer for answer: MCP + control-channel methods, the JSON
+  Schema subset with 0.5's messages, permission groups, the call log), JS-exact JSON text, the local HTTP control
+  channel with desktop-shell control.rs's rules on our own HTTP reader (127.0.0.1, token 0600 in the config folder,
+  constant-time compare, Host check, Origin refused, JSON only, 4 MB, Mcp-Session-Id), file confinement (paths.mjs +
+  AGENTS § 9), and the window's side (Studio's `windows_list` + routing, -32001 / -32002, busy refusals).
+- `cadcraft --control [PORT] [--allow …]`: requests answered on the UI thread through a queue. 18 tests (auth, bad
+  token, Origin, Host, non-JSON closes, 4 MB cap, sessions, confinement, the whole path into a UiApp); fuzz targets
+  `control_request`, `mcp_message` (60 s each clean).
+
 ## 2026-10-18 — merges and a hayro-syntax fix (lead)
 
 - Merged M9.13–M9.15 (MarkupCraft / TakeoffCraft panels, tools, several PDFs, compare) M7.12–M7.13 (BimCraft IFC

@@ -31,6 +31,7 @@ cc-io-civil = { path = "../crates/io-civil" }
 cc-detail = { path = "../crates/detail" }
 cc-io-detail = { path = "../crates/io-detail" }
 cc-part = { path = "../crates/part" }
+cc-mcp = { path = "../crates/mcp" }
 
 [[bin]]
 name = "dwg_read"
@@ -295,6 +296,19 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "control_request"
+path = "fuzz_targets/control_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_message"
+path = "fuzz_targets/mcp_message.rs"
+test = false
+doc = false
+bench = false
 # same patched hayro-syntax as the main workspace (vendor/hayro-syntax/CADCRAFT-PATCH.md)
 [patch.crates-io]
 hayro-syntax = { path = "../vendor/hayro-syntax" }

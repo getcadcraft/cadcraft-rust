@@ -1,9 +1,15 @@
-//! CadCraft desktop (Rust test version): the 2D viewer.
+//! CadCraft desktop (Rust test version).
 //!
-//!   cadcraft [file.dwg|file.dxf]
+//!   cadcraft [file] [--control [PORT]] [--allow read,edit,save,export]
+//!
+//! `--control` (or CADCRAFT_CONTROL_PORT / APP_CONTROL_PORT) starts the local control channel for AI assistants and
+//! scripts (control.rs): 127.0.0.1 only, port 47615 by default, a bearer token printed on stderr and written to
+//! `control.token` in the config folder; `--allow` names the permission groups (default read).
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+
+mod control;
 
 use cc_ui_egui::{ImportedFile, Services, UiApp};
 
@@ -11,6 +17,8 @@ struct App {
     app: UiApp,
     /// --bench: print the result and quit
     bench_exit: bool,
+    /// the control channel, when started
+    control: Option<control::Channel>,
 }
 
 impl eframe::App for App {
@@ -18,6 +26,9 @@ impl eframe::App for App {
         self.app.raw_input_hook(raw);
     }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        if let Some(c) = self.control.as_mut() {
+            c.pump(&mut self.app);
+        }
         self.app.ui(ui);
         if self.bench_exit
             && let Some(r) = self.app.bench_result.take()
@@ -82,10 +93,64 @@ fn read_xref(dir: &str, name: &str) -> Option<Vec<u8>> {
     std::fs::read(entry.path()).ok()
 }
 
+/// `--control [PORT]` / `--control=PORT`, else the environment; None = off.
+fn control_port(args: &[String]) -> Option<u16> {
+    for (i, a) in args.iter().enumerate() {
+        if let Some(v) = a.strip_prefix("--control=") {
+            return v.parse().ok();
+        }
+        if a == "--control" {
+            return Some(args.get(i + 1).and_then(|v| v.parse().ok()).unwrap_or(cc_mcp::http::DEFAULT_PORT));
+        }
+    }
+    ["CADCRAFT_CONTROL_PORT", "APP_CONTROL_PORT"].iter().find_map(|k| std::env::var(k).ok()).and_then(|v| v.parse().ok())
+}
+
+/// `--allow read,edit,save,export` (or `all`); default read. Unknown groups are an error.
+fn allowed_groups(args: &[String]) -> Result<Vec<String>, String> {
+    let given = args.iter().enumerate().find_map(|(i, a)| {
+        a.strip_prefix("--allow=").map(str::to_string).or_else(|| (a == "--allow").then(|| args.get(i + 1).cloned().unwrap_or_default()))
+    });
+    let Some(list) = given else { return Ok(vec!["read".into()]) };
+    let mut out: Vec<String> = list.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    if out.iter().any(|g| g == "all") {
+        out = cc_mcp::rpc::TOOL_GROUPS.iter().map(|g| g.to_string()).collect();
+    }
+    if let Some(bad) = out.iter().find(|g| !cc_mcp::rpc::TOOL_GROUPS.contains(&g.as_str())) {
+        return Err(format!("Unknown permission \"{bad}\". Groups: read, edit, save, export."));
+    }
+    Ok(out)
+}
+
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let bench = args.iter().any(|a| a == "--bench");
-    let start = args.into_iter().find(|a| !a.starts_with("--"));
+    let port = control_port(&args);
+    let groups = match allowed_groups(&args) {
+        Ok(g) => g,
+        Err(e) => {
+            eprintln!("cadcraft: {e}");
+            std::process::exit(2);
+        }
+    };
+    // values that follow a flag are not files
+    let start = args
+        .iter()
+        .enumerate()
+        .find(|(i, a)| {
+            !a.starts_with("--") && !matches!(i.checked_sub(1).and_then(|j| args.get(j)).map(String::as_str), Some("--control" | "--allow"))
+        })
+        .map(|(_, a)| a.clone());
+    let mut channel = match port {
+        Some(p) => match control::Channel::start(p, groups, cc_mcp::token::config_dir()) {
+            Ok(c) => Some(c),
+            Err(e) => {
+                eprintln!("cadcraft: the control channel did not start: {e}");
+                None
+            }
+        },
+        None => None,
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("CadCraft (Rust test version)").with_inner_size([1280.0, 800.0]),
         renderer: eframe::Renderer::Wgpu,
@@ -96,6 +161,10 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             let start_is_none = start.is_none();
+            if let Some(c) = channel.as_ref() {
+                *c.ctx.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(cc.egui_ctx.clone());
+            }
+            let control_line = channel.as_ref().map(control::Channel::status_line);
             if let Some(rs) = &cc.wgpu_render_state {
                 cc_ui_egui::install_gpu(rs);
             }
@@ -106,6 +175,9 @@ fn main() -> eframe::Result {
                 ..Default::default()
             };
             let mut app = UiApp::new(services);
+            if let Some(l) = control_line {
+                app.message = l;
+            }
             if let Some(p) = start {
                 match read_path(std::path::Path::new(&p)) {
                     Ok(f) => app.open_file(&f),
@@ -118,7 +190,7 @@ fn main() -> eframe::Result {
                 }
                 app.start_bench(240);
             }
-            Ok(Box::new(App { app, bench_exit: bench }))
+            Ok(Box::new(App { app, bench_exit: bench, control: channel.take() }))
         }),
     )
 }

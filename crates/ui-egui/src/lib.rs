@@ -266,6 +266,27 @@ impl UiApp {
         UiApp { services, ..Default::default() }
     }
 
+    /// Which app the window shows now (the control channel's `windows_list`; "studio" = the start screen).
+    pub fn active_app(&self) -> &'static str {
+        if self.part.is_some() {
+            "partcraft"
+        } else if self.detail.is_some() {
+            "detailcraft"
+        } else if self.civil.is_some() {
+            "civilcraft"
+        } else if let Some(p) = &self.pdf {
+            if p.mode == "takeoff" { "takeoffcraft" } else { "markupcraft" }
+        } else if self.mc.is_some() || self.model3.is_some() {
+            "modelcraft"
+        } else if self.ifc3.is_some() {
+            "bimcraft"
+        } else if self.editor.is_some() || self.doc.is_some() {
+            "cadcraft"
+        } else {
+            "studio"
+        }
+    }
+
     /// Open bytes as a drawing (any failure becomes a message, never a crash).
     pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) {
         self.open_file(&ImportedFile { name: name.to_string(), bytes: bytes.to_vec(), dir: None });

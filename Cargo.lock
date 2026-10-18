@@ -296,10 +296,12 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 name = "cadcraft"
 version = "0.0.1"
 dependencies = [
+ "cc-mcp",
  "cc-ui-egui",
  "eframe",
  "egui",
  "rfd",
+ "serde_json",
 ]
 
 [[package]]
@@ -650,7 +652,8 @@ dependencies = [
 name = "cc-mcp"
 version = "0.0.1"
 dependencies = [
- "cc-engine",
+ "cc-cad",
+ "getrandom 0.3.4",
  "serde_json",
 ]
 
