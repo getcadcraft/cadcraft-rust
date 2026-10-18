@@ -734,6 +734,7 @@ dependencies = [
  "cc-takeoff",
  "egui",
  "egui-wgpu",
+ "indexmap",
  "rayon",
  "serde_json",
  "web-time",

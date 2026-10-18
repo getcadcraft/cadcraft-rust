@@ -6,6 +6,7 @@
 //!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
+//!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
 //!       → JSON {open_ms, first_frame_ms, frame_ms: [...], spaces, segments …}; each frame pans/zooms the view.
 //!       --edit: open for editing, then also time one LINE (typed) from Enter to the redrawn frame (edit_ms)
@@ -74,6 +75,7 @@ fn main() -> ExitCode {
     let r = match args.first().map(String::as_str) {
         Some("bench") => bench(&args),
         Some("demo3d") => demo3d(&args),
+        Some("pdfbench") => pdfbench(&args),
         _ => shot(&args),
     };
     match r {
@@ -238,6 +240,17 @@ fn shot(args: &[String]) -> Result<(), String> {
     img.save(out).map_err(|e| format!("{out}: {e}"))?;
     let st = hs.state();
     println!("{out}: {}x{} · {}", img.width(), img.height(), st.message);
+    Ok(())
+}
+
+/// `cadcraft-shot pdfbench <file.pdf> [--runs N]`: the sheet view's heavy paths timed (open, render page 1 at 1× and 2×,
+/// save with 50 markups, TakeoffCraft's marked PDF with 50 marks), best of N, as one JSON line (forks/tools/mkbench.mjs).
+fn pdfbench(args: &[String]) -> Result<(), String> {
+    let f = args.get(1).ok_or("usage: cadcraft-shot pdfbench <file.pdf> [--runs N]")?;
+    let runs: usize = arg(args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(3).clamp(1, 50);
+    let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
+    let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    println!("{}", cc_ui_egui::pdfview::bench(&name, &bytes, runs)?);
     Ok(())
 }
 

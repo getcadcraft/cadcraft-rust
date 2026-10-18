@@ -6,6 +6,8 @@
 use cc_io_takeoff::pdfread::{self, Doc, PageInfo};
 use egui::{Color32, Pos2, Rect, Sense, Vec2};
 
+use cc_markup::i18n::t0;
+
 use crate::theme::Tokens;
 
 /// The largest side of a page texture (GPU limits allow more; memory and render time say this).
@@ -46,6 +48,16 @@ pub struct PdfView {
     annots_drawn: Vec<bool>,
     /// draw the markups over the sheet
     pub show_markups: bool,
+    /// each page's view box and rotation as MarkupCraft read them (badge size, the text frame of new markups)
+    page_views: Vec<([f64; 4], f64)>,
+    /// annotations of the file that MarkupCraft rewrites on save (`f.removeRefs`)
+    remove_refs: indexmap::IndexSet<String>,
+    /// the last primary press (time, screen point): a second one close by is a double-click (`e.detail`)
+    last_press: Option<(f64, [f64; 2])>,
+    /// a fixed clock for new markups' ids and dates (`markup.clock`; scripts and parity runs), else the wall clock
+    pub clock: Option<f64>,
+    /// the Properties panel's text fields while typed in: key → (value when typing began, text)
+    pub edits: std::collections::HashMap<String, (String, String)>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -73,16 +85,27 @@ impl PdfView {
         // MarkupCraft's reading of the same file: its markups (a file it cannot read still shows as a plan set)
         let mut env = cc_markup::model::Env::default();
         let opts = cc_io_markup::read::OpenOpts { file_id: "f1".into(), name: name.to_string(), read_text: false };
-        let (markups, page_keys, annots_drawn) = match cc_io_markup::read::open_pdf(&mut env, bytes, &opts) {
-            Ok(r) => {
-                (r.markups, r.pages.iter().map(|p| p.key.clone()).collect(), r.pages.iter().map(|p| p.annot_mode == "disable").collect())
-            }
-            Err(_) => (Vec::new(), Vec::new(), Vec::new()),
-        };
         let mut store = cc_markup::model::Store::new();
-        for m in markups {
-            store.markups.insert(m.id.clone(), m);
-        }
+        let (page_keys, annots_drawn, page_views, remove_refs) = match cc_io_markup::read::open_pdf(&mut env, bytes, &opts) {
+            Ok(r) => {
+                // store.load(rec.markups, rec.calibrations, rec.sheetNames, rec.layers, rec.columns), as markupcraft.js opens a file
+                let names = r
+                    .sheet_names
+                    .iter()
+                    .map(|(k, (n, t))| (k.clone(), cc_markup::model::SheetName { number: n.clone(), title: t.clone() }))
+                    .collect();
+                store.load(r.markups.clone(), r.calibrations.clone(), names, Some(&r.layers), Some(&r.columns));
+                (
+                    r.pages.iter().map(|p| p.key.clone()).collect(),
+                    r.pages.iter().map(|p| p.annot_mode == "disable").collect(),
+                    r.pages.iter().map(|p| (p.view, p.rotate)).collect(),
+                    r.remove_refs.clone(),
+                )
+            }
+            Err(_) => (Vec::new(), Vec::new(), Vec::new(), indexmap::IndexSet::new()),
+        };
+        // one id sequence and clock for the reader and the tools, as the JS's model.js has
+        store.env = env;
         let mut takeoff = crate::takeofftools::TakeoffMode::new(&doc.hash);
         takeoff.add_file(name, bytes.len(), pages.len());
         Ok(PdfView {
@@ -94,6 +117,11 @@ impl PdfView {
             page_keys,
             annots_drawn,
             show_markups: true,
+            page_views,
+            remove_refs,
+            last_press: None,
+            clock: None,
+            edits: std::collections::HashMap::new(),
             name: name.to_string(),
             doc,
             pages,
@@ -105,6 +133,72 @@ impl PdfView {
             render_ms: 0.0,
             error: None,
         })
+    }
+
+    /// The open page's rotation as MarkupCraft sees it (`view.seenRotate`).
+    pub fn page_rot(&self) -> f64 {
+        self.page_views.get(self.page).map_or(0.0, |v| v.1)
+    }
+
+    /// `badgeFor(key)`: the count badge size of a page.
+    pub fn badge_of(&self, i: usize) -> f64 {
+        self.page_views.get(i).map_or(9.0, |(v, _)| ((v[2] - v[0]).hypot(v[3] - v[1]) / 160.0).clamp(7.0, 18.0))
+    }
+
+    /// A PDF point → the view's screen pixels (from the page's top-left; what "moved" and window direction use).
+    pub fn screen_of(&self, p: [f64; 2]) -> [f64; 2] {
+        let tr = self.pages.get(self.page).map_or([1.0, 0.0, 0.0, -1.0, 0.0, 0.0], |i| i.transform);
+        let (x, y) = pdfread::to_viewport(&tr, p[0], p[1]);
+        [x * self.zoom, y * self.zoom]
+    }
+
+    /// Screen pixels (from the page's top-left) → PDF user space.
+    pub fn user_of(&self, s: [f64; 2]) -> [f64; 2] {
+        let tr = self.pages.get(self.page).map_or([1.0, 0.0, 0.0, -1.0, 0.0, 0.0], |i| i.transform);
+        let (x, y) = pdfread::to_pdf(&tr, s[0] / self.zoom, s[1] / self.zoom);
+        [x, y]
+    }
+
+    /// Set the zoom exactly (screen pixels per PDF point; scripts and parity runs).
+    pub fn set_zoom(&mut self, z: f64) {
+        self.zoom = z.clamp(ZOOM_MIN, ZOOM_MAX);
+        self.fitted = true;
+        self.tools.px = 1.0 / self.zoom;
+        self.takeoff.px = 1.0 / self.zoom;
+    }
+
+    /// The clock new markups are stamped with.
+    pub(crate) fn tick(&mut self) {
+        let now = self
+            .clock
+            .unwrap_or_else(|| web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64));
+        self.store.env.now_ms = now;
+    }
+
+    /// A press with the markup tool at `q` (screen `s`).
+    pub fn gesture_down(&mut self, q: [f64; 2], s: [f64; 2], shift: bool, dbl: bool) {
+        self.tick();
+        let key = self.sheet_key();
+        let badge = self.badge_of(self.page);
+        self.tools.rot = self.page_rot();
+        self.tools.down(&mut self.store, &key, badge, q, s, shift, dbl);
+        if dbl {
+            self.tools.dblclick(&mut self.store, &key);
+        }
+    }
+
+    /// The release.
+    pub fn gesture_up(&mut self, q: [f64; 2], s: [f64; 2], shift: bool) {
+        self.tick();
+        let key = self.sheet_key();
+        let badge = self.badge_of(self.page);
+        let me = &*self;
+        let (zoom, tr) = (me.zoom, me.pages.get(me.page).map_or([1.0, 0.0, 0.0, -1.0, 0.0, 0.0], |i| i.transform));
+        let to_user = move |s: [f64; 2]| {
+            let (x, y) = pdfread::to_pdf(&tr, s[0] / zoom, s[1] / zoom);
+            [x, y]
+        };
+        self.tools.up(&mut self.store, &key, badge, q, s, shift, &to_user);
     }
 
     fn size(&self) -> (f64, f64) {
@@ -257,69 +351,39 @@ impl PdfView {
         let pan_drag = self.mode != "takeoff"
             && (resp.dragged_by(egui::PointerButton::Middle)
                 || resp.dragged_by(egui::PointerButton::Secondary)
-                || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select"));
+                || (resp.dragged_by(egui::PointerButton::Primary) && self.tools.tool == "pan"));
         self.tools.px = 1.0 / self.zoom;
+        self.tools.rot = self.page_rot();
         self.takeoff.px = 1.0 / self.zoom;
         if self.mode == "takeoff" {
         } else if pan_drag {
             self.pan += resp.drag_delta();
-        } else if self.tools.clicks() {
-            // an outline: a corner per click, double-click or Enter ends it, Esc drops it
-            let key = self.sheet_key();
-            self.tools.hover = resp.hover_pos().map(|p| self.to_pdf(origin, p));
-            if resp.dragged_by(egui::PointerButton::Primary) {
-                self.pan += resp.drag_delta();
-            } else if resp.double_clicked() {
-                self.tools.finish(&mut self.store, &key);
-            } else if resp.clicked()
-                && let Some(p) = resp.interact_pointer_pos()
-            {
-                let q = self.to_pdf(origin, p);
-                self.tools.click(q);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                self.tools.finish(&mut self.store, &key);
-            }
-        } else if self.tools.draws() {
-            let key = self.sheet_key();
-            // the gesture starts where the button went down, not where egui saw it become a drag (a few px later)
-            if resp.drag_started_by(egui::PointerButton::Primary)
-                && let Some(p) = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos())
-            {
-                let q = self.to_pdf(origin, p);
-                self.tools.begin(q);
-                if let Some(now) = resp.interact_pointer_pos() {
-                    self.tools.moved(self.to_pdf(origin, now));
+        } else if self.tools.tool != "pan" {
+            // the tools take raw pointer events, as markupcraft.js's pointerdown / move / up / dblclick
+            let (pressed, released, pos, shift, time) = ui
+                .input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.latest_pos(), i.modifiers.shift, i.time));
+            if let Some(pos) = pos {
+                let s = [f64::from(pos.x - origin.x), f64::from(pos.y - origin.y)];
+                let q = self.to_pdf(origin, pos);
+                if pressed && resp.hovered() {
+                    let dbl = self.last_press.is_some_and(|(t0, s0)| time - t0 < 0.4 && (s0[0] - s[0]).hypot(s0[1] - s[1]) < 5.0);
+                    self.last_press = Some((time, s));
+                    self.gesture_down(q, s, shift, dbl);
+                } else if released {
+                    self.gesture_up(q, s, shift);
+                } else if resp.hovered() || self.tools.busy() {
+                    self.tools.mv(&self.store, q, s, shift);
                 }
-            } else if resp.dragged_by(egui::PointerButton::Primary)
-                && let Some(p) = resp.interact_pointer_pos()
-            {
-                let q = self.to_pdf(origin, p);
-                self.tools.moved(q);
-            } else if resp.drag_stopped() {
-                self.tools.end(&mut self.store, &key);
-            } else if resp.clicked()
-                && matches!(self.tools.tool.as_str(), "text" | "callout")
-                && let Some(p) = resp.interact_pointer_pos()
-            {
-                let q = self.to_pdf(origin, p);
-                self.tools.begin(q);
-                self.tools.end(&mut self.store, &key);
-            }
-        } else if self.tools.tool == "select" {
-            if resp.dragged_by(egui::PointerButton::Primary) {
-                self.pan += resp.drag_delta();
-            } else if resp.clicked()
-                && let Some(p) = resp.interact_pointer_pos()
-            {
-                let key = self.sheet_key();
-                let q = self.to_pdf(origin, p);
-                let px = 1.0 / self.zoom;
-                self.tools.pick(&self.store, &key, q, px);
             }
         }
-        if self.mode != "takeoff" && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            self.tools.cancel();
+        if self.mode != "takeoff" && !ui.ctx().egui_wants_keyboard_input() {
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.tools.cancel();
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                let key = self.sheet_key();
+                self.tools.enter(&mut self.store, &key);
+            }
         }
         let typing = ui.ctx().egui_wants_keyboard_input();
         if !typing && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
@@ -370,8 +434,19 @@ impl PdfView {
         if let Some((tex, _, _)) = &self.tex {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
-        if self.show_markups || self.tools.draws() {
+        if self.show_markups || crate::markuptools::draws(&self.tools.tool) {
             self.draw_markups(&painter, page_rect.min);
+        }
+        if self.mode != "takeoff" {
+            if let Some((a, b)) = self.tools.window() {
+                let o = page_rect.min;
+                let r = Rect::from_two_pos(o + Vec2::new(a[0] as f32, a[1] as f32), o + Vec2::new(b[0] as f32, b[1] as f32));
+                let crossing = b[0] < a[0];
+                let c = if crossing { t.accent.gamma_multiply(0.6) } else { t.accent };
+                painter.rect_filled(r, 0.0, c.gamma_multiply(0.12));
+                painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, c), egui::StrokeKind::Inside);
+            }
+            self.editor(ui, page_rect.min);
         }
         if let Some(info) = self.pages.get(self.page) {
             let (tr, z, o) = (info.transform, self.zoom, page_rect.min);
@@ -383,6 +458,48 @@ impl PdfView {
         }
         if let Some(e) = &self.error {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, e, egui::FontId::proportional(14.0), t.text);
+        }
+    }
+
+    /// The text editor over a new or edited text, callout or note (markupcraft.js's textarea): typing grows the box,
+    /// Ctrl+Enter or a click on the sheet commits, Esc drops it.
+    fn editor(&mut self, ui: &mut egui::Ui, origin: Pos2) {
+        let Some(ed) = self.tools.editing.as_ref() else { return };
+        let (Some(info), z) = (self.pages.get(self.page), self.zoom) else { return };
+        let tr = info.transform;
+        let at = |x: f64, y: f64| {
+            let (vx, vy) = pdfread::to_viewport(&tr, x, y);
+            origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
+        };
+        let (pos, size) = if ed.m.kind == "note" {
+            let p = ed.m.pts().first().copied().unwrap_or([0.0, 0.0]);
+            (at(p[0], p[1]) + Vec2::new(26.0, 0.0), Vec2::new(260.0, 110.0))
+        } else {
+            let r = ed.m.rect.unwrap_or([0.0, 0.0, 100.0, 20.0]);
+            let rr = Rect::from_two_pos(at(r[0], r[1]), at(r[2], r[3]));
+            (rr.min, Vec2::new(rr.width().max(120.0), rr.height().max(24.0)))
+        };
+        let mut text = ed.value.clone();
+        let mut commit = false;
+        let mut cancel = false;
+        egui::Area::new(ui.make_persistent_id("mc-editor")).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+            let r = ui.add_sized(
+                size,
+                egui::TextEdit::multiline(&mut text).hint_text(t0(if ed.m.kind == "note" { "edit.note" } else { "edit.text" })),
+            );
+            r.request_focus();
+            commit = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.command);
+            cancel = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        });
+        if text != ed.value {
+            self.tools.edit_input(&text);
+        }
+        let key = self.sheet_key();
+        if cancel {
+            self.tools.cancel_edit();
+        } else if commit {
+            self.tick();
+            self.tools.commit_edit(&mut self.store, &key);
         }
     }
 
@@ -398,13 +515,18 @@ impl PdfView {
             origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
         };
         // the sheet's scale: dimensions and areas read in real units once it is calibrated
-        let env = ShapeEnv { cal: self.store.calibrations.get(key).cloned(), badge: 0.0, legend: None };
-        let preview = self.tools.preview(key);
-        let sel = self.tools.selected.as_deref();
-        let list: Vec<&cc_markup::model::Markup> =
-            self.store.on_sheet(key).into_iter().filter(|m| self.store.shown(m)).chain(preview.iter()).collect();
+        let env = ShapeEnv { cal: self.store.calibrations.get(key).cloned(), badge: self.badge_of(self.page), legend: None };
+        let preview = self.tools.preview(&self.store, key, None);
+        let hidden = self.tools.hidden();
+        let list: Vec<&cc_markup::model::Markup> = self
+            .store
+            .on_sheet(key)
+            .into_iter()
+            .filter(|m| self.store.shown(m) && m.kind != "foreign" && !hidden.contains(&m.id))
+            .chain(preview.iter())
+            .collect();
         for m in list {
-            if sel == Some(m.id.as_str())
+            if self.tools.sel.contains(&m.id)
                 && let Some(b) = cc_markup::shapes::list_bounds(&shapes(m, &env))
             {
                 let r = Rect::from_two_pos(at(b[0], b[1]), at(b[2], b[3])).expand(4.0);
@@ -563,24 +685,58 @@ impl PdfView {
         [x, y]
     }
 
-    /// The marked-up copy: every sheet's markups as annotations (cc-io-markup writeMarkedUp), named "<name>-marked.pdf".
-    pub fn save_marked(&self, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+    /// The marked-up copy, as markupcraft.js `bake`: every sheet's markups as annotations with its scale (a sheet
+    /// without one clears the file's), its badge size and typed sheet name; typed sheet numbers become page labels;
+    /// the file's own annotations MarkupCraft read are rewritten; layers and columns travel. "<name>-marked.pdf".
+    pub fn save_marked(&mut self, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+        let now = self.clock.unwrap_or(now_ms);
+        let key_of = |i: usize| self.page_keys.get(i).cloned().unwrap_or_else(|| format!("f1:{i}"));
+        let sheet_name = |k: &str| self.store.sheet_names.get(k).map(|n| serde_json::json!({ "number": n.number, "title": n.title }));
         let pages = (0..self.pages.len())
             .map(|i| {
-                let key = self.page_keys.get(i).cloned().unwrap_or_else(|| format!("f1:{i}"));
+                let key = key_of(i);
+                let cal = self.store.calibrations.get(&key).cloned();
                 cc_io_markup::write::WritePage {
                     index: i,
                     markups: self.store.on_sheet(&key).into_iter().cloned().collect(),
-                    cal: self.store.calibrations.get(&key).cloned(),
+                    cal_cleared: cal.is_none(),
+                    cal,
                     cal_json: None,
-                    badge: 0.0,
-                    sheet_name: None,
-                    cal_cleared: false,
+                    badge: self.badge_of(i),
+                    sheet_name: sheet_name(&key),
                     legends: Vec::new(),
                 }
             })
             .collect();
-        let opts = cc_io_markup::write::WriteOpts { pages, now_ms, ..Default::default() };
+        let renamed = (0..self.pages.len()).any(|i| self.store.sheet_names.get(&key_of(i)).is_some_and(|n| !n.number.is_empty()));
+        let labels = renamed.then(|| {
+            (0..self.pages.len())
+                .map(|i| {
+                    let n = self.store.sheet_names.get(&key_of(i)).map(|n| n.number.clone()).filter(|n| !n.is_empty());
+                    let l = self.pages.get(i).map(|p| p.label.clone()).filter(|l| !l.is_empty());
+                    serde_json::Value::String(n.or(l).unwrap_or_else(|| (i + 1).to_string()))
+                })
+                .collect()
+        });
+        let layers = self
+            .store
+            .layer_names()
+            .into_iter()
+            .map(|n| {
+                let st = self.store.layer_state(&n);
+                cc_io_markup::write::LayerIn { name: serde_json::Value::String(n), hidden: st.hidden, locked: st.locked }
+            })
+            .collect();
+        let columns = cc_markup::columns::columns_to_value(&self.store.columns);
+        let opts = cc_io_markup::write::WriteOpts {
+            pages,
+            remove_refs: self.remove_refs.clone(),
+            labels,
+            layers,
+            columns: Some(columns),
+            now_ms: now,
+            ..Default::default()
+        };
         let (pdf, _report) = cc_io_markup::write::write_marked_up(&self.bytes, &opts)?;
         let stem = self.name.rsplit_once('.').map_or(self.name.as_str(), |(a, _)| a);
         Ok((format!("{stem}-marked.pdf"), pdf))
@@ -601,40 +757,38 @@ impl PdfView {
                 ui.label(egui::RichText::new("Pick an item on the right, then click the sheet: a count at each click; double-click or Enter ends a length or area; Esc drops it").color(t.text_dim));
                 return;
             }
+            let key = self.sheet_key();
             for id in crate::markuptools::TOOLS {
-                if ui.selectable_label(self.tools.tool == *id, crate::markuptools::tool_label(id)).clicked() {
-                    self.tools.tool = (*id).to_string();
-                    self.tools.cancel();
-                    self.tools.message = crate::markuptools::tool_hint(id);
+                if ui
+                    .selectable_label(self.tools.tool == *id, crate::markuptools::tool_label(id))
+                    .on_hover_text(t0(&format!("tool.{id}.title")))
+                    .clicked()
+                {
+                    self.tools.set_tool(&mut self.store, &key, id);
                 }
             }
             ui.separator();
+            // quick colours: the Properties panel's colour for the selection, or for the tool's next markups
             for c in crate::markuptools::COLORS {
                 let col = hex_color(c, 1.0).unwrap_or(Color32::RED);
                 let (r, resp) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
                 ui.painter().rect_filled(r, 2.0, col);
-                if self.tools.color == *c {
-                    ui.painter().rect_stroke(r, 2.0, egui::Stroke::new(2.0, t.text_strong), egui::StrokeKind::Outside);
-                }
-                if resp.clicked() {
-                    self.tools.color = (*c).to_string();
+                if resp.on_hover_text(t0("props.color")).clicked() {
+                    let _ = self.tools.style_edit(&mut self.store, "color", c);
                 }
             }
             ui.separator();
-            if matches!(self.tools.tool.as_str(), "text" | "callout") {
-                ui.add(egui::TextEdit::singleline(&mut self.tools.text).desired_width(140.0));
-            }
             self.scale_row(ui);
-            if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new("Undo")).clicked() {
+            if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new(t0("tool.undo"))).clicked() {
                 self.tools.message = self.store.undo().map(|l| format!("Undo {l}")).unwrap_or_default();
             }
-            if ui.add_enabled(!self.store.redo_stack.is_empty(), egui::Button::new("Redo")).clicked() {
+            if ui.add_enabled(!self.store.redo_stack.is_empty(), egui::Button::new(t0("tool.redo"))).clicked() {
                 self.tools.message = self.store.redo().map(|l| format!("Redo {l}")).unwrap_or_default();
             }
-            if ui.add_enabled(self.tools.selected.is_some(), egui::Button::new("Delete")).clicked() {
+            if ui.add_enabled(!self.tools.sel.is_empty(), egui::Button::new(t0("menu.delete"))).clicked() {
                 self.tools.delete_selected(&mut self.store);
             }
-            if ui.button("Save marked-up PDF").clicked() {
+            if ui.button(t0("tool.save")).on_hover_text(t0("tool.save.title")).clicked() {
                 save = true;
             }
         });
@@ -643,7 +797,6 @@ impl PdfView {
 
     /// The sheet's scale: the calibrate line's real distance (once one is drawn), a preset, or remove it.
     fn scale_row(&mut self, ui: &mut egui::Ui) {
-        use cc_markup::i18n::t0;
         use cc_markup::units::{preset_calibration, scale_presets, units};
         let key = self.sheet_key();
         let cal = self.store.calibrations.get(&key).cloned();
@@ -699,6 +852,62 @@ impl PdfView {
             self.render_ms
         )
     }
+}
+
+/// Timings of the sheet view's heavy paths (cadcraft-shot pdfbench; forks/tools/mkbench.mjs runs the JS the same way):
+/// open, page 1 rendered at 1× and 2× (the file opened again each time, as pdf.js does), Save with 50 markups on page
+/// 1, TakeoffCraft's marked PDF with 50 count marks. Best of `runs`, ms, as JSON.
+pub fn bench(name: &str, bytes: &[u8], runs: usize) -> Result<String, String> {
+    let best = |f: &mut dyn FnMut() -> Result<(), String>| -> Result<f64, String> {
+        let mut b = f64::INFINITY;
+        for _ in 0..runs.max(1) {
+            let t0 = web_time::Instant::now();
+            f()?;
+            b = b.min(t0.elapsed().as_secs_f64() * 1000.0);
+        }
+        Ok(b)
+    };
+    let mut v: Option<PdfView> = None;
+    let open = best(&mut || {
+        v = Some(PdfView::open(name, bytes)?);
+        Ok(())
+    })?;
+    let mut v = v.ok_or("pdfbench: no view")?;
+    let mut render = [0.0; 2];
+    for (i, sc) in [1.0, 2.0].into_iter().enumerate() {
+        let ms = best(&mut || {
+            let doc = pdfread::open(bytes)?;
+            pdfread::render_rgba(&doc, 0, sc, true).map(|_| ())
+        })?;
+        if let Some(r) = render.get_mut(i) {
+            *r = ms;
+        }
+    }
+    let key = v.sheet_key();
+    for i in 0..50u32 {
+        let (cx, cy) = (f64::from(i % 10) * 60.0, f64::from(i / 10) * 60.0);
+        let mut f = serde_json::Map::new();
+        f.insert("id".into(), serde_json::json!(format!("b{i}")));
+        f.insert("sheet".into(), serde_json::json!(key));
+        f.insert("type".into(), serde_json::json!("rect"));
+        f.insert("rect".into(), serde_json::json!([100.0 + cx, 100.0 + cy, 140.0 + cx, 140.0 + cy]));
+        f.insert("created".into(), serde_json::json!("2026-10-18T00:00:00Z"));
+        let m = cc_markup::model::make_markup(&mut v.store.env, &f);
+        v.store.markups.insert(m.id.clone(), m);
+    }
+    let save = best(&mut || v.save_marked(0.0).map(|_| ()))?;
+    let sheet = v.takeoff.sheet(0);
+    v.takeoff.add_item("Outlets", "count");
+    for i in 0..50u32 {
+        v.takeoff.click(&sheet, [100.0 + f64::from(i) * 10.0, 200.0]);
+    }
+    let export = best(&mut || v.takeoff_export("pdf", 0.0).map(|_| ()))?;
+    Ok(format!(
+        "{{\"pages\":{},\"open\":{open:.3},\"render1\":{:.3},\"render2\":{:.3},\"save\":{save:.3},\"export\":{export:.3}}}",
+        v.pages.len(),
+        render[0],
+        render[1]
+    ))
 }
 
 /// "#rrggbb" (or "#rgb") with an alpha → a colour; None for anything else (a markup's colours are data from the file).

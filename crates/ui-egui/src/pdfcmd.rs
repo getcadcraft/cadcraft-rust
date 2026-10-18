@@ -12,6 +12,16 @@
 //! - `takeoff.mark` name = `select:<id>` | `field=text` (see `TakeoffMode::mark_field`).
 //! - `takeoff.area` name = see `TakeoffMode::area_edit`.
 //! - `takeoff.undo`, `takeoff.redo`.
+//!
+//! MarkupCraft (points in PDF user space of the open sheet):
+//! - `pdf.zoom` factor = screen pixels per PDF point; `markup.clock` factor = ms (a fixed clock for ids and dates).
+//! - `markup.down | move | up | dbl` name = `x,y[,shift]`: the pointer with the current tool (dbl = a double-click's
+//!   second press); `markup.enter`, `markup.esc`.
+//! - `markup.type` name = the editor's text; `markup.commit` (Ctrl+Enter).
+//! - `markup.style` name = `key=value` (color, width, fill on|off|#hex, fillOpacity, opacity, fontSize): the
+//!   selection, or the tool's next markups; `markup.prop` name = `field=value` (status, subject, layer, text,
+//!   comment, label, stamp).
+//! - `markup.cal` name = the calibrate line's real distance; `markup.delete`, `markup.redo`, `markup.save`.
 
 use crate::{Params, UiApp};
 
@@ -26,6 +36,16 @@ fn pt(spec: &str, what: &str) -> Result<[f64; 2], String> {
 /// Run one of the sheet view's commands.
 pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     let name = params.name.clone().unwrap_or_default();
+    if id == "markup.save" {
+        // Save marked-up PDF through the host's save
+        let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+        let (file, bytes) = app.pdf.as_mut().ok_or("markup.save: open a PDF first")?.save_marked(now)?;
+        let save = app.services.save.as_mut().ok_or("markup.save: saving is not available here")?;
+        if let Some(to) = save(&file, bytes)? {
+            app.message = format!("Saved {to}");
+        }
+        return Ok(());
+    }
     let p = app.pdf.as_mut().ok_or_else(|| format!("{id}: open a PDF first"))?;
     let tk = &mut p.takeoff;
     match id {
@@ -87,6 +107,80 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         "takeoff.redo" => {
             tk.message = tk.tk.redo().unwrap_or_default();
+            Ok(())
+        }
+        "pdf.zoom" => {
+            let z = params.factor.filter(|z| z.is_finite() && *z > 0.0).ok_or("pdf.zoom: factor = screen pixels per PDF point")?;
+            p.set_zoom(z);
+            Ok(())
+        }
+        "markup.clock" => {
+            let ms = params.factor.filter(|z| z.is_finite() && *z >= 0.0).ok_or("markup.clock: factor = ms since 1970")?;
+            p.clock = Some(ms);
+            Ok(())
+        }
+        "markup.down" | "markup.up" | "markup.move" | "markup.dbl" => {
+            // name = "x,y" (PDF user space) with ",shift" for Shift held
+            let parts: Vec<&str> = name.split(',').collect();
+            let q = pt(&parts.iter().take(2).copied().collect::<Vec<_>>().join(","), id)?;
+            let shift = parts.contains(&"shift");
+            let s = p.screen_of(q);
+            match id {
+                "markup.down" => p.gesture_down(q, s, shift, false),
+                "markup.dbl" => p.gesture_down(q, s, shift, true),
+                "markup.up" => p.gesture_up(q, s, shift),
+                _ => p.tools.mv(&p.store, q, s, shift),
+            }
+            Ok(())
+        }
+        "markup.enter" => {
+            p.tick();
+            let key = p.sheet_key();
+            p.tools.enter(&mut p.store, &key);
+            Ok(())
+        }
+        "markup.esc" => {
+            p.tools.cancel();
+            p.tools.cancel_edit();
+            Ok(())
+        }
+        "markup.type" => {
+            if p.tools.editing.is_none() {
+                return Err("markup.type: no text is being edited".into());
+            }
+            p.tools.edit_input(&name);
+            Ok(())
+        }
+        "markup.commit" => {
+            p.tick();
+            let key = p.sheet_key();
+            p.tools.commit_edit(&mut p.store, &key);
+            Ok(())
+        }
+        "markup.style" => {
+            let (k, v) = name.split_once('=').ok_or("markup.style: name = key=value")?;
+            p.tick();
+            p.tools.style_edit(&mut p.store, k, v)
+        }
+        "markup.prop" => {
+            let (k, v) = name.split_once('=').ok_or("markup.prop: name = field=value")?;
+            p.prop(k, v)
+        }
+        "markup.cal" => {
+            // the calibrate line's real distance (in the sheet's unit, else feet-and-inches), then Set scale
+            let key = p.sheet_key();
+            if let Some(u) = p.store.calibrations.get(&key).map(|c| c.unit.clone()) {
+                p.tools.cal_unit = u;
+            }
+            p.tools.cal_text = name;
+            if p.tools.apply_calibration(&mut p.store, &key) { Ok(()) } else { Err(p.tools.message.clone()) }
+        }
+        "markup.delete" => {
+            p.tools.delete_selected(&mut p.store);
+            Ok(())
+        }
+        "markup.redo" => {
+            p.tools.message = p.store.redo().unwrap_or_default();
             Ok(())
         }
         _ => Err(format!("unknown command {id}")),

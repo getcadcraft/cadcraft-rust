@@ -30,6 +30,7 @@ pub mod detailview;
 pub mod document;
 pub mod edit;
 pub mod ifc3d;
+pub mod markupprops;
 pub mod markuptools;
 pub mod model3d;
 pub mod modelcraft;
@@ -955,7 +956,9 @@ impl UiApp {
                 if !markuptools::TOOLS.contains(&n.as_str()) {
                     return Err(format!("markup.tool: unknown tool {n}"));
                 }
-                self.pdf.as_mut().ok_or("markup.tool: open a PDF first")?.tools.tool = n;
+                let p = self.pdf.as_mut().ok_or("markup.tool: open a PDF first")?;
+                let key = p.sheet_key();
+                p.tools.set_tool(&mut p.store, &key, &n);
             }
             "takeoff.mode" => {
                 // the sheet view's TakeoffCraft tools ("markup" goes back)
@@ -1036,7 +1039,8 @@ impl UiApp {
                 // end the area outline being clicked (as Enter)
                 let p = self.pdf.as_mut().ok_or("markup.finish: open a PDF first")?;
                 let key = p.sheet_key();
-                p.tools.finish(&mut p.store, &key);
+                p.tick();
+                p.tools.enter(&mut p.store, &key);
             }
             "markup.undo" => {
                 let p = self.pdf.as_mut().ok_or("markup.undo: open a PDF first")?;
@@ -1180,7 +1184,7 @@ impl UiApp {
                 }
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
-            id if id.starts_with("takeoff.") || id.starts_with("markup.") => return pdfcmd::run(self, id, params),
+            id if id.starts_with("takeoff.") || id.starts_with("markup.") || id == "pdf.zoom" => return pdfcmd::run(self, id, params),
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
@@ -1351,6 +1355,11 @@ impl UiApp {
                 ui.separator();
                 pdf.sheets(ui, &t);
             });
+            if pdf.mode != "takeoff" {
+                egui::Panel::right("mc_props").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.props_panel(ui, &t));
+                });
+            }
             if pdf.mode == "takeoff" {
                 egui::Panel::right("tk_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
                     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t));

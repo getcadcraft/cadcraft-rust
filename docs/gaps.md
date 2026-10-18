@@ -17,9 +17,11 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
 5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
 6. **BimCraft** (M7): IFC 3D view, picking, properties, Find / Quantity; no plan drawing, no BIM Draw tools, no IFC save
    from the view.
-7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): markup tools (pen … text, Length, Area, Callout, Calibrate),
-   save marked-up PDF, takeoff count / linear / area, exports, Auto count. Missing: the rest of MarkupCraft's 30+ tools
-   (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, several PDFs per project.
+7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): every 0.5 MarkupCraft drawing tool (M9.14) with select /
+   move / grips / window, the text editor and the Properties panel, save marked-up PDF at parity; takeoff count / linear
+   / area, exports, Auto count. Missing in MarkupCraft: picture and signature stamps, tool chest presets, cut-outs in
+   areas, spaces, legends, links, replies, punch list, markups list, copy / paste, sheet rename, pages menu, BCF,
+   compare, several PDFs per project.
    TakeoffCraft has its item / mark panels, assemblies, bid areas, alternates, deducts, slopes and cut-outs (M9.13);
    still missing there: arcs and circles in runs and outlines, dragging mark corners, multi-select, groups (typicals),
    notes / clouds, the 3D view, revisions.

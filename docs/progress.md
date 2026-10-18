@@ -2,6 +2,45 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M9.14 MarkupCraft's tools and Properties panel as 0.5 has them (agent, work/markuptools)
+
+- M9.14: `crates/ui-egui/src/markuptools.rs` rewritten as a port of markupcraft.js's pointer handlers (onDown /
+  pointermove / pointerup / dblclick and `KIND`): all 0.5 drawing tools in toolbar order — pen, highlight, line, arrow,
+  arc (three clicks), rectangle, ellipse, polyline, polygon, revision cloud (box) and free cloud (by outline), callout,
+  text, note, stamp, calibrate, length, angle (three clicks), area, count (click adds to the selected group, Shift+click
+  takes one away). Two-point tools take a drag or two clicks; Shift snaps to 45° and squares boxes; outlines end with a
+  double-click or Enter. A finished gesture is `newMarkup` → `commitNew`: the tool's style (default plus the panel's
+  choices), author, the page's rotation, the current layer, the type's subject — one undo step with the 0.5 label.
+  Text, callout and note open an editor over the sheet (`startEdit` / `commitEdit`; the box grows as the text wraps;
+  nothing typed = no text markup). Stamps sized as `stampBox`. Measuring tools on an uncalibrated sheet go to
+  Calibrate first, then back. Select: pick, Shift-pick, move (drag), grips (resize / move a vertex), window and crossing
+  selection, Delete (`deleteSelection`).
+- `markupprops.rs`: the Properties panel (right of the sheet): one markup — author, dates, measured values (length,
+  area / perimeter / cut-outs, count, angle), status (logs a status reply), subject, layer (or a new one), stamp, count
+  group name, text, comment, style (colour, line width, fill + fill colour + fill opacity, opacity, text size); several
+  — status and style for all; a drawing tool and no selection — that tool's style and count group / stamp; nothing —
+  the sheet's facts. Each change is the JS handler (same checks, one `Store::change`).
+- The sheet view now opens a file as markupcraft.js does (`store.load` with the file's calibrations, sheet names, layers,
+  columns; one id sequence with the reader) and saves as `bake` does (a sheet without a scale clears the file's, the
+  count badge size per page, typed sheet numbers as labels, the file's own annotations rewritten, layers, columns).
+  Commands `markup.down | move | up | dbl | enter | esc | type | commit | style | prop | cal | delete | redo | save |
+  clock`, `pdf.zoom`; `cadcraft-shot pdfbench`.
+- Parity (`forks/tools/mkuidiff.mjs`: the app driven headless vs markupcraft.js's handlers replayed on the frozen 0.5
+  modules, then Save; the marked-up PDFs read back with pdf.js + pdf-lib, annotation dictionaries, appearance streams
+  and the /MarkupCraft JSON compared): 4 scenarios (235 gestures and edits: every tool, the editor, stamps, counts,
+  calibrate and presets, styles, status / subject / layer / comment / text, select, move, window, delete, undo / redo)
+  on 4 PDFs (kitchen sheet, Carey, blank grid, cairo): 16 / 16 identical. tkopsdiff still 12 / 12.
+- Timings (`forks/tools/mkbench.mjs`, best of 3, ms, JS = frozen 0.5 in Node with pdf.js 6 + @napi-rs/canvas):
+
+  | file | path | JS | Rust |
+  |---|---|---|---|
+  | kitchen sheet (1 p) | open / render 1× / 2× / save / takeoff PDF | 16.6 / 83.0 / 150.7 / 69.7 / 17.4 | 0.1 / 28.8 / 80.9 / 2.9 / 8.5 |
+  | Carey (1 p) | same | 41.8 / 272.0 / 269.6 / 21.0 / 11.2 | 0.3 / 68.1 / 83.8 / 2.2 / 7.1 |
+  | plan-set-200 (200 p, 9.9 MB) | same | 2,512 / 213.7 / 217.2 / 137.7 / 84.6 | 46.5 / 108.0 / 228.3 / 7.2 / 15.8 |
+  | dense-sheet-300k (1 p) | same | 837 / 8,844 / 15,002 / 53.1 / 21.4 | 21.5 / 2,197 / 6,881 / 3.5 / 11.9 |
+
+  Rendering at 2× on the 200-sheet set is the one path not faster (0.95×). Big files in testfiles/generated/markup.
+
 ## 2026-10-18 — M9.13 TakeoffCraft's panels: assemblies, bid areas, alternates, deducts, slopes (agent, work/markuptools)
 
 - M9.13: `crates/ui-egui/src/takeoffprops.rs` + `pdfcmd.rs`: the current item's settings as 0.5's buildItemProps has
