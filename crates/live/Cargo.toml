@@ -1,0 +1,22 @@
+[package]
+name = "cc-live"
+description = "CadCraft L3: Studio Live co-editing protocol (LIVE-PROTOCOL.md v1): MessagePack, envelopes, the session core, a headless client."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-cad.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

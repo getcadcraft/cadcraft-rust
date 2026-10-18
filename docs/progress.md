@@ -2,6 +2,17 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.4 Studio Live protocol core (agent, work/studio)
+
+- `crates/live` (cc-live, L3): LIVE-PROTOCOL.md version 1 — our own bounded MessagePack (live-client.js's encoding rules),
+  the `{t, s, c, n, q, b}` envelope, the session core deciding edits from `touched` (roles, locks, holds, property /
+  structural / create / delete / read rules, delete wins, guarded reads, refusal `by`) as Studio's session server does, and a
+  headless client (numbered pending edits as op records `{command, params, base_revision, result_revision}`, commits in
+  order, key versions, refusals, `hello {resume}`).
+- The shared vectors pass: 54 envelopes encode to the same bytes and decode back, 4 other encodings read, 6 bad inputs
+  refused, all 11 scenarios decide as expected; a copy in `crates/live/tests/vectors.json` is checked against the site's.
+  Fuzz target `live_frame` (60 s clean). Not built: the WebSocket transport, the PAKE handshake and sealed frames, snapshots.
+
 ## 2026-10-18 — M16.3 the window's live tools (agent, work/studio)
 
 - The control channel's window answers with 0.5's live tools for the app it shows (data/live-tools-0.5.json from the frozen

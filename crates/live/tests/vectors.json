@@ -1,0 +1,1931 @@
+{
+ "format": "cadcraft-live-vectors",
+ "protocol": 1,
+ "envelopes": [
+  {
+   "name": "hello",
+   "value": {
+    "t": "hello",
+    "b": {
+     "v": 1,
+     "app": "cadcraft",
+     "schema": 1,
+     "name": "Ana",
+     "device": "ANA-PC",
+     "hash": "sha256:0f3a"
+    }
+   },
+   "hex": "82a174a568656c6c6fa16286a17601a3617070a86361646372616674a6736368656d6101a46e616d65a3416e61a6646576696365a6414e412d5043a468617368ab7368613235363a30663361"
+  },
+  {
+   "name": "hello resume",
+   "value": {
+    "t": "hello",
+    "b": {
+     "v": 1,
+     "app": "cadcraft",
+     "schema": 1,
+     "name": "Ben",
+     "resume": {
+      "c": 3,
+      "token": "9f2c41aa07d3e5b6c1d2e3f4a5b6c7d8",
+      "q": 1234,
+      "n": 17,
+      "holds": [
+       "e:a:7",
+       "layer:Walls"
+      ]
+     }
+    }
+   },
+   "hex": "82a174a568656c6c6fa16285a17601a3617070a86361646372616674a6736368656d6101a46e616d65a342656ea6726573756d6585a16303a5746f6b656ed9203966326334316161303764336535623663316432653366346135623663376438a171cd04d2a16e11a5686f6c647392a5653a613a37ab6c617965723a57616c6c73"
+  },
+  {
+   "name": "pake 1",
+   "value": {
+    "t": "pake",
+    "b": {
+     "kid": "K7",
+     "m": {
+      "$bin": "41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21"
+     }
+    }
+   },
+   "hex": "82a174a470616b65a16282a36b6964a24b37a16dc42141484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21"
+  },
+  {
+   "name": "pake 3",
+   "value": {
+    "t": "pake",
+    "b": {
+     "m": {
+      "$bin": "fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0"
+     }
+    }
+   },
+   "hex": "82a174a470616b65a16281a16dc420fffefdfcfbfaf9f8f7f6f5f4f3f2f1f0efeeedecebeae9e8e7e6e5e4e3e2e1e0"
+  },
+  {
+   "name": "waiting",
+   "value": {
+    "t": "waiting"
+   },
+   "hex": "81a174a777616974696e67"
+  },
+  {
+   "name": "hello signed in",
+   "value": {
+    "t": "hello",
+    "b": {
+     "v": 1,
+     "app": "cadcraft",
+     "schema": 1,
+     "name": "Ben",
+     "device": "BEN-PC",
+     "assertion": "v1.eyJ2IjoxfQ.c2ln",
+     "picture": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627"
+     }
+    }
+   },
+   "hex": "82a174a568656c6c6fa16287a17601a3617070a86361646372616674a6736368656d6101a46e616d65a342656ea6646576696365a642454e2d5043a9617373657274696f6eb276312e65794a32496a6f7866512e63326c6ea770696374757265c428000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627"
+  },
+  {
+   "name": "join",
+   "value": {
+    "t": "join",
+    "b": {
+     "c": 4,
+     "name": "Ben",
+     "device": "laptop BEN-PC",
+     "via": "lan",
+     "kid": "K7",
+     "proof": null,
+     "assertion": "v1.eyJ2IjoxfQ.c2ln",
+     "picture": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627"
+     },
+     "aud": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+    }
+   },
+   "hex": "82a174a46a6f696ea16289a16304a46e616d65a342656ea6646576696365ad6c6170746f702042454e2d5043a3766961a36c616ea36b6964a24b37a570726f6f66c0a9617373657274696f6eb276312e65794a32496a6f7866512e63326c6ea770696374757265c428000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627a3617564d92b41414543417751464267634943516f4c4441304f4478415245684d554652595847426b6147787764486838"
+  },
+  {
+   "name": "approve",
+   "value": {
+    "t": "approve",
+    "b": {
+     "c": 4,
+     "role": "viewer"
+    }
+   },
+   "hex": "82a174a7617070726f7665a16282a16304a4726f6c65a6766965776572"
+  },
+  {
+   "name": "welcome",
+   "value": {
+    "t": "welcome",
+    "s": "5e55a1c0ffee0001",
+    "q": 1500,
+    "b": {
+     "c": 4,
+     "prefix": "e",
+     "role": "editor",
+     "token": "00112233445566778899aabbccddeeff",
+     "session": "5e55a1c0ffee0001",
+     "app": "cadcraft",
+     "schema": 1,
+     "peers": [
+      {
+       "c": 1,
+       "name": "Ana",
+       "role": "host",
+       "via": "local"
+      }
+     ],
+     "holds": {
+      "e:12": 1
+     },
+     "locks": [
+      "layer:Title"
+     ],
+     "saved": {
+      "q": 1400,
+      "hash": "sha256:0f3a"
+     },
+     "catchup": "log",
+     "last_n": 0
+    }
+   },
+   "hex": "84a174a777656c636f6d65a173b035653535613163306666656530303031a171cd05dca1628da16304a6707265666978a165a4726f6c65a6656469746f72a5746f6b656ed9203030313132323333343435353636373738383939616162626363646465656666a773657373696f6eb035653535613163306666656530303031a3617070a86361646372616674a6736368656d6101a570656572739184a16301a46e616d65a3416e61a4726f6c65a4686f7374a3766961a56c6f63616ca5686f6c647381a4653a313201a56c6f636b7391ab6c617965723a5469746c65a5736176656482a171cd0578a468617368ab7368613235363a30663361a763617463687570a36c6f67a66c6173745f6e00"
+  },
+  {
+   "name": "deny",
+   "value": {
+    "t": "deny",
+    "b": {
+     "reason": "schema"
+    }
+   },
+   "hex": "82a174a464656e79a16281a6726561736f6ea6736368656d61"
+  },
+  {
+   "name": "edit property",
+   "value": {
+    "t": "edit",
+    "n": 17,
+    "b": {
+     "label": "Color",
+     "ops": [
+      {
+       "op": "set",
+       "id": "42",
+       "f": "color",
+       "v": 3,
+       "was": null
+      }
+     ],
+     "touched": [
+      {
+       "k": "e:42",
+       "m": "p",
+       "f": "color"
+      }
+     ]
+    }
+   },
+   "hex": "83a174a465646974a16e11a16283a56c6162656ca5436f6c6f72a36f70739185a26f70a3736574a26964a23432a166a5636f6c6f72a17603a3776173c0a7746f75636865649183a16ba4653a3432a16da170a166a5636f6c6f72"
+  },
+  {
+   "name": "edit undo (conditional property)",
+   "value": {
+    "t": "edit",
+    "n": 18,
+    "b": {
+     "label": "Undo Color",
+     "ops": [
+      {
+       "op": "set",
+       "id": "42",
+       "f": "color",
+       "v": null,
+       "was": 3
+      }
+     ],
+     "touched": [
+      {
+       "k": "e:42",
+       "m": "p",
+       "f": "color",
+       "r": 1501
+      }
+     ]
+    }
+   },
+   "hex": "83a174a465646974a16e12a16283a56c6162656caa556e646f20436f6c6f72a36f70739185a26f70a3736574a26964a23432a166a5636f6c6f72a176c0a377617303a7746f75636865649184a16ba4653a3432a16da170a166a5636f6c6f72a172cd05dd"
+  },
+  {
+   "name": "edit structural",
+   "value": {
+    "t": "edit",
+    "n": 19,
+    "b": {
+     "label": "Explode",
+     "ops": [
+      {
+       "op": "del",
+       "id": "42"
+      },
+      {
+       "op": "add",
+       "id": "e:9",
+       "ent": {
+        "type": "line",
+        "p1": [
+         0,
+         0
+        ],
+        "p2": [
+         10.5,
+         -2.25
+        ],
+        "layer": "L1"
+       }
+      }
+     ],
+     "touched": [
+      {
+       "k": "e:42",
+       "m": "d",
+       "r": 1501
+      },
+      {
+       "k": "e:e:9",
+       "m": "c"
+      },
+      {
+       "k": "layer:L1",
+       "m": "r"
+      }
+     ]
+    }
+   },
+   "hex": "83a174a465646974a16e13a16283a56c6162656ca74578706c6f6465a36f70739282a26f70a364656ca26964a2343283a26f70a3616464a26964a3653a39a3656e7484a474797065a46c696e65a27031920000a2703292cb4025000000000000cbc002000000000000a56c61796572a24c31a7746f75636865649383a16ba4653a3432a16da164a172cd05dd82a16ba5653a653a39a16da16382a16ba86c617965723a4c31a16da172"
+  },
+  {
+   "name": "commit",
+   "value": {
+    "t": "commit",
+    "c": 4,
+    "n": 17,
+    "q": 1501,
+    "b": {
+     "c": 4,
+     "n": 17,
+     "label": "Color",
+     "ops": [
+      {
+       "op": "set",
+       "id": "42",
+       "f": "color",
+       "v": 3,
+       "was": null
+      }
+     ],
+     "touched": [
+      {
+       "k": "e:42",
+       "m": "p",
+       "f": "color"
+      }
+     ]
+    }
+   },
+   "hex": "85a174a6636f6d6d6974a16304a16e11a171cd05dda16285a16304a16e11a56c6162656ca5436f6c6f72a36f70739185a26f70a3736574a26964a23432a166a5636f6c6f72a17603a3776173c0a7746f75636865649183a16ba4653a3432a16da170a166a5636f6c6f72"
+  },
+  {
+   "name": "refuse",
+   "value": {
+    "t": "refuse",
+    "n": 19,
+    "b": {
+     "n": 19,
+     "reason": "held",
+     "by": 2,
+     "by_name": "Ana"
+    }
+   },
+   "hex": "83a174a6726566757365a16e13a16284a16e13a6726561736f6ea468656c64a2627902a762795f6e616d65a3416e61"
+  },
+  {
+   "name": "hold",
+   "value": {
+    "t": "hold",
+    "b": {
+     "keys": [
+      "e:42",
+      "e:43"
+     ]
+    }
+   },
+   "hex": "82a174a4686f6c64a16281a46b65797392a4653a3432a4653a3433"
+  },
+  {
+   "name": "release all",
+   "value": {
+    "t": "release",
+    "b": {
+     "all": true
+    }
+   },
+   "hex": "82a174a772656c65617365a16281a3616c6cc3"
+  },
+  {
+   "name": "holds",
+   "value": {
+    "t": "holds",
+    "b": {
+     "set": {
+      "e:42": 4
+     },
+     "clear": [
+      "e:12"
+     ]
+    }
+   },
+   "hex": "82a174a5686f6c6473a16282a373657481a4653a343204a5636c65617291a4653a3132"
+  },
+  {
+   "name": "lock",
+   "value": {
+    "t": "lock",
+    "b": {
+     "keys": [
+      "layer:Title",
+      "e:7"
+     ]
+    }
+   },
+   "hex": "82a174a46c6f636ba16281a46b65797392ab6c617965723a5469746c65a3653a37"
+  },
+  {
+   "name": "locks",
+   "value": {
+    "t": "locks",
+    "b": {
+     "add": [
+      "layer:Title"
+     ],
+     "del": []
+    }
+   },
+   "hex": "82a174a56c6f636b73a16282a361646491ab6c617965723a5469746c65a364656c90"
+  },
+  {
+   "name": "presence out",
+   "value": {
+    "t": "presence",
+    "b": {
+     "cursor": [
+      12.5,
+      -3.75
+     ],
+     "view": [
+      0,
+      0,
+      841,
+      594
+     ],
+     "selection": [
+      "e:42"
+     ],
+     "command": "LINE"
+    }
+   },
+   "hex": "82a174a870726573656e6365a16284a6637572736f7292cb4029000000000000cbc00e000000000000a476696577940000cd0349cd0252a973656c656374696f6e91a4653a3432a7636f6d6d616e64a44c494e45"
+  },
+  {
+   "name": "presence in",
+   "value": {
+    "t": "presence",
+    "b": {
+     "peers": {
+      "2": {
+       "cursor": [
+        1.5,
+        2.5
+       ]
+      },
+      "4": {
+       "cursor": [
+        -0.125,
+        1e-7
+       ]
+      }
+     }
+    }
+   },
+   "hex": "82a174a870726573656e6365a16281a5706565727382a13281a6637572736f7292cb3ff8000000000000cb4004000000000000a13481a6637572736f7292cbbfc0000000000000cb3e7ad7f29abcaf48"
+  },
+  {
+   "name": "snap chunk",
+   "value": {
+    "t": "snap",
+    "q": 1500,
+    "b": {
+     "i": 0,
+     "of": 2,
+     "data": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b"
+     },
+     "enc": "deflate",
+     "bytes": 262444
+    }
+   },
+   "hex": "83a174a4736e6170a171cd05dca16285a16900a26f6602a464617461c5012c000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2ba3656e63a76465666c617465a56279746573ce0004012c"
+  },
+  {
+   "name": "saved",
+   "value": {
+    "t": "saved",
+    "b": {
+     "q": 1520,
+     "hash": "sha256:77aa",
+     "at": "2026-10-14T05:00:00Z"
+    }
+   },
+   "hex": "82a174a57361766564a16283a171cd05f0a468617368ab7368613235363a37376161a26174b4323032362d31302d31345430353a30303a30305a"
+  },
+  {
+   "name": "end",
+   "value": {
+    "t": "end",
+    "b": {
+     "reason": "host-ended",
+     "q": 1520
+    }
+   },
+   "hex": "82a174a3656e64a16282a6726561736f6eaa686f73742d656e646564a171cd05f0"
+  },
+  {
+   "name": "ping",
+   "value": {
+    "t": "ping",
+    "n": 1760418000123
+   },
+   "hex": "82a174a470696e67a16ecf00000199e116ecfb"
+  },
+  {
+   "name": "peer gone",
+   "value": {
+    "t": "peer",
+    "b": {
+     "c": 4,
+     "state": "gone"
+    }
+   },
+   "hex": "82a174a470656572a16282a16304a57374617465a4676f6e65"
+  },
+  {
+   "name": "invite",
+   "value": {
+    "t": "invite",
+    "b": {
+     "one_time": true,
+     "ttl": 600000
+    }
+   },
+   "hex": "82a174a6696e76697465a16282a86f6e655f74696d65c3a374746cce000927c0"
+  },
+  {
+   "name": "code",
+   "value": {
+    "t": "code",
+    "b": {
+     "code": "K7-Q4M2X",
+     "tag": "K7",
+     "expires": 600000,
+     "one_time": false
+    }
+   },
+   "hex": "82a174a4636f6465a16284a4636f6465a84b372d51344d3258a3746167a24b37a765787069726573ce000927c0a86f6e655f74696d65c2"
+  },
+  {
+   "name": "handover",
+   "value": {
+    "t": "handover",
+    "b": {
+     "to": 4
+    }
+   },
+   "hex": "82a174a868616e646f766572a16281a2746f04"
+  },
+  {
+   "name": "handover state chunk 0",
+   "value": {
+    "t": "handover",
+    "b": {
+     "from": 1,
+     "i": 0,
+     "of": 2,
+     "data": {
+      "$bin": "000d1a2734414e5b6875828f9ca9b6c3d0ddeaf704111e2b3845525f6c798693a0adbac7d4e1eefb0815222f3c495663707d8a97a4b1becbd8e5f2ff0c192633"
+     },
+     "bytes": 300000,
+     "relay": true
+    }
+   },
+   "hex": "82a174a868616e646f766572a16286a466726f6d01a16900a26f6602a464617461c440000d1a2734414e5b6875828f9ca9b6c3d0ddeaf704111e2b3845525f6c798693a0adbac7d4e1eefb0815222f3c495663707d8a97a4b1becbd8e5f2ff0c192633a56279746573ce000493e0a572656c6179c3"
+  },
+  {
+   "name": "handover state chunk 1",
+   "value": {
+    "t": "handover",
+    "b": {
+     "from": 1,
+     "i": 1,
+     "of": 2,
+     "data": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627"
+     }
+    }
+   },
+   "hex": "82a174a868616e646f766572a16284a466726f6d01a16901a26f6602a464617461c428000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f2021222324252627"
+  },
+  {
+   "name": "moved",
+   "value": {
+    "t": "moved",
+    "b": {
+     "addrs": [
+      "192.168.1.20",
+      "10.0.0.7"
+     ],
+     "port": 51234
+    }
+   },
+   "hex": "82a174a56d6f766564a16282a5616464727392ac3139322e3136382e312e3230a831302e302e302e37a4706f7274cdc822"
+  },
+  {
+   "name": "moved with ticket",
+   "value": {
+    "t": "moved",
+    "b": {
+     "addrs": [
+      "192.168.1.20"
+     ],
+     "port": 51234,
+     "host": 4,
+     "ticket": {
+      "$bin": "c8c7c6c5c4c3c2c1c0bfbebdbcbbbab9b8b7b6b5b4b3b2b1b0afaeadacabaaa9"
+     }
+    }
+   },
+   "hex": "82a174a56d6f766564a16284a5616464727391ac3139322e3136382e312e3230a4706f7274cdc822a4686f737404a67469636b6574c420c8c7c6c5c4c3c2c1c0bfbebdbcbbbab9b8b7b6b5b4b3b2b1b0afaeadacabaaa9"
+  },
+  {
+   "name": "moved with room",
+   "value": {
+    "t": "moved",
+    "b": {
+     "addrs": [
+      "192.168.1.20"
+     ],
+     "port": 51234,
+     "room": "K7QX9M2B"
+    }
+   },
+   "hex": "82a174a56d6f766564a16283a5616464727391ac3139322e3136382e312e3230a4706f7274cdc822a4726f6f6da84b375158394d3242"
+  },
+  {
+   "name": "code carried",
+   "value": {
+    "t": "code",
+    "b": {
+     "code": "K7-Q4M2X",
+     "tag": "K7",
+     "expires": 412000,
+     "one_time": false,
+     "carried": true
+    }
+   },
+   "hex": "82a174a4636f6465a16285a4636f6465a84b372d51344d3258a3746167a24b37a765787069726573ce00064960a86f6e655f74696d65c2a763617272696564c3"
+  },
+  {
+   "name": "pake 1 rejoin ticket",
+   "value": {
+    "t": "pake",
+    "b": {
+     "kid": "h:4",
+     "m": {
+      "$bin": "42474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2"
+     }
+    }
+   },
+   "hex": "82a174a470616b65a16282a36b6964a3683a34a16dc42142474c51565b60656a6f74797e83888d92979ca1a6abb0b5babfc4c9ced3d8dde2"
+  },
+  {
+   "name": "handover-off",
+   "value": {
+    "t": "handover-off",
+    "b": {
+     "to": 4,
+     "reason": "gone"
+    }
+   },
+   "hex": "82a174ac68616e646f7665722d6f6666a16282a2746f04a6726561736f6ea4676f6e65"
+  },
+  {
+   "name": "edit guarded read",
+   "value": {
+    "t": "edit",
+    "n": 21,
+    "b": {
+     "label": "Line",
+     "ops": [
+      {
+       "o": "add",
+       "id": 3000000001
+      }
+     ],
+     "touched": [
+      {
+       "k": "e:3000000001",
+       "m": "c"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r",
+       "g": 1
+      },
+      {
+       "k": "area:0,0,12.5,8@",
+       "m": "r",
+       "g": 1
+      }
+     ]
+    }
+   },
+   "hex": "83a174a465646974a16e15a16283a56c6162656ca44c696e65a36f70739182a16fa3616464a26964ceb2d05e01a7746f75636865649382a16bac653a33303030303030303031a16da16383a16bab6c617965723a57616c6c73a16da172a1670183a16bb0617265613a302c302c31322e352c3840a16da172a16701"
+  },
+  {
+   "name": "assistant",
+   "value": {
+    "t": "assistant"
+   },
+   "hex": "81a174a9617373697374616e74"
+  },
+  {
+   "name": "assistant-key",
+   "value": {
+    "t": "assistant-key",
+    "b": {
+     "kid": "a:4:9f2c41aa",
+     "secret": {
+      "$bin": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58"
+     },
+     "context": "assistant:5e55a1c0ffee0001"
+    }
+   },
+   "hex": "82a174ad617373697374616e742d6b6579a16283a36b6964ac613a343a3966326334316161a6736563726574c420030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58a7636f6e74657874ba617373697374616e743a35653535613163306666656530303031"
+  },
+  {
+   "name": "assistant-key refused",
+   "value": {
+    "t": "assistant-key",
+    "b": {
+     "reason": "role"
+    }
+   },
+   "hex": "82a174ad617373697374616e742d6b6579a16281a6726561736f6ea4726f6c65"
+  },
+  {
+   "name": "hello assistant",
+   "value": {
+    "t": "hello",
+    "b": {
+     "v": 1,
+     "app": "cadcraft",
+     "schema": 1,
+     "name": "Helper",
+     "device": "ANA-PC",
+     "assistant": {
+      "kid": "a:4:9f2c41aa",
+      "secret": {
+       "$bin": "030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58"
+      }
+     }
+    }
+   },
+   "hex": "82a174a568656c6c6fa16286a17601a3617070a86361646372616674a6736368656d6101a46e616d65a648656c706572a6646576696365a6414e412d5043a9617373697374616e7482a36b6964ac613a343a3966326334316161a6736563726574c420030e19242f3a45505b66717c87929da8b3bec9d4dfeaf5000b16212c37424d58"
+  },
+  {
+   "name": "join assistant",
+   "value": {
+    "t": "join",
+    "b": {
+     "c": 7,
+     "name": "Helper",
+     "device": "ANA-PC",
+     "via": "lan",
+     "kid": "a:4:9f2c41aa",
+     "proof": null,
+     "assertion": "",
+     "picture": null,
+     "aud": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+     "assistant": {
+      "of": 4,
+      "of_name": "Ana"
+     }
+    }
+   },
+   "hex": "82a174a46a6f696ea1628aa16307a46e616d65a648656c706572a6646576696365a6414e412d5043a3766961a36c616ea36b6964ac613a343a3966326334316161a570726f6f66c0a9617373657274696f6ea0a770696374757265c0a3617564d92b41414543417751464267634943516f4c4441304f4478415245684d554652595847426b6147787764486838a9617373697374616e7482a26f6604a76f665f6e616d65a3416e61"
+  },
+  {
+   "name": "peer assistant in",
+   "value": {
+    "t": "peer",
+    "b": {
+     "c": 7,
+     "state": "in",
+     "name": "Helper",
+     "role": "assistant",
+     "via": "lan",
+     "of": 4
+    }
+   },
+   "hex": "82a174a470656572a16286a16307a57374617465a2696ea46e616d65a648656c706572a4726f6c65a9617373697374616e74a3766961a36c616ea26f6604"
+  },
+  {
+   "name": "removed with its person",
+   "value": {
+    "t": "removed",
+    "b": {
+     "reason": "person"
+    }
+   },
+   "hex": "82a174a772656d6f766564a16281a6726561736f6ea6706572736f6e"
+  },
+  {
+   "name": "revs",
+   "value": {
+    "t": "revs",
+    "q": 1500,
+    "b": {
+     "keys": {
+      "block:7": 1402,
+      "e:42": 1501,
+      "layer:Walls": 12
+     }
+    }
+   },
+   "hex": "83a174a472657673a171cd05dca16281a46b65797383a7626c6f636b3a37cd057aa4653a3432cd05ddab6c617965723a57616c6c730c"
+  },
+  {
+   "name": "validate",
+   "value": {
+    "t": "validate",
+    "q": 1502,
+    "b": {
+     "c": 4,
+     "n": 20,
+     "label": "Move",
+     "ops": [
+      {
+       "op": "set",
+       "id": "1",
+       "f": "p1",
+       "v": [
+        1,
+        2
+       ]
+      }
+     ]
+    }
+   },
+   "hex": "83a174a876616c6964617465a171cd05dea16284a16304a16e14a56c6162656ca44d6f7665a36f70739184a26f70a3736574a26964a131a166a27031a176920102"
+  },
+  {
+   "name": "valid no",
+   "value": {
+    "t": "valid",
+    "b": {
+     "c": 4,
+     "n": 20,
+     "ok": false,
+     "reason": "hatch boundary not closed"
+    }
+   },
+   "hex": "82a174a576616c6964a16284a16304a16e14a26f6bc2a6726561736f6eb9686174636820626f756e64617279206e6f7420636c6f736564"
+  },
+  {
+   "name": "integers",
+   "value": {
+    "t": "x",
+    "b": {
+     "a": 0,
+     "b": 127,
+     "c": 128,
+     "d": 255,
+     "e": 256,
+     "f": 65535,
+     "g": 65536,
+     "h": 4294967295,
+     "i": 4294967296,
+     "j": 9007199254740991,
+     "k": {
+      "$int": "18446744073709551615"
+     },
+     "l": -1,
+     "m": -32,
+     "n": -33,
+     "o": -128,
+     "p": -129,
+     "q": -32768,
+     "r": -32769,
+     "s": -2147483648,
+     "t": -2147483649,
+     "u": {
+      "$int": "-9223372036854775808"
+     }
+    }
+   },
+   "hex": "82a174a178a162de0015a16100a1627fa163cc80a164ccffa165cd0100a166cdffffa167ce00010000a168ceffffffffa169cf0000000100000000a16acf001fffffffffffffa16bcfffffffffffffffffa16cffa16de0a16ed0dfa16fd080a170d1ff7fa171d18000a172d2ffff7fffa173d280000000a174d3ffffffff7fffffffa175d38000000000000000"
+  },
+  {
+   "name": "floats",
+   "value": {
+    "t": "x",
+    "b": {
+     "a": 0.5,
+     "b": -1.25,
+     "c": 1e+300,
+     "d": -2.5e-300,
+     "e": 3.141592653589793
+    }
+   },
+   "hex": "82a174a178a16285a161cb3fe0000000000000a162cbbff4000000000000a163cb7e37e43c8800759ca164cb81bac9a7b3b7302fa165cb400921fb54442d18"
+  },
+  {
+   "name": "strings",
+   "value": {
+    "t": "x",
+    "b": {
+     "a": "",
+     "b": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "c": "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy",
+     "d": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+     "e": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
+     "f": "Ünïcødé ✓ 漢字 🙂"
+    }
+   },
+   "hex": "82a174a178a16286a161a0a162bf78787878787878787878787878787878787878787878787878787878787878a163d9207979797979797979797979797979797979797979797979797979797979797979a164d9ff7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7aa165da010077777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777a166bbc39c6ec3af63c3b864c3a920e29c9320e6bca2e5ad9720f09f9982"
+  },
+  {
+   "name": "containers",
+   "value": {
+    "t": "x",
+    "b": {
+     "a": [],
+     "b": {},
+     "c": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15
+     ],
+     "d": {
+      "k00": 0,
+      "k01": 1,
+      "k02": 2,
+      "k03": 3,
+      "k04": 4,
+      "k05": 5,
+      "k06": 6,
+      "k07": 7,
+      "k08": 8,
+      "k09": 9,
+      "k10": 10,
+      "k11": 11,
+      "k12": 12,
+      "k13": 13,
+      "k14": 14,
+      "k15": 15
+     },
+     "e": [
+      [
+       [
+        [
+         [
+          true,
+          false,
+          null
+         ]
+        ]
+       ]
+      ]
+     ]
+    }
+   },
+   "hex": "82a174a178a16285a16190a16280a163dc0010000102030405060708090a0b0c0d0e0fa164de0010a36b303000a36b303101a36b303202a36b303303a36b303404a36b303505a36b303606a36b303707a36b303808a36b303909a36b31300aa36b31310ba36b31320ca36b31330da36b31340ea36b31350fa1659191919193c3c2c0"
+  },
+  {
+   "name": "bin sizes",
+   "value": {
+    "t": "x",
+    "b": {
+     "a": {
+      "$bin": ""
+     },
+     "b": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfe"
+     },
+     "c": {
+      "$bin": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+     }
+    }
+   },
+   "hex": "82a174a178a16283a161c400a162c4ff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfea163c50100000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+  }
+ ],
+ "decode_only": [
+  {
+   "name": "field order and wide int",
+   "hex": "82a16281a161c3a174a470696e67",
+   "value": {
+    "b": {
+     "a": true
+    },
+    "t": "ping"
+   }
+  },
+  {
+   "name": "uint32 for a small number",
+   "hex": "82a174a470656572a16ece00000005",
+   "value": {
+    "t": "peer",
+    "n": 5
+   }
+  },
+  {
+   "name": "float32",
+   "hex": "82a174a178a16281a166ca3fc00000",
+   "value": {
+    "t": "x",
+    "b": {
+     "f": 1.5
+    }
+   }
+  },
+  {
+   "name": "str8 for a short string",
+   "hex": "81a174d90477616974",
+   "value": {
+    "t": "wait"
+   }
+  }
+ ],
+ "bad": [
+  {
+   "name": "truncated map",
+   "hex": "82a174a470696e67"
+  },
+  {
+   "name": "trailing bytes",
+   "hex": "81a174a470696e67c0"
+  },
+  {
+   "name": "never-used type 0xc1",
+   "hex": "81a174c1"
+  },
+  {
+   "name": "string longer than input",
+   "hex": "81a174a5706f"
+  },
+  {
+   "name": "bin longer than input",
+   "hex": "82a174a17aa162c40a0102"
+  },
+  {
+   "name": "empty input",
+   "hex": ""
+  }
+ ],
+ "scenarios": [
+  {
+   "name": "both change the same property: both commit, the later one wins",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "p1"
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    }
+   ]
+  },
+  {
+   "name": "undo of a property only if nobody wrote over it",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "label": "undo",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color",
+       "r": 1
+      }
+     ],
+     "expect": {
+      "refuse": "changed",
+      "by": "B"
+     }
+    },
+    {
+     "by": "B",
+     "label": "undo",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color",
+       "r": 2
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "lt",
+       "r": 0
+      }
+     ],
+     "expect": {
+      "commit": 4
+     }
+    }
+   ]
+  },
+  {
+   "name": "move then delete: delete wins; delete then move: the move is refused",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "c"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "p",
+       "f": "p1"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "d",
+       "r": 1
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "p",
+       "f": "p2"
+      }
+     ],
+     "expect": {
+      "refuse": "deleted",
+      "by": "A"
+     }
+    },
+    {
+     "by": "A",
+     "label": "undo delete",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "c"
+      }
+     ],
+     "expect": {
+      "commit": 4
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:a:1",
+       "m": "p",
+       "f": "p2"
+      }
+     ],
+     "expect": {
+      "commit": 5
+     }
+    }
+   ]
+  },
+  {
+   "name": "a structural op based on an old version is refused",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:c",
+       "m": "c"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:c",
+       "m": "p",
+       "f": "p1"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "label": "explode (based on seq 1)",
+     "touched": [
+      {
+       "k": "e:c",
+       "m": "d",
+       "r": 1
+      },
+      {
+       "k": "e:a:2",
+       "m": "c"
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    },
+    {
+     "by": "B",
+     "label": "constrain (based on seq 2)",
+     "touched": [
+      {
+       "k": "e:d",
+       "m": "s",
+       "r": 0
+      }
+     ],
+     "expect": {
+      "commit": 4
+     }
+    },
+    {
+     "by": "A",
+     "label": "solve (based on seq 0)",
+     "touched": [
+      {
+       "k": "e:d",
+       "m": "s",
+       "r": 0
+      }
+     ],
+     "expect": {
+      "refuse": "changed",
+      "by": "B"
+     }
+    },
+    {
+     "by": "A",
+     "label": "solve (based on seq 4)",
+     "touched": [
+      {
+       "k": "e:d",
+       "m": "s",
+       "r": 4
+      }
+     ],
+     "expect": {
+      "commit": 5
+     }
+    }
+   ]
+  },
+  {
+   "name": "block definition edited while a reference is placed",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "block:7",
+       "m": "s",
+       "r": 0
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "label": "insert",
+     "touched": [
+      {
+       "k": "e:b:1",
+       "m": "c"
+      },
+      {
+       "k": "block:7",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "B",
+     "label": "redefine (stale)",
+     "touched": [
+      {
+       "k": "block:7",
+       "m": "s",
+       "r": 0
+      }
+     ],
+     "expect": {
+      "refuse": "changed",
+      "by": "A"
+     }
+    },
+    {
+     "by": "A",
+     "label": "purge",
+     "touched": [
+      {
+       "k": "block:7",
+       "m": "d"
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    },
+    {
+     "by": "B",
+     "label": "insert after purge",
+     "touched": [
+      {
+       "k": "e:b:2",
+       "m": "c"
+      },
+      {
+       "k": "block:7",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "refuse": "deleted",
+      "by": "A"
+     }
+    }
+   ]
+  },
+  {
+   "name": "holds stop others’ structural ops, not property writes",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "hold": [
+      "e:t"
+     ]
+    },
+    {
+     "by": "B",
+     "label": "type (text is structural)",
+     "touched": [
+      {
+       "k": "e:t",
+       "m": "s"
+      }
+     ],
+     "expect": {
+      "refuse": "held",
+      "by": "A"
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:t",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:t",
+       "m": "d"
+      }
+     ],
+     "expect": {
+      "refuse": "held",
+      "by": "A"
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:t",
+       "m": "s"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "release": [
+      "e:t"
+     ]
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:t",
+       "m": "d"
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    }
+   ]
+  },
+  {
+   "name": "a held layer or area stops others’ edits that read it guarded (g), never a plain read",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "hold": [
+      "layer:Walls"
+     ]
+    },
+    {
+     "by": "B",
+     "label": "draw on it",
+     "touched": [
+      {
+       "k": "e:c:1",
+       "m": "c"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r",
+       "g": 1
+      }
+     ],
+     "expect": {
+      "refuse": "held",
+      "by": "A"
+     }
+    },
+    {
+     "by": "B",
+     "label": "recolour an object on it",
+     "touched": [
+      {
+       "k": "e:4",
+       "m": "p",
+       "f": "color"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r",
+       "g": 1
+      }
+     ],
+     "expect": {
+      "refuse": "held",
+      "by": "A"
+     }
+    },
+    {
+     "by": "B",
+     "label": "a plain read passes",
+     "touched": [
+      {
+       "k": "e:c:2",
+       "m": "c"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "A",
+     "label": "the holder draws on it",
+     "touched": [
+      {
+       "k": "e:b:1",
+       "m": "c"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r",
+       "g": 1
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "B",
+     "hold": [
+      "area:0,0,10,10@"
+     ]
+    },
+    {
+     "by": "A",
+     "label": "move inside the held area",
+     "touched": [
+      {
+       "k": "e:5",
+       "m": "p",
+       "f": "x1+y1"
+      },
+      {
+       "k": "area:0,0,10,10@",
+       "m": "r",
+       "g": 1
+      }
+     ],
+     "expect": {
+      "refuse": "held",
+      "by": "B"
+     }
+    },
+    {
+     "by": "A",
+     "release": [
+      "layer:Walls"
+     ]
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:c:3",
+       "m": "c"
+      },
+      {
+       "k": "layer:Walls",
+       "m": "r",
+       "g": 1
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    }
+   ]
+  },
+  {
+   "name": "both draw new objects: no conflict; the same id twice is refused",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:b:1",
+       "m": "c"
+      },
+      {
+       "k": "layer:0",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:c:1",
+       "m": "c"
+      },
+      {
+       "k": "layer:0",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:b:1",
+       "m": "c"
+      }
+     ],
+     "expect": {
+      "refuse": "exists",
+      "by": "A"
+     }
+    }
+   ]
+  },
+  {
+   "name": "renaming a layer in use breaks nothing (names are properties of stable ids)",
+   "clients": [
+    "H",
+    "A",
+    "B"
+   ],
+   "steps": [
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "layer:L1",
+       "m": "p",
+       "f": "name"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:c:5",
+       "m": "c"
+      },
+      {
+       "k": "layer:L1",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "B",
+     "touched": [
+      {
+       "k": "e:c:5",
+       "m": "p",
+       "f": "layer"
+      },
+      {
+       "k": "layer:L1",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "commit": 3
+     }
+    }
+   ]
+  },
+  {
+   "name": "locks: every op on a locked key is refused, the host’s too, until unlocked",
+   "clients": [
+    "H",
+    "A"
+   ],
+   "steps": [
+    {
+     "by": "H",
+     "lock": [
+      "e:9",
+      "layer:Title"
+     ]
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:9",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "refuse": "locked"
+     }
+    },
+    {
+     "by": "H",
+     "touched": [
+      {
+       "k": "e:9",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "refuse": "locked"
+     }
+    },
+    {
+     "by": "A",
+     "label": "new object on a locked layer",
+     "touched": [
+      {
+       "k": "e:b:1",
+       "m": "c"
+      },
+      {
+       "k": "layer:Title",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "refuse": "locked"
+     }
+    },
+    {
+     "by": "A",
+     "label": "group delete containing it",
+     "touched": [
+      {
+       "k": "e:8",
+       "m": "d"
+      },
+      {
+       "k": "e:9",
+       "m": "d"
+      }
+     ],
+     "expect": {
+      "refuse": "locked"
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:8",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    },
+    {
+     "by": "H",
+     "unlock": [
+      "e:9"
+     ]
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:9",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 2
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:b:2",
+       "m": "c"
+      },
+      {
+       "k": "layer:Title",
+       "m": "r"
+      }
+     ],
+     "expect": {
+      "refuse": "locked"
+     }
+    }
+   ]
+  },
+  {
+   "name": "viewers can’t edit",
+   "clients": [
+    "H",
+    "A",
+    "V"
+   ],
+   "steps": [
+    {
+     "by": "H",
+     "role": {
+      "who": "V",
+      "role": "viewer"
+     }
+    },
+    {
+     "by": "V",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "refuse": "role"
+     }
+    },
+    {
+     "by": "A",
+     "touched": [
+      {
+       "k": "e:1",
+       "m": "p",
+       "f": "color"
+      }
+     ],
+     "expect": {
+      "commit": 1
+     }
+    }
+   ]
+  }
+ ]
+}

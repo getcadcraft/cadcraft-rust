@@ -39,6 +39,7 @@ cc-tools = { path = "crates/tools" }
 cc-engine = { path = "crates/engine" }
 cc-ui-egui = { path = "crates/ui-egui" }
 cc-mcp = { path = "crates/mcp" }
+cc-live = { path = "crates/live" }
 cc-manifold = { path = "crates/manifold" }
 cc-takeoff = { path = "crates/takeoff" }
 cc-io-takeoff = { path = "crates/io-takeoff" }

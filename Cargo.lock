@@ -605,6 +605,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-live"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "serde_json",
+]
+
+[[package]]
 name = "cc-m3d"
 version = "0.0.1"
 dependencies = [

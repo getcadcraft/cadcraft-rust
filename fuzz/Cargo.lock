@@ -157,6 +157,7 @@ dependencies = [
  "cc-io-markup",
  "cc-io-skp",
  "cc-io-takeoff",
+ "cc-live",
  "cc-m3d",
  "cc-m3d-tools",
  "cc-manifold",
@@ -376,6 +377,13 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cc-live"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
 ]
 
 [[package]]

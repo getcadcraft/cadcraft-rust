@@ -32,6 +32,7 @@ cc-detail = { path = "../crates/detail" }
 cc-io-detail = { path = "../crates/io-detail" }
 cc-part = { path = "../crates/part" }
 cc-mcp = { path = "../crates/mcp" }
+cc-live = { path = "../crates/live" }
 
 [[bin]]
 name = "dwg_read"
@@ -306,6 +307,13 @@ bench = false
 [[bin]]
 name = "mcp_message"
 path = "fuzz_targets/mcp_message.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_frame"
+path = "fuzz_targets/live_frame.rs"
 test = false
 doc = false
 bench = false
