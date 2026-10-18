@@ -1,6 +1,6 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-17 · Change: every engine but PartCraft's rebuild kernel at parity; seven app views live; ids as used listed under M9+.
+Last updated 2026-10-18 · Change: all eight engines at parity; PartCraft and DetailCraft views; wasm threads measured and not shipped (M15.1).
 
 | Date | Change |
 |---|---|
@@ -9,6 +9,7 @@ Last updated 2026-10-17 · Change: every engine but PartCraft's rebuild kernel a
 | 2026-10-16 | M3 done: viewer on desktop + web (WebGPU), live at rust.getcadcraft.com. |
 | 2026-10-16 | M4 done: drafting, Edit + Save as DWG / DXF at byte parity; M5+ re-planned (below). |
 | 2026-10-16 | M5 done; cc-ifc, cc-manifold, cc-skp at parity (the engines of M7/M8, run in parallel); M6 started (3D viewport). |
+| 2026-10-18 | PartCraft (M13) and DetailCraft (M14) views; wasm threads built and measured slower (M15.1). |
 | 2026-10-17 | M9+ engines at parity (TakeoffCraft, MarkupCraft, BimCraft, CivilCraft, DetailCraft, PartCraft without its rebuild kernel); app views for ModelCraft, BimCraft, PDF sheets with MarkupCraft and TakeoffCraft, CivilCraft. |
 
 Speed decides. Every milestone is measured against the CadCraft 0.5 JavaScript build (reference:
@@ -33,7 +34,8 @@ M8.6–M8.8 TakeoffCraft exports and Auto count in the app; M9.4 CivilCraft engi
 MarkupCraft tools (two commits carry M9.12: TakeoffCraft mode and the measuring tools); M10.1–M10.6 PartCraft engine;
 M10.20–M10.23 DetailCraft engine; M11.x CivilCraft app view; M12.x cc-manifold API + PartCraft kernel.
 
-Next: PartCraft app view on the kernel, CivilCraft exports and editing tools, DetailCraft view, Studio, wasm threads.
+Next (2026-10-18): CivilCraft drawing tools, BimCraft plan / draw / IFC save, MarkupCraft and TakeoffCraft UI (agents); Studio;
+web speed through fewer allocations in the readers (wasm threads measured slower, below).
 
 ## Tablets (AGENTS.md section 10, Mobile)
 
@@ -46,6 +48,32 @@ makes no tablet promise beyond "the web build in a WebGPU browser".
 ## Known issues
 
 - Accessibility (screen readers) is skipped by the owner's decision (2026-10-15); see `docs/gaps.md`.
+
+## Wasm threads (M15.1, measured 2026-10-18): built, measured, not shipped
+
+Built in a scratch copy: the web crate with `+atomics,+bulk-memory,+mutable-globals,+simd128`, `-Z build-std=std,panic_abort`
+on a pinned nightly (nightly-2026-10-14), link args `--shared-memory --import-memory --max-memory=4294967296` plus the
+`__wasm_init_tls` / `__tls_size` / `__tls_align` / `__tls_base` exports (this nightly does not add them for
+wasm32-unknown-unknown), `wasm-bindgen-rayon` 1.3 (`no-bundler`) started before the app when `crossOriginIsolated`.
+egui-wgpu 0.37 / wgpu 30 build without `fragile-send-sync-non-atomic-wasm`. The readers' parallel paths ran only inside pool
+jobs (`rayon::current_thread_index()`), since the browser's main thread may not block; a DWG open became a pool job polled
+per frame. rust.getcadcraft.com already sends COOP/COEP.
+
+Measured in headless Chromium (8 threads), the 174 KB sample, reader only, no app running:
+
+| Reads | ms |
+|---|---:|
+| 1 read on the pool | 53 |
+| 2 reads at once | 317 |
+| 4 reads at once | 518 |
+| 8 reads at once | 1,147 |
+
+The readers allocate heavily, and every allocation in a shared-memory wasm goes through std's one global allocator lock,
+so the work scales **negatively**: the threaded build opened the 3.4 MB Carey drawing in 954–3,971 ms against 383–1,569 ms
+single-threaded, and single-threaded reads are also slower in the atomics build (50–173 ms vs 36–46 ms). A thread-caching
+allocator needs `unsafe` (`GlobalAlloc`), which the workspace forbids, and no maintained pure-Rust one for wasm was found.
+Revisit when one exists or when the readers allocate less; until then the web build stays single-threaded, and the faster
+paths for the web are fewer allocations in the readers (typed fast paths instead of the dynamic `Obj` model).
 
 ## M9 inputs (measured 2026-10-16, during M6)
 

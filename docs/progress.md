@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M15.1 wasm threads, measured (lead)
+
+- Built the threaded web build in a scratch copy (atomics, build-std on a pinned nightly, wasm-bindgen-rayon, pool jobs for
+  DWG opens). It runs, but the readers scale negatively on threads: 1 read 53 ms, 8 at once 1,147 ms (std's global
+  allocator lock); the Carey drawing opened slower than single-threaded. Not shipped; recipe and numbers in
+  docs/roadmap.md § Wasm threads. Next for web speed: fewer allocations in the readers.
+
 ## 2026-10-18 — M13.2 merges and a fuzz fix (lead)
 
 - Merged M14.1/M14.2 (DetailCraft view) and M13.1 (PartCraft view) into main. Opening a part, a DetailCraft model or a

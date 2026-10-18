@@ -120,6 +120,8 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M13/M14/M15: PartCraft view (rebuild kernel, history, parameters, exports at byte parity), DetailCraft view (properties, reports, clash, every export at parity), PartCraft's mesh kernel on cc-manifold (M12) at exact parity; wasm threads built and measured slower (allocator lock), not shipped.
+- 2026-10-17 M8–M11: TakeoffCraft, MarkupCraft, BimCraft, CivilCraft, DetailCraft and PartCraft engines at exact parity; PDF sheet view with markup and takeoff tools, exports and Auto count; CivilCraft view and exports at parity.
 - 2026-10-16 M6/M7 apps started: ModelCraft's tools (exact parity, 6,000 records) and formats (801/801) in Rust and in the app (edit, open SKP/OBJ/GLB/DAE, export 8 formats); BimCraft's IFC 3D view with picking, properties, storeys, section cut.
 - 2026-10-16 M5 + engines: DXF 2000 save 1.26× JS, per-object edit display cache, golden references in CI, nightly fuzz OOM fixed; cc-m3d (ModelCraft's kernel) at exact parity; cc-skp 27/27, cc-ifc 118/118 + 115/115, cc-manifold identical to the wasm on 11,093 cases; 3D viewport (cc-render mesh3d, ui view3d) on desktop and web.
 
