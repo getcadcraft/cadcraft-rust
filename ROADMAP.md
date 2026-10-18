@@ -114,11 +114,20 @@ the JS's output or error. Beats both cc-skp JS and OpenSKP (OpenSKP numbers from
 (2.9×), pick 36 → 19 ms; export GLB 403 → 37 ms (10.9×), STL 506 → 33 ms (15×), import SKP 5.2 MB 2,508 → 428 ms
 (5.9×), import OBJ 3.6 MB 1,194 → 220 ms.
 
+**ModelCraft panels (M6.17)** — `mcuidiff.mjs` (10 inputs × 5 seeds × 80 panel actions): 4,000 / 4,000 status messages
+and 4,076 / 4,076 saved files byte-identical with 0.5. `mcuidiff.mjs --bench` (best of 3, JS / Rust ms; this server
+under load, so ±30 %): m3d-50k-faces open 1,603 / 1,299, panel edits 1,893 / 206 (9×), save 287 / 18 (16×), 3D-print
+check 1,894 / 523 (3.6×); coedge_orientation_regression.skp (5.5 MB) open 13,217 / 6,091 (2.2×), edits 7,777 / 494
+(16×), save 1,077 / 190 (5.7×), print check 40,000 / 9,589 (4.2×); pimeta.modelcraft open 97 / 322 (0.3×: the app also
+builds the view's meshes and Tools, the JS timing is parse + load only), save 7.7 / 4.4, print check 7,091 / 1,497.
+
 **3D viewport (M6 groundwork)** — `cadcraft-shot demo3d`: 1,002,264 triangles / 83,522 instances at x = 500 000,
 y = 4 000 000 draw in 284–308 ms per orbit frame on this server's software rasteriser (no GPU here); the CPU side of an
 orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
+
+- 2026-10-18 M6.17: ModelCraft's panels (Entity info, Outliner, Components, Colors, Materials, Tags, Style + sun, Scenes, 3D-print check) and inference keys in the app; 4,076 / 4,076 saved files and 4,000 / 4,000 status lines byte-identical to 0.5 after the same actions.
 
 - 2026-10-18 M11.10: CivilCraft survey points: Shift+click / box / Ctrl+A selection, copy, cut, paste, duplicate, Delete; 52/52 projects byte-identical to 0.5.
 - 2026-10-18 M11.9: CivilCraft section panel and sample lines; 48/48 projects and 4/4 section CSVs byte-identical to 0.5.

@@ -752,6 +752,7 @@ dependencies = [
  "cc-io-detail",
  "cc-io-dwg",
  "cc-io-ifc",
+ "cc-io-m3d",
  "cc-io-markup",
  "cc-io-takeoff",
  "cc-m3d",

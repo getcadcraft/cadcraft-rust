@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -18,7 +18,11 @@ Last updated 2026-10-18 · Change: CivilCraft tools and panels (M11.7–M11.10),
    line grades …), the lasso (a Shift+drag that bends) and its window / crossing / fence modes, renumber settings,
    the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), the catchment
    tool, touch's draft bar; a 500k-point survey zoomed out draws every point cross (fast, but a carpet).
-5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
+5. **ModelCraft** (M6.17: panels, components, 3D-print check, inference keys at parity): missing the Render dialog
+   (looks, path tracing, lamps' Lights panel and editor), sun shadows drawn in the view (the settings are kept and saved),
+   procedural material textures (swatches and faces show the material's colour), components that stretch (partRules,
+   stretch dialog), the scenes' Play and WebM recording, copy / paste and duplicate, flip, solids tools, terrain,
+   text, storeys, drawing axes, the starter library, Blender key style.
 6. **BimCraft** (M7.13: IFC edit + save, storey plan + PDF, Draw tools, schedules at parity): no grips (dragging wall ends, sliding doors / windows), no residential sync (res-follow.js), no
    Library items placed from the plan.
 7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): every 0.5 MarkupCraft drawing tool (M9.14) with select /

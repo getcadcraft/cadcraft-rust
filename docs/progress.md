@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M6.17 ModelCraft's panels (agent, work/modelpanels)
+
+- `crates/ui-egui/src/mcact.rs` (actions), `mcpanels.rs` (the side panel), `mcprint.rs`, `mcmats.rs`: 0.5's panels in the
+  app, each edit one undo step through the cc-m3d functions modelcraft.js calls, with its undo labels and status words:
+  Entity info (renderInfo: model counts and size, face / edge / curve / group or component / dimension / section /
+  guide / several, typed lengths for edges, radii, dimensions and sizes, name, tag picker, solid yes / no and volume,
+  the solid checker's Show problems and Fix, Soften / Harden all, Edit, Explode, Make unique, Make component), the
+  Outliner (nested rows, search, eye, F2 / right-click rename, drag a row onto a group or the top to move it, crumbs and
+  Close group), Components, Colors (palette, another colour) and Materials (the 34-material library in its 11
+  categories; paint as `mat:<id>`, shown in the library colour), Tags (untagged row, eye, rename in place, delete,
+  add), Style (faces, edges, sun shadows, date, time, latitude, longitude, UTC offset), Scenes (add, go, update,
+  rename, delete, previous / next), Hide / Isolate / Unhide all, and Check for 3D printing (print3d's report in the
+  panel with Download STL / 3MF of the checked mesh).
+- Everything is `model.edit=<action>` (select:, tree-eye:, tree-move:, tag-rename:, paint:, size:, soften:, scene-rename:,
+  sun:, cam:, units:, print-check, …; mcact.rs's doc lists the forms). File › Save writes 0.5's file (model, `view`
+  camera and style, images); opening a `.modelcraft` file restores its view and images.
+- Keys as modelcraft.js: Shift locks the current inference while held, Alt / Ctrl reach the tools, arrows lock an axis
+  only while a lockable tool is busy (else orbit, Shift pans) with sayLock's words, Esc steps back (tool → Select →
+  selection → open group). A double-click that opens or closes a group runs the page's hooks (message, selection).
+- Library materials export, print and show as their colour once the app registers them (`cc_io_m3d::util::set_material_colors`,
+  as the page's setMaterialColors; the CLI and engine tests leave it unset, as io.js under Node).
+- Fixes: theme toggle no longer reopens the model as it was first opened (edits were lost); a model opens with one
+  scene build instead of three and no copy; undo / redo say 0.5's "Undone: …" and keep the selection that survives.
+- `forks/tools/mcuidiff.mjs`: a seeded walk over 10 inputs (5 ModelCraft files, 5 SketchUp imports) × 5 seeds × 80
+  panel actions, replayed in the frozen JS page functions and in the app: 4,000 / 4,000 status messages and 4,076 /
+  4,076 saved files (each step's `.modelcraft` plus the STL / 3MF downloads) byte-identical. `cadcraft-shot mcbench` and
+  `mcuidiff.mjs --bench` time open / panel edits / save / 3D-print check (ROADMAP).
+- Plain English where 0.5 has no key: the Outliner's search glyph, eye / delete / rename glyphs (●, ◌, 🗑, ✎, ⟳).
+
 ## 2026-10-18 — M16.6 Studio merged (lead)
 
 - Merged M16.1–M16.5 (control channel, `cadcraft-cli mcp`, live tools, cc-live, start screen). M16.6: the control

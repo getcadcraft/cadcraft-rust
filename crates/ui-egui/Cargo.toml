@@ -28,6 +28,7 @@ cc-part.workspace = true
 cc-markup.workspace = true
 cc-io-markup.workspace = true
 cc-m3d.workspace = true
+cc-io-m3d.workspace = true
 cc-drawing.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true

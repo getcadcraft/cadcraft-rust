@@ -22,16 +22,27 @@ use crate::view3d::{self, Scene3D};
 
 static EN: &str = include_str!("../../../assets/lang/modelcraft/en.json");
 
-/// A word of ModelCraft's own catalog (English), `{name}` fills from `vars`; the key itself when missing.
+/// A word of ModelCraft's own catalog (English) as i18n.js t() gives it: `{name}` fills from `vars`, a plural entry
+/// picks "one" when the fill `n` is exactly 1 (Intl.PluralRules('en')), else "other"; a key the catalog lacks comes
+/// from the tools' and the kernel's catalogs, else the key itself.
 pub fn mt(key: &str, vars: &[(&str, &str)]) -> String {
     static CAT: std::sync::OnceLock<serde_json::Map<String, serde_json::Value>> = std::sync::OnceLock::new();
     let cat =
         CAT.get_or_init(|| serde_json::from_str::<serde_json::Value>(EN).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default());
-    let mut s = cat.get(key).and_then(serde_json::Value::as_str).unwrap_or(key).to_string();
-    for (k, v) in vars {
-        s = s.replace(&format!("{{{k}}}"), v);
+    match cat.get(key) {
+        Some(serde_json::Value::String(s)) => cc_m3d::i18n::fill(s, vars),
+        Some(serde_json::Value::Object(forms)) => {
+            let n = vars.iter().find(|(k, _)| *k == "n").map(|(_, v)| *v);
+            let exact = n.and_then(|n| forms.get(&format!("={n}"))).and_then(serde_json::Value::as_str);
+            let one = n.is_some_and(|v| v.trim().parse::<f64>().is_ok_and(|x| x == 1.0));
+            let text = exact
+                .or_else(|| forms.get(if one { "one" } else { "other" }).and_then(serde_json::Value::as_str))
+                .or_else(|| forms.get("other").and_then(serde_json::Value::as_str))
+                .unwrap_or(key);
+            cc_m3d::i18n::fill(text, vars)
+        }
+        _ => cc_m3d_tools::i18n::t(key, vars),
     }
-    s
 }
 
 /// The tools on the palette: (tools.js name, label).
@@ -76,20 +87,37 @@ pub struct ModelView {
     /// the scene last gone to or saved (-1: none)
     pub scene_index: isize,
     /// a scene transition under way: (from, to, start time in ms)
-    anim: Option<(Camera, Camera, f64)>,
+    pub(crate) anim: Option<(Camera, Camera, f64)>,
+    /// view3d.js style: mode (shaded, hidden, wire, xray), edges, shadows, sun [month, day, hour, lat, lon, tz]
+    pub mode: String,
+    pub edges: bool,
+    pub shadows: bool,
+    pub sun: [f64; 6],
+    /// the open context the page last saw (the tools may open or close one themselves)
+    pub(crate) seen_path: Vec<f64>,
+    /// the Outliner's search (lower case)
+    pub tree_filter: String,
+    /// the Soften box's angle
+    pub soften_deg: f64,
+    /// the last Check for 3D printing
+    pub print_report: Option<crate::mcprint::PrintReport>,
+    /// a file to hand to the host's save / download (name, bytes)
+    pub pending_save: Option<(String, Vec<u8>)>,
+    /// what the panels' text boxes hold while typed (box id → text)
+    pub(crate) boxes: std::collections::HashMap<String, String>,
+    /// the Outliner row being renamed (definition id)
+    pub(crate) renaming: Option<String>,
+    /// the modifier keys last seen
+    mods: egui::Modifiers,
+    /// Entity info's heading as last laid out
+    pub(crate) info_heading: std::cell::RefCell<String>,
 }
+
+/// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
+pub const SUN0: [f64; 6] = [6.0, 21.0, 15.0, 40.0, -105.0, -7.0];
 
 /// How long a scene transition takes (goScene's 650 ms).
 const SCENE_MS: f64 = 650.0;
-
-/// What the Scenes panel asked for this frame.
-enum SceneAct {
-    Add,
-    Go(usize),
-    Update(usize),
-    Delete(usize),
-    Step(isize),
-}
 
 impl std::fmt::Debug for ModelView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -114,11 +142,12 @@ impl ModelView {
     pub fn new(model: Model, name: &str, dark: bool) -> Result<ModelView, String> {
         let tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
         let scene = model3d::scene_of(&tools.host.model, 1, dark);
+        let built = (tools.host.model.version(), tools.host.model_gen());
         let mut v = ModelView {
             tools,
             name: name.to_string(),
             scene,
-            built: (f64::NAN, 0),
+            built,
             seq: 1,
             dark,
             style: Style3::default(),
@@ -128,8 +157,20 @@ impl ModelView {
             message: String::new(),
             scene_index: -1,
             anim: None,
+            mode: "shaded".into(),
+            edges: true,
+            shadows: false,
+            sun: SUN0,
+            seen_path: Vec::new(),
+            tree_filter: String::new(),
+            soften_deg: 20.0,
+            print_report: None,
+            pending_save: None,
+            boxes: std::collections::HashMap::new(),
+            renaming: None,
+            mods: egui::Modifiers::NONE,
+            info_heading: std::cell::RefCell::new(String::new()),
         };
-        v.rebuild();
         v.fit();
         Ok(v)
     }
@@ -192,19 +233,118 @@ impl ModelView {
         self.vcb.clear();
     }
 
+    /// modelcraft.js act('undo'): Esc, undo, say what, afterHistory.
     pub fn undo(&mut self) {
-        if self.tools.busy() {
-            let _ = self.tools.escape();
-        }
-        if let Ok(Some(l)) = self.tools.host.model.undo() {
-            self.message = format!("Undo {l}");
-        }
-        self.tools.host.sel.clear();
+        let _ = self.tools.escape();
+        let l = self.tools.host.model.undo().ok().flatten();
+        self.message = match l {
+            Some(l) => mt("app.undid", &[("what", &l)]),
+            None => mt("app.undo.nothing", &[]),
+        };
+        self.after_history();
     }
+    /// modelcraft.js act('redo').
     pub fn redo(&mut self) {
-        if let Ok(Some(l)) = self.tools.host.model.redo() {
-            self.message = format!("Redo {l}");
+        let _ = self.tools.escape();
+        let l = self.tools.host.model.redo().ok().flatten();
+        self.message = match l {
+            Some(l) => mt("app.redid", &[("what", &l)]),
+            None => mt("app.redo.nothing", &[]),
+        };
+        self.after_history();
+    }
+
+    /// The renderer's style from view3d.js's (wire draws its edges whatever the switch says).
+    pub fn apply_style(&mut self) {
+        self.style.faces = self.mode != "wire";
+        self.style.xray = self.mode == "xray";
+        self.style.hidden_line = self.mode == "hidden";
+        self.style.edges = self.edges || self.mode == "wire";
+    }
+
+    /// uiToStyle's sun: [month, day, hour, lat, lon, tz], each clamped; a value that is not a number keeps the old one.
+    pub fn set_sun(&mut self, v: &[f64]) {
+        let lim = [(1.0, 12.0), (1.0, 31.0), (0.0, 23.99), (-90.0, 90.0), (-180.0, 180.0), (-14.0, 14.0)];
+        for (k, (lo, hi)) in lim.iter().enumerate() {
+            if let (Some(x), Some(slot)) = (v.get(k).copied().filter(|x| x.is_finite()), self.sun.get_mut(k)) {
+                let c = x.clamp(*lo, *hi);
+                // `| 0` for the month and the day
+                *slot = if k < 2 { c.trunc() } else { c };
+            }
         }
+    }
+
+    /// The file's text as saveModel writes it (modelText): the model, the view (camera and style), imported images.
+    pub fn save_text(&mut self) -> String {
+        let mut o = cc_m3d::json::Out::new(false);
+        self.tools.host.model.to_json_out(&mut o, false);
+        if o.s.ends_with('}') {
+            o.s.pop();
+            let c = &self.tools.host.cam;
+            o.raw(",\"view\":{\"cam\":{\"eye\":");
+            o.p3(&c.eye);
+            o.raw(",\"target\":");
+            o.p3(&c.target);
+            o.raw(",\"fov\":");
+            o.num(c.fov);
+            o.raw(",\"persp\":");
+            o.bool(c.persp);
+            o.raw(",\"height\":");
+            o.num(c.height());
+            o.raw("},\"style\":{\"mode\":");
+            o.str(&self.mode);
+            o.raw(",\"edges\":");
+            o.bool(self.edges);
+            o.raw(",\"shadows\":");
+            o.bool(self.shadows);
+            for (k, (name, x)) in ["month", "day", "hour", "lat", "lon", "tz"].iter().zip(self.sun).enumerate() {
+                o.raw(if k == 0 { ",\"sun\":{\"" } else { ",\"" });
+                o.raw(name);
+                o.raw("\":");
+                o.num(x);
+            }
+            o.raw("}}}");
+            let imgs = self.tools.host.model.images_json();
+            if !imgs.is_empty() {
+                o.raw(",\"images\":[");
+                for (i, (id, im)) in imgs.iter().enumerate() {
+                    if i > 0 {
+                        o.ch(',');
+                    }
+                    o.raw("{\"id\":");
+                    o.str(id);
+                    o.raw(",\"name\":");
+                    o.str(&im.name);
+                    o.raw(",\"mime\":");
+                    o.str(&im.mime);
+                    o.raw(",\"data\":");
+                    o.str(&im.data);
+                    o.raw(",\"avg\":");
+                    match &im.avg {
+                        Some(a) => o.str(a),
+                        None => o.raw("null"),
+                    }
+                    o.ch('}');
+                }
+                o.ch(']');
+            }
+            o.ch('}');
+        }
+        o.s
+    }
+
+    /// The file's saved view (j.view through cleanScene): its camera and style; false when it has none.
+    pub fn apply_view(&mut self, j: &serde_json::Value) -> bool {
+        let Some(v) = j.get("view").filter(|v| v.is_object()) else { return false };
+        let probe = serde_json::json!({ "name": "v", "cam": v.get("cam").cloned().unwrap_or_default(), "style": v.get("style").cloned().unwrap_or_default() });
+        let Some(sc) = cc_m3d::file::clean_scene(&probe) else { return false };
+        self.tools.host.cam.set(sc.eye, sc.target, Some(sc.fov), Some(sc.persp));
+        self.mode = sc.mode.clone();
+        self.edges = sc.edges;
+        self.shadows = sc.shadows;
+        self.sun = [sc.month, sc.day, sc.hour, sc.lat, sc.lon, sc.tz];
+        self.apply_style();
+        true
     }
 
     /// Show the model in `rect`, feed the tools, draw the overlay.
@@ -213,6 +353,7 @@ impl ModelView {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         self.tools.host.cam.set_size(f64::from(rect.width()), f64::from(rect.height()));
         self.input(ui, &resp, rect);
+        self.sync_ctx();
         self.step_anim(ui);
         self.rebuild();
         let c = &self.tools.host.cam;
@@ -299,6 +440,7 @@ impl ModelView {
             return;
         }
         // keys
+        self.modifier_keys(mods);
         let events: Vec<egui::Event> = ui.input(|i| i.events.clone());
         for ev in events {
             match ev {
@@ -352,12 +494,13 @@ impl ModelView {
             Key::Escape => {
                 if !self.vcb.is_empty() {
                     self.vcb.clear();
-                } else if !self.tools.escape().unwrap_or(false) {
-                    if self.tools.name == "select" {
-                        self.tools.host.sel.clear();
-                    } else {
-                        self.set_tool("select");
-                    }
+                } else if self.tools.escape().unwrap_or(false) {
+                } else if self.tools.name != "select" {
+                    self.set_tool("select");
+                } else if !self.tools.host.sel.is_empty() {
+                    self.tools.host.sel.clear();
+                } else if !self.tools.host.path.is_empty() {
+                    self.close_ctx();
                 }
             }
             Key::Enter => {
@@ -373,19 +516,97 @@ impl ModelView {
             Key::Delete => {
                 let _ = self.tools.key("Delete");
             }
-            Key::ArrowRight => {
-                let _ = self.tools.key("ArrowRight");
-            }
-            Key::ArrowLeft => {
-                let _ = self.tools.key("ArrowLeft");
-            }
-            Key::ArrowUp => {
-                let _ = self.tools.key("ArrowUp");
-            }
-            Key::ArrowDown => {
-                let _ = self.tools.key("ArrowDown");
+            Key::ArrowRight | Key::ArrowLeft | Key::ArrowUp | Key::ArrowDown => {
+                // a busy tool that locks takes the arrow (red, green, blue); otherwise the arrows orbit (Shift pans)
+                let name = match key {
+                    Key::ArrowRight => "ArrowRight",
+                    Key::ArrowLeft => "ArrowLeft",
+                    Key::ArrowUp => "ArrowUp",
+                    _ => "ArrowDown",
+                };
+                if self.lockable() && self.tools.busy() && self.tools.key(name).unwrap_or(false) {
+                    self.say_lock();
+                    return;
+                }
+                let s = 18.0;
+                let (l, r, u, d) = (key == Key::ArrowLeft, key == Key::ArrowRight, key == Key::ArrowUp, key == Key::ArrowDown);
+                let cam = &mut self.tools.host.cam;
+                if m.shift {
+                    cam.pan(
+                        if l {
+                            s
+                        } else if r {
+                            -s
+                        } else {
+                            0.0
+                        },
+                        if u {
+                            s
+                        } else if d {
+                            -s
+                        } else {
+                            0.0
+                        },
+                    );
+                } else {
+                    cam.orbit(
+                        if l {
+                            -s
+                        } else if r {
+                            s
+                        } else {
+                            0.0
+                        },
+                        if u {
+                            -s
+                        } else if d {
+                            s
+                        } else {
+                            0.0
+                        },
+                    );
+                }
             }
             _ => {}
+        }
+    }
+
+    /// Whether the current tool locks to an axis (arrows, Shift).
+    fn lockable(&mut self) -> bool {
+        self.tools.with_tool(|t, _| Ok(cc_m3d_tools::tools::ToolImpl::lockable(t)), false).unwrap_or(false)
+    }
+
+    /// sayLock: what the arrow or Shift locked to.
+    fn say_lock(&mut self) {
+        let m = match &self.tools.lock {
+            Some(l) => {
+                let w = match l.kind.as_str() {
+                    "axis-x" => "red",
+                    "axis-y" => "green",
+                    "axis-z" => "blue",
+                    _ => "edge",
+                };
+                mt(&format!("app.lock.{w}"), &[])
+            }
+            None => mt("app.lock.off", &[]),
+        };
+        self.message = m;
+    }
+
+    /// Shift, Ctrl and Alt pressed or let go: the tools' inference lock (Shift) and their modifier toggles.
+    fn modifier_keys(&mut self, now: egui::Modifiers) {
+        let was = self.mods;
+        self.mods = now;
+        if now.shift && !was.shift {
+            let _ = self.tools.key("Shift");
+        } else if !now.shift && was.shift {
+            let _ = self.tools.key_up("Shift");
+        }
+        if now.alt && !was.alt {
+            let _ = self.tools.key("Alt");
+        }
+        if (now.command || now.ctrl) && !(was.command || was.ctrl) {
+            let _ = self.tools.key("Control");
         }
     }
 
@@ -628,52 +849,31 @@ impl ModelView {
         self.tools.host.set_sel(Vec::new());
     }
 
-    /// The style a scene keeps (cleanScene's mode / edges), from the view's.
-    fn style_mode(&self) -> &'static str {
-        if !self.style.faces {
-            "wire"
-        } else if self.style.xray {
-            "xray"
-        } else if self.style.hidden_line {
-            "hidden"
-        } else {
-            "shaded"
-        }
-    }
-
-    fn scene_here(&self, name: String) -> cc_m3d::model::Scene {
+    /// cleanScene({name, cam: cam.toJSON(), style: view.style, vis: model.captureVis()}).
+    fn scene_here(&self, name: String) -> Option<cc_m3d::model::Scene> {
         let c = &self.tools.host.cam;
-        let d = cc_m3d::model::Scene {
-            vis: Some(self.tools.host.model.capture_vis()),
-            name,
-            eye: c.eye,
-            target: c.target,
-            fov: c.fov,
-            persp: c.persp,
-            height: c.height(),
-            mode: self.style_mode().to_string(),
-            edges: self.style.edges,
-            shadows: false,
-            month: 6.0,
-            day: 21.0,
-            hour: 15.0,
-            lat: 40.0,
-            lon: -105.0,
-            tz: -7.0,
-        };
-        // the sun keeps what the file has (this view has no sun settings yet)
-        match self.tools.host.model.scenes.first() {
-            Some(f) => {
-                cc_m3d::model::Scene { shadows: f.shadows, month: f.month, day: f.day, hour: f.hour, lat: f.lat, lon: f.lon, tz: f.tz, ..d }
-            }
-            None => d,
-        }
+        let vis = self.tools.host.model.capture_vis();
+        let num = |x: f64| serde_json::Number::from_f64(x).map_or(serde_json::Value::Null, serde_json::Value::Number);
+        let p3 = |p: [f64; 3]| serde_json::Value::Array(p.iter().map(|x| num(*x)).collect());
+        let j = serde_json::json!({
+            "name": name,
+            "cam": { "eye": p3(c.eye), "target": p3(c.target), "fov": num(c.fov), "persp": c.persp, "height": num(c.height()) },
+            "style": { "mode": self.mode, "edges": self.edges, "shadows": self.shadows,
+                "sun": { "month": num(self.sun[0]), "day": num(self.sun[1]), "hour": num(self.sun[2]), "lat": num(self.sun[3]), "lon": num(self.sun[4]), "tz": num(self.sun[5]) } },
+            "vis": {
+                "insts": vis.insts.iter().map(|p| serde_json::Value::Array(p.iter().map(|x| num(*x)).collect())).collect::<Vec<_>>(),
+                "tags": vis.tags,
+                "section": vis.section.map_or(serde_json::Value::Null, num),
+                "cuts": vis.cuts,
+            },
+        });
+        cc_m3d::file::clean_scene(&j)
     }
 
     /// modelcraft.js "Add scene": this camera, style and what is hidden, as a new scene.
     pub fn add_scene(&mut self) {
         let name = mt("app.scene.default", &[("n", &(self.tools.host.model.scenes.len() + 1).to_string())]);
-        let sc = self.scene_here(name.clone());
+        let Some(sc) = self.scene_here(name.clone()) else { return };
         let _ = self.tools.host.model.change(&mt("ui.scenes.add", &[]), |m| {
             m.scenes.push(sc);
             Ok(())
@@ -691,10 +891,11 @@ impl ModelView {
     pub fn go_scene_with(&mut self, i: usize, animate: bool) {
         let Some(sc) = self.tools.host.model.scenes.get(i).cloned() else { return };
         self.scene_index = i as isize;
-        self.style.faces = sc.mode != "wire";
-        self.style.xray = sc.mode == "xray";
-        self.style.hidden_line = sc.mode == "hidden";
-        self.style.edges = sc.edges;
+        self.mode = sc.mode.clone();
+        self.edges = sc.edges;
+        self.shadows = sc.shadows;
+        self.sun = [sc.month, sc.day, sc.hour, sc.lat, sc.lon, sc.tz];
+        self.apply_style();
         if let Some(v) = &sc.vis {
             self.tools.host.model.apply_vis(v);
             self.tools.host.sel.retain(|x| x.t != "i");
@@ -759,7 +960,7 @@ impl ModelView {
     /// updateScene(i): the current camera, style and visibility saved into scene i.
     pub fn update_scene(&mut self, i: usize) {
         let Some(name) = self.tools.host.model.scenes.get(i).map(|x| x.name.clone()) else { return };
-        let sc = self.scene_here(name.clone());
+        let Some(sc) = self.scene_here(name.clone()) else { return };
         let _ = self.tools.host.model.change(&mt("app.undo.scene_update", &[]), |m| {
             if let Some(x) = m.scenes.get_mut(i) {
                 *x = sc;
@@ -826,251 +1027,6 @@ impl ModelView {
                 .retain(|s| !(s.t == "i" && d.and_then(|d| d.insts.get(s.id)).is_some_and(|i| i.tag.as_deref() == Some(name))));
         }
         self.message = mt(if on { "app.tag.shown" } else { "app.tag.hidden" }, &[("name", name)]);
-    }
-
-    /// The right-hand panel: Entity Info, Outliner, Tags.
-    pub fn side_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
-        use egui::RichText;
-        let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);
-        let mut select: Option<Vec<Sel>> = None;
-        let mut open: Option<f64> = None;
-        let mut close = false;
-        let mut tag_toggle: Option<(String, bool)> = None;
-        let mut scene_act: Option<SceneAct> = None;
-        let mut place: Option<String> = None;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            // Entity Info
-            egui::CollapsingHeader::new(RichText::new("Entity Info").color(t.text_strong)).default_open(true).show(ui, |ui| {
-                let sel = &self.tools.host.sel;
-                let model = &self.tools.host.model;
-                let def = model.def(&ctx.def);
-                if sel.is_empty() {
-                    ui.label(RichText::new("Nothing selected").color(t.text_dim));
-                } else if sel.len() > 1 {
-                    let count = |k: &str| sel.iter().filter(|s| s.t == k).count();
-                    ui.label(format!(
-                        "{} selected: {} faces, {} edges, {} groups or components",
-                        sel.len(),
-                        count("f"),
-                        count("e"),
-                        count("i")
-                    ));
-                } else if let (Some(s), Some(d)) = (sel.first(), def) {
-                    let scale = |v: f64| self.tools.host.fmt(v);
-                    match s.t.as_str() {
-                        "f" => {
-                            if let Some(f) = d.faces.get(s.id) {
-                                ui.label(RichText::new("Face").strong());
-                                let area = cc_m3d::def::face_area(d, f);
-                                ui.label(format!("Area: {}", cc_m3d_tools::units::format_area(area, &self.tools.host.units)));
-                                if let Some(c) = &f.color {
-                                    ui.label(format!("Paint: {c}"));
-                                }
-                            }
-                        }
-                        "e" => {
-                            if let Some(e) = d.edges.get(s.id) {
-                                let (a, b) = (d.v(e.a), d.v(e.b));
-                                let len = ((b[0] - a[0]).powi(2) + (b[1] - a[1]).powi(2) + (b[2] - a[2]).powi(2)).sqrt();
-                                ui.label(RichText::new("Edge").strong());
-                                ui.label(format!("Length: {}", scale(len)));
-                                if e.soft {
-                                    ui.label("Soft");
-                                }
-                            }
-                        }
-                        "i" => {
-                            if let Some(inst) = d.insts.get(s.id) {
-                                let sub = model.def(&inst.def);
-                                let kind = sub.map_or("group", |x| x.kind.as_str());
-                                let name =
-                                    inst.name.clone().filter(|n| !n.is_empty()).or_else(|| sub.map(|x| x.name.clone())).unwrap_or_default();
-                                ui.label(RichText::new(if kind == "component" { "Component" } else { "Group" }).strong());
-                                ui.label(format!("Name: {name}"));
-                                if let Some(tag) = inst.tag.as_deref().filter(|x| !x.is_empty()) {
-                                    ui.label(format!("Tag: {tag}"));
-                                }
-                                if let Some(x) = sub {
-                                    ui.label(format!("{} faces, {} edges", x.faces.len(), x.edges.len()));
-                                }
-                            }
-                        }
-                        other => {
-                            ui.label(format!("Selected: {other}"));
-                        }
-                    }
-                }
-            });
-            // Edit: grouping and erasing what is selected; the Paint tool's colour
-            let mut act: Option<&str> = None;
-            ui.horizontal_wrapped(|ui| {
-                let any = !self.tools.host.sel.is_empty();
-                if ui.add_enabled(any, egui::Button::new("Make group")).clicked() {
-                    act = Some("group");
-                }
-                if ui.add_enabled(any, egui::Button::new("Make component")).clicked() {
-                    act = Some("component");
-                }
-                if ui.add_enabled(self.tools.host.sel.iter().any(|s| s.t == "i"), egui::Button::new("Explode")).clicked() {
-                    act = Some("explode");
-                }
-                if ui.add_enabled(any, egui::Button::new("Delete")).clicked() {
-                    act = Some("erase");
-                }
-            });
-            match act {
-                Some("group") => self.make_group("group"),
-                Some("component") => self.make_group("component"),
-                Some("explode") => self.explode_sel(),
-                Some("erase") => self.erase_selection(),
-                _ => {}
-            }
-            if self.tools.name == "paint" {
-                ui.label(RichText::new("Paint colour").color(t.text_strong));
-                ui.horizontal_wrapped(|ui| {
-                    for (_name, hex) in cc_m3d::paint::PALETTE {
-                        let c = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0);
-                        let col = Color32::from_rgb((c >> 16) as u8, (c >> 8) as u8, c as u8);
-                        let on = self.tools.paint_color.as_deref() == Some(hex);
-                        let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
-                        ui.painter().rect_filled(r, 2.0, col);
-                        if on {
-                            ui.painter().rect_stroke(r, 2.0, Stroke::new(2.0, t.text_strong), egui::StrokeKind::Outside);
-                        }
-                        if resp.clicked() {
-                            self.tools.paint_color = Some(hex.to_string());
-                        }
-                    }
-                });
-            }
-            // Outliner: the open context's groups and components
-            egui::CollapsingHeader::new(RichText::new("Outliner").color(t.text_strong)).default_open(true).show(ui, |ui| {
-                if !self.tools.host.path.is_empty() && ui.small_button("Close group").clicked() {
-                    close = true;
-                }
-                let model = &self.tools.host.model;
-                if let Some(d) = model.def(&ctx.def) {
-                    if d.insts.is_empty() {
-                        ui.label(RichText::new("No groups or components here").color(t.text_dim));
-                    }
-                    for (iid, inst) in d.insts.iter() {
-                        let sub = model.def(&inst.def);
-                        let kind = sub.map_or("group", |x| x.kind.as_str());
-                        let name = inst.name.clone().filter(|n| !n.is_empty()).or_else(|| sub.map(|x| x.name.clone())).unwrap_or_default();
-                        let label = format!(
-                            "{} {}",
-                            if kind == "component" { "◆" } else { "▢" },
-                            if name.is_empty() { "(unnamed)".into() } else { name }
-                        );
-                        let on = self.tools.host.sel.iter().any(|s| s.t == "i" && s.id == iid);
-                        let r = ui.selectable_label(on, RichText::new(label).color(if inst.hidden { t.text_dim } else { t.text }));
-                        if r.clicked() {
-                            select = Some(vec![Sel::new("i", iid)]);
-                        }
-                        if r.double_clicked() {
-                            open = Some(iid);
-                        }
-                    }
-                }
-            });
-            // Tags
-            egui::CollapsingHeader::new(RichText::new("Tags").color(t.text_strong)).default_open(false).show(ui, |ui| {
-                let counts = self.tools.host.model.tag_counts();
-                if self.tools.host.model.tags.is_empty() {
-                    ui.label(RichText::new("No tags").color(t.text_dim));
-                }
-                for g in &self.tools.host.model.tags {
-                    let n = counts.iter().find(|c| c.0 == g.name).map_or(0.0, |c| c.1);
-                    let mut on = !g.hidden;
-                    if ui.checkbox(&mut on, format!("{}  ({n})", g.name)).changed() {
-                        tag_toggle = Some((g.name.clone(), on));
-                    }
-                }
-            });
-            // Components: every component definition, how many are placed, Place
-            egui::CollapsingHeader::new(RichText::new(mt("ui.comps", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
-                let model = &self.tools.host.model;
-                let counts = model.instance_counts();
-                let mut any = false;
-                for d in model.defs.values().filter(|d| d.kind == "component") {
-                    any = true;
-                    ui.horizontal(|ui| {
-                        ui.label(&d.name);
-                        ui.label(RichText::new(format!("{}×", counts.get(&d.id).copied().unwrap_or(0.0))).color(t.text_dim));
-                        if ui.small_button(mt("app.comp.place", &[])).clicked() {
-                            place = Some(d.id.clone());
-                        }
-                    });
-                }
-                if !any {
-                    ui.label(RichText::new(mt("ui.comps.empty", &[("key", "Ctrl+Shift+G")])).color(t.text_dim));
-                }
-            });
-            // Scenes: saved cameras with their style and what they hide
-            egui::CollapsingHeader::new(RichText::new(mt("ui.scenes", &[])).color(t.text_strong)).default_open(true).show(ui, |ui| {
-                let scenes = &self.tools.host.model.scenes;
-                ui.horizontal_wrapped(|ui| {
-                    if ui.small_button(mt("ui.scenes.add", &[])).clicked() {
-                        scene_act = Some(SceneAct::Add);
-                    }
-                    if !scenes.is_empty() {
-                        if ui.small_button(mt("ui.scenes.prev", &[])).clicked() {
-                            scene_act = Some(SceneAct::Step(-1));
-                        }
-                        if ui.small_button(mt("ui.scenes.next", &[])).clicked() {
-                            scene_act = Some(SceneAct::Step(1));
-                        }
-                    }
-                });
-                if scenes.is_empty() {
-                    ui.label(RichText::new(mt("ui.scenes.empty", &[("up", "Page Up"), ("down", "Page Down")])).color(t.text_dim));
-                }
-                for (i, sc) in scenes.iter().enumerate() {
-                    ui.horizontal(|ui| {
-                        let cur = i as isize == self.scene_index;
-                        if ui.selectable_label(cur, &sc.name).on_hover_text(mt("app.scene.go.title", &[])).clicked() {
-                            scene_act = Some(SceneAct::Go(i));
-                        }
-                        if ui
-                            .small_button(mt("app.scene.update.aria", &[("name", "")]).trim())
-                            .on_hover_text(mt("app.scene.update.title", &[("name", &sc.name)]))
-                            .clicked()
-                        {
-                            scene_act = Some(SceneAct::Update(i));
-                        }
-                        if ui.small_button(mt("app.scene.delete", &[])).clicked() {
-                            scene_act = Some(SceneAct::Delete(i));
-                        }
-                    });
-                }
-            });
-        });
-        if let Some(a) = scene_act {
-            match a {
-                SceneAct::Add => self.add_scene(),
-                SceneAct::Go(i) => self.go_scene(i),
-                SceneAct::Update(i) => self.update_scene(i),
-                SceneAct::Delete(i) => self.delete_scene(i),
-                SceneAct::Step(d) => self.step_scene(d),
-            }
-        }
-        if let Some(d) = place {
-            self.place_component(&d);
-        }
-        if let Some(s) = select {
-            self.tools.host.set_sel(s);
-        }
-        if let Some(iid) = open {
-            let mut p = self.tools.host.path.clone();
-            p.push(iid);
-            self.tools.host.open_context(p);
-        }
-        if close {
-            self.tools.host.close_context();
-        }
-        if let Some((n, on)) = tag_toggle {
-            self.show_tag(&n, on);
-        }
     }
 
     /// What the status bar shows: the tool's tip, the value box (label + what is typed), the last message.

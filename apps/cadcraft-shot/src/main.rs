@@ -7,6 +7,8 @@
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
+//!   cadcraft-shot mcbench <file.modelcraft|.skp> [--runs N] → JSON timings of ModelCraft's open, panel edits, save and
+//!       3D-print check (best of N; forks/tools/mcuidiff.mjs --bench runs the same steps in the 0.5 JS)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
 //!       → JSON {open_ms, first_frame_ms, frame_ms: [...], spaces, segments …}; each frame pans/zooms the view.
 //!       --edit: open for editing, then also time one LINE (typed) from Enter to the redrawn frame (edit_ms)
@@ -79,6 +81,7 @@ fn main() -> ExitCode {
         Some("bench") => bench(&args),
         Some("demo3d") => demo3d(&args),
         Some("pdfbench") => pdfbench(&args),
+        Some("mcbench") => mcbench(&args),
         _ => shot(&args),
     };
     match r {
@@ -300,6 +303,56 @@ fn pdfbench(args: &[String]) -> Result<(), String> {
     let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
     let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     println!("{}", cc_ui_egui::pdfview::bench(&name, &bytes, runs)?);
+    Ok(())
+}
+
+/// `cadcraft-shot mcbench <file> [--runs N]`: ModelCraft's open (parse + load, or SketchUp import), the edits a session
+/// makes from the panels (select all, make group, tag, paint a material, add a scene, hide and unhide all, undo), Save
+/// (the file's text) and Check for 3D printing, each the best of N, as one JSON line.
+fn mcbench(args: &[String]) -> Result<(), String> {
+    let f = args.get(1).ok_or("usage: cadcraft-shot mcbench <file> [--runs N]")?;
+    let runs: usize = arg(args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(3).clamp(1, 50);
+    let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
+    let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut best = [f64::INFINITY; 4];
+    let mut size = 0usize;
+    let mut faces = 0usize;
+    for _ in 0..runs {
+        let mut app = UiApp::default();
+        let t = Instant::now();
+        app.open_bytes(&name, &bytes);
+        let open = t.elapsed().as_secs_f64() * 1000.0;
+        if std::env::var_os("MCBENCH_SPLIT").is_some() {
+            eprintln!("open total {open:.1} ms; {}", app.open_split.clone());
+        }
+        if let Some(e) = &app.error {
+            return Err(e.clone());
+        }
+        let mc = app.mc.as_mut().ok_or("mcbench: no model opened")?;
+        faces = mc.tools.host.model.defs.values().map(|d| d.faces.len()).sum();
+        let t = Instant::now();
+        for a in
+            ["select-all", "make-group", "tag-add", "tag-set:Tag", "paint:mat:wood-oak", "scene-add", "hide", "unhide-all", "undo", "redo"]
+        {
+            mc.act(a)?;
+        }
+        let edit = t.elapsed().as_secs_f64() * 1000.0;
+        let t = Instant::now();
+        let text = mc.save_text();
+        let save = t.elapsed().as_secs_f64() * 1000.0;
+        size = text.len();
+        mc.act("select-none")?;
+        let t = Instant::now();
+        mc.act("print-check")?;
+        let print = t.elapsed().as_secs_f64() * 1000.0;
+        for (b, v) in best.iter_mut().zip([open, edit, save, print]) {
+            *b = b.min(v);
+        }
+    }
+    println!(
+        "{{\"file\":{:?},\"faces\":{faces},\"open_ms\":{:.2},\"edit_ms\":{:.2},\"save_ms\":{:.2},\"print_ms\":{:.2},\"saved_bytes\":{size}}}",
+        name, best[0], best[1], best[2], best[3]
+    );
     Ok(())
 }
 

@@ -27,9 +27,10 @@ fn hex_rgba(s: &str) -> Option<[u8; 4]> {
     Some([(v >> 16) as u8, (v >> 8) as u8, v as u8, 255])
 }
 
-/// A paint (`#rrggbb`, `mat:<id>`, `img:<id>|…`) → its colour, as `paintHex` without a texture library.
+/// A paint (`#rrggbb`, `mat:<id>`, `img:<id>|…`) → its colour, as `paintHex` with the material library's colours
+/// registered (modelcraft.js setMaterialColors); a texture shows its average colour when the paint carries one.
 fn paint_rgba(c: &str) -> Option<[u8; 4]> {
-    let hex = cc_m3d::paint::paint_hex(c, &|_| None, &|_| None);
+    let hex = cc_m3d::paint::paint_hex(c, &|id| crate::mcmats::material(id).map(|m| m.color.to_string()), &|_| None);
     hex_rgba(&hex)
 }
 

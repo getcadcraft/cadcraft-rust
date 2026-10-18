@@ -41,6 +41,10 @@ pub mod ifc3d;
 pub mod markupcompare;
 pub mod markupprops;
 pub mod markuptools;
+pub mod mcact;
+pub mod mcmats;
+pub mod mcpanels;
+pub mod mcprint;
 pub mod model3d;
 pub mod modelcraft;
 pub mod partpanel;
@@ -155,6 +159,8 @@ pub struct UiApp {
     pub model3: Option<cc_m3d::model::Model>,
     /// the ModelCraft model being edited with its tools (replaces `scene3` while open)
     pub mc: Option<modelcraft::ModelView>,
+    /// how the last model open split its time (benchmarks)
+    pub open_split: String,
     /// scene ids: a new id = new GPU meshes
     scene_seq: u64,
     /// the IFC file shown (for properties) and each scene instance's product line
@@ -221,11 +227,14 @@ pub struct UiApp {
 
 impl Default for UiApp {
     fn default() -> Self {
+        // modelcraft.js: library materials export, print and show as their colour
+        cc_io_m3d::util::set_material_colors(|id| mcmats::material(id).map(|m| m.color));
         UiApp {
             services: Services::default(),
             scene3: None,
             model3: None,
             mc: None,
+            open_split: String::new(),
             scene_seq: 0,
             ifc3: None,
             ifc_groups: Vec::new(),
@@ -378,15 +387,31 @@ impl UiApp {
 
     /// A ModelCraft model file (`.modelcraft`: Model.toJSON) → the 3D view.
     fn open_model(&mut self, f: &ImportedFile) {
+        let t0 = web_time::Instant::now();
         let parsed = std::str::from_utf8(&f.bytes).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(t).ok());
         let Some(j) = parsed else {
             self.error = Some(format!("{}: not a ModelCraft model (JSON expected)", f.name));
             return;
         };
+        let tp = t0.elapsed().as_secs_f64() * 1000.0;
         let mut model = cc_m3d::model::Model::new();
+        // openFile: the file's imported textures, the model, then its saved view (camera and style)
+        model.set_images(j.get("images").unwrap_or(&serde_json::Value::Null));
         match model.load(&j, false) {
-            Ok(()) => self.show_model(model, &f.name),
-            Err(e) => self.error = Some(format!("{}: {e:?}", f.name)),
+            Ok(()) => {
+                let t1 = web_time::Instant::now();
+                self.show_model(model, &f.name);
+                self.open_split = format!(
+                    "JSON {tp:.1} ms, parse + load {:.1} ms, view {:.1} ms",
+                    (t1 - t0).as_secs_f64() * 1000.0,
+                    t1.elapsed().as_secs_f64() * 1000.0
+                );
+                if let Some(mc) = self.mc.as_mut() {
+                    mc.apply_view(&j);
+                    mc.message = modelcraft::mt("app.open.done", &[("file", &f.name)]);
+                }
+            }
+            Err(e) => self.error = Some(format!("{}: {e}", f.name)),
         }
     }
 
@@ -462,6 +487,36 @@ impl UiApp {
         }
     }
 
+    /// saveModel: the open model as a `.modelcraft` file (model, view, images), through the host's save.
+    fn save_model(&mut self, as_name: Option<&str>) -> Result<(), String> {
+        let mc = self.mc.as_mut().ok_or("file.save: open a model first")?;
+        let _ = mc.tools.escape();
+        // a name ending in .modelcraft saves under that name (scripts); otherwise the model's own
+        let name = match as_name.filter(|n| n.to_lowercase().ends_with(".modelcraft")) {
+            Some(n) => n.to_string(),
+            None => format!("{}.modelcraft", mc.base_name()),
+        };
+        let text = mc.save_text();
+        let save = self.services.save.as_mut().ok_or("file.save: saving is not available here")?;
+        let done = save(&name, text.into_bytes())?;
+        if let Some(mc) = self.mc.as_mut() {
+            mc.message = match done {
+                Some(to) if to != name => modelcraft::mt("app.save.written", &[("file", &to)]),
+                _ => modelcraft::mt("app.save.downloaded", &[("file", &name)]),
+            };
+            mc.tools.host.model.dirty = false;
+        }
+        Ok(())
+    }
+
+    /// A file a ModelCraft panel made (3D printing's STL / 3MF) goes to the host's save / download.
+    fn flush_model_save(&mut self) -> Result<(), String> {
+        let Some((name, bytes)) = self.mc.as_mut().and_then(|m| m.pending_save.take()) else { return Ok(()) };
+        let save = self.services.save.as_mut().ok_or("saving is not available here")?;
+        save(&name, bytes)?;
+        Ok(())
+    }
+
     /// Export the open model in one of ModelCraft's formats (a download on the web, a save dialog on the desktop).
     fn export_model(&mut self, format: &str) -> Result<(), String> {
         let mc = self.mc.as_mut().ok_or("file.export: open a model first")?;
@@ -482,33 +537,37 @@ impl UiApp {
 
     /// Show a model in the 3D view (any drawing open is closed).
     fn show_model(&mut self, model: cc_m3d::model::Model, name: &str) {
-        let made = modelcraft::ModelView::new(model.clone(), name, self.preset == Preset::Dark);
-        self.scene_seq = self.scene_seq.wrapping_add(1);
-        let scene = model3d::scene_of(&model, self.scene_seq, self.preset == Preset::Dark);
-        let mut view = view3d::View3::default();
-        self.style3(&mut view);
+        // the model goes straight to ModelCraft's view (no copy, one scene build)
         let (defs, faces) = (model.defs.len(), model.defs.values().map(|d| d.faces.len()).sum::<usize>());
-        self.message = format!(
-            "{name}: {defs} definitions, {faces} faces, {} placements shown · middle / right drag orbits, Shift pans, wheel zooms",
-            scene.instances.len()
-        );
         self.doc = None;
         self.editor = None;
         self.source = None;
         self.error = None;
         self.part = None;
-        self.scene3 = Some((scene, view));
-        self.model3 = Some(model);
+        self.scene3 = None;
+        self.model3 = None;
         self.ifc3 = None;
         self.ifc_groups.clear();
         self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
-        match made {
+        match modelcraft::ModelView::new(model, name, self.preset == Preset::Dark) {
             Ok(mut mv) => {
                 let mut v = view3d::View3::default();
                 self.style3(&mut v);
-                mv.style = v.style;
+                mv.mode = if !v.style.faces {
+                    "wire"
+                } else if v.style.xray {
+                    "xray"
+                } else if v.style.hidden_line {
+                    "hidden"
+                } else {
+                    "shaded"
+                }
+                .into();
+                mv.edges = v.style.edges;
+                mv.apply_style();
+                self.message = format!("{name}: {defs} definitions, {faces} faces · middle / right drag orbits, Shift pans, wheel zooms");
                 self.mc = Some(mv);
             }
             Err(e) => self.error = Some(format!("{name}: {e}")),
@@ -892,6 +951,7 @@ impl UiApp {
                 self.source = Some(ImportedFile { name: "kitchen-equipment.dwg".into(), bytes: SAMPLE_DWG.to_vec(), dir: None });
             }
             "file.edit" => self.edit_source()?,
+            "file.save" if self.mc.is_some() && self.editor.is_none() => self.save_model(params.name.as_deref())?,
             "file.save" => {
                 let f = params.name.clone().unwrap_or_else(|| self.save_format.clone());
                 self.save_as(&f)?;
@@ -968,26 +1028,11 @@ impl UiApp {
                 let _ = mc.tools.value(&n);
             }
             "model.edit" => {
-                // modelcraft.js menu actions: select-all, make-group, make-component, explode, erase
+                // ModelCraft's menu and panel actions (mcact.rs): select-all, make-group, tree-eye:<path>:<iid>, tag-add, …
                 let n = params.name.clone().ok_or("model.edit: name is required")?;
                 let mc = self.mc.as_mut().ok_or("model.edit: open a model first")?;
-                match n.as_str() {
-                    "select-all" => mc.select_all(),
-                    "make-group" => mc.make_group("group"),
-                    "make-component" => mc.make_group("component"),
-                    "explode" => mc.explode_sel(),
-                    "erase" => mc.erase_selection(),
-                    "scene-add" => mc.add_scene(),
-                    "scene-next" => {
-                        mc.step_scene(1);
-                        mc.finish_anim();
-                    }
-                    "scene-prev" => {
-                        mc.step_scene(-1);
-                        mc.finish_anim();
-                    }
-                    other => return Err(format!("model.edit: unknown action {other}")),
-                }
+                mc.act(&n)?;
+                self.flush_model_save()?;
             }
             "bim.find" => {
                 // BimCraft Find with one rule "field:op:value" (e.g. "cls:is:IfcWall"); shows only what it finds
@@ -1110,6 +1155,12 @@ impl UiApp {
             "view.style" => {
                 // modelcraft.js style modes (shaded, hidden, wire, xray) and the edges switch; BimCraft's 3D view too
                 let n = params.name.clone().ok_or("view.style: name is required")?;
+                if self.part.is_none()
+                    && let Some(mc) = self.mc.as_mut()
+                {
+                    let a = if n == "edges" { format!("edges:{}", if mc.edges { "off" } else { "on" }) } else { format!("style:{n}") };
+                    return mc.act(&a);
+                }
                 let style = match (self.part.as_mut(), self.mc.as_mut(), self.scene3.as_mut()) {
                     (Some(pv), _, _) => &mut pv.view.style,
                     (None, Some(mc), _) => &mut mc.style,
@@ -1228,7 +1279,9 @@ impl UiApp {
                 self.preset = if self.preset == Preset::Dark { Preset::Light } else { Preset::Dark };
                 self.tokens = Tokens::preset(self.preset);
                 self.theme_dirty = true;
-                if let Some(model) = self.model3.take() {
+                if self.mc.is_none()
+                    && let Some(model) = self.model3.take()
+                {
                     let view = self.scene3.as_ref().map(|(_, v)| *v);
                     self.show_model(model, "Model");
                     if let (Some(v), Some((_, nv))) = (view, self.scene3.as_mut()) {
@@ -1477,6 +1530,10 @@ impl UiApp {
                 egui::Panel::right("mc_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
                     mc.side_panel(ui, &t);
                 });
+                if let Err(e) = self.flush_model_save() {
+                    self.error = Some(e);
+                }
+                let Some(mc) = self.mc.as_mut() else { return };
                 mc.set_dark(self.preset == Preset::Dark);
                 egui::CentralPanel::no_frame().show(ui, |ui| {
                     let rect = ui.max_rect();
@@ -1628,7 +1685,7 @@ impl UiApp {
                     {
                         self.run_ui("view.fit", &Params::default());
                     }
-                    if self.scene3.is_some() {
+                    if self.scene3.is_some() || self.mc.is_some() {
                         ui.separator();
                         for (name, label) in
                             [("iso", "Iso"), ("top", "Top"), ("front", "Front"), ("right", "Right"), ("back", "Back"), ("left", "Left")]

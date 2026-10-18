@@ -18,9 +18,19 @@ pub fn clean_name(s: &str) -> String {
     if c.is_empty() { "Import".into() } else { c }
 }
 
-/// `paintHex(c)` as the Node runs it: no library colours and no image colours registered.
+/// The material library's colours, as the page registers them (model.js `setMaterialColors`): ModelCraft's app sets
+/// this once (its library lives in the UI); the CLI and the tests leave it unset, as io.js runs under Node.
+static MATERIAL_COLORS: std::sync::OnceLock<fn(&str) -> Option<&'static str>> = std::sync::OnceLock::new();
+
+/// `setMaterialColors(fn)`: library materials export, print and show as their colour (0.5 RC.7). The first call wins.
+pub fn set_material_colors(f: fn(&str) -> Option<&'static str>) {
+    let _ = MATERIAL_COLORS.set(f);
+}
+
+/// `paintHex(c)`: a library material as its registered colour (none registered: the default), no image colours.
 pub fn paint_hex(c: &str) -> String {
-    kernel_paint_hex(c, &|_| None, &|_| None)
+    let mat = MATERIAL_COLORS.get().copied();
+    kernel_paint_hex(c, &|id| mat.and_then(|f| f(id)).map(str::to_string), &|_| None)
 }
 
 /// `xp(c)`: an imported texture exports as its colour, so faces share a material.
