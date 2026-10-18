@@ -212,6 +212,8 @@ fn main() -> eframe::Result {
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
                 ..Default::default()
             };
+            // big parts rebuild on a thread in the window (PartCraft; headless runs rebuild in place)
+            cc_ui_egui::partview::BACKGROUND_REBUILDS.store(true, std::sync::atomic::Ordering::Relaxed);
             let mut app = UiApp::new(services);
             load_recent(&mut app);
             if let Some(l) = control_line {

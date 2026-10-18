@@ -56,6 +56,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut act: Cmd = None;
     let dark = app.preset == crate::theme::Preset::Dark;
     let Some(pv) = app.part.as_mut() else { return };
+    if pv.poll_rebuild() {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
+    }
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
     let c = t.canvas_bg;
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
@@ -990,6 +993,63 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
             ui.end_row();
         }
     });
+    configurations(ui, pv, t, act);
+}
+
+/// The Parameters tab's Configurations (params-panel.js): rows with Apply / Update / Delete, a name to save the current
+/// values under, Export as a design table.
+fn configurations(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
+    ui.add_space(8.0);
+    ui.label(RichText::new(tr("configs.title")).strong().color(t.text_strong));
+    let cfgs = pv.configs();
+    let p = PP::params_of(&pv.part);
+    match &cfgs {
+        None => {
+            ui.label(RichText::new(tr("configs.empty")).small().color(t.text_dim));
+        }
+        Some(c) => {
+            for r in &c.rows {
+                let active = c.active.as_deref() == Some(r.name.as_str());
+                ui.horizontal_wrapped(|ui| {
+                    let key = format!("cfg:{}", r.name);
+                    if let Some(text) = field(ui, &mut pv.edits, &key, &r.name, 110.0, &tr("configs.name_label")) {
+                        *act = cmd("part.config", format!("rename:{}={text}", r.name));
+                    }
+                    if active {
+                        let same = cc_part::configs::row_matches(Some(&p), r);
+                        ui.label(
+                            RichText::new(tr(if same { "configs.active" } else { "configs.active_changed" })).small().color(t.text_strong),
+                        );
+                    }
+                    if ui.small_button(tr("configs.apply")).on_hover_text(tr("configs.apply_title")).clicked() {
+                        *act = cmd("part.config", format!("apply:{}", r.name));
+                    }
+                    if ui.small_button(tr("configs.update")).on_hover_text(tr("configs.update_title")).clicked() {
+                        *act = cmd("part.config", format!("update:{}", r.name));
+                    }
+                    if ui.small_button(tr("configs.delete")).on_hover_text(tr("configs.delete_title")).clicked() {
+                        *act = cmd("part.config", format!("delete:{}", r.name));
+                    }
+                });
+                let vals: Vec<String> = r.values.iter().map(|(k, v)| format!("{k} {}", cc_part::expr::format_number(v.number()))).collect();
+                ui.label(RichText::new(vals.join(", ")).small().color(t.text_dim));
+            }
+        }
+    }
+    ui.horizontal(|ui| {
+        let key = "cfg-new".to_string();
+        let mut text = pv.edits.get(&key).cloned().unwrap_or_default();
+        let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(tr("configs.new_placeholder")).desired_width(130.0));
+        pv.edits.insert(key.clone(), text.clone());
+        let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if ui.button(tr("configs.save")).clicked() || enter {
+            *act = cmd("part.config", format!("save:{text}"));
+            pv.edits.remove(&key);
+        }
+    });
+    if ui.button(tr("configs.export")).clicked() {
+        *act = cmd("part.config", "export");
+    }
 }
 
 /// The 3D view: orbit / pan / zoom (view3d), hover names a face, a click selects it.

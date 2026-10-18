@@ -8,7 +8,7 @@
 //! Units are millimetres, Y up (the part's own frame); the 3D view is Z up, so points go through `z_up` exactly as
 //! the STL / 3MF exports turn them (x, −z, y).
 
-use cc_part::{export as X, i18n, jv, kernel, params, params_part as PP, part as P, pcscript};
+use cc_part::{configs as cfg, export as X, i18n, jv, kernel, params, params_part as PP, part as P, pcscript};
 use cc_render::mesh3d::{Instance3, MeshData};
 use serde_json::Value;
 
@@ -139,7 +139,23 @@ pub struct PartView {
     /// time spent in `part.*` commands and in rebuilds since the part opened: (ms, count) each
     pub cmd_ms: (f64, usize),
     pub rebuild_total: (f64, usize),
+    /// the rebuild being worked on a thread (desktop): its generation and where the result arrives
+    #[cfg(not(target_arch = "wasm32"))]
+    bg: Option<(u64, std::sync::mpsc::Receiver<(kernel::Regen, f64)>)>,
+    /// rebuild generations: bumped by every rebuild asked for; a thread's result is used only if it is still the newest
+    generation: u64,
+    /// a rebuild was asked for while one was on the thread: send the newest part when it returns
+    bg_again: bool,
+    /// big rebuilds go to a thread (set from `BACKGROUND_REBUILDS` when the part is put in the window)
+    pub background: bool,
 }
+
+/// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
+/// drawing (partcraft.js does the same with the exact kernel's worker: the newest request wins).
+pub const BACKGROUND_MS: f64 = 60.0;
+
+/// Set by the desktop app: big parts rebuild on a thread. Headless runs (CLI, harnesses, tests) rebuild in place.
+pub static BACKGROUND_REBUILDS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// partcraft.js `mode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -212,6 +228,11 @@ impl PartView {
             name_edit: None,
             cmd_ms: (0.0, 0),
             rebuild_total: (0.0, 0),
+            #[cfg(not(target_arch = "wasm32"))]
+            bg: None,
+            generation: 0,
+            bg_again: false,
+            background: false,
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -281,11 +302,89 @@ impl PartView {
             (Mode::Pick, Some(i)) => Some(js_f(i)),
             _ => None,
         };
+        self.generation = self.generation.wrapping_add(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.mode == Mode::Model && self.regen_ms > BACKGROUND_MS && self.background {
+            if self.bg.is_some() {
+                self.bg_again = true;
+            } else {
+                self.spawn_rebuild();
+            }
+            self.message = tr("app.build.rebuilding");
+            return;
+        }
         let t0 = web_time::Instant::now();
         let r = kernel::regenerate(&self.part, up_to);
         self.regen_ms = ms_since(t0);
         self.rebuild_total = (self.rebuild_total.0 + self.regen_ms, self.rebuild_total.1 + 1);
         self.apply_regen(r);
+    }
+
+    /// Send the part as it is now to a rebuild thread.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn spawn_rebuild(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let part = self.part.clone();
+        let spawned = std::thread::Builder::new().name("part-rebuild".into()).spawn(move || {
+            let t0 = web_time::Instant::now();
+            let r = kernel::regenerate(&part, None);
+            let _ = tx.send((r, ms_since(t0)));
+        });
+        match spawned {
+            Ok(_) => self.bg = Some((self.generation, rx)),
+            Err(_) => {
+                // no thread: rebuild here
+                let t0 = web_time::Instant::now();
+                let r = kernel::regenerate(&self.part, None);
+                self.regen_ms = ms_since(t0);
+                self.apply_regen(r);
+            }
+        }
+    }
+
+    /// Is a rebuild running on a thread?
+    pub fn rebuilding(&self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.bg.is_some()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+    }
+
+    /// Every frame: a finished thread rebuild is applied when the part has not changed since it was sent; otherwise
+    /// the newest part goes to the thread (partcraft.js `requestExact`). True while one is still running.
+    pub fn poll_rebuild(&mut self) -> bool {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let Some((generation, rx)) = self.bg.as_ref() else { return false };
+            let generation = *generation;
+            match rx.try_recv() {
+                Err(std::sync::mpsc::TryRecvError::Empty) => true,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.bg = None;
+                    self.bg_again = false;
+                    self.message = tr("app.build.kernel_error");
+                    false
+                }
+                Ok((r, ms)) => {
+                    self.bg = None;
+                    self.rebuild_total = (self.rebuild_total.0 + ms, self.rebuild_total.1 + 1);
+                    if generation == self.generation && !self.bg_again {
+                        self.regen_ms = ms;
+                        self.apply_regen(r);
+                        return false;
+                    }
+                    self.bg_again = false;
+                    self.spawn_rebuild();
+                    true
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        false
     }
 
     /// partcraft.js `applyRegen(r)`.
@@ -1193,10 +1292,32 @@ impl PartView {
     /// params-panel.js `edit(label, op)`: `op` on a copy of the parameters; when it works, one undo step that puts
     /// them in the part, tidies them and applies the equations.
     fn param_edit(&mut self, label: &str, op: impl FnOnce(&mut params::Params, &Value) -> Result<(), String>) -> Result<(), String> {
+        self.param_edit_cfg(label, |p, part| op(p, part).map(|()| None)).map(|_| ())
+    }
+
+    /// params-panel.js `edit(label, op)` with configurations: `op` may hand back a new configuration list
+    /// (`Some(None)` = none left); either way the list follows renamed and deleted parameters (configs.js `followParams`).
+    /// Returns whether the parameters' numbers all applied.
+    fn param_edit_cfg(
+        &mut self,
+        label: &str,
+        op: impl FnOnce(&mut params::Params, &Value) -> Result<Option<Option<cfg::Configs>>, String>,
+    ) -> Result<bool, String> {
         let mut trial = PP::params_of(&self.part);
-        op(&mut trial, &self.part)?;
+        let given = op(&mut trial, &self.part)?;
+        let before = self.part.get("params").filter(|v| v.is_object()).map(|_| PP::params_of(&self.part));
+        let current = self.part.get("configs").filter(|c| c.is_object()).map(cfg::Configs::from_json);
+        let list = match given {
+            Some(c) => c,
+            None => current,
+        };
+        let followed = cfg::follow_params(list.as_ref(), before.as_ref(), Some(&trial));
         let mut applied: Option<params::Applied> = None;
         self.commit(label, |p| {
+            match followed.as_ref().filter(|c| !c.rows.is_empty()) {
+                Some(c) => jv::set(p, "configs", c.to_json()),
+                None => jv::del(p, "configs"),
+            }
             PP::put_params(p, &trial);
             PP::tidy_params(p);
             applied = Some(PP::apply_part_params(p, None));
@@ -1212,9 +1333,124 @@ impl PartView {
                     trv("ui.params.target_error", &[("label", label), ("error", e.message.clone())])
                 })
                 .collect();
-            self.message = words.join(" ");
+            self.note = words.join(" ");
+            return Ok(false);
+        }
+        Ok(true)
+    }
+
+    /// The part's configurations (design-table rows).
+    pub fn configs(&self) -> Option<cfg::Configs> {
+        self.part.get("configs").filter(|c| c.is_object()).map(cfg::Configs::from_json)
+    }
+
+    fn values_text(row: &cfg::Row) -> String {
+        row.values.iter().map(|(k, v)| format!("{k} {}", cc_part::expr::format_number(v.number()))).collect::<Vec<_>>().join(", ")
+    }
+
+    /// params-panel.js `saveCurrent(name, label)`.
+    fn config_save(&mut self, name: &str, label: Option<String>) -> Result<(), String> {
+        let clean = cfg::clean_name(Some(&Value::from(name)));
+        if clean.is_empty() {
+            self.note = tr("configs.need_name");
+            return Ok(());
+        }
+        let p = PP::params_of(&self.part);
+        if self.part.get("params").is_none_or(|v| !v.is_object()) || !p.vars.iter().any(params::is_driving) {
+            self.note = tr("configs.need_params");
+            return Ok(());
+        }
+        let row = cfg::row_from_current(Some(&p), Some(&Value::from(clean.as_str())));
+        let label = label.unwrap_or_else(|| trv("configs.undo.save", &[("name", clean.clone())]));
+        let cur = self.configs();
+        let r = self.param_edit_cfg(&label, |_, _| {
+            let mut c = cfg::save_row(cur.as_ref(), &row)?;
+            c.active = Some(row.name.clone());
+            Ok(Some(Some(c)))
+        });
+        match r {
+            Ok(_) => self.note = trv("configs.saved", &[("name", clean), ("values", Self::values_text(&row))]),
+            Err(e) => self.note = e,
         }
         Ok(())
+    }
+
+    /// `part.config`: "save:<name>", "update:<name>", "apply:<name>", "rename:<from>=<to>", "delete:<name>" (the
+    /// Parameters tab's Configurations; params-panel.js), each one undo step.
+    pub fn config_cmd(&mut self, spec: &str) -> Result<(), String> {
+        let (kind, arg) = spec.split_once(':').unwrap_or((spec, ""));
+        let cur = self.configs();
+        let row_of = |n: &str| cur.as_ref().and_then(|c| c.rows.iter().find(|r| r.name == n).cloned());
+        match kind {
+            "save" => self.config_save(arg, None)?,
+            "update" => {
+                let row = row_of(arg).ok_or_else(|| format!("part.config: no configuration {arg}"))?;
+                self.config_save(&row.name, Some(trv("configs.undo.update", &[("name", row.name.clone())])))?;
+            }
+            "apply" => {
+                let row = row_of(arg).ok_or_else(|| format!("part.config: no configuration {arg}"))?;
+                let label = trv("configs.undo.apply", &[("name", row.name.clone())]);
+                let r = self.param_edit_cfg(&label, |p, _| {
+                    cfg::apply_row(p, &row)?;
+                    let mut c = cur.clone().ok_or("no configurations")?;
+                    c.active = Some(row.name.clone());
+                    Ok(Some(Some(c)))
+                });
+                match r {
+                    Ok(true) => self.note = trv("configs.applied", &[("name", row.name.clone()), ("values", Self::values_text(&row))]),
+                    Ok(false) => {}
+                    Err(e) => self.note = e,
+                }
+            }
+            "rename" => {
+                let (from, to) = arg.split_once('=').ok_or_else(|| format!("part.config: \"{arg}\" is not from=to"))?;
+                let row = row_of(from).ok_or_else(|| format!("part.config: no configuration {from}"))?;
+                if cfg::clean_name(Some(&Value::from(to))) == row.name {
+                    return Ok(());
+                }
+                let label = trv("configs.undo.rename", &[("name", row.name.clone())]);
+                let to = Value::from(to);
+                let r = self.param_edit_cfg(&label, |_, _| {
+                    let c = cur.as_ref().ok_or("no configurations")?;
+                    Ok(Some(Some(cfg::rename_row(c, &row.name, Some(&to))?)))
+                });
+                if let Err(e) = r {
+                    self.note = e;
+                }
+            }
+            "delete" => {
+                let row = row_of(arg).ok_or_else(|| format!("part.config: no configuration {arg}"))?;
+                let label = trv("configs.undo.delete", &[("name", row.name.clone())]);
+                let r = self.param_edit_cfg(&label, |_, _| {
+                    let c = cur.as_ref().ok_or("no configurations")?;
+                    Ok(Some(cfg::delete_row(c, &row.name)))
+                });
+                match r {
+                    Ok(_) => self.note = trv("configs.deleted", &[("name", row.name)]),
+                    Err(e) => self.note = e,
+                }
+            }
+            other => return Err(format!("part.config: save, update, apply, rename or delete, not {other}")),
+        }
+        Ok(())
+    }
+
+    /// params-panel.js `exportTable()`: the design table as CSV (file name, bytes, status), or the reason there is none.
+    pub fn configs_csv(&self) -> Result<(String, Vec<u8>, String), String> {
+        let p = PP::params_of(&self.part);
+        if p.vars.is_empty() {
+            return Err(tr("configs.nothing"));
+        }
+        let have = self.configs();
+        let c = have.clone().unwrap_or_else(|| cfg::Configs {
+            rows: vec![cfg::row_from_current(Some(&p), Some(&Value::from(tr("configs.current"))))],
+            active: None,
+        });
+        let words = match &have {
+            Some(h) => trv("configs.exported", &[("n", h.rows.len().to_string())]),
+            None => tr("configs.exported_current"),
+        };
+        Ok((format!("{} design table.csv", self.file_base()), cfg::configs_csv(Some(&c)).into_bytes(), words))
     }
 
     /// partcraft.js `fileBase()`.
@@ -1545,6 +1781,7 @@ pub fn install(app: &mut UiApp, mut pv: PartView) {
     app.error = None;
     let t = app.tokens;
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
+    pv.background = BACKGROUND_REBUILDS.load(std::sync::atomic::Ordering::Relaxed);
     app.message = pv.message.clone();
     app.part = Some(pv);
 }
@@ -1991,6 +2228,18 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             pv.start_pick(&fid);
         }
         "part.pick.done" => pv.end_pick(),
+        "part.config" => {
+            if name == "export" {
+                match pv.configs_csv() {
+                    Ok((file, bytes, words)) => {
+                        save_out(app, &file, bytes, words)?;
+                    }
+                    Err(e) => pv.note = e,
+                }
+            } else {
+                pv.config_cmd(&name)?;
+            }
+        }
         "part.times" => {
             pv.note =
                 format!("{} commands {:.1} ms; {} rebuilds {:.1} ms", pv.cmd_ms.1, pv.cmd_ms.0, pv.rebuild_total.1, pv.rebuild_total.0);
@@ -2189,6 +2438,29 @@ mod tests {
         assert!(pv.note.contains('1'), "{}", pv.note);
         run(&mut app, "part.pick.done", "");
         assert_eq!(app.part.as_ref().unwrap().mode, Mode::Model);
+    }
+
+    #[test]
+    fn big_parts_rebuild_on_a_thread_and_the_newest_part_wins() {
+        let mut pv = PartView::sample().unwrap();
+        let vol0 = jv::n(pv.regen.stats.as_ref().unwrap(), "volume");
+        pv.background = true;
+        pv.regen_ms = BACKGROUND_MS + 1.0;
+        pv.set_param("length=150").unwrap();
+        assert!(pv.rebuilding(), "sent to the thread");
+        assert_eq!(pv.message, tr("app.build.rebuilding"));
+        // a second edit while the first is on the thread: the first result is dropped, the newest part is built
+        pv.set_param("length=160").unwrap();
+        let t0 = std::time::Instant::now();
+        while pv.poll_rebuild() && t0.elapsed().as_secs() < 60 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!pv.rebuilding());
+        let vol = jv::n(pv.regen.stats.as_ref().unwrap(), "volume");
+        let mut sync = PartView::new(pv.part.clone(), "x");
+        sync.rebuild();
+        assert_eq!(vol, jv::n(sync.regen.stats.as_ref().unwrap(), "volume"), "the thread built the newest part");
+        assert!(vol > vol0);
     }
 
     #[test]

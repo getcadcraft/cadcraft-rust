@@ -2,6 +2,18 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M13.4 PartCraft rebuilds on a thread, configurations (agent, work/partsketch)
+
+- Rebuilds of parts whose last rebuild took over 60 ms go to a thread in the desktop window (`BACKGROUND_REBUILDS`, set
+  by apps/cadcraft): the build chip says "Rebuilding…", the window keeps drawing, and as in partcraft.js's exact-kernel
+  path the newest part wins (an edit during a rebuild sends the part again when the thread returns; a stale result is
+  dropped). Headless runs, the web build and sketch / pick modes rebuild in place. Test: two edits during one thread
+  rebuild end with the newest part built.
+- Parameter edits follow the configurations (configs.js `followParams` in params-panel.js `edit`), and the Parameters tab
+  has 0.5's Configurations: rows with Apply / Update / Delete and rename, save the current values under a name, Export
+  as a design table (CSV). Command `part.config` (save / update / apply / rename / delete / export).
+- Parity: the `configs` scenario joins pcuidiff: 7 scenarios, 257 steps and 27 files byte-identical to 0.5.
+
 ## 2026-10-18 — M13.3 PartCraft sketcher and feature tools (agent, work/partsketch)
 
 - `crates/ui-egui/src/partsketch.rs`: sketchview.js in Rust — the sketch editor over the part view with 0.5's tools and
