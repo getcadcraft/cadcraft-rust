@@ -110,6 +110,45 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: JSON {name?, start?, north?, east?, calls?, add?: true}} → fills the deed calls dialog (and opens it); add makes the parcel (one undo step)",
     ),
+    ("civil.profile", "Profile view", "R", "{name?: \"on\"|\"off\"} → shows or hides the profile under the plan (no name: switches)"),
+    ("civil.profile.al", "Profile of an alignment", "", "{name: alignment id} → the profile shows that alignment (and selects it)"),
+    (
+        "civil.profile.start",
+        "Start the profile from the ground",
+        "",
+        "{} → two PVIs on the existing ground at the profile alignment's ends (one undo step)",
+    ),
+    (
+        "civil.pvi.addmode",
+        "Add PVIs",
+        "I",
+        "{name?: \"on\"|\"off\"} → a click in the profile adds a PVI (no name: switches; opens the profile)",
+    ),
+    (
+        "civil.pvi.add",
+        "Add a PVI",
+        "",
+        "{name: \"sta,z\"} → a PVI at that station and elevation (to 0.01, inside the alignment; one undo step)",
+    ),
+    (
+        "civil.pvi.drag",
+        "Drag a PVI",
+        "",
+        "{name: \"i:sta,z\"} → PVI i (from 0) dragged to sta,z: kept 0.01 inside its neighbours, to 0.01 (one undo step)",
+    ),
+    ("civil.pvi.select", "Select a PVI", "", "{name: \"i\" | \"\"} → PVI i of the profile alignment is selected (Delete removes it)"),
+    (
+        "civil.pvi.set",
+        "Type in the PVI table",
+        "",
+        "{name: \"i:sta|z|L=text\"} → a station (0+00.00 or a number), an elevation or a curve length (one undo step)",
+    ),
+    (
+        "civil.pi.set",
+        "Type in the PI table",
+        "",
+        "{name: \"i:x|y|r=number\"} → a PI's easting, northing or radius on the selected alignment (one undo step)",
+    ),
     ("civil.group", "Point group use", "", "{name: \"GROUP=points|breakline|off\"} → how a point group builds the surface (one undo step)"),
     ("civil.undo", "Undo", "Ctrl+Z", "{}"),
     ("civil.redo", "Redo", "Ctrl+Y", "{}"),
@@ -219,6 +258,8 @@ pub struct CivilView {
     pub tools: crate::civiltools::Tools,
     /// the Traverse and deed calls dialogs (civildialogs.rs)
     pub dialogs: crate::civildialogs::Dialogs,
+    /// the profile panel (civilprofile.rs)
+    pub profile: crate::civilprofile::ProfilePanel,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
     pub ppp: f64,
     dark: bool,
@@ -273,6 +314,7 @@ impl CivilView {
             export: crate::civilexport::ExportOpts::default(),
             tools: crate::civiltools::Tools::default(),
             dialogs: crate::civildialogs::Dialogs::default(),
+            profile: crate::civilprofile::ProfilePanel::default(),
             ppp: 1.0,
             dark: true,
         }
@@ -979,6 +1021,17 @@ impl CivilView {
             if ui.ctx().input(|i| i.key_pressed(egui::Key::F)) {
                 self.fit();
             }
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::R)) {
+                let on = !self.profile.open;
+                self.show_profile(on, None);
+            }
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::I)) {
+                if !self.profile.open {
+                    self.show_profile(true, None);
+                }
+                let on = !self.profile.add;
+                self.set_pvi_add(on);
+            }
             if ui.ctx().input(|i| i.key_pressed(egui::Key::D)) {
                 self.show3d = !self.show3d;
             }
@@ -1106,6 +1159,17 @@ impl CivilView {
         }
         if let Some(p) = self.hover_pt.and_then(|i| self.project.points.get(i)) {
             painter.circle_stroke(s(p.x, p.y), 7.0, egui::Stroke::new(1.5, act));
+        }
+        if let Some((id, sta)) = self.profile.cursor.clone()
+            && let Some(a) =
+                arr(self.project.state.get("alignments")).iter().find(|a| a.get("id").and_then(Value::as_str) == Some(id.as_str())).cloned()
+        {
+            let al = self.project.alignment(&a);
+            if al.ok()
+                && let Some(p) = al.point_at(sta)
+            {
+                painter.circle_filled(s(p.x, p.y), 5.0, act);
+            }
         }
         self.tool_overlay(&painter, rect, pal, ppp);
         self.tool_hint(&painter, rect, pal);
@@ -1523,6 +1587,7 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         }
         "civil.display" => cv.display(&name)?,
         "civil.select" => {
+            cv.profile.sel_pvi = None;
             cv.sel = if name.is_empty() {
                 None
             } else {
@@ -1576,6 +1641,69 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             let i = params.index.or_else(|| name.trim().parse().ok()).ok_or("civil.pi.remove: index = PI number from 0")?;
             let Some(Sel::Alignment(aid)) = cv.sel.clone() else { return Err("civil.pi.remove: select an alignment first".into()) };
             cv.remove_pi(&aid, i)?;
+        }
+        "civil.profile" => {
+            let on = match name.as_str() {
+                "on" => true,
+                "off" => false,
+                "" => !cv.profile.open,
+                o => return Err(format!("civil.profile: on or off, not {o}")),
+            };
+            cv.show_profile(on, None);
+        }
+        "civil.profile.al" => {
+            if !arr(cv.project.state.get("alignments")).iter().any(|a| a.get("id").and_then(Value::as_str) == Some(name.as_str())) {
+                return Err(format!("civil.profile.al: no alignment {name}"));
+            }
+            cv.profile.want = Some(name.clone());
+            cv.sel = Some(Sel::Alignment(name.clone()));
+            cv.profile.sel_pvi = None;
+        }
+        "civil.profile.start" => cv.start_profile()?,
+        "civil.pvi.addmode" => {
+            let on = match name.as_str() {
+                "on" => true,
+                "off" => false,
+                "" => !cv.profile.add,
+                o => return Err(format!("civil.pvi.addmode: on or off, not {o}")),
+            };
+            if on && !cv.profile.open {
+                cv.show_profile(true, None);
+            }
+            cv.set_pvi_add(on);
+        }
+        "civil.pvi.add" => {
+            let v = xy_param(&name).ok_or("civil.pvi.add: name = \"sta,z\"")?;
+            cv.pvi_add(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0))?;
+        }
+        "civil.pvi.drag" => {
+            let (i, rest) = name.split_once(':').ok_or("civil.pvi.drag: name = \"i:sta,z\"")?;
+            let i: usize = i.trim().parse().map_err(|_| "civil.pvi.drag: i = a PVI number from 0")?;
+            let v = xy_param(rest).ok_or("civil.pvi.drag: sta,z")?;
+            let n = cv.profile_alignment().map_or(0, |a| arr(a.get("pvis")).len());
+            if i >= n {
+                return Err(format!("civil.pvi.drag: no PVI {i}"));
+            }
+            cv.pvi_press(i, (0.0, 0.0));
+            cv.pvi_drag_to(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0), (1e6, 1e6));
+            cv.pvi_release();
+        }
+        "civil.pvi.select" => {
+            cv.profile.sel_pvi = if name.trim().is_empty() {
+                None
+            } else {
+                Some(name.trim().parse().map_err(|_| "civil.pvi.select: name = a PVI number from 0, or empty")?)
+            };
+        }
+        "civil.pvi.set" | "civil.pi.set" => {
+            let (i, rest) = name.split_once(':').ok_or_else(|| format!("{id}: name = \"i:field=text\""))?;
+            let i: usize = i.trim().parse().map_err(|_| format!("{id}: i = a number from 0"))?;
+            let (field, text) = rest.split_once('=').ok_or_else(|| format!("{id}: field=text"))?;
+            if id == "civil.pvi.set" {
+                cv.pvi_set(i, field.trim(), text.trim())?;
+            } else {
+                cv.pi_set(i, field.trim(), text.trim())?;
+            }
         }
         "civil.traverse" => {
             if let Some((fname, bytes)) = crate::civildialogs::traverse_command(cv, &name)? {
@@ -1734,7 +1862,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         egui::Panel::left("civil_left").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::civilpanel::left(cv, ui, &t, &mut acts));
         });
-        egui::Panel::right("civil_right").default_size(300.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
+        egui::Panel::right("civil_right").default_size(320.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::civilpanel::right(cv, ui, &t, &mut acts));
         });
         for a in acts {
@@ -1756,6 +1884,19 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             };
             if let Err(e) = r {
                 cv.message = e;
+            }
+        }
+        if cv.profile.open && !cv.show3d {
+            let pal = Palette::of(&t, dark);
+            let mut pacts = Vec::new();
+            egui::Panel::bottom("civil_profile")
+                .default_size(250.0)
+                .size_range(140.0..=600.0)
+                .resizable(true)
+                .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
+                .show(ui, |ui| crate::civilprofile::panel(cv, ui, &t, &pal, &mut pacts));
+            for crate::civilprofile::ProfAct::Run(id, k) in pacts {
+                cmd = Some((id, Params { name: Some(k), ..Default::default() }));
             }
         }
         egui::CentralPanel::no_frame().show(ui, |ui| {

@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M11.8 CivilCraft profile panel (agent, work/civiltools)
+
+- M11.8: `crates/ui-egui/src/civilprofile.rs`: the profile under the plan (R, an alignment's Profile view button), as
+  civilcraft.js `renderProfile` and profile-view.js draw it: the existing ground, the tangents through the PVIs, the
+  design profile, the station and elevation grid with its exaggeration, grades on the tangents, each vertical curve's
+  L / K with BVC / EVC ticks and its high or low point, the PVIs and their labels; the reading under the pointer
+  (station, ground, design, grade, cut / fill) and its point on the plan. Editing: drag a PVI (kept 0.01 inside its
+  neighbours, to 0.01, one undo step), Add PVIs (I) and a click adds one, the selected PVI goes with Delete, Start from
+  the ground, the alignment's PVI table (station, elevation, curve length typed, × removes, the number selects) and PI
+  table (easting, northing, radius typed, × removes), each one undo step with 0.5's labels.
+- Commands: `civil.profile`, `civil.profile.al`, `civil.profile.start`, `civil.pvi.addmode`, `civil.pvi.add`
+  (sta,z), `civil.pvi.drag` (i:sta,z), `civil.pvi.select`, `civil.pvi.set` (i:sta|z|L=text), `civil.pi.set`
+  (i:x|y|r=number). `cadcraft-shot --key NAME` presses a key (the gesture path: A, clicks, Backspace, Enter checked).
+- Parity: `cvtooldiff.mjs` gained a profile scenario (start, adds incl. a repeat and one past the end, drags clamped by
+  neighbours, typed station / elevation / length, a bad station, select + Delete, undo / redo, then Delete of the
+  alignment) on the four sites: **44/44 projects byte-identical, 668/668 status lines identical**.
+- Speed: on the 500k-point survey the profile panel's frame is 4 ms with the pointer reading (the ground profile is the
+  engine's memo).
+- Not yet: feature lines in the profile (0.5 WL.20), the section panel (sample lines / section view), the PI table's
+  curve-fit "why" buttons (WL.23).
+
 ## 2026-10-18 — M11.7 CivilCraft drawing tools, typed dialogs and grips (agent, work/civiltools)
 
 - M11.7: `crates/ui-egui/src/civiltools.rs`: the plan's tools as 0.5 CivilCraft has them — Select, Alignment, Pad,

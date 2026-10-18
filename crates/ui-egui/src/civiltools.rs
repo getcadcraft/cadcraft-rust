@@ -296,6 +296,12 @@ impl CivilView {
             Tool::Select => {
                 let zoom = self.view.zoom / self.ppp;
                 self.sel = self.pick_at(x, y, zoom);
+                self.profile.sel_pvi = None;
+                if let Some(Sel::Alignment(id)) = &self.sel
+                    && self.profile.open
+                {
+                    self.profile.want = Some(id.clone());
+                }
             }
             Tool::Feature => {
                 if self.close_ring_hit(s) {
@@ -498,6 +504,7 @@ impl CivilView {
             }
         });
         self.sel = Some(Sel::Alignment(id.clone()));
+        self.profile.sel_pvi = None;
         self.set_tool(Tool::Select);
         let saved = find_in(arr(self.project.state.get("alignments")), &id).cloned().unwrap_or(al);
         let len = self.project.alignment(&saved).length;
@@ -678,6 +685,9 @@ impl CivilView {
 
     /// civilcraft.js `deleteSelected()` (the profile's PVI aside): the selected item or survey point, one undo step.
     pub fn delete_selected(&mut self) {
+        if self.delete_pvi() {
+            return;
+        }
         let Some(sel) = self.sel.clone() else {
             self.message = t("cv.delete.none", &[]);
             return;

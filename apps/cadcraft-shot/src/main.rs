@@ -3,7 +3,7 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
@@ -220,6 +220,16 @@ fn shot(args: &[String]) -> Result<(), String> {
                 let name = std::path::Path::new(&v).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 hs.state_mut().open_bytes(&name, &bytes);
                 hs.run_steps(2);
+            }
+            "--key" => {
+                // a key pressed and released (egui's key names: Enter, Escape, Backspace, Delete, A …)
+                if let Some(key) = egui::Key::from_name(&v) {
+                    for pressed in [true, false] {
+                        hs.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                        hs.run_steps(1);
+                    }
+                    hs.run_steps(1);
+                }
             }
             "--mouse-move" => {
                 // the pointer moves to window coordinates (points) with no button down: rubber bands follow it

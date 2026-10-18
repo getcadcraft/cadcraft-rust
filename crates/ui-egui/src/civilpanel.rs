@@ -394,7 +394,7 @@ pub fn right(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
     let sel = cv.sel.clone();
     let st = cv.project.state.clone();
     let shown = match &sel {
-        Some(Sel::Alignment(id)) => find(arr(st.get("alignments")), id).cloned().map(|a| alignment(cv, ui, tk, &a)).is_some(),
+        Some(Sel::Alignment(id)) => find(arr(st.get("alignments")), id).cloned().map(|a| alignment(cv, ui, tk, &a, acts)).is_some(),
         Some(Sel::Pad(id)) => find(arr(st.get("pads")), id).cloned().map(|d| pad(cv, ui, tk, &d)).is_some(),
         Some(Sel::Structure(id)) => {
             let ss = st.get("network").map(|n| arr(n.get("structures")).to_vec()).unwrap_or_default();
@@ -572,7 +572,7 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     }
 }
 
-fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value) {
+fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts: &mut Vec<Act>) {
     let units = cv.project.units().to_string();
     let u = cc_civil::units::unit_of(&units).short.to_string();
     let al = cv.project.alignment(a);
@@ -588,18 +588,34 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value) {
     rows(ui, tk, "cv_al", &r);
     report(ui, tk, &al.errors, true);
     head(ui, tk, &t0("cv.al.pis"));
-    egui::Grid::new("cv_al_pis").num_columns(4).spacing([8.0, 2.0]).show(ui, |ui| {
-        for h in ["#".to_string(), t0("pt.props.easting"), t0("pt.props.northing"), t0("se.c.r")] {
+    egui::Grid::new("cv_al_pis").num_columns(5).spacing([6.0, 2.0]).show(ui, |ui| {
+        for h in ["#".to_string(), t0("pt.props.easting"), t0("pt.props.northing"), t0("se.c.r"), String::new()] {
             ui.label(RichText::new(h).small().color(tk.text_dim));
         }
         ui.end_row();
         let pis = arr(a.get("pis"));
+        let aid = string_of(a.get("id"));
         for (i, p) in pis.iter().enumerate() {
             ui.label(RichText::new((i + 1).to_string()).color(tk.text));
-            ui.label(RichText::new(fixed(numf(p.get("x")), 2)).monospace().color(tk.text));
-            ui.label(RichText::new(fixed(numf(p.get("y")), 2)).monospace().color(tk.text));
+            // civilcraft.js alignmentProps: E, N and R typed (numbers), one undo step each
+            for (k, shown) in [("x", fixed(numf(p.get("x")), 2)), ("y", fixed(numf(p.get("y")), 2))] {
+                if let Some(v) = cell(cv, ui, &format!("pi:{aid}:{i}:{k}"), &shown, 96.0) {
+                    acts.push(Act::Run("civil.pi.set", format!("{i}:{k}={}", v.replace(',', ""))));
+                }
+            }
             let end = i == 0 || i + 1 == pis.len();
-            ui.label(RichText::new(if end { "—".into() } else { fixed(numf(p.get("r")), 2) }).monospace().color(tk.text));
+            if end {
+                ui.label(RichText::new("—").color(tk.text_dim));
+            } else if let Some(v) = cell(cv, ui, &format!("pi:{aid}:{i}:r"), &cc_civil::js::num_to_string(numf(p.get("r"))), 44.0) {
+                acts.push(Act::Run("civil.pi.set", format!("{i}:r={v}")));
+            }
+            if pis.len() > 2 {
+                if ui.small_button("×").on_hover_text(tr!("cv.al.pi.remove", n = i + 1)).clicked() {
+                    acts.push(Act::Run("civil.pi.remove", i.to_string()));
+                }
+            } else {
+                ui.label("");
+            }
             ui.end_row();
         }
     });
@@ -656,17 +672,103 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value) {
             note(ui, tk, &format!("{}: {}", t0("surface.eg"), tr!("cv.range", a = fixed(lo, 2), b = fixed(hi, 2))));
         }
         let pvis = arr(a.get("pvis"));
-        egui::Grid::new("cv_al_pvis").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
-            for (i, v) in pvis.iter().enumerate() {
-                ui.label(RichText::new(format_station(numf(v.get("sta")), &units, None)).monospace().color(tk.text));
-                ui.label(RichText::new(fixed(numf(v.get("z")), 2)).monospace().color(tk.text));
-                let g = prof.grades.get(i).map_or(String::new(), |g| pct(g.g, 2));
-                ui.label(RichText::new(g).color(tk.text_dim));
-                ui.end_row();
+        let aid = string_of(a.get("id"));
+        if pvis.is_empty() {
+            note(ui, tk, &t0("cv.prof.none"));
+            if ui.button(t0("cv.prof.start")).clicked() {
+                acts.push(Act::Run("civil.profile.start", String::new()));
             }
-        });
-        report(ui, tk, &prof.errors, true);
+        } else {
+            // civilcraft.js profileProps: station, elevation and curve length typed; × removes; the number selects
+            egui::Grid::new("cv_al_pvis").num_columns(5).spacing([6.0, 2.0]).show(ui, |ui| {
+                for h in [t0("cv.pvi.col"), t0("sec.station.label"), t0("pt.props.elev"), t0("cv.pvi.col.l"), String::new()] {
+                    ui.label(RichText::new(h).small().color(tk.text_dim));
+                }
+                ui.end_row();
+                for (i, v) in pvis.iter().enumerate() {
+                    let on = cv.profile.sel_pvi == Some(i);
+                    if link(ui, tk, &(i + 1).to_string(), on) {
+                        acts.push(Act::Run("civil.pvi.select", i.to_string()));
+                    }
+                    if let Some(x) = cell(cv, ui, &format!("pvi:{aid}:{i}:sta"), &format_station(numf(v.get("sta")), &units, None), 70.0) {
+                        acts.push(Act::Run("civil.pvi.set", format!("{i}:sta={x}")));
+                    }
+                    if let Some(x) = cell(cv, ui, &format!("pvi:{aid}:{i}:z"), &fixed(numf(v.get("z")), 2), 60.0) {
+                        acts.push(Act::Run("civil.pvi.set", format!("{i}:z={}", x.replace(',', ""))));
+                    }
+                    if i > 0 && i + 1 < pvis.len() {
+                        let l = cc_civil::js::num_to_string(cc_civil::js::number(v.get("L")).max(0.0));
+                        if let Some(x) = cell(cv, ui, &format!("pvi:{aid}:{i}:L"), &l, 44.0) {
+                            acts.push(Act::Run("civil.pvi.set", format!("{i}:L={x}")));
+                        }
+                    } else {
+                        ui.label(RichText::new("—").color(tk.text_dim));
+                    }
+                    if ui.small_button("×").on_hover_text(tr!("cv.pvi.remove.of", n = i + 1)).clicked() {
+                        acts.push(Act::Run("civil.pvi.select", i.to_string()));
+                        acts.push(Act::Run("civil.delete", String::new()));
+                    }
+                    ui.end_row();
+                }
+            });
+            report(ui, tk, &prof.errors, true);
+            if prof.ok() {
+                for (i, g) in prof.grades.iter().enumerate() {
+                    note(ui, tk, &tr!("cv.prof.grade", n = i + 1, g = pct(g.g, 2)));
+                }
+                for c in &prof.curves {
+                    note(
+                        ui,
+                        tk,
+                        &tr!(
+                            if c.crest { "cv.prof.crest" } else { "cv.prof.sag" },
+                            sta = format_station(c.pvi, &units, None),
+                            l = fixed(c.l, 2),
+                            k = fixed(c.k, 1),
+                            bvc = format_station(c.bvc, &units, None),
+                            zbvc = fixed(c.z_bvc, 2),
+                            evc = format_station(c.evc, &units, None),
+                            zevc = fixed(c.z_evc, 2)
+                        ),
+                    );
+                    if let Some((hs, hz)) = c.hl {
+                        note(
+                            ui,
+                            tk,
+                            &tr!(
+                                if c.crest { "cv.prof.high" } else { "cv.prof.low" },
+                                sta = format_station(hs, &units, None),
+                                z = fixed(hz, 2)
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        if ui.button(t0("cv.prof.view")).clicked() {
+            acts.push(Act::Run("civil.profile.al", aid.clone()));
+            acts.push(Act::Run("civil.profile", "on".into()));
+        }
     }
+}
+
+/// A table cell typed in: its text when Enter is pressed or it loses focus with a change (Esc keeps the old one).
+fn cell(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32) -> Option<String> {
+    let mut text = match &cv.profile.editing {
+        Some((k, v)) if k == key => v.clone(),
+        _ => current.to_string(),
+    };
+    // a fixed size: inside a grid a text field otherwise shrinks to the column's last width
+    let r = ui.add_sized([width, 18.0], egui::TextEdit::singleline(&mut text).id_salt(("civil_cell", key)));
+    if r.has_focus() || r.changed() {
+        cv.profile.editing = Some((key.to_string(), text.clone()));
+    }
+    if r.lost_focus() {
+        let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        let done = cv.profile.editing.take().filter(|(k, _)| k == key).map(|(_, v)| v);
+        return done.filter(|v| !esc && v.trim() != current.trim()).map(|v| v.trim().to_string());
+    }
+    None
 }
 
 fn pad(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, d: &Value) {
