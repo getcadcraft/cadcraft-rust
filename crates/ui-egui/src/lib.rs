@@ -33,6 +33,8 @@ pub mod ifc3d;
 pub mod markuptools;
 pub mod model3d;
 pub mod modelcraft;
+pub mod partpanel;
+pub mod partview;
 pub mod pdfview;
 pub mod takeofftools;
 pub mod theme;
@@ -192,6 +194,8 @@ pub struct UiApp {
     pub civil: Option<civilview::CivilView>,
     /// an open DetailCraft model (detailview.rs)
     pub detail: Option<detailview::DetailView>,
+    /// an open PartCraft part (partview.rs)
+    pub part: Option<partview::PartView>,
 }
 
 impl Default for UiApp {
@@ -238,6 +242,7 @@ impl Default for UiApp {
             held: Vec::new(),
             civil: None,
             detail: None,
+            part: None,
         }
     }
 }
@@ -258,6 +263,11 @@ impl UiApp {
             return;
         }
         let lower = f.name.to_ascii_lowercase();
+        if partview::is_part_file(&lower, &f.bytes) {
+            partview::open_file(self, f);
+            return;
+        }
+        self.part = None;
         if civilview::is_civil_file(&lower, &f.bytes) {
             civilview::open_file(self, f);
             return;
@@ -431,6 +441,7 @@ impl UiApp {
         self.editor = None;
         self.source = None;
         self.error = None;
+        self.part = None;
         self.scene3 = Some((scene, view));
         self.model3 = Some(model);
         self.ifc3 = None;
@@ -748,6 +759,7 @@ impl UiApp {
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
         self.civil = None;
+        self.part = None;
         self.scene3 = None;
         self.model3 = None;
         self.mc = None;
@@ -830,6 +842,9 @@ impl UiApp {
             }
             "view.fit" => {
                 self.pending_fit = true;
+                if let Some(pv) = self.part.as_mut() {
+                    pv.fit();
+                }
                 if let Some(c) = self.civil.as_mut() {
                     c.fit();
                 }
@@ -844,6 +859,12 @@ impl UiApp {
                 }
                 if let Some((_, v)) = self.scene3.as_mut() {
                     v.fit_pending = true;
+                }
+            }
+            "view.standard" if self.part.is_some() => {
+                let n = params.name.clone().unwrap_or_else(|| "iso".into());
+                if let Some(pv) = self.part.as_mut() {
+                    pv.standard(&n);
                 }
             }
             "view.standard" if self.mc.is_some() => {
@@ -1028,9 +1049,10 @@ impl UiApp {
             "view.style" => {
                 // modelcraft.js style modes (shaded, hidden, wire, xray) and the edges switch; BimCraft's 3D view too
                 let n = params.name.clone().ok_or("view.style: name is required")?;
-                let style = match (self.mc.as_mut(), self.scene3.as_mut()) {
-                    (Some(mc), _) => &mut mc.style,
-                    (None, Some((_, v))) => &mut v.style,
+                let style = match (self.part.as_mut(), self.mc.as_mut(), self.scene3.as_mut()) {
+                    (Some(pv), _, _) => &mut pv.view.style,
+                    (None, Some(mc), _) => &mut mc.style,
+                    (None, None, Some((_, v))) => &mut v.style,
                     _ => return Err("view.style: open a model first".into()),
                 };
                 match n.as_str() {
@@ -1069,6 +1091,7 @@ impl UiApp {
                 self.show_model(model3d::sample_model(), "Sample model");
             }
             "view.demo3d" => {
+                self.part = None;
                 let n = params.factor.filter(|f| f.is_finite() && *f >= 1.0).map_or(12, |f| f.min(400.0) as usize);
                 self.scene3 = Some((view3d::demo_scene(n, [500_000.0, 4_000_000.0, 120.0]), view3d::View3::default()));
                 self.message = format!(
@@ -1078,6 +1101,7 @@ impl UiApp {
             }
             "file.new" => {
                 self.civil = None;
+                self.part = None;
                 self.scene3 = None;
                 self.model3 = None;
                 self.model3 = None;
@@ -1155,6 +1179,10 @@ impl UiApp {
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
+            id if id.starts_with("part.") => {
+                partview::run(self, id, params)?;
+                self.error = None;
+            }
             other => return Err(format!("unknown command {other}")),
         }
         Ok(())
@@ -1308,7 +1336,9 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        if self.detail.is_some() {
+        if self.part.is_some() {
+            partpanel::ui(self, ui);
+        } else if self.detail.is_some() {
             detailview::ui(self, ui);
         } else if let Some(pdf) = self.pdf.as_mut() {
             let t = self.tokens;
@@ -1431,6 +1461,9 @@ impl UiApp {
                     {
                         self.run_ui("civil.sample", &Params::default());
                     }
+                    if ui.button("Part sample").on_hover_text("Open PartCraft's sample part (a bracket with parameters)").clicked() {
+                        self.run_ui("part.sample", &Params::default());
+                    }
                     if ui
                         .button("Steel sample")
                         .on_hover_text("Open DetailCraft's sample frame (members, connections, footings, rebar)")
@@ -1488,7 +1521,12 @@ impl UiApp {
                     }
                     if ui
                         .add_enabled(
-                            self.doc.is_some() || self.scene3.is_some() || self.mc.is_some() || self.pdf.is_some() || self.civil.is_some(),
+                            self.doc.is_some()
+                                || self.scene3.is_some()
+                                || self.mc.is_some()
+                                || self.pdf.is_some()
+                                || self.civil.is_some()
+                                || self.part.is_some(),
                             egui::Button::new("Fit"),
                         )
                         .on_hover_text("Zoom to the drawing or model (Home)")

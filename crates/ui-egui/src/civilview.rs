@@ -1158,6 +1158,8 @@ pub fn install(app: &mut UiApp, cv: CivilView) {
     app.mc = None;
     app.scene3 = None;
     app.pdf = None;
+    app.part = None;
+    app.detail = None;
     app.error = None;
     app.message = cv.message.clone();
     app.civil = Some(cv);

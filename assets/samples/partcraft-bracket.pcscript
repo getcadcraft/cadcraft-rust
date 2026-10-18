@@ -1,0 +1,94 @@
+pcscript 1
+part "Bracket"
+  resolution 64
+
+param length = 120
+  note Base length
+param height = 70
+param width = 60
+param thick = 10
+param bolt = 8.5
+param pitch = 30
+
+sketch Profile
+  on front
+  point a 0, 0
+  point b 120, 0
+  point c 120, 10
+  point d 10, 10
+  point e 10, 70
+  point f 0, 70
+  line bottom a b
+  line tip b c
+  line seat c d
+  line back d e
+  line top e f
+  line rear f a
+  coincident a O
+  horizontal bottom
+  vertical tip
+  horizontal seat
+  vertical back
+  horizontal top
+  vertical rear
+  distance bottom = length
+  distance tip = thick
+  distance top = thick
+  distance rear = height
+
+extrude Body
+  sketch Profile
+  depth = width
+
+fillet Inner
+  edge f2.side:seat f2.side:back
+  r 8
+
+chamfer Edges
+  edge f2.side:top f2.side:rear
+  edge f2.side:tip f2.side:seat
+  d 2
+
+sketch HoleCentres
+  on face Body side seat
+  point h1 40, -15
+  point h2 40, -45
+  hdistance O h1 40
+  vdistance O h1 15
+  vertical h1 h2
+  vdistance h1 h2 30
+
+hole Bolt
+  sketch HoleCentres
+  d = bolt
+  through
+
+lpattern Bolts
+  seeds Bolt
+  dir x
+  count 3
+  spacing = pitch
+
+sketch SlotProfile
+  on face Body side back
+  point s1 -40, 35
+  point s2 -20, 35
+  point s3 -20, 55
+  point s4 -40, 55
+  line sl1 s1 s2
+  line sl2 s2 s3
+  line sl3 s3 s4
+  line sl4 s4 s1
+  horizontal sl1
+  vertical sl2
+  horizontal sl3
+  vertical sl4
+  hdistance O s2 20
+  vdistance O s2 35
+  distance sl1 20
+  distance sl2 20
+
+extrude Slot
+  sketch SlotProfile
+  op cut
+  end through

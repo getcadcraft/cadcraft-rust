@@ -729,6 +729,7 @@ dependencies = [
  "cc-m3d-files",
  "cc-m3d-tools",
  "cc-markup",
+ "cc-part",
  "cc-render",
  "cc-takeoff",
  "egui",

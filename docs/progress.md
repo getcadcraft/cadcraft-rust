@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M13.1 PartCraft in the app (agent, work/partapp)
+
+- M13.1: `crates/ui-egui/src/partview.rs` + `partpanel.rs`: a PartCraft view. Opens what 0.5 PartCraft opens — its
+  `.partcraft.json` (part.js `readPart`) and `.pcscript` (script.js `scriptToPart`); assemblies say "not yet" — and a
+  built-in sample (`assets/samples/partcraft-bracket.pcscript`, our own bracket: 6 parameters, fillet, chamfers, a hole
+  pattern, a slot; `part.sample`, app bar "Part sample", `cadcraft-shot --part`). Rebuilt through `kernel::regenerate`
+  (the solved sketches go back into the part, as the JS solves them in place) and shown in the 3D view, Z up through the
+  exports' `(x, −z, y)`: one GPU mesh per named face plus the meshfaces.js edges, orbit / pan / zoom, Fit, Isometric /
+  Front / Top / Right, Edges on/off. Hover names the face beside the pointer and in the status line, a click selects it
+  (CPU ray against the solid's triangles → `triFace`; partcraft.js `faceWords` ported: "Bolt hole wall (copy 2 of
+  Bolts)"); Properties shows partcraft.js `faceProps` (kind, radius, area, made by, face, normal / axis, reference).
+  History panel: features in order with partcraft.js's flags (⚠ error, off, ⚠ not built, − / + sketches), the
+  rollback bar (click = roll forward), ◀ / ▶ / ▶▶ roll buttons, the selected feature's numbers (params-part.js targets in
+  use; ƒ = driven by an equation), Suppress / Unsuppress, Roll back to here; the part's facts (`renderFacts`).
+  Parameters tab: variables (expression editable, value evaluated), Add, equations (editable). Every edit is
+  partcraft.js `commit` (one undo step, rebuild); parameters follow params-panel.js `edit` / `typed` (a number on a
+  driven field solves the parameter behind it, `=expr` links). Save part and the exports partcraft.js has on the mesh
+  kernel — STL, 3MF, STEP AP242 / AP214 (faceted), IFC 4 — named and worded as partcraft.js does, through
+  `services.save`. Commands `part.sample / save / export (stl|3mf|step|step214|ifc[@ms]) / param / undo / redo / rollto /
+  suppress / select / face`. Words from PartCraft's catalog; plain English only for "Part sample", "Edges", the
+  assembly refusal and command errors.
+- Parity (`forks/tools/pcuidiff.mjs`: the app driven headless by cadcraft-shot vs the frozen 0.5 modules replaying the
+  same edits in one kernel instance): save, STL, 3MF, both STEPs and IFC byte-identical and every status line identical
+  on the sample, on the sample after 10 edits (parameters, a backward solve, a link, a plain number, suppress, roll back
+  and forward), and on the generated 10 × 10 and 15 × 15 perforated plates (up to 7.3 MB STEP).
+- Rebuild ms, release, median (JS = kernel.js on manifold-3d 3.5.4 wasm in Node, fresh instance per run as kbench.mjs):
+  sample (1,698 triangles) JS 57.6 / Rust 25.0 (2.3×); plate 10 × 10 (26,012) 4,633 / 2,452 (1.9×); 15 × 15 (58,512)
+  16,721 / 11,435 (1.5×); 20 × 20 (400 holes) the JS dies (wasm RuntimeError after ~85 s), Rust 24.2 s. Big parts block
+  the window while they rebuild (the JS does too).
 ## 2026-10-18 — M14.1 DetailCraft in the app (agent, work/detailapp)
 
 - M14.1: `crates/ui-egui/src/detail{view,3d,panel,export}.rs`: DetailCraft's view. Opens 0.5's own model file

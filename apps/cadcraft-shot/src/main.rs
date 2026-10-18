@@ -1,7 +1,7 @@
 //! cadcraft-shot: drive the real UI headless (egui_kittest on wgpu; lavapipe works) and write PNGs or time frames.
 //!
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
-//!       <file> may be --new: an empty editable drawing, --model: the sample 3D model; then any number of --cmd "TEXT" (typed at the command line,
+//!       <file> may be --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
 //!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
@@ -39,6 +39,9 @@ fn load(app: &mut UiApp, src: &str) -> Result<(), String> {
     }
     if src == "--model" {
         return app.run("view.model.sample", &Params::default());
+    }
+    if src == "--part" {
+        return app.run("part.sample", &Params::default());
     }
     let bytes = std::fs::read(src).map_err(|e| format!("{src}: {e}"))?;
     let name = std::path::Path::new(src).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();

@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: DetailCraft app view (M14.1); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -20,8 +20,13 @@ Last updated 2026-10-18 · Change: DetailCraft app view (M14.1); per-app gaps be
    save marked-up PDF, takeoff count / linear / area, exports, Auto count. Missing: the rest of MarkupCraft's 30+ tools
    (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, TakeoffCraft's assemblies,
    bid areas, alternates, deducts and slopes in the UI (the engine has them), several PDFs per project.
-8. **PartCraft, Studio**: engines at parity (PartCraft's rebuild kernel in progress), no app view yet. **DetailCraft**
-   (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
+8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
+   parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity. Missing: the sketcher and every
+   tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,
+   rename), assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
+   edit does not follow `configs` yet), the exact kernel's features (they say "not built", as 0.5's mesh build does),
+   rebuilds on a thread (a big part blocks the window), Spanish words. **Studio**: engine at parity, no app view yet.
+   **DetailCraft** (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
    members / plates / footings / stairs, connection tools and parameters (end plate … gusset, apply to similar), holes and
    copes editors, grids / levels / custom profiles, phases add / rename / remove, copy / paste, move / rotate / mirror,
    window and lasso selection, plan and elevation views, the drawings dialog's preview and issue log, the Settings dialog

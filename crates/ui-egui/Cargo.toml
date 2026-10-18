@@ -24,6 +24,7 @@ cc-io-ifc.workspace = true
 cc-bim.workspace = true
 cc-io-takeoff.workspace = true
 cc-takeoff.workspace = true
+cc-part.workspace = true
 cc-markup.workspace = true
 cc-io-markup.workspace = true
 cc-m3d.workspace = true

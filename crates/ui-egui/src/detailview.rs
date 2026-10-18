@@ -668,6 +668,7 @@ pub fn install(app: &mut UiApp, dv: DetailView) {
     app.scene3 = None;
     app.pdf = None;
     app.civil = None;
+    app.part = None;
     app.error = None;
     app.message = dv.message.clone();
     app.detail = Some(dv);
@@ -709,7 +710,7 @@ pub fn open_file(app: &mut UiApp, f: &ImportedFile) -> bool {
 
 /// Before any command (lib.rs `run`): commands that open another document close the DetailCraft view.
 pub fn before_run(app: &mut UiApp, id: &str) {
-    if matches!(id, "file.sample" | "file.new" | "view.model.sample" | "view.demo3d" | "civil.sample" | "civil.demo" | "civil.synthetic") {
+    if matches!(id, "file.sample" | "file.new" | "view.model.sample" | "view.demo3d" | "civil.sample" | "civil.demo" | "civil.synthetic" | "part.sample") {
         app.detail = None;
     }
 }
