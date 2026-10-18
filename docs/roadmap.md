@@ -75,6 +75,11 @@ allocator needs `unsafe` (`GlobalAlloc`), which the workspace forbids, and no ma
 Revisit when one exists or when the readers allocate less; until then the web build stays single-threaded, and the faster
 paths for the web are fewer allocations in the readers (typed fast paths instead of the dynamic `Obj` model).
 
+Follow-up (same day): reading the 3.4 MB Carey drawing makes 1.69 M allocations (277 MB) on one thread, but a bump
+allocator that never frees is no faster natively (650 vs 530–590 ms: fresh pages cost more than malloc), and the sample
+reads in 36–46 ms warm in Chromium against 73–80 ms cold natively. So allocation is not where the reader's time goes;
+web speed needs a profile of the decoder itself (perf is blocked here: `perf_event_paranoid` = 4).
+
 ## M9 inputs (measured 2026-10-16, during M6)
 
 - **PDF apps (MarkupCraft, TakeoffCraft) need a PDF renderer in place of pdf.js.** `hayro` 0.8 (pure Rust, Apache-2.0 OR

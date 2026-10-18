@@ -7,7 +7,7 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
    drawings are not shown in edit mode (the viewer shows them); objects with a dense linetype draw continuous past 400
    dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is slower than the JS (0.7×); every edit rebuilds the whole display.
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
-   and measured slower (one global allocator lock; roadmap § Wasm threads); next: fewer allocations in the readers.
+   and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
 3. **Viewer details** vs CadCraft 0.5: raster images (IMAGE) not drawn, per-viewport frozen layers, print view /
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11, read-mostly): no drawing tools yet (alignment, pad, pipe, breakline, boundary,
