@@ -120,6 +120,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M9.13 TakeoffCraft panels in the app (item settings, assemblies, bid areas + alternates, deducts, slopes, cut-outs): 12/12 exports identical to the 0.5 JS after 166 edits.
 - 2026-10-18 M13/M14/M15: PartCraft view (rebuild kernel, history, parameters, exports at byte parity), DetailCraft view (properties, reports, clash, every export at parity), PartCraft's mesh kernel on cc-manifold (M12) at exact parity; wasm threads built and measured slower (allocator lock), not shipped.
 - 2026-10-17 M8–M11: TakeoffCraft, MarkupCraft, BimCraft, CivilCraft, DetailCraft and PartCraft engines at exact parity; PDF sheet view with markup and takeoff tools, exports and Auto count; CivilCraft view and exports at parity.
 - 2026-10-16 M6/M7 apps started: ModelCraft's tools (exact parity, 6,000 records) and formats (801/801) in Rust and in the app (edit, open SKP/OBJ/GLB/DAE, export 8 formats); BimCraft's IFC 3D view with picking, properties, storeys, section cut.

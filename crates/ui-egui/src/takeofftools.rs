@@ -4,7 +4,7 @@
 //! is known by its file's hash, as `sheetKey(hash, page)` in the JS.
 
 use cc_takeoff::i18n::{F, t, tf};
-use cc_takeoff::model::{QOpts, Takeoff, estimate, quantities, sheet_key};
+use cc_takeoff::model::{QOpts, Takeoff, quantities, sheet_key};
 use egui::{Color32, Pos2, RichText};
 use serde_json::{Map, Value, json};
 
@@ -35,6 +35,23 @@ pub struct TakeoffMode {
     /// a search running on its own thread (desktop): its result arrives here
     #[cfg(not(target_arch = "wasm32"))]
     pub ac_job: Option<std::sync::mpsc::Receiver<Result<crate::autocount::AutoCount, String>>>,
+    /// the tool: "draw" (marks of the current item), "select" (pick a mark), "cutout" (a hole in the selected area)
+    pub tool: &'static str,
+    /// the selected mark
+    pub sel: Option<String>,
+    /// deduct mode (T2) and the segments of the run being clicked that are deducts
+    pub deduct: bool,
+    pub ded: std::collections::BTreeSet<usize>,
+    /// the bid area new marks go in
+    pub cur_area: Option<String>,
+    /// PDF units per screen pixel (set by the view each frame): pick and close distances, as the JS's `1 / view.z`
+    pub px: f64,
+    /// text fields being typed in: key → (the model's value when typing began, the text)
+    pub edits: std::collections::HashMap<String, (String, String)>,
+    /// the New bid area window (its name field) and the Manage bid areas window
+    pub area_dialog: Option<String>,
+    pub manage_areas: bool,
+    pub new_area: String,
 }
 
 impl std::fmt::Debug for TakeoffMode {
@@ -108,6 +125,16 @@ impl TakeoffMode {
             ac: None,
             #[cfg(not(target_arch = "wasm32"))]
             ac_job: None,
+            tool: "draw",
+            sel: None,
+            deduct: false,
+            ded: std::collections::BTreeSet::new(),
+            cur_area: None,
+            px: 1.0,
+            edits: std::collections::HashMap::new(),
+            area_dialog: None,
+            manage_areas: false,
+            new_area: String::new(),
         }
     }
 
@@ -118,7 +145,7 @@ impl TakeoffMode {
     }
 
     /// `sheetLabel(key)` for a sheet nobody named: "<file>, page <n>".
-    fn sheet_label(&self, key: &str) -> String {
+    pub(crate) fn sheet_label(&self, key: &str) -> String {
         let (hash, idx) = key.split_once(':').unwrap_or((key, "0"));
         let file = self
             .tk
@@ -188,7 +215,8 @@ impl TakeoffMode {
         match cc_takeoff::units::preset_ft_per_unit(key, user_unit) {
             Ok(fpu) => {
                 let sc = json!({ "method": "preset", "ftPerUnit": fpu, "preset": key, "label": p.label, "cal": null });
-                if let Err(e) = self.tk.set_scale(sheet, &sc, None) {
+                let label = tf("sheetbar.scale", &[("scale", F::S(p.label.to_string()))]);
+                if let Err(e) = self.tk.set_scale(sheet, &sc, Some(&label)) {
                     self.message = e;
                 } else {
                     self.message = format!("Scale {}", p.label);
@@ -214,34 +242,156 @@ impl TakeoffMode {
         }
     }
 
-    /// A click on the sheet at `p` (PDF user space): a count mark at once; a point of the linear / area mark otherwise.
+    /// A click on the sheet at `p` (PDF user space), as takeoffcraft.js `click`: Select picks a mark; a count mark at
+    /// once; otherwise one more point of the run / outline / cut-out (a double-click's second press, within 3 screen
+    /// pixels of the last point, adds none; a click by the first corner of an outline closes it).
     pub fn click(&mut self, sheet: &str, p: [f64; 2]) {
-        let Some(item) = self.item.clone() else {
-            self.message = "Pick or add an item first".into();
+        if self.tool == "select" {
+            self.select_at(sheet, p);
+            return;
+        }
+        let Some(item) = self.item.clone().filter(|i| self.tk.item(i).is_some()) else {
+            if self.tool != "cutout" {
+                self.tool = "select";
+                self.message = t("tool.err.item");
+                return;
+            }
             return;
         };
-        if self.item_type().as_deref() == Some("count") {
-            let f = obj(json!({ "item": item, "sheet": sheet, "pts": [{ "x": p[0], "y": p[1] }] }));
-            if let Err(e) = self.tk.add_mark(&f) {
-                self.message = e;
+        let ty = if self.tool == "cutout" { Some("cutout".to_string()) } else { self.item_type() };
+        if ty.as_deref() != Some("count") && self.ft_per_unit(sheet).is_none() {
+            self.pts.clear();
+            self.message = t("tool.err.noscale.measure");
+            return;
+        }
+        if self.tool == "cutout"
+            && self.sel.as_deref().and_then(|m| self.tk.mark(m)).is_none_or(|m| m.get("sheet").and_then(Value::as_str) != Some(sheet))
+        {
+            self.set_tool("select");
+            return;
+        }
+        if ty.as_deref() == Some("count") {
+            let mut f = obj(json!({ "item": item, "sheet": sheet, "pts": [{ "x": p[0], "y": p[1] }], "kind": "count" }));
+            self.in_area(&mut f);
+            match self.tk.add_mark(&f) {
+                Ok(id) => self.sel = id,
+                Err(e) => self.message = e,
             }
-        } else if self.pts.len() < MAX_PTS {
+            return;
+        }
+        let px = if self.px.is_finite() && self.px > 0.0 { self.px } else { 1.0 };
+        if let Some(l) = self.pts.last()
+            && (l[0] - p[0]).hypot(l[1] - p[1]) <= 3.0 * px
+        {
+            return;
+        }
+        let outline = matches!(ty.as_deref(), Some("area" | "cutout"));
+        if outline
+            && self.pts.len() >= 3
+            && let Some(f0) = self.pts.first()
+            && (f0[0] - p[0]).hypot(f0[1] - p[1]) <= 9.0 * px
+        {
+            self.finish(sheet);
+            return;
+        }
+        if self.pts.len() < MAX_PTS {
             self.pts.push(p);
+            // noteDeduct: in deduct mode the segment a run just gained is a deduct
+            if ty.as_deref() == Some("linear") && self.pts.len() >= 2 {
+                let i = self.pts.len() - 2;
+                if self.deduct {
+                    self.ded.insert(i);
+                } else {
+                    self.ded.remove(&i);
+                }
+            }
         }
     }
 
-    /// Finish the linear / area mark being clicked (double-click or Enter); too few points make nothing.
+    /// Finish the run / outline / cut-out being clicked (double-click or Enter), as `finishDraft`: points on the one
+    /// before (2 screen px) are dropped, the run keeps its deducts on the right segments, and the checks of 0.5 apply.
     pub fn finish(&mut self, sheet: &str) {
-        let pts = std::mem::take(&mut self.pts);
+        let raw = std::mem::take(&mut self.pts);
+        let ded0 = std::mem::take(&mut self.ded);
         let Some(item) = self.item.clone() else { return };
-        let need = if self.item_type().as_deref() == Some("area") { 3 } else { 2 };
-        if pts.len() < need {
-            return;
+        let ty = if self.tool == "cutout" { Some("cutout".to_string()) } else { self.item_type() };
+        let Some(ty) = ty.filter(|x| x != "count") else { return };
+        let tol = 2.0 * if self.px.is_finite() && self.px > 0.0 { self.px } else { 1.0 };
+        let near = |a: &[f64; 2], b: &[f64; 2]| (a[0] - b[0]).hypot(a[1] - b[1]) <= tol;
+        let mut kept: Vec<[f64; 2]> = Vec::new();
+        let mut ded: Vec<usize> = Vec::new();
+        for (j, p) in raw.iter().enumerate() {
+            if kept.last().is_some_and(|l| near(l, p)) {
+                continue;
+            }
+            kept.push(*p);
+            if ty == "linear" && j > 0 && kept.len() > 1 && ded0.contains(&(j - 1)) {
+                let k = kept.len() - 2;
+                if !ded.contains(&k) {
+                    ded.push(k);
+                }
+            }
         }
-        let pts: Vec<Value> = pts.iter().map(|p| json!({ "x": p[0], "y": p[1] })).collect();
-        let f = obj(json!({ "item": item, "sheet": sheet, "pts": pts }));
-        if let Err(e) = self.tk.add_mark(&f) {
-            self.message = e;
+        if ty != "linear" {
+            while kept.len() > 3 && kept.first().zip(kept.last()).is_some_and(|(a, b)| near(a, b)) {
+                kept.pop();
+            }
+        }
+        let pts: Vec<Value> = kept.iter().map(|p| json!({ "x": p[0], "y": p[1] })).collect();
+        let gp: Vec<cc_takeoff::geom::P> = kept.iter().map(|p| cc_takeoff::geom::P::new(p[0], p[1])).collect();
+        match ty.as_str() {
+            "linear" => {
+                if kept.len() < 2 {
+                    self.message = t("run.err.points");
+                    return;
+                }
+                if !ded.is_empty() && ded.len() >= kept.len() - 1 {
+                    self.message = t("deduct.all");
+                    return;
+                }
+                let mut f = obj(json!({ "item": item, "sheet": sheet, "pts": pts, "kind": "linear" }));
+                if !ded.is_empty() {
+                    f.insert("deducts".into(), json!(ded));
+                }
+                self.in_area(&mut f);
+                match self.tk.add_mark(&f) {
+                    Ok(id) => self.sel = id,
+                    Err(e) => self.message = e,
+                }
+            }
+            "area" => {
+                if let Some(why) = cc_takeoff::geom::outline_problem(&gp, "area") {
+                    self.message = why;
+                    return;
+                }
+                let backout = self.tk.item(&item).is_some_and(|it| it.get("backout") == Some(&Value::Bool(true)));
+                if backout && !cc_takeoff::geom::is_convex(&gp) {
+                    self.message = t("backout.convex");
+                    return;
+                }
+                let mut f = obj(json!({ "item": item, "sheet": sheet, "pts": pts, "kind": "area" }));
+                self.in_area(&mut f);
+                match self.tk.add_mark(&f) {
+                    Ok(id) => self.sel = id,
+                    Err(e) => self.message = e,
+                }
+            }
+            _ => {
+                let Some(m) = self.sel.as_deref().and_then(|i| self.tk.mark(i)).cloned() else { return };
+                let outer = cc_takeoff::model::pts_of(m.get("pts"));
+                let holes = cc_takeoff::model::holes_of(m.get("holes"));
+                if let Some(why) = cc_takeoff::geom::hole_problem(&outer, &holes, &gp) {
+                    self.message = why;
+                    return;
+                }
+                let mut hl = m.get("holes").and_then(Value::as_array).cloned().unwrap_or_default();
+                hl.push(Value::Array(pts));
+                let id = m.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                match self.tk.update_mark(&id, &obj(json!({ "holes": hl })), Some("Cut-out")) {
+                    Ok(_) => self.message = t("cutout.added"),
+                    Err(e) => self.message = e,
+                }
+            }
         }
     }
 
@@ -267,6 +417,23 @@ impl TakeoffMode {
         if let Some(k) = pick {
             self.set_preset(sheet, k, user_unit);
         }
+        ui.horizontal_wrapped(|ui| {
+            let draw = self.item_type().map_or_else(|| "Draw".to_string(), |ty| cc_takeoff::i18n::t(&format!("tool.{ty}")));
+            for (tool, label) in [("select", cc_takeoff::i18n::t("tool.select")), ("draw", draw)] {
+                if ui.selectable_label(self.tool == tool, label).clicked() {
+                    self.set_tool(tool);
+                }
+            }
+            let mut d = self.deduct;
+            if ui
+                .checkbox(&mut d, cc_takeoff::i18n::t("toolbar.deduct"))
+                .on_hover_text(cc_takeoff::i18n::t("toolbar.deduct.title"))
+                .changed()
+            {
+                self.toggle_deduct(d);
+            }
+        });
+        self.areas_row(ui);
         ui.separator();
         // items
         let q = quantities(&self.tk.state, &QOpts::default());
@@ -299,6 +466,10 @@ impl TakeoffMode {
         if let Some(id) = select {
             self.item = Some(id);
             self.pts.clear();
+            self.ded.clear();
+            if self.tool == "select" {
+                self.tool = "draw";
+            }
         }
         if let Some(id) = remove {
             let _ = self.tk.remove_item(&id);
@@ -324,13 +495,28 @@ impl TakeoffMode {
             self.add_item(&name, &ty);
             self.new_name.clear();
         }
+        if self.item.is_some() {
+            ui.separator();
+            egui::CollapsingHeader::new(RichText::new(cc_takeoff::i18n::t("item.h")).strong())
+                .id_salt("tk_item_props")
+                .default_open(true)
+                .show(ui, |ui| {
+                    self.item_props(ui, t);
+                });
+        }
+        if self.sel.is_some() {
+            ui.separator();
+            self.mark_props(ui, t);
+        }
         ui.separator();
-        let e = estimate(&self.tk.state, &q);
+        let e = cc_takeoff::model::base_estimate(&self.tk.state);
         ui.label(format!("{} marks · estimate ${:.2}", self.tk.marks().len(), e.total / 100.0));
         if e.unscaled > 0.0 {
             ui.label(RichText::new(format!("{} marks are on sheets without a scale", qty(e.unscaled))).color(t.text_dim));
         }
+        self.by_area(ui, t);
         self.autocount_panel(ui, t);
+        self.area_windows(ui.ctx());
         ui.separator();
         ui.label(RichText::new(cc_takeoff::i18n::t("group.export")).small());
         ui.horizontal_wrapped(|ui| {
@@ -464,30 +650,77 @@ impl TakeoffMode {
                 .and_then(|c| crate::pdfview::hex_color(c, 1.0))
                 .unwrap_or(Color32::from_rgb(0x2f, 0x6f, 0xde))
         };
+        let ring = |pts: &[cc_takeoff::geom::P]| -> Vec<Pos2> {
+            let mut r: Vec<Pos2> = cc_takeoff::geom::flatten(pts, true).iter().map(|p| at(p.x, p.y)).collect();
+            if let Some(f) = r.first().copied() {
+                r.push(f);
+            }
+            r
+        };
         for m in self.tk.marks() {
             if m.get("sheet").and_then(Value::as_str) != Some(sheet) {
                 continue;
             }
             let item = m.get("item").and_then(Value::as_str).unwrap_or("");
             let kind = m.get("kind").and_then(Value::as_str).unwrap_or("");
-            let pts: Vec<Pos2> = cc_takeoff::model::pts_of(m.get("pts")).iter().map(|p| at(p.x, p.y)).collect();
-            let c = color_of(item);
+            let gp = cc_takeoff::model::pts_of(m.get("pts"));
+            let selected = self.sel.as_deref() == m.get("id").and_then(Value::as_str);
+            // marks in another bid area than the current one are dimmed, as 0.5 does
+            let dim = self.cur_area.as_deref().is_some_and(|a| m.get("area").and_then(Value::as_str) != Some(a));
+            let c = if dim { color_of(item).gamma_multiply(0.3) } else { color_of(item) };
+            let w = if selected { 4.0 } else { 2.5 };
             match kind {
                 "count" => {
-                    for p in pts {
-                        painter.circle(p, 6.0, c.gamma_multiply(0.35), egui::Stroke::new(2.0, c));
+                    for p in &gp {
+                        painter.circle(at(p.x, p.y), if selected { 8.0 } else { 6.0 }, c.gamma_multiply(0.35), egui::Stroke::new(2.0, c));
                     }
                 }
-                "area" if pts.len() >= 3 => {
-                    painter.add(egui::Shape::convex_polygon(pts.clone(), c.gamma_multiply(0.25), egui::Stroke::NONE));
-                    let mut ring = pts;
-                    if let Some(f) = ring.first().copied() {
-                        ring.push(f);
+                "area" => {
+                    let holes = cc_takeoff::model::holes_of(m.get("holes"));
+                    let backout = self.tk.item(item).is_some_and(|it| it.get("backout") == Some(&Value::Bool(true)));
+                    if holes.is_empty() && cc_takeoff::geom::is_convex(&gp) {
+                        let mut fill = ring(&gp);
+                        fill.pop();
+                        if fill.len() >= 3 {
+                            painter.add(egui::Shape::convex_polygon(
+                                fill,
+                                c.gamma_multiply(if backout { 0.1 } else { 0.25 }),
+                                egui::Stroke::NONE,
+                            ));
+                        }
                     }
-                    painter.add(egui::Shape::line(ring, egui::Stroke::new(2.0, c)));
+                    for r in std::iter::once(&gp).chain(holes.iter()) {
+                        let line = ring(r);
+                        if backout {
+                            painter.add(egui::Shape::dashed_line(&line, egui::Stroke::new(2.0, c), 4.0, 4.0));
+                        } else {
+                            painter.add(egui::Shape::line(line, egui::Stroke::new(if selected { 3.5 } else { 2.0 }, c)));
+                        }
+                    }
                 }
                 _ => {
-                    painter.add(egui::Shape::line(pts, egui::Stroke::new(2.5, c)));
+                    let ded: Vec<f64> = m
+                        .get("deducts")
+                        .and_then(Value::as_array)
+                        .map(|l| l.iter().filter_map(Value::as_f64).collect())
+                        .unwrap_or_default();
+                    #[allow(clippy::cast_precision_loss)]
+                    for sp in cc_takeoff::geom::spans(&gp, &|i| ded.contains(&(i as f64))) {
+                        let line: Vec<Pos2> = cc_takeoff::geom::flatten(&sp.pts, false).iter().map(|p| at(p.x, p.y)).collect();
+                        if sp.deduct {
+                            painter.add(egui::Shape::dashed_line(&line, egui::Stroke::new(w * 0.6, c), 7.0, 5.0));
+                        } else {
+                            painter.add(egui::Shape::line(line, egui::Stroke::new(w, c)));
+                        }
+                    }
+                }
+            }
+            if selected {
+                let holes = cc_takeoff::model::holes_of(m.get("holes"));
+                for p in gp.iter().chain(holes.iter().flatten()) {
+                    let r = egui::Rect::from_center_size(at(p.x, p.y), egui::vec2(6.0, 6.0));
+                    painter.rect_filled(r, 0.0, Color32::WHITE);
+                    painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, c), egui::StrokeKind::Inside);
                 }
             }
         }
@@ -518,7 +751,15 @@ impl TakeoffMode {
             for p in &pts {
                 painter.circle_filled(*p, 3.0, c);
             }
-            painter.add(egui::Shape::dashed_line(&pts, egui::Stroke::new(2.0, c), 6.0, 4.0));
+            for (i, w) in pts.windows(2).enumerate() {
+                let d = self.ded.contains(&i);
+                painter.add(egui::Shape::dashed_line(
+                    w,
+                    egui::Stroke::new(if d { 1.2 } else { 2.0 }, c),
+                    if d { 7.0 } else { 6.0 },
+                    if d { 5.0 } else { 4.0 },
+                ));
+            }
         }
     }
 }

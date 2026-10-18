@@ -247,6 +247,11 @@ impl PdfView {
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.takeoff.pts.clear();
+                self.takeoff.ded.clear();
+            }
+            if ui.input(|i| i.key_pressed(egui::Key::E)) && !ui.ctx().egui_wants_keyboard_input() {
+                let d = !self.takeoff.deduct;
+                self.takeoff.toggle_deduct(d);
             }
         }
         let pan_drag = self.mode != "takeoff"
@@ -254,6 +259,7 @@ impl PdfView {
                 || resp.dragged_by(egui::PointerButton::Secondary)
                 || (resp.dragged_by(egui::PointerButton::Primary) && !self.tools.draws() && self.tools.tool != "select"));
         self.tools.px = 1.0 / self.zoom;
+        self.takeoff.px = 1.0 / self.zoom;
         if self.mode == "takeoff" {
         } else if pan_drag {
             self.pan += resp.drag_delta();
@@ -315,12 +321,23 @@ impl PdfView {
         if self.mode != "takeoff" && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.tools.cancel();
         }
-        if ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
-            self.tools.delete_selected(&mut self.store);
+        let typing = ui.ctx().egui_wants_keyboard_input();
+        if !typing && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+            if self.mode == "takeoff" {
+                let _ = self.takeoff.mark_field("delete", "");
+            } else {
+                self.tools.delete_selected(&mut self.store);
+            }
         }
-        if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
-            let r = if ui.input(|i| i.modifiers.shift) { self.store.redo() } else { self.store.undo() };
-            self.tools.message = r.unwrap_or_default();
+        if !typing && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
+            let redo = ui.input(|i| i.modifiers.shift);
+            if self.mode == "takeoff" {
+                let r = if redo { self.takeoff.tk.redo() } else { self.takeoff.tk.undo() };
+                self.takeoff.message = r.unwrap_or_default();
+            } else {
+                let r = if redo { self.store.redo() } else { self.store.undo() };
+                self.tools.message = r.unwrap_or_default();
+            }
         }
         if let Some(p) = resp.hover_pos() {
             let (scroll, zoom_delta) = ui.input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));

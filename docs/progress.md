@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M9.13 TakeoffCraft's panels: assemblies, bid areas, alternates, deducts, slopes (agent, work/markuptools)
+
+- M9.13: `crates/ui-egui/src/takeoffprops.rs` + `pdfcmd.rs`: the current item's settings as 0.5's buildItemProps has
+  them (name, type, colour, unit, Also measure (second conditions + their unit), height / depth, back-out and what it
+  takes area out of, slope + pitch, wall thickness / opening head / base height, waste, material, labour, labour by crew
+  with its sum line, CSI number), its measured values and its assembly (components: name, unit, quantity formula with
+  the live result, waste, material, labour, remove), Duplicate / Move up / Move down / Delete. The selected mark (Select
+  tool: takeoffcraft.js markAt): item, bid area, length / deducts / drawn / plan length, each run segment with its slope
+  (item's, level, rake, hip) and a Deduct box, the mark's pitch, area / back-outs / plan area / slope factor / cut-outs,
+  Add a cut-out (the Cut-out tool) and Remove last cut-out, a count's spot elevation, Delete. Bid areas: the picker new
+  marks go in (marks in other areas dim), New bid area and Manage bid areas windows (rename, base / add / deduct
+  alternate, order, delete, add), the By-area table with the base bid and each alternate's amount. Deduct mode (E) on
+  runs. Clicking follows takeoffcraft.js `click` / `finishDraft` (double-click repeat, close by the first corner,
+  dedupe keeping deducts on the right segments, the scale / outline / back-out checks). Each edit is the JS handler
+  (same parsing, same `Takeoff` call, patch and undo label: one undo step). Commands `takeoff.select | set | comp |
+  itemact | tool | deduct | click | mark | area | undo | redo`. The panel's estimate is the base bid (baseEstimate), as
+  the JS shows it. Catalog words throughout; plain English only for "Draw" (no item yet) and command errors.
+- Parity (`forks/tools/tkopsdiff.mjs`: the app driven headless by cadcraft-shot vs the frozen 0.5 handlers replayed on
+  the 0.5 model; three scenarios, 166 edits incl. undo / redo): project, CSV, XLSX and marked PDF identical, 12 / 12.
 ## 2026-10-18 — M15.1 wasm threads, measured (lead)
 
 - Built the threaded web build in a scratch copy (atomics, build-std on a pinned nightly, wasm-bindgen-rayon, pool jobs for

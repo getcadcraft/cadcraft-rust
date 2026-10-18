@@ -19,8 +19,10 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
    from the view.
 7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): markup tools (pen … text, Length, Area, Callout, Calibrate),
    save marked-up PDF, takeoff count / linear / area, exports, Auto count. Missing: the rest of MarkupCraft's 30+ tools
-   (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, TakeoffCraft's assemblies,
-   bid areas, alternates, deducts and slopes in the UI (the engine has them), several PDFs per project.
+   (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, several PDFs per project.
+   TakeoffCraft has its item / mark panels, assemblies, bid areas, alternates, deducts, slopes and cut-outs (M9.13);
+   still missing there: arcs and circles in runs and outlines, dragging mark corners, multi-select, groups (typicals),
+   notes / clouds, the 3D view, revisions.
 8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
    parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity. Missing: the sketcher and every
    tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,

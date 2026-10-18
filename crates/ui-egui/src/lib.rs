@@ -35,7 +35,9 @@ pub mod model3d;
 pub mod modelcraft;
 pub mod partpanel;
 pub mod partview;
+pub mod pdfcmd;
 pub mod pdfview;
+pub mod takeoffprops;
 pub mod takeofftools;
 pub mod theme;
 pub mod view3d;
@@ -1178,6 +1180,7 @@ impl UiApp {
                 }
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
+            id if id.starts_with("takeoff.") || id.starts_with("markup.") => return pdfcmd::run(self, id, params),
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
