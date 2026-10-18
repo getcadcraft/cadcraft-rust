@@ -9,7 +9,7 @@ use cc_part::{jv, params_part as PP, part as P, vec as V};
 use egui::{Rect, RichText};
 use serde_json::Value;
 
-use crate::partview::{PartView, tr, trv};
+use crate::partview::{Mode, PartView, tr, trv};
 use crate::theme::Tokens;
 use crate::{Params, UiApp, view3d};
 
@@ -54,6 +54,7 @@ fn field(ui: &mut egui::Ui, edits: &mut HashMap<String, String>, key: &str, show
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let mut act: Cmd = None;
+    let dark = app.preset == crate::theme::Preset::Dark;
     let Some(pv) = app.part.as_mut() else { return };
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
     let c = t.canvas_bg;
@@ -64,7 +65,13 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
         .show(ui, |ui| {
             egui::ScrollArea::horizontal().show(ui, |ui| {
-                ui.horizontal_centered(|ui| tool_bar(ui, pv, &t, &mut act));
+                ui.horizontal_centered(|ui| {
+                    if pv.mode == Mode::Sketch {
+                        crate::partsketchui::sketch_bar(ui, pv, &t, &mut act);
+                    } else {
+                        tool_bar(ui, pv, &t, &mut act);
+                    }
+                });
             });
         });
     let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
@@ -84,6 +91,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if pv.tab == "params" {
                 parameters(ui, pv, &t, &mut act);
+            } else if pv.mode == Mode::Sketch {
+                let mut num = std::mem::take(&mut pv.num_entry);
+                crate::partsketchui::sketch_props(ui, pv, &t, &mut act, &mut num);
+                pv.num_entry = num;
             } else {
                 properties(ui, pv, &t);
             }
@@ -91,8 +102,13 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     });
     egui::CentralPanel::no_frame().show(ui, |ui| {
         let rect = ui.max_rect();
-        stage(ui, rect, pv, &t);
+        if pv.mode == Mode::Sketch {
+            crate::partsketchui::stage(ui, rect, pv, &t, dark, &mut act);
+        } else {
+            stage(ui, rect, pv, &t, &mut act);
+        }
     });
+    confirm_dialog(ui, pv, &t, &mut act);
     app.message = pv.status();
     if let Some((id, p)) = act {
         app.run_ui(id, &p);
@@ -106,6 +122,9 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
         ui.label(RichText::new("•").color(t.text_dim)).on_hover_text(tr("app.file.unsaved_title"));
     }
     ui.separator();
+    if ui.button(tr("ui.tb.file.new")).on_hover_text(tr("ui.tb.file.new.title")).clicked() {
+        *act = cmd("part.new", "");
+    }
     if ui.button(tr("ui.tb.file.save")).on_hover_text(tr("ui.tb.file.save.title")).clicked() {
         *act = cmd("part.save", "");
     }
@@ -125,6 +144,38 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     })
     .response
     .on_hover_text(tr("ui.tb.export.title"));
+    ui.separator();
+    if pv.mode == Mode::Pick {
+        if ui
+            .add(egui::Button::new(RichText::new(tr("ui.tb.features.pick_done")).strong()))
+            .on_hover_text(tr("ui.tb.features.pick_done.title"))
+            .clicked()
+        {
+            *act = cmd("part.pick.done", "");
+        }
+    } else {
+        if ui
+            .add(egui::Button::selectable(pv.pending_sketch, tr("ui.tb.sketch.sketch")))
+            .on_hover_text(tr("ui.tb.sketch.sketch.title"))
+            .clicked()
+        {
+            *act = cmd("part.sketch", "");
+        }
+        ui.separator();
+        for (c, _, key) in crate::partfeat::FEATURE_CMDS.iter().filter(|c| c.0 != "revolve-cut") {
+            if ui.button(tr(key)).on_hover_text(tr(&format!("{key}.title"))).clicked() {
+                *act = cmd("part.feature", *c);
+            }
+        }
+        ui.menu_button(tr("ui.tb.more"), |ui| {
+            if ui.button(tr("ui.tb.fmore.revolve_cut")).on_hover_text(tr("ui.tb.fmore.revolve_cut.title")).clicked() {
+                *act = cmd("part.feature", "revolve-cut");
+                ui.close();
+            }
+        })
+        .response
+        .on_hover_text(tr("ui.tb.features.more.title"));
+    }
     ui.separator();
     if ui.add_enabled(pv.can_undo(), egui::Button::new(tr("ui.tb.edit.undo"))).on_hover_text(tr("ui.tb.edit.undo.title")).clicked() {
         *act = cmd("part.undo", "");
@@ -170,6 +221,13 @@ fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     ui.label(RichText::new(name).strong().color(t.text_strong));
     ui.label(RichText::new(tr("ui.left.aria")).small().color(t.text_dim));
     ui.separator();
+    for name in ["front", "top", "right"] {
+        let on = pv.sel_plane.as_deref() == Some(name);
+        if ui.selectable_label(on, RichText::new(crate::partview::plane_name(name)).color(t.text)).clicked() {
+            *act = cmd("part.plane", name);
+        }
+    }
+    ui.separator();
     let feats = P::features(&pv.part).to_vec();
     let built = P::built_count(&pv.part);
     let rolled_back = pv.part.get("rollback").is_some_and(|r| !r.is_null());
@@ -198,9 +256,17 @@ fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
             .and_then(|r| r.get("message").or_else(|| r.get("warning")))
             .and_then(Value::as_str)
             .map_or_else(|| P::feature_label(jv::s(f, "type")), str::to_string);
+        let is_sketch = jv::s(f, "type") == "sketch";
+        let picker = crate::partfeat::PICKERS.contains(&jv::s(f, "type"));
         ui.horizontal(|ui| {
             let resp = ui.selectable_label(selected, text).on_hover_text(tip);
-            if resp.clicked() {
+            if resp.double_clicked() {
+                if is_sketch {
+                    *act = cmd("part.sketch", id.clone());
+                } else if picker {
+                    *act = cmd("part.pick", id.clone());
+                }
+            } else if resp.clicked() {
                 *act = cmd("part.select", if selected { String::new() } else { id.clone() });
             }
             if !flag.is_empty() {
@@ -240,42 +306,458 @@ fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     facts(ui, pv, t);
 }
 
-fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, act: &mut Cmd) {
-    let id = jv::s(f, "id").to_string();
-    let fname = jv::s(f, "name").to_string();
-    ui.label(RichText::new(format!("{fname} · {}", P::feature_label(jv::s(f, "type")))).strong().color(t.text_strong));
-    if let Some(r) = pv.regen.results.get(&id) {
-        let words = match jv::s(r, "status") {
-            "error" | "skipped" => {
-                r.get("message").and_then(Value::as_str).map(|m| trv("app.feature.not_built", &[("reason", m.to_string())]))
+fn combo(ui: &mut egui::Ui, id: String, label: &str, cur: &str, opts: &[(String, String)]) -> Option<String> {
+    let shown = opts.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
+    let mut out = None;
+    ui.label(label);
+    egui::ComboBox::new(id, "").selected_text(shown).show_ui(ui, |ui| {
+        for (v, l) in opts {
+            if ui.selectable_label(v == cur, l).clicked() && v != cur {
+                out = Some(v.clone());
             }
-            "suppressed" => Some(tr("app.feature.suppressed_msg")),
-            "rolled" => Some(tr("app.feature.rolled_msg")),
-            _ => r.get("warning").and_then(Value::as_str).map(str::to_string),
-        };
-        if let Some(w) = words {
-            ui.label(RichText::new(w).small().color(t.text_strong));
         }
+    });
+    ui.end_row();
+    out
+}
+
+fn num_row(ui: &mut egui::Ui, pv: &mut PartView, id: &str, field_name: &str, label: &str, act: &mut Cmd) {
+    let Some(f) = P::feature_by_id(&pv.part, id) else { return };
+    let v = jv::n(f, field_name);
+    let key = format!("{id}.{field_name}");
+    let link = PP::params_of(&pv.part).link(&key).map(|l| l.expr.clone());
+    ui.label(if link.is_some() { format!("{label} ƒ") } else { label.to_string() });
+    let hint = match link {
+        Some(e) => trv("ui.params.field.driven", &[("expr", e)]),
+        None => tr("ui.params.field.plain"),
+    };
+    if let Some(text) = field(ui, &mut pv.edits, &key, &show_num(v), 90.0, &hint) {
+        *act = cmd("part.set", format!("{id}:{field_name}={text}"));
     }
-    let targets = PP::targets(&pv.part);
-    let p = PP::params_of(&pv.part);
-    let prefix = format!("{fname} ");
-    egui::Grid::new(("pc-feat", id.clone())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-        for (key, tg) in targets.iter().filter(|(_, tg)| tg.feature == id && tg.field.as_deref().is_none_or(|fl| PP::field_in_use(f, fl))) {
-            let label = tg.label.strip_prefix(&prefix).unwrap_or(&tg.label).to_string();
-            let link = p.link(key);
-            ui.label(RichText::new(if link.is_some() { format!("{label} ƒ") } else { label }).color(t.text));
-            let v = PP::target_value(&pv.part, tg);
-            let hint = match link {
-                Some(l) => trv("ui.params.field.driven", &[("expr", l.expr.clone())]),
-                None => tr("ui.params.field.plain"),
-            };
-            if let Some(text) = field(ui, &mut pv.edits, key, &show_num(v), 90.0, &hint) {
-                *act = cmd("part.param", format!("{key}={text}"));
+    ui.end_row();
+}
+
+fn check_row(ui: &mut egui::Ui, on: bool, label: &str) -> Option<bool> {
+    let mut v = on;
+    let r = ui.checkbox(&mut v, label).changed().then_some(v);
+    ui.end_row();
+    r
+}
+
+fn dims_block(ui: &mut egui::Ui, pv: &mut PartView, sid: &str, title_key: &str, t: &Tokens, act: &mut Cmd) {
+    let Some(sf) = P::feature_by_id(&pv.part, sid).cloned() else { return };
+    let sk = sf.get("sketch").cloned().unwrap_or(Value::Null);
+    let dims: Vec<Value> =
+        cc_part::sketch::constraints(&sk).iter().filter(|c| cc_part::sketch::is_dim(jv::s(c, "type"))).cloned().collect();
+    if dims.is_empty() {
+        return;
+    }
+    ui.label(
+        RichText::new(trv("app.dims.title", &[("title", tr(title_key)), ("name", jv::s(&sf, "name").to_string())]))
+            .strong()
+            .color(t.text_strong),
+    );
+    egui::Grid::new(("pc-dims", sid.to_string())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+        for c in &dims {
+            let ty = jv::s(c, "type");
+            let cid = jv::s(c, "id");
+            let label = format!("{}{}", cc_part::sketch::label_of(ty).unwrap_or_default(), if ty == "angle" { " (°)" } else { "" });
+            ui.label(label);
+            let key = format!("{sid}.{cid}");
+            if let Some(text) = field(ui, &mut pv.edits, &key, &show_num(jv::n(c, "value")), 90.0, &tr("ui.params.field.plain")) {
+                *act = cmd("part.dim", format!("{sid}:{cid}={text}"));
             }
             ui.end_row();
         }
     });
+}
+
+fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t: &Tokens, act: &mut Cmd) {
+    let id = jv::s(f, "id").to_string();
+    ui.label(RichText::new(tr(if key == "edges" { "app.refs.edges_note" } else { "app.refs.faces_note" })).small().color(t.text_dim));
+    let items = jv::arr(f.get(key));
+    if items.is_empty() {
+        ui.label(RichText::new(tr(if key == "edges" { "app.refs.no_edges" } else { "app.refs.no_faces" })).small().color(t.text_dim));
+    }
+    for (i, r) in items.iter().enumerate() {
+        let label = if key == "edges" {
+            let fs = jv::arr(r.get("faces"));
+            let w = |k: usize| pv.face_words(fs.get(k).and_then(Value::as_str).unwrap_or(""));
+            trv("app.refs.edge_n", &[("n", (i + 1).to_string()), ("a", w(0)), ("b", w(1))])
+        } else {
+            trv("app.refs.face_n", &[("n", (i + 1).to_string()), ("name", pv.face_words(jv::s(r, "name")))])
+        };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(label).small().color(t.text));
+            if ui.small_button(tr("app.btn.remove")).clicked() {
+                *act = cmd("part.set", format!("{id}:drop:{i}"));
+            }
+        });
+    }
+    let picking = pv.mode == Mode::Pick && pv.editing.as_deref() == Some(id.as_str());
+    if picking {
+        if ui.button(RichText::new(tr("app.refs.done_picking")).strong()).clicked() {
+            *act = cmd("part.pick.done", "");
+        }
+    } else if ui.button(tr(if key == "edges" { "app.refs.pick_edges" } else { "app.refs.pick_faces" })).clicked() {
+        *act = cmd("part.pick", id);
+    }
+}
+
+/// partcraft.js `featureProps(f)`.
+fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, act: &mut Cmd) {
+    let id = jv::s(f, "id").to_string();
+    let fname = jv::s(f, "name").to_string();
+    let ty = jv::s(f, "type").to_string();
+    ui.label(RichText::new(format!("{fname} · {}", P::feature_label(&ty))).strong().color(t.text_strong));
+    if let Some(r) = pv.regen.results.get(&id) {
+        let words = match jv::s(r, "status") {
+            "error" => r.get("message").and_then(Value::as_str).map(str::to_string),
+            "skipped" => r.get("message").and_then(Value::as_str).map(|m| trv("app.feature.not_built", &[("reason", m.to_string())])),
+            "suppressed" => Some(tr("app.feature.suppressed_msg")),
+            _ if pv.mode == Mode::Pick && pv.editing.as_deref() == Some(id.as_str()) => Some(trv(
+                if crate::partfeat::FACE_PICKERS.contains(&ty.as_str()) {
+                    "app.feature.picking_faces"
+                } else {
+                    "app.feature.picking_edges"
+                },
+                &[("name", fname.clone())],
+            )),
+            "rolled" => Some(tr("app.feature.rolled_msg")),
+            _ => None,
+        };
+        if let Some(w) = words {
+            ui.label(RichText::new(w).small().color(t.text_strong));
+        }
+        if let Some(w) = r.get("warning").and_then(Value::as_str) {
+            ui.label(RichText::new(w).small().color(t.text_strong));
+        }
+    }
+    let op_opts: Vec<(String, String)> =
+        ["add", "cut", "intersect", "new"].iter().map(|k| ((*k).to_string(), tr(&format!("app.op.{k}")))).collect();
+    let sketch_row = |ui: &mut egui::Ui, pv: &PartView| {
+        ui.label(tr("app.props.sketch_row"));
+        let s = f
+            .get("sketch")
+            .and_then(Value::as_str)
+            .and_then(|sid| P::feature_by_id(&pv.part, sid))
+            .map_or_else(|| tr("app.props.gone"), |g| jv::s(g, "name").to_string());
+        ui.label(RichText::new(s).color(t.text));
+        ui.end_row();
+    };
+    let set = |act: &mut Cmd, field_name: &str, v: String| *act = cmd("part.set", format!("{id}:{field_name}={v}"));
+    match ty.as_str() {
+        "sketch" => {
+            let sk = f.get("sketch").cloned().unwrap_or(Value::Null);
+            let r = pv.regen.results.get(&id);
+            let state = r.and_then(|r| r.get("solve")).map_or(String::new(), |s| match jv::s(s, "status") {
+                "full" => tr("app.sketch.state_full"),
+                "under" => trv("app.sketch.state_under_title", &[("n", cc_part::js::num_str(jv::n(s, "dof")))]),
+                "over" => tr("app.sketch.state_over"),
+                "empty" => tr("app.sketch.state_empty"),
+                _ => String::new(),
+            });
+            let curves = cc_part::sketch::entities(&sk).iter().filter(|e| jv::s(e, "type") != "point").count();
+            let points = cc_part::sketch::loose_points(&sk).len();
+            egui::Grid::new(("pc-sk-facts", id.clone())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                for (k, v) in [
+                    (tr("app.props.plane"), pv.plane_label(f.get("plane"))),
+                    (tr("app.props.state"), state),
+                    (
+                        tr("app.props.geometry"),
+                        trv("app.props.geometry_value", &[("curves", curves.to_string()), ("points", points.to_string())]),
+                    ),
+                    (tr("app.props.relations"), cc_part::sketch::constraints(&sk).len().to_string()),
+                ] {
+                    ui.label(RichText::new(k).color(t.text_dim));
+                    ui.label(RichText::new(v).color(t.text));
+                    ui.end_row();
+                }
+            });
+            if ui.button(RichText::new(tr("app.btn.edit_sketch")).strong()).clicked() {
+                *act = cmd("part.sketch", id.clone());
+            }
+            dims_block(ui, pv, &id, "app.dims.driving", t, act);
+        }
+        "extrude" | "revolve" | "hole" | "lpattern" | "cpattern" | "mirror" | "fillet" | "chamfer" | "shell" => {
+            egui::Grid::new(("pc-feat", id.clone())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| match ty.as_str() {
+                "extrude" => {
+                    sketch_row(ui, pv);
+                    if let Some(v) = combo(ui, format!("pc-op-{id}"), &tr("app.props.operation"), jv::s(f, "op"), &op_opts) {
+                        set(act, "op", v);
+                    }
+                    let ends: Vec<(String, String)> = ["blind", "mid", "through", "upto", "next", "vertex", "offset"]
+                        .iter()
+                        .map(|k| ((*k).to_string(), tr(&format!("ui.design.end.{k}"))))
+                        .collect();
+                    let end = jv::s(f, "end").to_string();
+                    if let Some(v) = combo(ui, format!("pc-end-{id}"), &tr("app.props.end"), &end, &ends) {
+                        set(act, "end", v);
+                    }
+                    if end == "blind" || end == "mid" {
+                        num_row(ui, pv, &id, "depth", &tr("app.props.depth_mm"), act);
+                    }
+                    if end != "mid"
+                        && let Some(v) = check_row(ui, jv::truthy(f.get("reverse")), &tr("app.props.reverse"))
+                    {
+                        set(act, "reverse", v.to_string());
+                    }
+                }
+                "revolve" => {
+                    sketch_row(ui, pv);
+                    if let Some(v) = combo(ui, format!("pc-op-{id}"), &tr("app.props.operation"), jv::s(f, "op"), &op_opts) {
+                        set(act, "op", v);
+                    }
+                    num_row(ui, pv, &id, "angle", &tr("app.props.angle_deg"), act);
+                    let sk = f
+                        .get("sketch")
+                        .and_then(Value::as_str)
+                        .and_then(|s| P::feature_by_id(&pv.part, s))
+                        .and_then(|g| g.get("sketch"))
+                        .cloned();
+                    if let Some(sk) = sk {
+                        let mut opts = vec![(String::new(), tr("app.revolve.first_centerline"))];
+                        for (i, l) in cc_part::sketch::entities(&sk).iter().filter(|e| jv::s(e, "type") == "line").enumerate() {
+                            let k = if jv::truthy(l.get("construction")) { "app.revolve.centerline_n" } else { "app.revolve.line_n" };
+                            opts.push((
+                                jv::s(l, "id").to_string(),
+                                trv(k, &[("n", (i + 1).to_string()), ("id", jv::s(l, "id").to_string())]),
+                            ));
+                        }
+                        let at = P::index_of(&pv.part, &id).unwrap_or(0);
+                        for g in P::features(&pv.part).iter().take(at).filter(|g| jv::s(g, "type") == "axis") {
+                            opts.push((
+                                format!("ref:{}", jv::s(g, "id")),
+                                trv("app.revolve.axis_feature", &[("name", jv::s(g, "name").to_string())]),
+                            ));
+                        }
+                        let cur = match f.get("axis") {
+                            Some(Value::Object(o)) => {
+                                if o.get("kind").and_then(Value::as_str) == Some("ref") {
+                                    format!("ref:{}", o.get("feature").and_then(Value::as_str).unwrap_or(""))
+                                } else {
+                                    "obj".to_string()
+                                }
+                            }
+                            Some(Value::String(s)) => s.clone(),
+                            _ => String::new(),
+                        };
+                        if cur == "obj" {
+                            opts.push(("obj".into(), tr("app.revolve.picked_axis")));
+                        }
+                        if let Some(v) = combo(ui, format!("pc-axis-{id}"), &tr("app.props.axis"), &cur, &opts) {
+                            set(act, "axis", v);
+                        }
+                    }
+                }
+                "hole" => {
+                    sketch_row(ui, pv);
+                    ui.label(tr("app.hole.holes"));
+                    let n = pv.regen.results.get(&id).and_then(|r| r.get("count")).and_then(Value::as_f64).map_or_else(
+                        || {
+                            let sk = f
+                                .get("sketch")
+                                .and_then(Value::as_str)
+                                .and_then(|s| P::feature_by_id(&pv.part, s))
+                                .and_then(|g| g.get("sketch"));
+                            sk.map_or(0, |sk| cc_part::sketch::loose_points(sk).len()).to_string()
+                        },
+                        cc_part::js::num_str,
+                    );
+                    ui.label(trv("app.hole.count", &[("n", n)]));
+                    ui.end_row();
+                    let kinds: Vec<(String, String)> = ["simple", "cbore", "csink", "tapped"]
+                        .iter()
+                        .map(|k| ((*k).to_string(), tr(&format!("ui.design.hole.{k}"))))
+                        .collect();
+                    if let Some(v) = combo(ui, format!("pc-kind-{id}"), &tr("app.hole.type"), jv::s(f, "kind"), &kinds) {
+                        set(act, "kind", v);
+                    }
+                    num_row(ui, pv, &id, "d", &tr("app.hole.diameter_mm"), act);
+                    let through = jv::truthy(f.get("through"));
+                    if let Some(v) = check_row(ui, through, &tr("app.hole.through_all")) {
+                        set(act, "through", v.to_string());
+                    }
+                    if !through {
+                        num_row(ui, pv, &id, "depth", &tr("app.props.depth_mm"), act);
+                    }
+                    if jv::s(f, "kind") == "cbore" {
+                        num_row(ui, pv, &id, "cboreD", &tr("app.hole.cbore_d"), act);
+                        num_row(ui, pv, &id, "cboreDepth", &tr("app.hole.cbore_depth"), act);
+                    }
+                    if let Some(v) = check_row(ui, jv::truthy(f.get("reverse")), &tr("app.props.reverse")) {
+                        set(act, "reverse", v.to_string());
+                    }
+                }
+                "lpattern" | "cpattern" | "mirror" => {
+                    let at = P::index_of(&pv.part, &id).unwrap_or(0);
+                    let earlier: Vec<Value> = P::features(&pv.part)
+                        .iter()
+                        .take(at)
+                        .filter(|g| crate::partfeat::SOLID.contains(&jv::s(g, "type")))
+                        .cloned()
+                        .collect();
+                    ui.label(RichText::new(tr(if ty == "mirror" { "app.seeds.mirror" } else { "app.seeds.to_copy" })).color(t.text_dim));
+                    ui.end_row();
+                    let body = jv::is_str(f.get("seeds"), "body");
+                    if ty == "mirror"
+                        && let Some(v) = check_row(ui, body, &tr("app.seeds.whole_body"))
+                    {
+                        set(act, "body", v.to_string());
+                    }
+                    if !body {
+                        for g in &earlier {
+                            let gid = jv::s(g, "id");
+                            let on = jv::arr(f.get("seeds")).iter().any(|x| x.as_str() == Some(gid));
+                            if let Some(v) = check_row(ui, on, jv::s(g, "name")) {
+                                set(act, &format!("seed:{gid}"), v.to_string());
+                            }
+                        }
+                    }
+                    if ty == "mirror" {
+                        let mut opts: Vec<(String, String)> =
+                            ["front", "top", "right"].iter().map(|k| (format!("base:{k}"), tr(&format!("app.mirror.{k}")))).collect();
+                        for g in P::features(&pv.part).iter().take(at).filter(|g| jv::s(g, "type") == "plane") {
+                            opts.push((format!("ref:{}", jv::s(g, "id")), jv::s(g, "name").to_string()));
+                        }
+                        let pl = f.get("plane").cloned().unwrap_or(Value::Null);
+                        let cur = match jv::s(&pl, "kind") {
+                            "base" => format!("base:{}", jv::s(&pl, "name")),
+                            "ref" => format!("ref:{}", jv::s(&pl, "feature")),
+                            _ => "cur".into(),
+                        };
+                        if cur == "cur" {
+                            let w = if jv::s(&pl, "kind") == "face" {
+                                let n = P::feature_by_id(&pv.part, jv::s(&pl, "feature"))
+                                    .map_or_else(|| "?".into(), |g| jv::s(g, "name").to_string());
+                                trv("app.mirror.a_face_of", &[("name", n)])
+                            } else {
+                                tr("app.mirror.a_fixed_plane")
+                            };
+                            opts.push(("cur".into(), w));
+                        }
+                        if pv.pick.as_ref().is_some_and(|p| p.face && p.flat) {
+                            opts.push(("pick".into(), tr("app.mirror.picked_face")));
+                        }
+                        if let Some(v) = combo(ui, format!("pc-plane-{id}"), &tr("app.mirror.plane"), &cur, &opts) {
+                            set(act, "plane", v);
+                        }
+                    } else {
+                        let k = if ty == "lpattern" { "dir" } else { "axis" };
+                        let mut opts: Vec<(String, String)> = vec![
+                            ("world:x".into(), tr("app.dir.x")),
+                            ("world:y".into(), tr("app.dir.y")),
+                            ("world:z".into(), tr("app.dir.z")),
+                        ];
+                        for g in P::features(&pv.part).iter().take(at) {
+                            let (gid, gname) = (jv::s(g, "id"), jv::s(g, "name").to_string());
+                            match jv::s(g, "type") {
+                                "revolve" => opts.push((format!("axis:{gid}"), trv("app.dir.axis_of", &[("name", gname)]))),
+                                "axis" => opts.push((format!("ref:{gid}"), gname)),
+                                "plane" => opts.push((format!("ref:{gid}"), trv("app.dir.plane_normal", &[("name", gname)]))),
+                                "sketch" => {
+                                    let sk = g.get("sketch").cloned().unwrap_or(Value::Null);
+                                    for (n, l) in
+                                        cc_part::sketch::entities(&sk).iter().filter(|e| jv::s(e, "type") == "line").take(30).enumerate()
+                                    {
+                                        let key =
+                                            if jv::truthy(l.get("construction")) { "app.dir.centerline_of" } else { "app.dir.line_of" };
+                                        opts.push((
+                                            format!("line:{gid}:{}", jv::s(l, "id")),
+                                            trv(key, &[("name", gname.clone()), ("n", (n + 1).to_string())]),
+                                        ));
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        let rf = f.get(k).cloned().unwrap_or(Value::Null);
+                        let cur = match jv::s(&rf, "kind") {
+                            "world" => format!("world:{}", jv::s(&rf, "axis")),
+                            "axis" => format!("axis:{}", jv::s(&rf, "feature")),
+                            "ref" => format!("ref:{}", jv::s(&rf, "feature")),
+                            "line" => format!("line:{}:{}", jv::s(&rf, "sketch"), jv::s(&rf, "entity")),
+                            _ => "fixed".into(),
+                        };
+                        if cur == "fixed" {
+                            opts.push(("fixed".into(), tr("app.dir.picked_fixed")));
+                        }
+                        if pv.pick.as_ref().is_some_and(|p| !p.face) {
+                            opts.push(("pick".into(), tr("app.dir.picked_now")));
+                        }
+                        let label = tr(if k == "dir" { "app.pattern.direction" } else { "app.props.axis" });
+                        if let Some(v) = combo(ui, format!("pc-dir-{id}"), &label, &cur, &opts) {
+                            set(act, k, v);
+                        }
+                        if ty == "lpattern" {
+                            num_row(ui, pv, &id, "spacing", &tr("app.pattern.spacing_mm"), act);
+                        } else {
+                            num_row(ui, pv, &id, "angle", &tr("app.props.angle_deg"), act);
+                            ui.label(
+                                RichText::new(tr(if jv::n(f, "angle") == 360.0 {
+                                    "app.pattern.full_circle"
+                                } else {
+                                    "app.pattern.spread"
+                                }))
+                                .small()
+                                .color(t.text_dim),
+                            );
+                            ui.end_row();
+                        }
+                        num_row(ui, pv, &id, "count", &tr("app.pattern.count"), act);
+                        if let Some(v) = check_row(ui, jv::truthy(f.get("reverse")), &tr("app.props.reverse")) {
+                            set(act, "reverse", v.to_string());
+                        }
+                    }
+                }
+                "fillet" | "chamfer" => {
+                    let k = if ty == "fillet" { "r" } else { "d" };
+                    num_row(ui, pv, &id, k, &tr(if ty == "fillet" { "app.fillet.radius_mm" } else { "app.chamfer.distance_mm" }), act);
+                    ui.label(tr("app.fillet.edges"));
+                    ui.label(jv::arr(f.get("edges")).len().to_string());
+                    ui.end_row();
+                }
+                _ => {
+                    num_row(ui, pv, &id, "t", &tr("app.shell.wall_mm"), act);
+                    if let Some(v) = check_row(ui, jv::truthy(f.get("outward")), &tr("app.shell.outward")) {
+                        set(act, "outward", v.to_string());
+                    }
+                    ui.label(tr("app.shell.open_faces"));
+                    ui.label(jv::arr(f.get("faces")).len().to_string());
+                    ui.end_row();
+                }
+            });
+            if matches!(ty.as_str(), "fillet" | "chamfer") {
+                ref_list(ui, pv, f, "edges", t, act);
+            } else if ty == "shell" {
+                ref_list(ui, pv, f, "faces", t, act);
+            }
+        }
+        _ => {
+            // the other feature types: their numbers through the parameters (params-part.js targets)
+            let targets = PP::targets(&pv.part);
+            let prefix = format!("{fname} ");
+            egui::Grid::new(("pc-feat", id.clone())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                for (key, tg) in
+                    targets.iter().filter(|(_, tg)| tg.feature == id && tg.field.as_deref().is_none_or(|fl| PP::field_in_use(f, fl)))
+                {
+                    let label = tg.label.strip_prefix(&prefix).unwrap_or(&tg.label).to_string();
+                    ui.label(label);
+                    let v = PP::target_value(&pv.part, tg);
+                    if let Some(text) = field(ui, &mut pv.edits, key, &show_num(v), 90.0, &tr("ui.params.field.plain")) {
+                        *act = cmd("part.param", format!("{key}={text}"));
+                    }
+                    ui.end_row();
+                }
+            });
+        }
+    }
+    if ty != "sketch"
+        && let Some(sid) = f.get("sketch").and_then(Value::as_str)
+    {
+        dims_block(ui, pv, sid, "app.dims.sketch", t, act);
+    }
+    let i = P::index_of(&pv.part, &id).map_or(0.0, cc_part::js::f);
     ui.horizontal_wrapped(|ui| {
         let off = jv::truthy(f.get("suppressed"));
         if ui.button(tr(if off { "app.history.unsuppress" } else { "app.history.suppress" })).clicked() {
@@ -284,6 +766,48 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
         if ui.button(tr("app.history.roll_here")).on_hover_text(tr("app.history.roll_here_title")).clicked() {
             *act = cmd("part.rollto", id.clone());
         }
+        let up = P::can_move(&pv.part, &id, i - 1.0);
+        let down = P::can_move(&pv.part, &id, i + 1.0);
+        if ui
+            .add_enabled(up.is_ok(), egui::Button::new(tr("app.history.move_up")))
+            .on_hover_text(up.err().unwrap_or_else(|| tr("app.history.move_up_title")))
+            .clicked()
+        {
+            *act = cmd("part.move", "up");
+        }
+        if ui
+            .add_enabled(down.is_ok(), egui::Button::new(tr("app.history.move_down")))
+            .on_hover_text(down.err().unwrap_or_else(|| tr("app.history.move_down_title")))
+            .clicked()
+        {
+            *act = cmd("part.move", "down");
+        }
+        if ui.button(RichText::new(tr("app.btn.delete")).color(t.text_strong)).clicked() {
+            *act = cmd("part.delete", "");
+        }
+    });
+    ui.horizontal(|ui| {
+        ui.label(tr("app.props.name"));
+        let key = format!("name:{id}");
+        if let Some(text) = field(ui, &mut pv.edits, &key, &fname, 140.0, "") {
+            *act = cmd("part.set", format!("{id}:name={text}"));
+        }
+    });
+}
+
+/// The question Delete asks when other features use the one being deleted.
+fn confirm_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
+    let Some((_, title, text)) = pv.confirm.clone() else { return };
+    egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ui.ctx(), |ui| {
+        ui.label(RichText::new(text).color(t.text));
+        ui.horizontal(|ui| {
+            if ui.button(tr("app.btn.cancel")).clicked() {
+                pv.confirm = None;
+            }
+            if ui.button(RichText::new(tr("app.btn.delete_all")).strong()).clicked() {
+                *act = cmd("part.delete", "yes");
+            }
+        });
     });
 }
 
@@ -469,10 +993,13 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
 }
 
 /// The 3D view: orbit / pan / zoom (view3d), hover names a face, a click selects it.
-fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens) {
+fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     if pv.fit_pending {
         pv.view.fit_pending = true;
         pv.fit_pending = false;
+    }
+    if pv.sk.size_pin.is_none() {
+        pv.sk.size = (f64::from(rect.width()), f64::from(rect.height()));
     }
     let resp = view3d::show(ui, rect, &pv.scene, &mut pv.view);
     let ppp = f64::from(ui.ctx().pixels_per_point());
@@ -488,13 +1015,53 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens) {
         }
     }
     if resp.clicked_by(egui::PointerButton::Primary) {
-        pv.sel_face = pv.hover;
-        pv.tab = "props";
-        pv.retint();
+        let shift = ui.input(|i| i.modifiers.shift);
+        let edge = px.and_then(|(x, y)| pv.edge_at(x, y, 6.0 * ppp));
+        let name = match (edge, pv.hover) {
+            (Some(e), _) => pv.edges().get(e).map(|_| format!("#{e}")).map(|n| ("part.edge", n)),
+            (None, Some(f)) => pv.face(f).map(|r| ("part.face", jv::s(r, "name").to_string())),
+            _ => Some(("part.face", String::new())),
+        };
+        if let Some((id, n)) = name {
+            *act = cmd(id, if shift && !n.is_empty() { format!("+{n}") } else { n });
+        }
     }
     if resp.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-        pv.sel_face = None;
-        pv.retint();
+        if pv.mode == Mode::Pick {
+            *act = cmd("part.pick.done", "");
+        } else {
+            pv.pick_none();
+            pv.pending_sketch = false;
+        }
+    }
+    if resp.hovered() && pv.mode == Mode::Model && pv.sel_feature.is_some() && ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+        *act = cmd("part.delete", "");
+    }
+    // picked edges (the pick, Shift+picks, the edges of the fillet / chamfer being picked for) drawn over the view
+    let mut marks: Vec<usize> = pv.multi.iter().filter(|m| !m.face).map(|m| m.index).collect();
+    if let Some(p) = pv.pick.as_ref().filter(|p| !p.face) {
+        marks.push(p.index);
+    }
+    if pv.mode == Mode::Pick
+        && let Some(f) = pv.editing.as_deref().and_then(|id| P::feature_by_id(&pv.part, id))
+    {
+        marks.extend(jv::arr(f.get("edges")).iter().filter_map(|r| pv.find_edge(r)));
+    }
+    if !marks.is_empty()
+        && let Some(mesh) = pv.regen.mesh.as_ref()
+    {
+        let segs: Vec<f64> = jv::arr(mesh.get("edgeSegs")).iter().map(|v| v.as_f64().unwrap_or(f64::NAN)).collect();
+        let owner = jv::arr(mesh.get("segEdge"));
+        let painter = ui.painter_at(rect);
+        let to = |q: (f64, f64)| egui::pos2(rect.min.x + (q.0 / ppp) as f32, rect.min.y + (q.1 / ppp) as f32);
+        for (k, sgm) in segs.as_chunks::<6>().0.iter().enumerate() {
+            let e = owner.get(k).and_then(Value::as_u64).and_then(|e| usize::try_from(e).ok());
+            if e.is_some_and(|e| marks.contains(&e))
+                && let (Some(a), Some(b)) = (pv.screen_of([sgm[0], sgm[1], sgm[2]]), pv.screen_of([sgm[3], sgm[4], sgm[5]]))
+            {
+                painter.line_segment([to(a), to(b)], egui::Stroke::new(3.0, t.accent));
+            }
+        }
     }
     // the hovered face's words beside the pointer
     if let (Some(p), Some(f)) = (pos, pv.hover.and_then(|i| pv.face(i))) {

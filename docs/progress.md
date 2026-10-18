@@ -2,6 +2,31 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M13.3 PartCraft sketcher and feature tools (agent, work/partsketch)
+
+- `crates/ui-egui/src/partsketch.rs`: sketchview.js in Rust — the sketch editor over the part view with 0.5's tools and
+  gestures: select (click, Shift+click, window, drag a point / curve / circle edge / dimension label with the solver live),
+  line (chains, snaps to points and curves, 3° horizontal / vertical), centerline, rectangle, circle, arc (follows the turn),
+  point, polygon, slot, spline / control spline (click the first point to close), trim, extend, offset (B: both sides),
+  mirror, linear / circular pattern, fillet, dimension (aligned / horizontal / vertical from where the label goes; type the
+  value), paste; value boxes (`Ask`), keys (L N R C A P D F S B T E O M Q, Esc, Enter, Delete). Every edit is one undo step
+  through partcraft.js's `sketchCommit` (solve, conflicts said, rebuild up to the sketch); `partsketchui.rs`: the sketch tool
+  bar, the sketch panel (state, legend, relations / dimensions for the selection, the relations list, numeric entry, Exit /
+  Fit) and the 2D stage (the model's edges projected onto the sketch plane, the value box).
+- `partview.rs` / `partfeat.rs`: new part, base planes in the history, Sketch on a plane / picked flat face / selected sketch,
+  exit; feature tools Extrude, Cut, Revolve, Revolve cut, Hole, Linear / Circular pattern, Mirror, Fillet, Chamfer, Shell
+  (edges and faces picked in the view or with Pick edges / faces, Shift+click collects; picking mode shows the part before
+  the feature), the feature panel's fields (operation, end, depth, reverse, angle, axis, hole type / diameter / through /
+  counterbore, seeds, direction, spacing, count, mirror plane, radius, distance, wall, outward, drop a reference), sketch
+  dimensions, delete (asks when features depend on it), move up / down, rename — each one undo step with 0.5's labels.
+  Commands: `part.new`, `part.plane`, `part.sketch`, `part.sketch.exit`, `part.sk.*` (tool, view, click, move, drag, dbl,
+  right, key, value, enter, rel, select, all, none, construction, unrel, edit, num, fit), `part.feature`, `part.set`,
+  `part.dim`, `part.delete`, `part.move`, `part.pick`, `part.pick.done`, `part.edge`, `part.times`.
+- Parity: `forks/tools/pcuidiff.mjs --scenario all` drives the app and the frozen page logic (pchost.mjs: partcraft.js's
+  host code with the real sketchview.js on a fake canvas) with the same commands: 6 scenarios, 241 steps, every status line
+  and 22 saved parts / STL / 3MF / STEP / IFC files byte-identical (0 differences).
+- Plain English where 0.5 has no key: the sketch view report of `part.sk.view`, `part.times`, "select sketch geometry first"
+  style command errors.
 ## 2026-10-18 — M14.3 DetailCraft's modelling tools (agent, work/detailtools)
 
 - M14.3: `crates/ui-egui/src/detailtools.rs` (tool state and detailcraft.js's actions on the engine) and

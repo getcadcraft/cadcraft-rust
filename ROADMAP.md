@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M13.3: PartCraft sketcher (every 0.5 sketch tool, relations, dimensions, live drag) and feature tools (extrude … shell, edge / face picking, edit, delete, move, rename); pcuidiff scenarios: 239 steps and 22 files byte-identical to 0.5
 - 2026-10-18 M14.3: DetailCraft modelling tools in the app (placing with snapping, connections, clipboard, transforms, windows / lasso, grids, levels, phases, holes, copes, Settings, plan / elevation); 558/558 status lines and files identical to the frozen 0.5 doing the same; 1.5–2.9× the JS on a 2820-member model.
 - 2026-10-18 M6.17: ModelCraft's panels (Entity info, Outliner, Components, Colors, Materials, Tags, Style + sun, Scenes, 3D-print check) and inference keys in the app; 4,076 / 4,076 saved files and 4,000 / 4,000 status lines byte-identical to 0.5 after the same actions.
 

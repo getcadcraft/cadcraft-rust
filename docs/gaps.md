@@ -35,9 +35,10 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    still missing there: arcs and circles in runs and outlines, dragging mark corners, multi-select, groups (typicals),
    notes / clouds, the 3D view, revisions.
 8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
-   parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity. Missing: the sketcher and every
-   tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,
-   rename), assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
+   parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity; the sketcher (every 0.5 sketch
+   tool, relations, dimensions, live drag) and the feature tools (extrude … shell, edge / face picking, edit, delete, move,
+   rename) at byte parity (M13.3). Missing: sketch Project (needs exact edges), sketch copy / paste between parts, the
+   reference-geometry / sweep / loft / surface / body / sheet-metal / rib / thread tools of the More menu, assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
    edit does not follow `configs` yet), the exact kernel's features (they say "not built", as 0.5's mesh build does),
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. The window's live tools are in (M16.3) except drawing_plot, view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. The window's live tools are in (M16.3) except drawing_plot, view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is being built.
