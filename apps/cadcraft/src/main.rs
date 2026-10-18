@@ -21,7 +21,44 @@ struct App {
     control: Option<control::Channel>,
 }
 
+/// The start screen's recent files, kept in `recent.json` in the config folder between runs.
+fn recent_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("recent.json"))
+}
+
+fn load_recent(app: &mut UiApp) {
+    let Some(p) = recent_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    // a damaged file is ignored (and replaced on the next save); at most 1 MB is read
+    if text.len() > 1 << 20 {
+        return;
+    }
+    let Ok(v) = serde_json::from_slice::<serde_json::Value>(&text) else { return };
+    for r in v.as_array().map(Vec::as_slice).unwrap_or(&[]).iter().take(cc_ui_egui::hub::MAX_RECENT) {
+        let (Some(name), Some(slug)) = (r.get("name").and_then(|x| x.as_str()), r.get("app").and_then(|x| x.as_str())) else { continue };
+        app.hub.recent.push(cc_ui_egui::hub::Recent {
+            name: name.chars().take(260).collect(),
+            dir: r.get("dir").and_then(|x| x.as_str()).map(str::to_string),
+            app: cc_ui_egui::hub::app_static(slug),
+            when: r.get("when").and_then(serde_json::Value::as_f64).unwrap_or(0.0),
+        });
+    }
+}
+
+fn save_recent(app: &UiApp) {
+    let Some(p) = recent_path() else { return };
+    let list: Vec<serde_json::Value> =
+        app.hub.recent.iter().map(|r| serde_json::json!({"name": r.name, "dir": r.dir, "app": r.app, "when": r.when})).collect();
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, serde_json::Value::Array(list).to_string().as_bytes());
+}
+
 impl eframe::App for App {
+    fn on_exit(&mut self) {
+        save_recent(&self.app);
+    }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
     }
@@ -172,9 +209,11 @@ fn main() -> eframe::Result {
                 pick_open: Some(Box::new(pick_open)),
                 read_xref: Some(Box::new(read_xref)),
                 save: Some(Box::new(save_file)),
+                read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
                 ..Default::default()
             };
             let mut app = UiApp::new(services);
+            load_recent(&mut app);
             if let Some(l) = control_line {
                 app.message = l;
             }

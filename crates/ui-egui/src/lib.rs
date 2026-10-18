@@ -36,6 +36,7 @@ pub mod detailpanel;
 pub mod detailview;
 pub mod document;
 pub mod edit;
+pub mod hub;
 pub mod ifc3d;
 pub mod markupcompare;
 pub mod markupprops;
@@ -101,7 +102,12 @@ pub struct Services {
     /// web: read a dropped file asynchronously into `inbox`
     #[cfg(target_arch = "wasm32")]
     pub read_dropped: Option<ReadDropped>,
+    /// desktop: read a file by its path (the start screen's recent files)
+    pub read_path: Option<ReadPath>,
 }
+
+/// Read a file by its path → (name, bytes, folder).
+pub type ReadPath = Box<dyn FnMut(&str) -> Result<ImportedFile, String>>;
 
 /// The commands of the viewer (id, label, shortcut, params doc).
 pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
@@ -207,6 +213,8 @@ pub struct UiApp {
     pub detail: Option<detailview::DetailView>,
     /// an open PartCraft part (partview.rs)
     pub part: Option<partview::PartView>,
+    /// CadCraft Studio's start screen (hub.rs): recent files, language
+    pub hub: hub::Hub,
     /// BimCraft's editing and Draw on the IFC view (bimedit.rs, bimplan.rs)
     pub bimh: bimedit::Host,
 }
@@ -256,6 +264,7 @@ impl Default for UiApp {
             civil: None,
             detail: None,
             part: None,
+            hub: hub::Hub::default(),
             bimh: bimedit::Host::default(),
         }
     }
@@ -294,6 +303,7 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
+        self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
         bimedit::opened(self);
         if detailview::open_file(self, f) {
             return;
@@ -1233,6 +1243,7 @@ impl UiApp {
                 return pdfcmd::run(self, id, params);
             }
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
+            id if id.starts_with("hub.") => return hub::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if id.starts_with("part.") => {
@@ -1501,6 +1512,8 @@ impl UiApp {
             }
         } else if self.civil.is_some() {
             civilview::ui(self, ui);
+        } else if self.doc.is_none() && self.editor.is_none() {
+            hub::ui(self, ui);
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         }
@@ -1517,7 +1530,13 @@ impl UiApp {
             .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin::symmetric(8, 4)))
             .show(ui, |ui| {
                 ui.horizontal_centered(|ui| {
-                    ui.label(RichText::new("CadCraft").strong().color(t.text_strong));
+                    if ui
+                        .button(RichText::new("CadCraft").strong().color(t.text_strong))
+                        .on_hover_text(hub::t(&self.hub.locale, "window.hub.title"))
+                        .clicked()
+                    {
+                        self.run_ui("hub.home", &Params::default());
+                    }
                     ui.label(RichText::new("Rust test version").small().color(t.text_dim));
                     ui.separator();
                     if ui.button("Open…").on_hover_text("Open a DWG or DXF (Ctrl+O)").clicked() {

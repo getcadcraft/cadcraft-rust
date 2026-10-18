@@ -1,0 +1,33 @@
+{
+  "@locale": "en",
+  "@name": "English",
+  "@context": {
+    "catalog.cadcraft.role": "Each app: role = what it is for (a few words, on cards and Studio tiles); tagline = one line under the name; short = the one-sentence description on cards and Studio tiles. Product names, file formats (DWG, IFC, STEP, LandXML) and GD&T stay as they are."
+  },
+  "catalog.cadcraft.role": "2D drafting & 3D modeling",
+  "catalog.cadcraft.tagline": "The drafting table you already know how to use.",
+  "catalog.cadcraft.short": "Command-line drafting with layers, blocks, dimensions and layouts that plot, plus a 3D tab for solids. Opens and saves DWG and DXF.",
+  "catalog.bimcraft.role": "BIM review & editing",
+  "catalog.bimcraft.tagline": "Open the model. Check it. Change it.",
+  "catalog.bimcraft.short": "Open, check and edit IFC building models, with 3D, sections, schedules and clash checks.",
+  "catalog.modelcraft.role": "3D modeling for design",
+  "catalog.modelcraft.tagline": "Push, pull and think in three dimensions.",
+  "catalog.modelcraft.short": "Fast push/pull modeling with groups, components, guides and inference snapping, for massing and early design.",
+  "catalog.markupcraft.role": "Drawing review & markup",
+  "catalog.markupcraft.tagline": "Red-pen the set without the red pen.",
+  "catalog.markupcraft.short": "Open a PDF plan set, mark it up from a saved tool chest, compare revisions and run punch lists with the whole team.",
+  "catalog.takeoffcraft.role": "Quantity takeoff & estimating",
+  "catalog.takeoffcraft.tagline": "Measure the drawings. Count the work. Price the job.",
+  "catalog.takeoffcraft.short": "Calibrated linear, area and count takeoff from PDF plans, with assemblies, cost columns and quantities that export.",
+  "catalog.civilcraft.role": "Civil & site design",
+  "catalog.civilcraft.tagline": "From survey points to finished grade.",
+  "catalog.civilcraft.short": "Surfaces from points and breaklines, alignments, profiles, corridors, grading and pipe networks. LandXML in and out.",
+  "catalog.detailcraft.role": "Steel & rebar detailing",
+  "catalog.detailcraft.tagline": "Model it once. Every shop drawing follows.",
+  "catalog.detailcraft.short": "Structural steel members and connections, rebar placement and bending schedules, shop drawings and NC files from one model.",
+  "catalog.partcraft.role": "Parametric parts & assemblies",
+  "catalog.partcraft.tagline": "Sketch, constrain, extrude. Then build the assembly.",
+  "catalog.partcraft.short": "Constrained sketches, feature history, assemblies with joints and drawings with GD&T. STEP in and out.",
+  "catalog.supercadcraft.role": "One app to rule them all",
+  "catalog.supercadcraft.short": "The eight apps in one: drafting, BIM, modeling, markup, takeoff, civil, detailing and parts in a single window, on the same files."
+}

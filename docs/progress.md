@@ -2,6 +2,17 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.5 CadCraft Studio's start screen (agent, work/studio)
+
+- `crates/ui-egui/src/hub.rs`: with nothing open the window shows Studio's hub: the eight apps as tiles in their layer
+  colours with role and short text from the 0.5 site catalog (`assets/lang/catalog`), an Open button that opens each
+  app's sample (CadCraft also "New drawing"), SuperCadCraft as "coming later", recent files with app filter chips and
+  relative times, the Open-a-file card and the Help topics from Studio 0.5's hub catalog (`assets/lang/studio`, en and
+  es-MX, from studio@57640c4). Commands `hub.sample`, `hub.recent`, `hub.filter`, `hub.lang`, `hub.home` (the CadCraft
+  button in the app bar). Recent files persist in `recent.json` in the config folder (desktop). Narrow windows stack.
+- Plain English where 0.5 has no key: "New drawing", relative times ("just now", "3 minutes ago"), tooltips.
+  Screenshots: hub dark / light / with recent files / 800 px wide.
+
 ## 2026-10-18 — M16.4 Studio Live protocol core (agent, work/studio)
 
 - `crates/live` (cc-live, L3): LIVE-PROTOCOL.md version 1 — our own bounded MessagePack (live-client.js's encoding rules),
