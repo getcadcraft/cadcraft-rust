@@ -248,6 +248,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-engine"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
+ "cc-drawing",
+ "cc-geom",
+ "cc-tools",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "cc-geom"
 version = "0.0.1"
 
@@ -405,8 +418,20 @@ dependencies = [
 name = "cc-mcp"
 version = "0.0.1"
 dependencies = [
+ "cc-bim",
  "cc-cad",
+ "cc-cad-geom",
+ "cc-engine",
+ "cc-geom",
+ "cc-io-cad",
+ "cc-io-dwg",
+ "cc-io-ifc",
+ "cc-io-markup",
+ "cc-io-takeoff",
+ "cc-markup",
+ "cc-takeoff",
  "getrandom 0.3.4",
+ "regex",
  "serde_json",
 ]
 
@@ -441,6 +466,14 @@ dependencies = [
  "libm",
  "serde_json",
  "unicode-normalization",
+]
+
+[[package]]
+name = "cc-tools"
+version = "0.0.1"
+dependencies = [
+ "cc-drawing",
+ "cc-geom",
 ]
 
 [[package]]

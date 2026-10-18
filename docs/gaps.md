@@ -35,6 +35,7 @@ Last updated 2026-10-18 · Change: CivilCraft tools and panels (M11.7–M11.10),
    tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,
    rename), assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
    edit does not follow `configs` yet), the exact kernel's features (they say "not built", as 0.5's mesh build does),
+   rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. Live tools in the window, Live and the start screen are being built.
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel for assistants is in (M16.1, `cadcraft --control`); the MCP tools, Live and the start screen are being built.
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio**: in progress (M16).
    **DetailCraft** (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing

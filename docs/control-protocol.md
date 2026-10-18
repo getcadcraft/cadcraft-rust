@@ -6,6 +6,7 @@ dispatcher.
 | Date | Change |
 |---|---|
 | 2026-10-18 | M16.1: `cc-mcp` dispatcher (core.mjs), HTTP control channel (control.rs), token, confinement; `cadcraft --control`. |
+| 2026-10-18 | M16.2: the headless MCP server `cadcraft-cli mcp` with 0.5's 22 tools; parity harness `forks/tools/mcpdiff.mjs`. |
 
 The apps contain no AI. They give the person's own assistant (or script) **tools**, and the person decides which
 permission groups are allowed: `read`, `edit`, `save`, `export` (0.5 `docs/AGENTS-SPEC.md` § 3). Tool names, titles,
@@ -15,7 +16,33 @@ descriptions and argument schemas are 0.5's, so an assistant set up for CadCraft
 
 | Surface | Command | Transport | Code |
 |---|---|---|---|
+| Headless MCP | `cadcraft-cli mcp [--root DIR]… [--automation-read-root DIR]… [--automation-write-root DIR]… [--allow …] [--log f.jsonl] [--verbose]` (or `CADCRAFT_MCP_ROOTS` / `CADCRAFT_MCP_ALLOW`) | MCP over stdio (newline-delimited JSON-RPC 2.0; stdout is protocol only; lines ≤ 4 MB) | `cc_mcp::headless`, `cc_mcp::{cad, takeoff, markups, ifc, defs}`, `apps/cadcraft-cli/src/mcp.rs` |
+| Relay to a window | `cadcraft-cli mcp --connect PORT --token-file control.token` | stdio → the window's `/mcp` | `apps/cadcraft-cli/src/mcp.rs` |
 | Live control (the open window) | `cadcraft --control [PORT] [--allow read,edit,save,export]` (or `CADCRAFT_CONTROL_PORT` / `APP_CONTROL_PORT`) | MCP over Streamable HTTP (`POST /mcp`) and the JSON control channel (`POST /control`) on 127.0.0.1 | `cc_mcp::http`, `cc_mcp::live`, `apps/cadcraft/src/control.rs` |
+
+## The headless tools (0.5 `tools/cli/headless/tools.mjs`, AGENTS-SPEC § 5.1)
+
+`files_list`, `drawing_open`, `drawing_new`, `drawing_describe`, `objects_list`, `object_get`, `drawing_check`,
+`command_run`, `script_run`, `undo`, `drawing_save`, `drawing_convert`, `drawing_plot`, `doc_close`, `ifc_open`,
+`ifc_query`, `ifc_properties`, `takeoff_open`, `takeoff_quantities`, `takeoff_estimate`, `takeoff_export`, `markups_list`
+— names, titles, descriptions, schemas and annotations byte for byte 0.5's. The drawing tools run on the Rust `Doc` and
+command line (`cc_mcp::cad` = the app's agents.js: describeDrawing, listObjects, checkDrawing, runInput with one undo
+step labelled `Assistant: …`); IFC on cc-io-ifc + cc-bim (ifc.mjs), takeoffs on cc-takeoff (agents.js + takeoff.mjs),
+markups on cc-io-markup (markup.mjs). Two answers are "not available yet": `drawing_plot` (CadCraft's plot.js is not
+ported) and `script_run` with `language: "lisp"` ("This CadCraft build has no LISP.", 0.5's own sentence). Only the
+commands the Rust command line has ported run (LINE PLINE CIRCLE ARC RECTANG POLYGON ELLIPSE POINT TEXT ERASE MOVE COPY
+ROTATE SCALE MIRROR OFFSET TRIM EXTEND UNDO REDO ZOOM); others answer "Unknown command" as the app's command line does.
+
+Confinement (AGENTS.md § 9, paths.mjs): on by default — with no folder option the current folder is the only root.
+`--root` (0.5's flag) is a read and write root; `--automation-read-root` / `--automation-write-root` split them. Paths are
+canonicalised (links followed, `..` folded) and must stay inside; device paths, NUL bytes, and on Windows UNC paths,
+alternate data streams and device names are refused first; a file that exists is replaced only when this session opened or
+wrote it, or with `overwrite: true`; a link is never written through.
+
+Parity: `node forks/tools/mcpdiff.mjs` runs the frozen 0.5 server (`tools/mcp/server.mjs` at 594ab3e on the frozen
+js-0.5 app build) and `cadcraft-cli mcp` side by side on one script (initialize, tools/list, 240 tool calls incl.
+refusals, confinement, saves read back, every element of the IFC house, the takeoff fixture, two marked-up PDFs; then a
+read-only server). Written DXF/CSV files compared byte for byte, XLSX entry by entry.
 
 ## Rules of the HTTP channel (desktop-shell `control.rs`, exactly)
 

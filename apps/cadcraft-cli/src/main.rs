@@ -17,6 +17,7 @@
 //!                                                print the report as JSON; --created-ms / --guid-seq fix the creation
 //!                                                time and the GUIDs (the parity harness does the same in the JS);
 //!                                                --bench N: best-of-N write time after one warm-up
+//!   cadcraft-cli mcp [--root DIR]… [--allow …]     CadCraft's tools for an AI assistant over stdio (MCP), mcp.rs
 //!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
 //!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
 //!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
@@ -56,6 +57,7 @@ mod m3dtools;
 mod manifold;
 mod markup;
 mod markup2;
+mod mcp;
 mod part;
 mod skp;
 mod takeoff;
@@ -89,6 +91,7 @@ fn main() -> ExitCode {
         "write" => write(&rest),
         "dynvis" => dynvis(&rest),
         "cmds" => cmds::cmds(&rest),
+        "mcp" => mcp::run(&rest.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),
         "save" => iocad::save(&rest),

@@ -329,6 +329,7 @@ dependencies = [
  "cc-m3d-tools",
  "cc-manifold",
  "cc-markup",
+ "cc-mcp",
  "cc-part",
  "cc-takeoff",
  "flate2",
@@ -652,8 +653,20 @@ dependencies = [
 name = "cc-mcp"
 version = "0.0.1"
 dependencies = [
+ "cc-bim",
  "cc-cad",
+ "cc-cad-geom",
+ "cc-engine",
+ "cc-geom",
+ "cc-io-cad",
+ "cc-io-dwg",
+ "cc-io-ifc",
+ "cc-io-markup",
+ "cc-io-takeoff",
+ "cc-markup",
+ "cc-takeoff",
  "getrandom 0.3.4",
+ "regex",
  "serde_json",
 ]
 

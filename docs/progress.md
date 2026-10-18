@@ -2,6 +2,20 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.2 the headless MCP server (agent, work/studio)
+
+- `cadcraft-cli mcp`: 0.5's stdio MCP server (tools/mcp/server.mjs) with the 22 headless tools of tools.mjs, definitions byte
+  for byte; `--root` / `--automation-read-root` / `--automation-write-root`, confinement on by default (the current folder),
+  `--allow`, `--log`, `--verbose`, `CADCRAFT_MCP_ROOTS` / `_ALLOW`; `--connect PORT --token-file F` relays to a running app.
+  `cc_mcp::cad` ports CadCraft's agents.js (describeDrawing, listObjects, objectInFull, checkDrawing, runInput with one
+  `Assistant: …` undo step, undoSteps) plus plot.js extentsOf, sheets.js scaleLabel and commands.js describe; `ifc`, `takeoff`
+  and `markups` port ifc.mjs, TakeoffCraft's and MarkupCraft's agents.js.
+- Parity (`forks/tools/mcpdiff.mjs`, frozen 0.5 server vs ours, one script): 249 messages, 246 the same, 0 different, 3
+  known (drawing_plot: plot.js not ported; LISP not ported, and the drawing that LISP line was in); 223 / 243 answers byte
+  for byte, the rest equal as JSON (key order inside drawing objects). Written DXF / CSV byte for byte, XLSX entry by entry.
+- Time over the script (release, same machine): JS 5,592 ms, Rust 2,298 ms (2.4×); drawing_open 3.2×, objects_list 4.0×,
+  drawing_save 1.4×, ifc_properties 2.4×, markups_list 59× (the JS figures include loading pdf.js on first use).
+
 ## 2026-10-18 — M16.1 the control channel (agent, work/studio)
 
 - `crates/mcp`: the dispatcher (0.5 tools/mcp/core.mjs, answer for answer: MCP + control-channel methods, the JSON

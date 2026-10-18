@@ -22,13 +22,20 @@
 )]
 #![deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
+pub mod cad;
+pub mod defs;
+pub mod ifc;
 pub mod json;
 pub mod live;
+pub mod markups;
 pub mod rpc;
 pub mod schema;
+pub mod takeoff;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod confine;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod headless;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod http;
 #[cfg(not(target_arch = "wasm32"))]
