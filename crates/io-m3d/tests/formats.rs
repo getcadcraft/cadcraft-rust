@@ -665,3 +665,28 @@ fn ifc_export() {
     assert!(ids.len() > 8 && uniq.len() == ids.len(), "GlobalIds all distinct");
     assert_eq!(ifc::step_string("it's \\ ok"), "'it''s \\\\ ok'");
 }
+
+/// Fuzz find (m3d_import oom-5a5c1802…): nested inserts of 3DFACEs made millions of filled outlines before the
+/// 200 000 check ran. The drawing now stops as soon as the count is passed, with the same refusal.
+#[test]
+fn dxf_site_plan_nested_faces_refused_early() {
+    let mut d = String::from("0\nSECTION\n2\nBLOCKS\n");
+    d.push_str("0\nBLOCK\n8\n0\n2\nB0\n70\n0\n10\n0\n20\n0\n30\n0\n");
+    for i in 0..10 {
+        d.push_str(&format!(
+            "0\n3DFACE\n8\n0\n10\n{i}\n20\n0\n30\n0\n11\n{}\n21\n0\n31\n0\n12\n{i}\n22\n1\n32\n0\n13\n{i}\n23\n1\n33\n0\n",
+            i + 1
+        ));
+    }
+    d.push_str("0\nENDBLK\n");
+    for b in 1..=6 {
+        d.push_str(&format!("0\nBLOCK\n8\n0\n2\nB{b}\n70\n0\n10\n0\n20\n0\n30\n0\n"));
+        for i in 0..10 {
+            d.push_str(&format!("0\nINSERT\n8\n0\n2\nB{}\n10\n{i}\n20\n0\n30\n0\n", b - 1));
+        }
+        d.push_str("0\nENDBLK\n");
+    }
+    d.push_str("0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n8\n0\n2\nB6\n10\n0\n20\n0\n30\n0\n0\nENDSEC\n0\nEOF\n");
+    let e = site::import_dxf(&mut Model::new(), &d, "nest.dxf", None).unwrap_err().to_string();
+    assert!(e.contains("200"), "{e}");
+}

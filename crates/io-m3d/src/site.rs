@@ -33,6 +33,9 @@ const MAX_SEGS: usize = 2_000_000;
 const MAX_TEXT_SEGS: f64 = 400_000.0;
 /// Most entity visits a drawing may cost (block arrays nested in blocks multiply; the JS never finishes there).
 const MAX_DRAW: u64 = 100_000_000;
+/// the import refuses a drawing with more filled outlines than this (site.js checks after drawing; nested inserts can
+/// make far more first, so the drawing stops as soon as the count is passed: same refusal, bounded memory)
+const MAX_POLYS: usize = 200_000;
 /// Most points one arc or curve may be cut into before it is refused (the JS runs out of memory there).
 const MAX_ARC_POINTS: f64 = 50_000_000.0;
 
@@ -1438,6 +1441,13 @@ const C_DIMS: usize = 10;
 const C_PAPER: usize = 12;
 
 impl Site<'_> {
+    fn push_poly(&mut self, p: SitePoly) -> Res<()> {
+        if self.polys.len() >= MAX_POLYS {
+            return Err(err("m3d.io.this_drawing_has_more_than_200"));
+        }
+        self.polys.push(p);
+        Ok(())
+    }
     fn count(&mut self, k: usize) {
         if let Some(c) = self.counts.get_mut(k) {
             *c += 1.0;
@@ -1677,7 +1687,7 @@ impl Site<'_> {
                 Ent::Face(pts) => {
                     self.count(C_FACES3D);
                     let p: Vec<P3> = pts.iter().map(|p| self.p3(m, *p)).collect();
-                    self.polys.push(SitePoly::Face(p));
+                    self.push_poly(SitePoly::Face(p))?;
                 }
                 Ent::Hatch(loops) => {
                     self.count(C_HATCHES);
@@ -1709,7 +1719,7 @@ impl Site<'_> {
                             let pts = loops.get(q).map_or(&[][..], Vec::as_slice);
                             lps.push(pts.iter().map(|p| self.p3(m, [p[0], p[1], 0.0])).collect());
                         }
-                        self.polys.push(SitePoly::Loops(lps));
+                        self.push_poly(SitePoly::Loops(lps))?;
                     }
                 }
                 Ent::Dim(block) => match self.plan.blocks.get(block) {
@@ -1780,7 +1790,7 @@ pub fn site_edges(model: &mut Model, plan: &Plan, name: &str, unit: Option<&str>
     }
     let mut s = Site { plan, k, segs: Vec::new(), polys: Vec::new(), text_segs: 0.0, skipped: Map::new(), counts: [0.0; 13], draws: 0 };
     s.draw(&plan.ents, &[1.0, 0.0, 0.0, 1.0, 0.0, 0.0], 0)?;
-    if s.polys.len() > 200_000 {
+    if s.polys.len() > MAX_POLYS {
         return Err(err("m3d.io.this_drawing_has_more_than_200"));
     }
     let nm = clean_name(name);

@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M13.2 merges and a fuzz fix (lead)
+
+- Merged M14.1/M14.2 (DetailCraft view) and M13.1 (PartCraft view) into main. Opening a part, a DetailCraft model or a
+  CivilCraft project now closes the other two views.
+- M13.2: the `m3d_import` fuzz target ran out of memory in `cc_io_m3d::site` (the DXF site plan): nested inserts of
+  3DFACEs built millions of filled outlines before site.js's 200 000 check, which runs after drawing. The drawing now
+  stops as soon as the count is passed: same refusal, bounded memory. Regression test
+  `dxf_site_plan_nested_faces_refused_early` (a million faces through six levels of blocks) and the find as a seed.
+
 ## 2026-10-18 — M13.1 PartCraft in the app (agent, work/partapp)
 
 - M13.1: `crates/ui-egui/src/partview.rs` + `partpanel.rs`: a PartCraft view. Opens what 0.5 PartCraft opens — its

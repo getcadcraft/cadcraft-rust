@@ -11,7 +11,7 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11, read-mostly): no drawing tools yet (alignment, pad, pipe, breakline, boundary,
    feature line, parcel, traverse), no grips / point moves, no profile and section panels, no import dialog (format is
-   detected), no LandXML / DXF / DWG / PDF / GLB export from the view (the engine has them), no GIS layers or basemaps,
+   detected), no GIS layers or basemaps (so exports carry no map pictures),
    no copy / paste of points; `Surface::outline` takes 2.9 s on a 1 M-point TIN (once per surface).
 5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
 6. **BimCraft** (M7): IFC 3D view, picking, properties, Find / Quantity; no plan drawing, no BIM Draw tools, no IFC save

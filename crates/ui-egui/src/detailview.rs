@@ -710,7 +710,17 @@ pub fn open_file(app: &mut UiApp, f: &ImportedFile) -> bool {
 
 /// Before any command (lib.rs `run`): commands that open another document close the DetailCraft view.
 pub fn before_run(app: &mut UiApp, id: &str) {
-    if matches!(id, "file.sample" | "file.new" | "view.model.sample" | "view.demo3d" | "civil.sample" | "civil.demo" | "civil.synthetic" | "part.sample") {
+    if matches!(
+        id,
+        "file.sample"
+            | "file.new"
+            | "view.model.sample"
+            | "view.demo3d"
+            | "civil.sample"
+            | "civil.demo"
+            | "civil.synthetic"
+            | "part.sample"
+    ) {
         app.detail = None;
     }
 }
