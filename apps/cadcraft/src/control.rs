@@ -181,20 +181,25 @@ impl Win<'_> {
 
     fn pdf_sheets(&self) -> Vec<cc_mcp::markups::LiveSheet> {
         let Some(p) = self.app.pdf.as_ref() else { return Vec::new() };
-        let stem = p.name.rsplit_once('.').map_or(p.name.as_str(), |(s, _)| s).to_string();
-        p.pages
-            .iter()
-            .map(|pg| {
-                let title =
-                    if pg.number.is_empty() { format!("{stem} — page {}", pg.index.saturating_add(1)) } else { pg.number.clone() };
-                cc_mcp::markups::LiveSheet {
-                    key: format!("f1:{}", pg.index),
-                    title,
-                    width: pg.width,
-                    height: pg.height,
-                    view: pg.view,
-                    file: Some(p.name.clone()),
-                }
+        // every PDF of the plan set (M9.15), in file order f1, f2, …; sheets are "<file id>:<page index>"
+        let mut files: Vec<&cc_ui_egui::pdfview::PdfFile> = std::iter::once(&p.cur).chain(p.others.iter()).collect();
+        files.sort_by_key(|f| f.id.trim_start_matches('f').parse::<u64>().unwrap_or(u64::MAX));
+        files
+            .into_iter()
+            .flat_map(|f| {
+                let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(s, _)| s).to_string();
+                f.pages.iter().map(move |pg| {
+                    let title =
+                        if pg.number.is_empty() { format!("{stem} — page {}", pg.index.saturating_add(1)) } else { pg.number.clone() };
+                    cc_mcp::markups::LiveSheet {
+                        key: format!("{}:{}", f.id, pg.index),
+                        title,
+                        width: pg.width,
+                        height: pg.height,
+                        view: pg.view,
+                        file: Some(f.name.clone()),
+                    }
+                })
             })
             .collect()
     }
@@ -237,7 +242,7 @@ impl Tools for Win<'_> {
                 let p = self.app.pdf.as_ref().ok_or("No plan set is open.")?;
                 let st = p.takeoff.tk.state.clone();
                 let sheets: Vec<(String, String)> =
-                    (0..p.pages.len()).map(|i| (p.takeoff.sheet(i), cc_mcp::takeoff::sheet_label(&st, &p.takeoff.sheet(i)))).collect();
+                    (0..p.cur.pages.len()).map(|i| (p.takeoff.sheet(i), cc_mcp::takeoff::sheet_label(&st, &p.takeoff.sheet(i)))).collect();
                 let current = p.takeoff.sheet(p.page);
                 if name == "takeoff_export" {
                     if p.takeoff.tk.items().is_empty() {

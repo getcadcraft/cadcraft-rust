@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.6 Studio merged (lead)
+
+- Merged M16.1–M16.5 (control channel, `cadcraft-cli mcp`, live tools, cc-live, start screen). M16.6: the control
+  channel's MarkupCraft / TakeoffCraft tools follow the plan sets of M9.15 (every open PDF's sheets as `<file id>:<page>`,
+  in file order). On main's build: mcpdiff 292 messages, 289 the same, 0 different, 3 known (plot.js, LISP); live tool
+  definitions 43, 0 different.
+
 ## 2026-10-18 — M16.5 CadCraft Studio's start screen (agent, work/studio)
 
 - `crates/ui-egui/src/hub.rs`: with nothing open the window shows Studio's hub: the eight apps as tiles in their layer
