@@ -294,3 +294,7 @@ path = "fuzz_targets/part_script.rs"
 test = false
 doc = false
 bench = false
+
+# same patched hayro-syntax as the main workspace (vendor/hayro-syntax/CADCRAFT-PATCH.md)
+[patch.crates-io]
+hayro-syntax = { path = "../vendor/hayro-syntax" }

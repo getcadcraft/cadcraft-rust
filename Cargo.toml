@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask"]
-exclude = ["fuzz"]
+exclude = ["fuzz", "vendor"]
 
 [workspace.package]
 version = "0.0.1"
@@ -109,3 +109,7 @@ inherits = "release"
 lto = "fat"
 codegen-units = 1
 opt-level = 3
+
+# hayro-syntax 0.8.0 with one panic removed (vendor/hayro-syntax/CADCRAFT-PATCH.md); drop when upstream has the fix
+[patch.crates-io]
+hayro-syntax = { path = "vendor/hayro-syntax" }

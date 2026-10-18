@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — merges and a hayro-syntax fix (lead)
+
+- Merged M9.13–M9.15 (MarkupCraft / TakeoffCraft panels, tools, several PDFs, compare) M7.12–M7.13 (BimCraft IFC
+  edit + save, storey plan, Draw tools, schedules) and M11.7–M11.10 (CivilCraft tools, profile and section panels, points). On main's build: tkopsdiff 17/17, mkuidiff 6/6 identical.
+- M9.16: the `markup_pdf_read` fuzz target hit a panic in hayro-syntax 0.8.0 (`ArrayIter::next` unwraps an item it had
+  skimmed as valid; reached from page loading, so the crate-side workarounds in jsdoc.rs could not cover it). The crate is
+  vendored in `vendor/hayro-syntax` with that unwrap returning the `Option`, via `[patch.crates-io]`; regression test
+  `array_that_does_not_read_back` (panics without the patch) and the input as a fuzz seed.
+
 ## 2026-10-18 — M11.10 CivilCraft survey points: selection, copy / cut / paste / duplicate, Delete (agent, work/civiltools)
 
 - M11.10: `crates/ui-egui/src/civilpoints.rs`: several survey points selected (Shift+click, Shift+drag a box, Ctrl+A,
