@@ -1,11 +1,12 @@
-//! model.js — one open IFC file (reading side): the bytes, the instance index (step.rs `scan_step`), lines parsed on
-//! first read, attributes by name, ids by type, inverse references.
+//! model.js — one open IFC file: the bytes, the instance index (step.rs `scan_step`), lines parsed on first read,
+//! attributes by name, ids by type, inverse references, and (write.rs) edits kept beside the original bytes and saving:
+//! untouched lines copied byte for byte, written ones formatted anew. Every read sees the edits, as model.js does.
 //!
 //! Ids are JS numbers: a line's id is what the scan's `Int32Array` holds; a reference `#n` may be any size and finds
 //! a line only where the JS lookup would (`slot[id]` when the largest id is small, else a Map of the wrapped ids).
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock, PoisonError};
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use crate::schema::{Schema, schema_for};
 use crate::step::{Part, StepError, StepIndex, parse_complex, parse_params, scan_step};
@@ -28,11 +29,25 @@ enum Lookup {
 
 pub type Parsed = Result<Box<[Value]>, Box<str>>;
 /// element id → relation ids
-pub type Inverse = std::sync::Arc<HashMap<u64, Vec<Id>>>;
+pub type Inverse = Arc<HashMap<u64, Vec<Id>>>;
+
+/// Where the bytes live: borrowed from the caller, or owned (an editable model the app keeps).
+enum Src<'a> {
+    Borrowed(&'a [u8]),
+    Owned(Arc<[u8]>),
+}
+
+/// A line written over the file (new, or replacing an original one; the type may change).
+#[derive(Clone, Debug)]
+pub struct Edit {
+    pub id: Id,
+    pub ty: Box<str>,
+    pub params: Box<[Value]>,
+}
 
 /// One open file.
 pub struct IfcFile<'a> {
-    pub bytes: &'a [u8],
+    src: Src<'a>,
     pub ix: StepIndex,
     pub schema: &'static Schema,
     pub schema_name: &'static str,
@@ -44,6 +59,12 @@ pub struct IfcFile<'a> {
     parsed: Vec<OnceLock<Parsed>>,
     by_type: OnceLock<HashMap<Box<str>, Vec<Id>>>,
     inv: Mutex<HashMap<String, Inverse>>,
+    /// written lines (new or replacing), by id key
+    pub(crate) edits: HashMap<u64, Edit>,
+    /// removed original ids (keys)
+    pub(crate) gone: HashSet<u64>,
+    /// bumps on every write
+    pub version: u64,
 }
 
 impl std::fmt::Debug for IfcFile<'_> {
@@ -60,6 +81,18 @@ impl<'a> IfcFile<'a> {
     }
 
     pub fn new(bytes: &'a [u8], ix: StepIndex) -> IfcFile<'a> {
+        IfcFile::with_src(Src::Borrowed(bytes), ix)
+    }
+
+    /// The bytes of the file as it was opened.
+    pub fn bytes(&self) -> &[u8] {
+        match &self.src {
+            Src::Borrowed(b) => b,
+            Src::Owned(b) => b,
+        }
+    }
+
+    fn with_src(src: Src<'a>, ix: StepIndex) -> IfcFile<'a> {
         let (schema, guessed) = schema_for(&ix.schema.lossy());
         let n = ix.count;
         let lookup = if ix.max_id <= usize_f64(n) * 4.0 + 1_000_000.0 {
@@ -83,7 +116,7 @@ impl<'a> IfcFile<'a> {
         let parsed = (0..n).map(|_| OnceLock::new()).collect();
         let ents = ix.names.iter().map(|t| schema.entity(t)).collect();
         IfcFile {
-            bytes,
+            src,
             max_id: ix.max_id,
             ix,
             schema,
@@ -94,6 +127,9 @@ impl<'a> IfcFile<'a> {
             parsed,
             by_type: OnceLock::new(),
             inv: Mutex::new(HashMap::new()),
+            edits: HashMap::new(),
+            gone: HashSet::new(),
+            version: 0,
         }
     }
 
@@ -128,8 +164,27 @@ impl<'a> IfcFile<'a> {
 
     /// 'IFCWALL' (upper case), "" for a complex instance, None when there is no such line.
     pub fn ty(&self, id: Id) -> Option<&str> {
+        if !self.edits.is_empty() || !self.gone.is_empty() {
+            let k = id_key(id);
+            if self.gone.contains(&k) {
+                return None;
+            }
+            if let Some(e) = self.edits.get(&k) {
+                return Some(&e.ty);
+            }
+        }
         let r = self.rec(id)?;
         Some(self.ix.type_name(r))
+    }
+
+    /// The written line at an id, if any (None also when the id was removed).
+    pub fn edit(&self, id: Id) -> Option<&Edit> {
+        self.edits.get(&id_key(id))
+    }
+
+    /// Was this original line removed?
+    pub fn is_gone(&self, id: Id) -> bool {
+        self.gone.contains(&id_key(id))
     }
 
     /// Parse every plain line now (natively in parallel); reads then never parse.
@@ -154,12 +209,21 @@ impl<'a> IfcFile<'a> {
         let cell = self.parsed.get(r)?;
         Some(cell.get_or_init(|| {
             let (Some(&s), Some(&e)) = (self.ix.starts.get(r), self.ix.ends.get(r)) else { return Err("no such record".into()) };
-            parse_params(self.bytes, s, e).map(Vec::into_boxed_slice).map_err(|e| e.0.into_boxed_str())
+            parse_params(self.bytes(), s, e).map(Vec::into_boxed_slice).map_err(|e| e.0.into_boxed_str())
         }))
     }
 
     /// The raw parameter list; Ok(None) when there is no such line or it is complex; Err = the parse error (thrown in JS).
     pub fn params(&self, id: Id) -> Result<Option<&[Value]>, StepError> {
+        if !self.edits.is_empty() || !self.gone.is_empty() {
+            let k = id_key(id);
+            if self.gone.contains(&k) {
+                return Ok(None);
+            }
+            if let Some(e) = self.edits.get(&k) {
+                return Ok(Some(&e.params));
+            }
+        }
         let Some(r) = self.rec(id) else { return Ok(None) };
         if self.ix.types.get(r).copied().unwrap_or(0) == 0 {
             return Ok(None); // complex: use complex(id)
@@ -173,16 +237,30 @@ impl<'a> IfcFile<'a> {
 
     /// The parts of a complex instance; None for a plain one.
     pub fn complex(&self, id: Id) -> Result<Option<Vec<Part>>, StepError> {
+        if self.gone.contains(&id_key(id)) || self.edits.contains_key(&id_key(id)) {
+            return Ok(None);
+        }
         let Some(r) = self.rec(id) else { return Ok(None) };
         if self.ix.types.get(r).copied().unwrap_or(0) != 0 {
             return Ok(None);
         }
         let (Some(&s), Some(&e)) = (self.ix.starts.get(r), self.ix.ends.get(r)) else { return Ok(None) };
-        parse_complex(self.bytes, s, e).map(Some)
+        parse_complex(self.bytes(), s, e).map(Some)
     }
 
     /// Attribute value of a line by name (raw): Ok(None) = undefined.
     pub fn attr(&self, id: Id, name: &str) -> Result<Option<&Value>, StepError> {
+        if !self.edits.is_empty() || !self.gone.is_empty() {
+            let k = id_key(id);
+            if self.gone.contains(&k) {
+                return Ok(None);
+            }
+            if let Some(e) = self.edits.get(&k) {
+                let Some(ent) = self.schema.entity(&e.ty) else { return Ok(None) };
+                let Some(i) = ent.attr_index(name) else { return Ok(None) };
+                return Ok(e.params.get(i));
+            }
+        }
         let Some(r) = self.rec(id) else { return Ok(None) };
         let t = usize::from(self.ix.types.get(r).copied().unwrap_or(0));
         let Some(e) = self.ents.get(t).copied().flatten() else { return Ok(None) };
@@ -224,17 +302,33 @@ impl<'a> IfcFile<'a> {
     /// several types are merged).
     pub fn of_type(&self, up: &str, inherited: bool) -> Vec<Id> {
         let by_type = self.index_types();
-        if !inherited {
+        let edited = !self.edits.is_empty() || !self.gone.is_empty();
+        if !inherited && !edited {
             return by_type.get(up).cloned().unwrap_or_default();
         }
-        let types = self.schema.subtypes(up);
+        let types: std::borrow::Cow<'_, [Box<str>]> =
+            if inherited { self.schema.subtypes(up) } else { std::borrow::Cow::Owned(vec![Box::from(up)]) };
         let mut out = Vec::new();
         for t in types.iter() {
             if let Some(l) = by_type.get(t) {
-                out.extend_from_slice(l);
+                if edited {
+                    out.extend(l.iter().copied().filter(|id| {
+                        let k = id_key(*id);
+                        !self.gone.contains(&k) && !self.edits.contains_key(&k)
+                    }));
+                } else {
+                    out.extend_from_slice(l);
+                }
             }
         }
-        if types.len() > 1 {
+        if !self.edits.is_empty() {
+            for e in self.edits.values() {
+                if types.iter().any(|t| **t == *e.ty) {
+                    out.push(e.id);
+                }
+            }
+        }
+        if types.len() > 1 || !self.edits.is_empty() {
             out.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         }
         out
@@ -264,5 +358,20 @@ impl<'a> IfcFile<'a> {
         let m = std::sync::Arc::new(m);
         self.inv.lock().unwrap_or_else(PoisonError::into_inner).insert(key, m.clone());
         Ok(m)
+    }
+}
+
+impl IfcFile<'static> {
+    /// `IfcFile.open(bytes)` on bytes the file keeps (an editable model the app holds on to).
+    pub fn open_owned(bytes: Arc<[u8]>) -> Result<IfcFile<'static>, StepError> {
+        let ix = scan_step(&bytes)?;
+        Ok(IfcFile::with_src(Src::Owned(bytes), ix))
+    }
+}
+
+impl IfcFile<'_> {
+    /// Forget the cached inverse indexes (after a write).
+    pub(crate) fn clear_inverse(&mut self) {
+        self.inv.get_mut().unwrap_or_else(PoisonError::into_inner).clear();
     }
 }

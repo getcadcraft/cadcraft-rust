@@ -57,3 +57,33 @@ pub fn bim(rest: &[&str]) -> ExitCode {
     println!("{}", run_job(&job, &opened));
     ExitCode::SUCCESS
 }
+
+/// `cadcraft-cli bimdraw <job.json> [--bench N]`: the building tools and the IFC editor on a parity job
+/// (forks/tools/bmuidiff.mjs): `{ seed, now, steps: [...] }` → `{ results: [...] }` on stdout.
+pub fn bimdraw(rest: &[&str]) -> ExitCode {
+    let Some(path) = rest.first() else {
+        eprintln!("usage: cadcraft-cli bimdraw <job.json> [--bench N]");
+        return ExitCode::from(2);
+    };
+    let job: J = match std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()) {
+        Some(j) => j,
+        None => {
+            eprintln!("cadcraft-cli bimdraw: cannot read the job {path}");
+            return ExitCode::from(1);
+        }
+    };
+    let bench: usize = rest.iter().position(|a| *a == "--bench").and_then(|i| rest.get(i + 1)).and_then(|s| s.parse().ok()).unwrap_or(0);
+    if bench > 0 {
+        let mut best = f64::INFINITY;
+        for i in 0..=bench {
+            let t = Instant::now();
+            std::hint::black_box(cc_bim::draw::job::run(&job));
+            if i > 0 {
+                best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+            }
+        }
+        eprintln!("{{\"job_ms\":{best:.3}}}");
+    }
+    println!("{}", cc_bim::draw::job::run(&job));
+    ExitCode::SUCCESS
+}

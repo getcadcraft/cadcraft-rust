@@ -101,6 +101,7 @@ fn main() -> ExitCode {
         "takeoff" => takeoff::takeoff(&rest),
         "markup" => markup::markup(&rest),
         "bim" => bim::bim(&rest),
+        "bimdraw" => bim::bimdraw(&rest),
         "civil" => civil::civil(&rest),
         "detail" => detail::detail(&rest),
         "part" => part::part(&rest),

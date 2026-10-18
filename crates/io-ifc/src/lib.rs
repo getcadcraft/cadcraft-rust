@@ -32,6 +32,7 @@ pub mod step;
 pub mod util;
 pub mod value;
 pub mod view;
+pub mod write;
 
 pub use step::{StepError, StepIndex, parse_complex, parse_params, scan_step};
 pub use value::{JsStr, Value};

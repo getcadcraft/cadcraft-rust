@@ -2,6 +2,31 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M7.12 BimCraft's building tools and IFC editor in Rust (agent, work/bimdraw)
+
+- M7.12: cc-ifc writes: `IfcFile` keeps edits beside the original bytes (model.js: `set` / `add` / `remove`, every read
+  sees them, `ids`, `save` with untouched lines copied byte for byte and written ones formatted by step.js's
+  `formatValue` / `formatString` / `formatReal`; FILE_NAME's time stamp from the caller). `IfcFile::open_owned` keeps
+  its bytes (an editable model the app holds). cc-bim `wapi`: cc-ifc's IfcAPI writing side (line objects with the JS
+  value shapes, `toApi` / `fromApi`, `CreateIfcEntity`, `CreateIfcType`, `WriteLine`, `DeleteLine`, GlobalIds from a
+  seeded mulberry32 byte stream, `GetWorldTransformMatrix` on the edited file, `lengthUnitMm`, `retypeLine`).
+- cc-bim `draw` (CadCraft 0.5 part 3 track BM, one module per JS file): ifc-edit.js (attributes, single property values
+  with copy-on-write of shared sets and values, building-tool changes, undo / redo), model-write.js + the IfcPlacer
+  parts it uses (journal, placements, extrusions, shapes, psets / quantities, materials, colours, deleting),
+  model-levels.js, model-walls.js (types, L / T / X joins, IFC), model-openings.js (17 door / window types, bodies,
+  plan symbols), model-rooms.js, model-slabs.js (rooms, floors, ceilings, roofs that follow the walls; ShapeKey),
+  res-roof.js + res-skeleton.js (the Roof tool's weighted straight skeleton, presets, fascia, soffit, gable walls),
+  model-ops.js, model-tools.js, model-units.js (+ libitem.js `parseLength`), new-model.js, model-plan.js (plan cut of
+  the rebuilt model, wall pieces, dimensions, the plan scene of model-ui.js) and model-pdf.js. res-follow.js's
+  residential sync is not ported (it only acts on residential elements; the draw tools leave such models alone).
+- `cadcraft-cli bimdraw <job.json>`: open or New building, then the page's steps (model-ui.js wallPoint chains,
+  placeHere, placeSlab, Properties changes, levels, deletes, undo / redo, attribute / property edits, plan + plan
+  PDF, Save as IFC). Parity: `forks/tools/bmuidiff.mjs` runs the same steps on the frozen JS: **2,473 / 2,473 steps
+  equal, 415 / 415 saved IFC files byte-identical, every plan scene and plan PDF equal** (13 scripted jobs, 12 seeded
+  random houses, edits + Save + plans on every public fixture and corpus IFC under 40 MB).
+- Gate: fmt, clippy, tests, assets, layers, wasm, deny pass; fuzz smoke passes for every target except
+  `markup_pdf_read`, which found a panic inside hayro-syntax 0.8.0 (`object/array.rs:153` unwrap, reached from
+  `cc_io_markup::jsdoc::JsDoc::open`), not in this work: the find is kept outside the repo for the markup owner.
 ## 2026-10-18 — M9.15 Several PDFs per plan set; Compare sheets (agent, work/markuptools)
 
 - M9.15: the sheet view holds a project of PDFs (`PdfFile` per file: MarkupCraft id "f1", "f2"…, pages, bytes, the
