@@ -149,6 +149,22 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: \"i:x|y|r=number\"} → a PI's easting, northing or radius on the selected alignment (one undo step)",
     ),
+    (
+        "civil.sections",
+        "Section view",
+        "X",
+        "{name?: \"on\"|\"off\"} → shows or hides the cross sections under the plan (no name: switches)",
+    ),
+    ("civil.sections.al", "Sections of an alignment", "", "{name: alignment id} → the section view shows that alignment (and selects it)"),
+    ("civil.sections.go", "Show a section", "← →", "{name: index from 0 | prev | next | first | last}"),
+    ("civil.sections.ve", "Section exaggeration", "", "{name: 0 (fit) | 1 | 2 | 5 | 10}"),
+    ("civil.sections.csv", "Sections CSV", "", "{} → the areas and end-area volumes of every section, through the save service"),
+    (
+        "civil.sampling",
+        "Sample lines",
+        "",
+        "{name: add | remove | step=n | left=n | right=n | extra+=station | extra-=station} → the selected alignment's sample lines (one undo step)",
+    ),
     ("civil.group", "Point group use", "", "{name: \"GROUP=points|breakline|off\"} → how a point group builds the surface (one undo step)"),
     ("civil.undo", "Undo", "Ctrl+Z", "{}"),
     ("civil.redo", "Redo", "Ctrl+Y", "{}"),
@@ -260,6 +276,8 @@ pub struct CivilView {
     pub dialogs: crate::civildialogs::Dialogs,
     /// the profile panel (civilprofile.rs)
     pub profile: crate::civilprofile::ProfilePanel,
+    /// the section panel (civilsections.rs)
+    pub sections: crate::civilsections::SectionsPanel,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
     pub ppp: f64,
     dark: bool,
@@ -315,6 +333,7 @@ impl CivilView {
             tools: crate::civiltools::Tools::default(),
             dialogs: crate::civildialogs::Dialogs::default(),
             profile: crate::civilprofile::ProfilePanel::default(),
+            sections: crate::civilsections::SectionsPanel::default(),
             ppp: 1.0,
             dark: true,
         }
@@ -1021,6 +1040,10 @@ impl CivilView {
             if ui.ctx().input(|i| i.key_pressed(egui::Key::F)) {
                 self.fit();
             }
+            if ui.ctx().input(|i| i.key_pressed(egui::Key::X)) {
+                let on = !self.sections.open;
+                self.show_sections(on, None);
+            }
             if ui.ctx().input(|i| i.key_pressed(egui::Key::R)) {
                 let on = !self.profile.open;
                 self.show_profile(on, None);
@@ -1170,6 +1193,9 @@ impl CivilView {
             {
                 painter.circle_filled(s(p.x, p.y), 5.0, act);
             }
+        }
+        if let Some((a, b)) = self.section_line() {
+            painter.line_segment([s(a.0, a.1), s(b.0, b.1)], egui::Stroke::new(3.0, act));
         }
         self.tool_overlay(&painter, rect, pal, ppp);
         self.tool_hint(&painter, rect, pal);
@@ -1705,6 +1731,53 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
                 cv.pi_set(i, field.trim(), text.trim())?;
             }
         }
+        "civil.sections" => {
+            let on = match name.as_str() {
+                "on" => true,
+                "off" => false,
+                "" => !cv.sections.open,
+                o => return Err(format!("civil.sections: on or off, not {o}")),
+            };
+            cv.show_sections(on, None);
+        }
+        "civil.sections.al" => {
+            if !arr(cv.project.state.get("alignments")).iter().any(|a| a.get("id").and_then(Value::as_str) == Some(name.as_str())) {
+                return Err(format!("civil.sections.al: no alignment {name}"));
+            }
+            cv.sections.want = Some(name.clone());
+            cv.sections.idx = 0;
+            cv.sel = Some(Sel::Alignment(name.clone()));
+            cv.profile.sel_pvi = None;
+        }
+        "civil.sections.go" => {
+            let i = cv.sections.idx as i64;
+            let to = match name.as_str() {
+                "prev" => i - 1,
+                "next" => i + 1,
+                "first" => 0,
+                "last" => i64::MAX / 2,
+                n => n.trim().parse().map_err(|_| format!("civil.sections.go: an index, prev, next, first or last (not {n})"))?,
+            };
+            cv.sections_go(to);
+        }
+        "civil.sections.ve" => {
+            let v: f64 = name.trim().parse().map_err(|_| "civil.sections.ve: 0, 1, 2, 5 or 10")?;
+            if !crate::civilsections::VES.contains(&v) {
+                return Err("civil.sections.ve: 0, 1, 2, 5 or 10".into());
+            }
+            cv.sections.ve = v;
+        }
+        "civil.sections.csv" => {
+            if let Some((fname, bytes, said)) = cv.sections_csv() {
+                let save = app.services.save.as_mut().ok_or("civil.sections.csv: saving is not available here")?;
+                if save(&fname, bytes)?.is_some()
+                    && let Some(cv) = app.civil.as_mut()
+                {
+                    cv.message = said;
+                }
+            }
+        }
+        "civil.sampling" => cv.sampling_edit(&name)?,
         "civil.traverse" => {
             if let Some((fname, bytes)) = crate::civildialogs::traverse_command(cv, &name)? {
                 let save = app.services.save.as_mut().ok_or("civil.traverse: saving is not available here")?;
@@ -1896,6 +1969,19 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
                 .show(ui, |ui| crate::civilprofile::panel(cv, ui, &t, &pal, &mut pacts));
             for crate::civilprofile::ProfAct::Run(id, k) in pacts {
+                cmd = Some((id, Params { name: Some(k), ..Default::default() }));
+            }
+        }
+        if cv.sections.open && !cv.show3d {
+            let pal = Palette::of(&t, dark);
+            let mut sacts = Vec::new();
+            egui::Panel::bottom("civil_sections")
+                .default_size(250.0)
+                .size_range(140.0..=600.0)
+                .resizable(true)
+                .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
+                .show(ui, |ui| crate::civilsections::panel(cv, ui, &t, &pal, &mut sacts));
+            for crate::civilsections::SecAct::Run(id, k) in sacts {
                 cmd = Some((id, Params { name: Some(k), ..Default::default() }));
             }
         }

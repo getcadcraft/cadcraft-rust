@@ -149,6 +149,10 @@ impl CivilView {
 
     /// civilcraft.js `showProfile(on, alId)`.
     pub fn show_profile(&mut self, on: bool, al: Option<&str>) {
+        if on {
+            // 0.4 V13: one bottom panel at a time
+            self.sections.open = false;
+        }
         self.profile.open = on;
         if let Some(a) = al {
             self.profile.want = Some(a.to_string());

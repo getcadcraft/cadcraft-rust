@@ -2,6 +2,24 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M11.9 CivilCraft section panel and sample lines (agent, work/civiltools)
+
+- M11.9: `crates/ui-egui/src/civilsections.rs`: the section view under the plan (X, an alignment's Section view
+  button), as sections-ui.js and section-view.js show it: alignment, ‹ station › (← → Home End), exaggeration (fit, 1×,
+  2×, 5×, 10×), the end-area volumes, CSV; one section drawn with its grid, centreline, ground, design, cut and fill
+  shaded, corridor points (labels stepped up when they would touch), station, areas and exaggeration; the current
+  section as a line on the plan. One bottom panel at a time (the profile closes it and it closes the profile). The
+  alignment's Properties gained Sample lines: add, spacing and widths typed, an extra station typed (and removed),
+  the facts with the grid volumes, Section view, Remove sample lines — each one undo step with 0.5's labels.
+- Commands: `civil.sections`, `civil.sections.al`, `civil.sections.go` (index | prev | next | first | last),
+  `civil.sections.ve`, `civil.sections.csv`, `civil.sampling` (add | remove | step= | left= | right= | extra+= |
+  extra-=).
+- Parity: `cvtooldiff.mjs` gained a sections scenario (refused edit before adding, add, spacing / widths incl. a bad
+  one, extra stations incl. a repeat and a bad one, go last / prev / index, CSV twice, remove extra, undo, remove all,
+  undo / redo) and compares every file the app saved: **48/48 projects byte-identical, 772/772 status lines, 4/4 CSV
+  files byte-identical** to the frozen 0.5 JS.
+- Speed: stepping sections on the 500k-point survey, 4–5 ms a frame.
+
 ## 2026-10-18 — M11.8 CivilCraft profile panel (agent, work/civiltools)
 
 - M11.8: `crates/ui-egui/src/civilprofile.rs`: the profile under the plan (R, an alignment's Profile view button), as

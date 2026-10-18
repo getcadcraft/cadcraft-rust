@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7) and profile panel (M11.8); PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7), profile (M11.8) and section (M11.9) panels; PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -11,8 +11,9 @@ Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7) and profile 
 3. **Viewer details** vs CadCraft 0.5: raster images (IMAGE) not drawn, per-viewport frozen layers, print view /
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11): drawing tools, typed traverse / deed calls, grips, point moves and Delete (M11.7),
-   the profile panel with PVI add / drag / delete and the PI / PVI tables (M11.8) are in at byte parity. Missing: the
-   section panel (sample lines, section view), feature lines in the profile (WL.20), the curve "why" fixes (WL.23), the
+   the profile panel with PVI add / drag / delete and the PI / PVI tables (M11.8), the section panel and sample lines
+   (M11.9) are in at byte parity. Missing: cross-section sheets (PDF) and mass haul from the section panel, feature
+   lines in the profile (WL.20), the curve "why" fixes (WL.23), the
    other Properties edits (names, pad elevation and slopes, corridor, pipes …), the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), copy / paste / duplicate of points,
    multi-point selection (Shift+click, box, lasso), the catchment tool, touch's draft bar.
 5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.

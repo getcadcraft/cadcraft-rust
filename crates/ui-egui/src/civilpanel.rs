@@ -749,7 +749,75 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
             acts.push(Act::Run("civil.profile.al", aid.clone()));
             acts.push(Act::Run("civil.profile", "on".into()));
         }
+        sample_lines(cv, ui, tk, a, acts);
     }
+}
+
+/// sections-ui.js `props(a)`: the alignment's sample lines — add, spacing and widths typed, extra stations, facts, the
+/// section view, remove.
+fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts: &mut Vec<Act>) {
+    let units = cv.project.units().to_string();
+    let u = cc_civil::units::unit_of(&units);
+    let aid = string_of(a.get("id"));
+    head(ui, tk, &t0("sec.props.head"));
+    let Some(smp) = a.get("sampling").filter(|s| s.is_object()) else {
+        note(ui, tk, &t0("sec.props.none"));
+        if ui.button(t0("sec.props.add")).clicked() {
+            acts.push(Act::Run("civil.sampling", "add".into()));
+        }
+        return;
+    };
+    egui::Grid::new("cv_sec_props").num_columns(3).spacing([6.0, 2.0]).show(ui, |ui| {
+        for (k, label) in [("step", "sec.props.step"), ("left", "sec.props.left"), ("right", "sec.props.right")] {
+            ui.label(RichText::new(t0(label)).color(tk.text_dim));
+            let shown = cc_civil::js::num_to_string(numf(smp.get(k)));
+            if let Some(v) = cell(cv, ui, &format!("smp:{aid}:{k}"), &shown, 70.0) {
+                acts.push(Act::Run("civil.sampling", format!("{k}={v}")));
+            }
+            ui.label(RichText::new(u.short).color(tk.text_dim));
+            ui.end_row();
+        }
+        ui.label(RichText::new(t0("sec.props.extra")).color(tk.text_dim));
+        if let Some(v) = cell(cv, ui, &format!("smp:{aid}:extra"), "", 70.0) {
+            acts.push(Act::Run("civil.sampling", format!("extra+={v}")));
+        }
+        ui.end_row();
+    });
+    for x in arr(smp.get("extra")) {
+        let sta = numf(Some(x));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(format_station(sta, &units, None)).color(tk.text));
+            if link(ui, tk, &t0("sec.props.remove"), false) {
+                acts.push(Act::Run("civil.sampling", format!("extra-={}", cc_civil::js::num_to_string(sta))));
+            }
+        });
+    }
+    if let Some(ss) = cv.project.sections(a) {
+        let mut facts = tr!(
+            "sec.props.facts",
+            n = ss.sections.len(),
+            cut = cc_civil::units::volume_text(ss.total_cut, &units, 1),
+            fill = cc_civil::units::volume_text(ss.total_fill, &units, 1)
+        );
+        if let Some(vi) = cv.facts.volumes.as_ref().and_then(|v| arr(v.get("items")).iter().find(|x| x.get("id") == a.get("id")).cloned()) {
+            facts.push(' ');
+            facts.push_str(&tr!(
+                "sec.props.grid",
+                cut = cc_civil::units::volume_text(numf(vi.get("cut")), &units, 1),
+                fill = cc_civil::units::volume_text(numf(vi.get("fill")), &units, 1)
+            ));
+        }
+        note(ui, tk, &facts);
+    }
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(t0("sec.props.view")).clicked() {
+            acts.push(Act::Run("civil.sections.al", aid.clone()));
+            acts.push(Act::Run("civil.sections", "on".into()));
+        }
+        if ui.button(t0("sec.props.remove.all")).clicked() {
+            acts.push(Act::Run("civil.sampling", "remove".into()));
+        }
+    });
 }
 
 /// A table cell typed in: its text when Enter is pressed or it loses focus with a change (Esc keeps the old one).
