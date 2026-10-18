@@ -157,6 +157,9 @@ pub static COMMANDS: &[CmdDef] = &[
     quiet(def("LTSCALE", &["LTS"], |c| Box::pin(layers::ltscale(c)))),
     quiet(def("LWEIGHT", &["LW", "LINEWEIGHT"], |c| Box::pin(layers::lweight(c)))),
     quiet(def("PURGE", &["PU"], |c| Box::pin(inquiry::purge(c)))),
+    // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
+    quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
+    quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),
     quiet(def("PROPERTIES", &["PR", "PROPS", "CH", "MO", "DDMODIFY"], |c| Box::pin(view::properties(c)))),
     quiet(def("PROPERTIESCLOSE", &["PRCLOSE"], |c| Box::pin(view::properties_close(c)))),
     quiet(def("QPMODE", &["QP"], |c| Box::pin(view::qpmode(c)))),

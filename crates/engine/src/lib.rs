@@ -8,7 +8,7 @@
 //! M4.10 HATCH (pick inside), the DIM family (linear, aligned, radius, diameter, angular, continue, baseline, the dim
 //! variables), FILLET CHAMFER EXPLODE STRETCH ARRAY BREAK LENGTHEN JOIN MATCHPROP XLINE RAY MTEXT REVCLOUD MLEADER
 //! TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DIST AREA MEASUREGEOM ID LIST SELECT DUPLICATE, the layer tools
-//! and RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES (M4.11, [`props`]: propdefs.js / propexpr.js).
+//! and RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES (M4.11, [`props`]: propdefs.js / propexpr.js) and PLOT (M4.12).
 //! Parity with the frozen JS is checked by `forks/tools/kdiff.mjs` (`cadcraft-cli cmds`).
 //!
 //! Not ported here: constraints carried through MIRROR / TRIM (ckeep.js; the M4 Doc solves no constraints), the 3D

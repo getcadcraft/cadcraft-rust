@@ -1,10 +1,11 @@
 # Gaps against CadCraft 0.5
 
+Last updated 2026-10-18 · Change: drafting commands, Properties panel and plotting (M4.10–M4.12); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: drafting commands and the Properties panel (M4.10, M4.11); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: drafting commands (M4.10); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 
-1. **Drafting vs 0.5** (after M4.10, M4.11). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
+1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
    everyday use. **In, at kdiff parity** (same prompts, printed lines, previews, drawing, undo labels): LINE … ZOOM (M4);
    HATCH (pick-inside boundaries with islands, Select objects, pattern / scale / angle), DIMLINEAR DIMALIGNED DIMANGULAR
@@ -12,8 +13,8 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    CHAMFER (polyline, trim, multiple, Shift), EXPLODE, STRETCH, ARRAY ARRAYRECT ARRAYPOLAR, BREAK BREAKATPOINT, LENGTHEN,
    JOIN, MATCHPROP, XLINE RAY, MTEXT, REVCLOUD, MLEADER, TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DUPLICATE
    SELECTALL DESELECT SELECT, DIST AREA MEASUREGEOM ID LIST, LAYISO LAYUNISO LAYOFF LAYFRZ LAYMCUR LAYON LAYTHW LAYMRG
-   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE (M4.10, M4.11). **Next, by everyday
-   use:** PLOT; COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
+   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE, PLOT (M4.10–M4.12). **Next, by everyday
+   use:** COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
    VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD; LWDISPLAY POLARANG;
    COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a dynamic block without
    its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
@@ -21,7 +22,8 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
    SAVEAS DXFOUT HELP are the window's own buttons. The Properties panel (M4.11) has General, Geometry, Text, Pattern,
    the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
-   sections, Quick Properties and the point pick buttons. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
+   sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks pictures, Open / print and
+   PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
    shows them); on drawings whose objects carry many extra fields MOVE / ARRAY / MATCHPROP / ERASE + UNDO run 0.1–0.6× the JS (every object's extra JSON is deep-copied per preview and per change; the JS shares it: share extras in cc-cad); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
    slower than the JS (0.7×).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
@@ -57,7 +59,7 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,
    rename), assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
    edit does not follow `configs` yet), the exact kernel's features (they say "not built", as 0.5's mesh build does),
-   rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. The window's live tools are in (M16.3) except drawing_plot, view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
+   rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: LISP scripts (`drawing_plot` is in since M4.12, plot.js ported). The window's live tools are in (M16.3, drawing_plot M4.12) except view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
    **DetailCraft** (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
    members / plates / footings / stairs, connection tools and parameters (end plate … gusset, apply to similar), holes and
    copes editors, grids / levels / custom profiles, phases add / rename / remove, copy / paste, move / rotate / mirror,

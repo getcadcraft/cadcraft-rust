@@ -499,6 +499,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-geom",
  "cc-io-dwg",
+ "miniz_oxide 0.8.9",
  "serde_json",
 ]
 

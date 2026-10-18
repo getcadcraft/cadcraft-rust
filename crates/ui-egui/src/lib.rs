@@ -57,6 +57,7 @@ pub mod partsketchui;
 pub mod partview;
 pub mod pdfcmd;
 pub mod pdfview;
+pub mod plotdlg;
 pub mod takeoffprops;
 pub mod takeofftools;
 pub mod theme;
@@ -211,6 +212,8 @@ pub struct UiApp {
     pub editor: Option<edit::Editor>,
     /// the drafting editor's Properties panel (M4.11)
     pub cadprops: cadprops::CadProps,
+    /// the drafting editor's Plot dialog (M4.12)
+    pub plot: plotdlg::PlotDlg,
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -274,6 +277,7 @@ impl Default for UiApp {
             bench_result: None,
             editor: None,
             cadprops: cadprops::CadProps::default(),
+            plot: plotdlg::PlotDlg::default(),
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -1307,6 +1311,7 @@ impl UiApp {
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("hub.") => return hub::run(self, id, params),
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
+            id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if id.starts_with("part.") => {
@@ -1323,6 +1328,20 @@ impl UiApp {
         let Some(ed) = self.editor.as_mut() else { return };
         if let Some(open) = ed.hs.borrow_mut().props_open.take() {
             self.cadprops.open = open;
+        }
+        let (plot_req, plot_win) = {
+            let mut h = ed.hs.borrow_mut();
+            (std::mem::take(&mut h.plot_open), h.plot_window.take())
+        };
+        if let Some(w) = plot_win {
+            if let Some(b) = w {
+                self.plot.win = Some(b);
+                self.plot.area = "window".into();
+            }
+            self.plot.open = true;
+        }
+        if plot_req {
+            self.plot.open = true;
         }
         if ed.take_changed() || self.doc.is_none() {
             let drawing = ed.display.drawing(&ed.eng.doc());
@@ -1465,6 +1484,9 @@ impl UiApp {
         if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
             self.run_ui("file.save", &Params::default());
         }
+        if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::P)) {
+            self.run_ui("plot.open", &Params::default());
+        }
         if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
             self.cadprops.open = !self.cadprops.open;
         }
@@ -1480,6 +1502,7 @@ impl UiApp {
         if self.editor.is_some() && self.cadprops.open {
             cadprops::panel(self, ui);
         }
+        plotdlg::window(self, &ctx);
         self.tabs(ui);
         if self.part.is_some() {
             partpanel::ui(self, ui);
@@ -2147,7 +2170,7 @@ impl UiApp {
         if submit {
             ed.submit();
         }
-        // keys typed into another field (the Properties panel) stay there
+        // keys typed into another field (the Properties panel, the Plot dialog) stay there
         let elsewhere = ctx.memory(|m| m.focused()).is_some_and(|f| Some(f) != cmd_id);
         if esc && !elsewhere {
             ed.escape();

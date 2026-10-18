@@ -179,6 +179,57 @@ impl Win<'_> {
         Ok(json!({"saved": saved, "printed": printed}))
     }
 
+    /// agents.js `drawing_plot` in the window: plotPdf on the drawing, saved where the person chooses (the 0.5 page
+    /// downloads it), "Plotted <name>" on the command line.
+    fn cad_plot(&mut self, a: &Value) -> Result<Value, String> {
+        self.cad_engine()?;
+        let ed = self.app.editor.as_mut().ok_or("No drawing is open in CadCraft.")?;
+        let opts = cc_mcp::cad::plot_opts(a, cc_mcp::rpc::now_ms());
+        let r = cc_io_cad::plot::plot_pdf(&ed.eng.doc(), &opts)?;
+        let doc_name = {
+            let d = ed.eng.doc();
+            match d.meta.get("name") {
+                Some(v) if cc_cad::js::truthy(Some(v)) => cc_cad::js::to_js_string(v),
+                _ => "Drawing1".into(),
+            }
+        };
+        let base = match a.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()) {
+            Some(n) => n.to_string(),
+            None => format!("{doc_name}{}", opts.layout.as_ref().map(|l| format!("-{l}")).unwrap_or_default()),
+        };
+        // [\\/:*?"<>|]+ → "_", then a ".pdf" ending dropped and put back
+        let mut clean = String::new();
+        let mut run = false;
+        for ch in base.chars() {
+            if matches!(ch, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                if !run {
+                    clean.push('_');
+                }
+                run = true;
+            } else {
+                clean.push(ch);
+                run = false;
+            }
+        }
+        if clean.to_ascii_lowercase().ends_with(".pdf") {
+            clean.truncate(clean.len().saturating_sub(4));
+        }
+        let name = format!("{clean}.pdf");
+        let bytes_len = r.pdf.bytes.len();
+        let save = self.app.services.save.as_mut().ok_or("Saving is not available here.")?;
+        let _ = save(&name, r.pdf.bytes.clone())?;
+        if let Some(ed) = self.app.editor.as_mut() {
+            let msg = cc_ui_egui::edit::lang_text("agents.plotted", &[("name", name.clone())]);
+            ed.hs.borrow_mut().log.push_back(msg);
+        }
+        let sheet = r.sheet_value();
+        Ok(json!({
+            "name": name, "bytes": bytes_len,
+            "sheetMm": { "w": sheet.get("w").cloned().unwrap_or(Value::Null), "h": sheet.get("h").cloned().unwrap_or(Value::Null) },
+            "scale": r.scale, "fitsOnPaper": r.fits, "unprintableCharacters": r.pdf.missing,
+        }))
+    }
+
     fn pdf_sheets(&self) -> Vec<cc_mcp::markups::LiveSheet> {
         let Some(p) = self.app.pdf.as_ref() else { return Vec::new() };
         // every PDF of the plan set (M9.15), in file order f1, f2, …; sheets are "<file id>:<page index>"
@@ -231,6 +282,7 @@ impl Tools for Win<'_> {
         let out = match slug {
             "cadcraft" => match name {
                 "drawing_save" => self.cad_save(args.get("format").and_then(Value::as_str)),
+                "drawing_plot" => self.cad_plot(&args),
                 _ => {
                     let view = self.view_info();
                     let r = self.cad_engine().and_then(|eng| cc_mcp::cad::live_run(eng, name, &args, &groups, view));

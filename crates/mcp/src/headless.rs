@@ -492,11 +492,24 @@ impl Headless {
                 )
             }
             "drawing_plot" => {
-                self.cad(arg_str(a, "doc").unwrap_or(""))?;
-                if ext_of(arg_str(a, "out").unwrap_or("")) != "pdf" {
+                let id = arg_str(a, "doc").unwrap_or("").to_string();
+                self.cad(&id)?;
+                let out_arg = arg_str(a, "out").unwrap_or("").to_string();
+                if ext_of(&out_arg) != "pdf" {
                     return Err("The plot is written to a .pdf file.".into());
                 }
-                Err("drawing_plot is not available in this version of CadCraft yet: its PDF plotting (plot.js) has not been ported. Use drawing_save or drawing_convert, or plot from the CadCraft app.".into())
+                let opts = cad::plot_opts(a, crate::rpc::now_ms());
+                let r = {
+                    let c = self.cad(&id)?;
+                    cc_io_cad::plot::plot_pdf(&c.eng.doc(), &opts)?
+                };
+                let out = self.write(&out_arg, &r.pdf.bytes, arg_bool(a, "overwrite"), None)?;
+                let sheet = r.sheet_value();
+                Ok(json!({
+                    "out": path_str(&out), "bytes": r.pdf.bytes.len(),
+                    "sheetMm": { "w": sheet.get("w").cloned().unwrap_or(Value::Null), "h": sheet.get("h").cloned().unwrap_or(Value::Null) },
+                    "scale": r.scale, "fitsOnPaper": r.fits, "unprintableCharacters": r.pdf.missing,
+                }))
             }
             "doc_close" => {
                 let id = arg_str(a, "doc").unwrap_or("").to_string();

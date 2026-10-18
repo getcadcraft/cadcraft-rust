@@ -2,6 +2,18 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M4.12 Plot to PDF and `drawing_plot` (agent, work/drafting)
+
+- `crates/io-cad/src/plot.rs`: plot.js — papers (ISO / ANSI / ARCH), layout sheets and the model (extents or a window),
+  fitted or typed scales (`1:50`, `2:1`, `1/4" = 1'-0"`), monochrome or colour, pen width, linetypes, hatches, texts
+  (WinAnsi, missing characters counted), viewports clipped; PDF 1.4 with deflated streams (miniz) and agents.js
+  `plotPdf`'s report. `cadcraft-cli plot`, the Plot dialog in the window (PLOT / PRINT / EXPORTPDF, Ctrl+P: area,
+  paper, orientation, scale, ink, line weight, a live preview, Pick a window through `_PLOTWIN`, Download PDF), and the
+  MCP tool `drawing_plot` headless and in the window (it said "not ported").
+- Parity (`forks/tools/plotdiff.mjs`, plain streams byte for byte + the deflated stream inflates to them, report
+  compared): 32/32 plots identical on the default set; the kit corpus (78 drawings, every layout and the model, mono and
+  colour): 1128/1128 identical. The sheet report rounds as agents.js does (`num`, 1e-9). Rust tests: `crates/io-cad/tests/plot.rs`. `mcpdiff.mjs` (now calling `drawing_plot`, its known plot difference removed): 297 messages, 295 the same, 0 different, 2 known (LISP).
+
 ## 2026-10-18 — M4.11 Properties panel (agent, work/drafting)
 
 - `crates/engine/src/props.rs`: propdefs.js / propexpr.js — groups (All + one per type), General / Geometry / Text /

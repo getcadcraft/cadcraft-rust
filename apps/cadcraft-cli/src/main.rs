@@ -96,6 +96,7 @@ fn main() -> ExitCode {
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),
         "save" => iocad::save(&rest),
+        "plot" => iocad::plot(&rest),
         "props" => props::props(&rest),
         "manifold" => manifold::manifold(&rest),
         "manifold-cs" => crosssection::run(&rest),

@@ -7,6 +7,7 @@
 //! - [`dwg_save::save_dwg`]: a `Doc` → DWG 2000 … 2018 through cc-io-dwg's writer (byte-identical to the JS `saveDwg`
 //!   with the same creation time and GUID source) and its report.
 //! - [`dxf2000::write_dxf2000`]: a `Doc` → DXF R2000 text (byte-identical to the JS `writeDxf2000`) and its report.
+//! - [`plot`]: plot.js — a layout or the model on a paper → a vector PDF (and agents.js `plotPdf`).
 //!
 //! Values are the dynamic [`cc_io_dwg::V`] while importing (JS semantics: [`jsv`]); the result converts to
 //! `serde_json` for `Doc::load` (NaN / ±Infinity as "$NaN" / "$Inf" / "$-Inf"; -0 kept). Strings come from the 0.5
@@ -40,6 +41,7 @@ pub mod i18n;
 pub mod jsv;
 pub mod m3d_file;
 pub mod model3d;
+pub mod plot;
 pub mod props;
 pub mod small;
 pub mod text;

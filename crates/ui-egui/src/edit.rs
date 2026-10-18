@@ -19,6 +19,11 @@ use cc_geom::P2;
 /// CadCraft 0.5's own catalogs (lang/*.json, unchanged).
 static EN: &str = include_str!("../../../assets/lang/cadcraft/en.json");
 
+/// A catalog string in English, with fills (hosts print with it).
+pub fn lang_text(key: &str, vars: &[(&str, String)]) -> String {
+    lang_en().t(key, vars)
+}
+
 /// The English catalog (the Properties panel reads it too).
 pub(crate) fn lang_en_pub() -> Lang {
     lang_en()
@@ -71,6 +76,10 @@ pub struct HostState {
     pub view_box: Option<Bounds>,
     /// PROPERTIES / PROPERTIESCLOSE asked the window to open / fold the Properties panel
     pub props_open: Option<bool>,
+    /// PLOT asked for the Plot dialog
+    pub plot_open: bool,
+    /// _PLOTWIN picked a window (Some(None): cancelled) — the dialog opens again
+    pub plot_window: Option<Option<Bounds>>,
     /// pick tolerance in drawing units (6 px at the current zoom)
     pub pick_tol: f64,
 }
@@ -227,6 +236,13 @@ impl Host for UiHost {
     }
     fn props(&mut self, open: bool) {
         self.0.borrow_mut().props_open = Some(open);
+    }
+    fn plot(&mut self) -> bool {
+        self.0.borrow_mut().plot_open = true;
+        true
+    }
+    fn plot_window(&mut self, w: Option<Bounds>) {
+        self.0.borrow_mut().plot_window = Some(w);
     }
 }
 

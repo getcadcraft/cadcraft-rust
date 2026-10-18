@@ -197,3 +197,83 @@ pub fn save(rest: &[&str]) -> ExitCode {
     println!("{report}");
     ExitCode::SUCCESS
 }
+
+/// `cadcraft-cli plot <in.dwg|in.dxf|in.json> <out.pdf> [--opts JSON] [--date-ms N] [--no-deflate] [--bench N]`: agents.js
+/// `plotPdf` (plot.js) — opts `{ layout, window: {minX, minY, maxX, maxY}, paper, portrait, scale, mono, pen }`; prints
+/// `{ bytes, sheet: { w, h, scale, fits }, missing, texts }` (or `{ "$error": … }`). `--no-deflate`: plain streams (the
+/// form the parity harness compares byte for byte with the JS's).
+pub fn plot(rest: &[&str]) -> ExitCode {
+    let arg = |k: &str| rest.iter().position(|a| *a == k).and_then(|i| rest.get(i + 1)).copied();
+    let files: Vec<&str> = {
+        let mut v = Vec::new();
+        let mut skip = false;
+        for a in rest {
+            if skip {
+                skip = false;
+                continue;
+            }
+            if matches!(*a, "--opts" | "--date-ms" | "--bench") {
+                skip = true;
+                continue;
+            }
+            if !a.starts_with("--") {
+                v.push(*a);
+            }
+        }
+        v
+    };
+    let (Some(input), Some(out)) = (files.first(), files.get(1)) else {
+        eprintln!("usage: cadcraft-cli plot <in> <out.pdf> [--opts JSON] [--date-ms N] [--no-deflate] [--bench N]");
+        return ExitCode::from(2);
+    };
+    let o: Value = match arg("--opts").map(serde_json::from_str::<Value>) {
+        Some(Ok(v)) => v,
+        Some(Err(e)) => return err("json", &e.to_string()),
+        None => Value::Null,
+    };
+    let doc_in = match load_input(input) {
+        Ok(v) => v,
+        Err((c, m)) => return err(&c, &m),
+    };
+    let mut d = Doc::new();
+    d.load(&doc_in);
+    let s = |k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
+    let window = o.get("window").filter(|w| w.is_object()).map(|w| {
+        let g = |k: &str| w.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN);
+        cc_cad_geom::geom::Bounds { min_x: g("minX"), min_y: g("minY"), max_x: g("maxX"), max_y: g("maxY") }
+    });
+    let opts = cc_io_cad::plot::PlotOpts {
+        layout: s("layout").filter(|l| !l.is_empty()),
+        window,
+        paper: s("paper").unwrap_or_else(|| "iso-a3".into()),
+        portrait: o.get("portrait").and_then(Value::as_bool).unwrap_or(false),
+        scale: o.get("scale").and_then(|v| v.as_str().map(str::to_string).or_else(|| v.as_f64().map(|n| n.to_string()))),
+        mono: o.get("mono").and_then(Value::as_bool) != Some(false),
+        pen: o.get("pen").and_then(Value::as_f64).unwrap_or(0.25),
+        date_ms: arg("--date-ms").and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0),
+        deflate: !rest.contains(&"--no-deflate"),
+    };
+    if let Some(n) = arg("--bench").and_then(|v| v.parse::<usize>().ok()) {
+        let mut best = f64::INFINITY;
+        for _ in 0..n.max(1) {
+            let t = Instant::now();
+            let _ = cc_io_cad::plot::plot_pdf(&d, &opts);
+            best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        println!("{}", serde_json::json!({ "ms": best }));
+        return ExitCode::SUCCESS;
+    }
+    match cc_io_cad::plot::plot_pdf(&d, &opts) {
+        Ok(p) => {
+            if let Err(e) = std::fs::write(out, &p.pdf.bytes) {
+                return err("io", &e.to_string());
+            }
+            println!(
+                "{}",
+                serde_json::json!({ "bytes": p.pdf.bytes.len(), "sheet": p.sheet_value(), "missing": p.pdf.missing, "texts": p.pdf.texts })
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => err("plot", &e),
+    }
+}

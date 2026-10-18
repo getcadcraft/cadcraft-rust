@@ -1097,6 +1097,25 @@ pub struct ViewInfo {
     pub zoom: f64,
 }
 
+/// `drawing_plot`'s arguments → plot.js options (agents.js plotPdf defaults: iso-a3, fitted, mono, pen 0.25).
+pub fn plot_opts(a: &Value, date_ms: f64) -> cc_io_cad::plot::PlotOpts {
+    let window = a.get("window").filter(|w| w.is_object()).map(|w| {
+        let g = |k: &str| w.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN);
+        cc_cad_geom::geom::Bounds { min_x: g("minX"), min_y: g("minY"), max_x: g("maxX"), max_y: g("maxY") }
+    });
+    cc_io_cad::plot::PlotOpts {
+        layout: a.get("layout").and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string),
+        window,
+        paper: a.get("paper").and_then(Value::as_str).unwrap_or("iso-a3").to_string(),
+        portrait: a.get("portrait").and_then(Value::as_bool).unwrap_or(false),
+        scale: a.get("scale").and_then(Value::as_str).map(str::to_string),
+        mono: a.get("mono").and_then(Value::as_bool) != Some(false),
+        pen: a.get("pen").and_then(Value::as_f64).filter(|p| *p != 0.0 && !p.is_nan()).unwrap_or(0.25),
+        date_ms,
+        deflate: true,
+    }
+}
+
 /// The space shown: a sheet's name, or "model".
 fn space_name(doc: &Doc) -> String {
     doc.layout().map_or_else(|| "model".to_string(), |l| l.name.clone())
@@ -1198,9 +1217,7 @@ pub fn live_run(eng: &mut Engine, name: &str, a: &Value, allowed: &[String], vie
             let any = a.get("any").and_then(Value::as_bool).unwrap_or(false);
             Ok(json!({"undone": undo_steps(&mut eng.doc_mut(), steps, any, PREFIX)}))
         }
-        "drawing_plot" => {
-            Err("drawing_plot is not available in this version of CadCraft yet: its PDF plotting (plot.js) has not been ported.".into())
-        }
+        "drawing_plot" => Err("drawing_plot writes a file: the window runs it (live_plot).".into()),
         "view_screenshot" => Err("A picture of the view is not available in this version of CadCraft yet.".into()),
         other => Err(format!("{other} is not one of CadCraft's tools.")),
     }

@@ -128,3 +128,41 @@ pub async fn qpmode(c: Ctx) -> R {
     c.sh().host.borrow_mut().quick_props();
     Ok(())
 }
+
+/// PLOT (PRINT, PUBLISH, EXPORTPDF): the Plot dialog (the window's own; elsewhere plotting needs the app).
+pub async fn plot(c: Ctx) -> R {
+    let has = c.sh().host.borrow_mut().plot();
+    if !has {
+        c.print(&c.t("cmd.plot.plotting_needs_browser"));
+    }
+    Ok(())
+}
+
+/// _PLOTWIN (hidden): the Plot dialog's Pick — two corners on the model (cadcraft.js pickPlotWindow), then the dialog
+/// opens again with that window (Esc: as it was).
+pub async fn plot_window(c: Ctx) -> R {
+    let picked = async {
+        let a = c.must_point(c.t("app.specify_first_corner_area"), crate::engine::Opts::default()).await?;
+        c.preview(Some(std::rc::Rc::new(move |_, cur| vec![crate::cmd::draw::rect(a, cur)])));
+        let b = c
+            .must_point(c.t("app.specify_opposite_corner"), crate::engine::Opts { base: Some(a), ..crate::engine::Opts::default() })
+            .await?;
+        c.preview(None);
+        Ok::<_, crate::prompt::CmdError>((a, b))
+    }
+    .await;
+    let w = match picked {
+        Ok((a, b)) if (b.x - a.x).abs() > 1e-9 && (b.y - a.y).abs() > 1e-9 => Some(cc_cad_geom::geom::Bounds {
+            min_x: cc_cad::js::min(a.x, b.x),
+            min_y: cc_cad::js::min(a.y, b.y),
+            max_x: cc_cad::js::max(a.x, b.x),
+            max_y: cc_cad::js::max(a.y, b.y),
+        }),
+        _ => None,
+    };
+    c.sh().host.borrow_mut().plot_window(w);
+    if let Err(crate::prompt::CmdError::Cancelled) = picked {
+        return Err(crate::prompt::CmdError::Cancelled);
+    }
+    Ok(())
+}

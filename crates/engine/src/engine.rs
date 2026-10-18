@@ -59,6 +59,12 @@ pub trait Host {
     fn props(&mut self, _open: bool) {}
     /// `host.props.toggleQuick()` (QPMODE)
     fn quick_props(&mut self) {}
+    /// `host.plot(c)`: open the Plot dialog → false when the host has none (PLOT then says plotting needs the browser).
+    fn plot(&mut self) -> bool {
+        false
+    }
+    /// The window `_PLOTWIN` picked for the Plot dialog (None: cancelled).
+    fn plot_window(&mut self, _w: Option<Bounds>) {}
     /// `host.viewExtents()`: the model area on screen (HATCH looks for boundaries there only), when the host has one.
     fn view_extents(&self) -> Option<Bounds> {
         None
