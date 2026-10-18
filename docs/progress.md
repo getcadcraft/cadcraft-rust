@@ -2,6 +2,39 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M14.1 DetailCraft in the app (agent, work/detailapp)
+
+- M14.1: `crates/ui-egui/src/detail{view,3d,panel,export}.rs`: DetailCraft's view. Opens 0.5's own model file
+  (`<name>.detailcraft.json`, `Model.load`: readModel checks it), the sample (sample.js) and, while a DetailCraft model is
+  open, an IFC (ifc-import.js; the import report in a window), as detailcraft.js does; after every change `recompute()`
+  (build → markParts → markFootings → bendingSchedule) and the 3D scene as view3d.js builds it: each part its profile
+  extruded along its frame, copes cut by splitting the length, holes as dark cylinders, bolts and rods, footings as
+  see-through boxes with their bars as tubes, grids on every level with bubbles and level names over the picture; parts of
+  the same shape share one mesh. Orbit / pan / zoom / fit / Iso-Top-Front-Right, click picks a part (its member,
+  connection or stair) or a footing. Panels with the catalog's words: the model, phases (show / hide), part marks, members
+  by type, footings; Properties of a member (name, profile from the catalog groups, material, position, rotation, phase,
+  ends, plate thickness / width; part mark, assembly, cut length, weight, cut-back, its problems, Shop drawing) or the
+  model summary; reports: problems, bill of materials, clashes (clash.js on the shown phases), weight report by phase,
+  bending schedule, cut list. Every edit is one `Model::change` (the engine's own undo / redo stacks and labels).
+  Commands `detail.sample | new | select | set | undo | redo | save | export | setting | clash | phase | tab | camera |
+  timings`; the shot tool gained `--open FILE` (as a drop).
+- Exports (detailcraft.js `saveModel`, `exportIfc`, `exportNc`, `exportBom`, `exportBending`, `exportKiss`, `exportNest`,
+  `exportReport`, `exportReportPdf`, the drawings dialog's all / one sheet as PDF, DWG 2000–2018 or DXF R12 (several in a
+  zip), the shop drawing PDF), named by `safeName()` and the catalog, with 0.5's status lines, through `services.save`;
+  the clock from the caller (`@<ms>` fixes it; DWG GUIDs then cc-io-dwg's fixed sequence).
+- Parity (forks/tools/dcuidiff.mjs: the app driven headless by cadcraft-shot vs the frozen JS composition from the same
+  source and the same edit): the sample (58 checks), the sample with a brace rotated, frames13 (the sample pasted 13 times)
+  with a beam's profile changed, grid10x6x4, grid24x12x5 (2,820 members, 5,868 parts) and the two IFC fixtures imported
+  (52 checks each): project file, IFC, NC zip, BOM / bending / cut list / weight CSVs, KISS, DXF, DWG and their zips
+  byte-identical, every PDF identical in pdf.js read-back (operators + text) and with its streams inflated, every status
+  line identical; 0 differences.
+- Timings (forks/tools/dcuibench.mjs, release, best of 3; JS = frozen 0.5 in Node): open + build + marks/rebar, ms:
+  sample 3.1 JS / 2.8 Rust, frames13 17.0 / 14.1, grid10x6x4 46.0 / 29.2, grid24x12x5 222.1 / 248.0 (0.9×: cc-detail's
+  `readModel` takes 94 ms against the JS's 15 ms there; build 64.5 / 51.8, marks 89.2 / 154.9). The 3D scene: 6 ms
+  (sample) to 116 ms (grid24x12x5). Exports on grid24x12x5, the app's export alone vs the JS composition: IFC 1,362 /
+  2,344, all drawings PDF 1,029 / 1,812, DXF zip 1,394 / 3,734, DWG 2000 zip 2,216 / 1,767, DWG 2018 zip 1,733 / 1,903,
+  cut list 192 / 196. Big models in testfiles/generated/detail (LARGE-FILES.md).
+
 ## 2026-10-17 — M11.6 plot dates from the caller
 
 - M11.6: io-civil's plot and sheet builders no longer read the clock: `plan_sheet`, `plan_profile_sheets`,

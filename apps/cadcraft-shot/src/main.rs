@@ -3,7 +3,7 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --run ID=NAME (any UI command), --save-dir DIR (where UI saves land), --wait MS and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
@@ -194,6 +194,13 @@ fn shot(args: &[String]) -> Result<(), String> {
                     hs.run_steps(1);
                     std::thread::sleep(std::time::Duration::from_millis(20));
                 }
+            }
+            "--open" => {
+                // open a file in the running app (as a drop would): with DetailCraft open an IFC imports into it
+                let bytes = std::fs::read(&v).map_err(|e| format!("{v}: {e}"))?;
+                let name = std::path::Path::new(&v).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                hs.state_mut().open_bytes(&name, &bytes);
+                hs.run_steps(2);
             }
             "--mouse-move" => {
                 // the pointer moves to window coordinates (points) with no button down: rubber bands follow it

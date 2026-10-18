@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-17 · Change: app views for six apps; per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: DetailCraft app view (M14.1); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -20,7 +20,12 @@ Last updated 2026-10-17 · Change: app views for six apps; per-app gaps below. R
    save marked-up PDF, takeoff count / linear / area, exports, Auto count. Missing: the rest of MarkupCraft's 30+ tools
    (stamps, notes, clouds by outline, compare, BCF…), properties panel, sheet compare, TakeoffCraft's assemblies,
    bid areas, alternates, deducts and slopes in the UI (the engine has them), several PDFs per project.
-8. **PartCraft, DetailCraft, Studio**: engines at parity (PartCraft's rebuild kernel in progress), no app view yet.
+8. **PartCraft, Studio**: engines at parity (PartCraft's rebuild kernel in progress), no app view yet. **DetailCraft**
+   (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
+   members / plates / footings / stairs, connection tools and parameters (end plate … gusset, apply to similar), holes and
+   copes editors, grids / levels / custom profiles, phases add / rename / remove, copy / paste, move / rotate / mirror,
+   window and lasso selection, plan and elevation views, the drawings dialog's preview and issue log, the Settings dialog
+   (`detail.setting` only), es-MX labels; several of the bar's labels are plain English (view buttons, Steel sample).
 9. Panel buttons in the new views are partly plain English rather than 0.5 catalog words (MarkupCraft's tool bar and
    TakeoffCraft's export row use the catalogs).
 10. Accessibility: full screen-reader support is a **known issue, skipped** (owner, 2026-10-15). Icon buttons get

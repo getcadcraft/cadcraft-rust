@@ -23,6 +23,10 @@ pub mod civilexport;
 pub mod civilpanel;
 pub mod civilplan;
 pub mod civilview;
+pub mod detail3d;
+pub mod detailexport;
+pub mod detailpanel;
+pub mod detailview;
 pub mod document;
 pub mod edit;
 pub mod ifc3d;
@@ -186,6 +190,8 @@ pub struct UiApp {
     held: Vec<egui::Event>,
     /// an open CivilCraft project (civilview.rs)
     pub civil: Option<civilview::CivilView>,
+    /// an open DetailCraft model (detailview.rs)
+    pub detail: Option<detailview::DetailView>,
 }
 
 impl Default for UiApp {
@@ -231,6 +237,7 @@ impl Default for UiApp {
             save_format: "2018".into(),
             held: Vec::new(),
             civil: None,
+            detail: None,
         }
     }
 }
@@ -247,6 +254,9 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
+        if detailview::open_file(self, f) {
+            return;
+        }
         let lower = f.name.to_ascii_lowercase();
         if civilview::is_civil_file(&lower, &f.bytes) {
             civilview::open_file(self, f);
@@ -791,6 +801,7 @@ impl UiApp {
 
     /// The single entry for every action.
     pub fn run(&mut self, id: &str, params: &Params) -> Result<(), String> {
+        detailview::before_run(self, id);
         match id {
             "file.open" => {
                 if let Some(p) = self.services.pick_open.as_mut() {
@@ -821,6 +832,9 @@ impl UiApp {
                 self.pending_fit = true;
                 if let Some(c) = self.civil.as_mut() {
                     c.fit();
+                }
+                if let Some(d) = self.detail.as_mut() {
+                    d.fit();
                 }
                 if let Some(p) = self.pdf.as_mut() {
                     p.fit();
@@ -1140,6 +1154,7 @@ impl UiApp {
                 }
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
+            id if id.starts_with("detail.") => return detailview::run(self, id, params),
             other => return Err(format!("unknown command {other}")),
         }
         Ok(())
@@ -1293,7 +1308,9 @@ impl UiApp {
             self.layers_panel(ui);
         }
         self.tabs(ui);
-        if let Some(pdf) = self.pdf.as_mut() {
+        if self.detail.is_some() {
+            detailview::ui(self, ui);
+        } else if let Some(pdf) = self.pdf.as_mut() {
             let t = self.tokens;
             let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
             egui::Panel::left("pdf_sheets").default_size(180.0).size_range(120.0..=320.0).resizable(true).frame(frame).show(ui, |ui| {
@@ -1413,6 +1430,13 @@ impl UiApp {
                     if ui.button("Site sample").on_hover_text("Open CivilCraft's sample site (survey points, surface, contours)").clicked()
                     {
                         self.run_ui("civil.sample", &Params::default());
+                    }
+                    if ui
+                        .button("Steel sample")
+                        .on_hover_text("Open DetailCraft's sample frame (members, connections, footings, rebar)")
+                        .clicked()
+                    {
+                        self.run_ui("detail.sample", &Params::default());
                     }
                     if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
                         self.run_ui("file.new", &Params::default());
