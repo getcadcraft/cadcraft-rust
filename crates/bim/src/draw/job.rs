@@ -226,12 +226,11 @@ pub struct Run {
     pub ed: Option<Editor>,
     rand: Option<Rand>,
     now: f64,
-    units: String,
 }
 
 impl Run {
     pub fn new(seed: u32, now: f64) -> Run {
-        Run { ed: None, rand: Some(Rand::new(seed)), now, units: "ftin".into() }
+        Run { ed: None, rand: Some(Rand::new(seed)), now }
     }
 
     fn model(&mut self, op: Op, label: &str, verb: &str) -> J {
@@ -290,9 +289,6 @@ impl Run {
                 }
                 Err(e) => return err(&e.0),
             }
-        }
-        if let Some(u) = s(st.get("units")) {
-            self.units = u;
         }
         let Some(ed) = self.ed.as_mut() else { return err("no model") };
         let sn = match snapshot(&mut ed.api) {
@@ -554,7 +550,7 @@ impl Run {
             "plan" => {
                 let Some(li) = o.get("level").and_then(J::as_u64).and_then(|x| usize::try_from(x).ok()) else { return err("no level") };
                 let Some(lv) = sn.levels.get(li).cloned() else { return err("no level") };
-                let units = s(o.get("units")).unwrap_or_else(|| self.units.clone());
+                let units = s(o.get("units")).unwrap_or_else(|| "ftin".to_string());
                 let ts = iso_seconds(self.now);
                 let bytes = match ed.save(&ts) {
                     Ok(b) => b,
@@ -581,6 +577,83 @@ impl Run {
                     let _ = std::fs::write(out, &pdf.bytes);
                 }
                 json!({ "scene": scene_json(&scene), "pdf": { "bytes": pdf.bytes.len(), "digest": crate::digest::bytes(&pdf.bytes), "scale": pdf.label, "missing": pdf.missing } })
+            }
+            "schedule" => {
+                let units = s(o.get("units")).unwrap_or_else(|| "ftin".to_string());
+                let mut loops = std::collections::HashMap::new();
+                for l in &sn.levels {
+                    if sn.derived.spaces.iter().any(|x| x.storey == Some(l.id))
+                        && let Ok(lp) = loops_of(&mut ed.api, l.id)
+                    {
+                        loops.insert(crate::draw::plan::key_u64(l.id), lp.loops);
+                    }
+                }
+                let all = crate::draw::schedule::schedules(&sn, &loops, &units);
+                let which = s(o.get("which")).unwrap_or_else(|| "doors".into());
+                let Some(sc) = all.get(&which) else { return err("no such schedule") };
+                let mut csv = "\u{feff}".to_string();
+                csv.push_str(&crate::draw::schedule::schedule_csv(sc));
+                if let Some(out) = s(o.get("out")) {
+                    let _ = std::fs::write(out, csv.as_bytes());
+                }
+                json!({ "head": sc.head, "rows": sc.rows, "total": sc.total, "nums": sc.nums.iter().map(|r| r.iter().map(|v| jn(*v)).collect::<Vec<_>>()).collect::<Vec<_>>(), "csv": crate::digest::bytes(csv.as_bytes()) })
+            }
+            "bench" => {
+                // timings for forks/tools/bmbench.mjs (not compared): the model loaded from the edited bytes (what
+                // the 3D view and the plan read), the plan of a level, an attribute change and Save
+                let li = o.get("level").and_then(J::as_u64).and_then(|x| usize::try_from(x).ok()).unwrap_or(0);
+                let level = sn.levels.get(li).map(|l| l.id);
+                let ts = iso_seconds(self.now);
+                let t0 = std::time::Instant::now();
+                let bytes = match ed.save(&ts) {
+                    Ok(b) => b,
+                    Err(e) => return err(&e.0),
+                };
+                let save0 = t0.elapsed().as_secs_f64() * 1000.0;
+                let t1 = std::time::Instant::now();
+                let f = match cc_io_ifc::model::IfcFile::open(&bytes) {
+                    Ok(f) => f,
+                    Err(e) => return err(&e.0),
+                };
+                f.parse_all();
+                let model = match crate::model::load(&f, &cc_io_ifc::geo::bool_ops::ManifoldOps, 0.0) {
+                    Ok(m) => m,
+                    Err(e) => return err(&e.0),
+                };
+                let load_ms = t1.elapsed().as_secs_f64() * 1000.0;
+                let t2 = std::time::Instant::now();
+                let view = cc_io_ifc::view::view(&bytes, &cc_io_ifc::geo::bool_ops::ManifoldOps).map(|v| v.pieces.len()).unwrap_or(0);
+                let view_ms = t2.elapsed().as_secs_f64() * 1000.0;
+                let mut plan_ms = f64::NAN;
+                let mut cut = 0usize;
+                if let Some(level) = level {
+                    let t3 = std::time::Instant::now();
+                    let sw = {
+                        let mut w = match crate::draw::writer::W::new(&mut ed.api) {
+                            Ok(w) => w,
+                            Err(e) => return err(&e.0),
+                        };
+                        w.storey_world(level).unwrap_or([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0])
+                    };
+                    if let Some(mm) = crate::draw::plan::viewer_to_plan(&model.coord, &sw) {
+                        let own = crate::draw::plan::own_keys(&sn, 0.0);
+                        let c = crate::draw::plan::plan_cut(&model, &mm, level, crate::draw::plan::CUT, &own, 50.0, true);
+                        let (cu, be) = crate::draw::plan::cut_scene(&c);
+                        cut = cu.len().saturating_add(be.len());
+                        if let Ok(loops) = loops_of(&mut ed.api, level) {
+                            let api = &mut ed.api;
+                            let mut other = |st: f64| loops_of(api, st).ok();
+                            let _ = crate::draw::plan::make_scene(&sn, level, &loops.loops, &cu, &be, "mm", true, 0.0, &mut other);
+                        }
+                    }
+                    plan_ms = t3.elapsed().as_secs_f64() * 1000.0;
+                }
+                let id = num(o.get("id")).unwrap_or(0.0);
+                let t4 = std::time::Instant::now();
+                let _ = ed.set_attribute(id, "Name", Some("Bench"), true);
+                let saved = ed.save(&ts).map(|b| b.len()).unwrap_or(0);
+                let edit_save_ms = t4.elapsed().as_secs_f64() * 1000.0;
+                json!({ "save0_ms": save0, "load_ms": load_ms, "view_ms": view_ms, "view_pieces": view, "plan_ms": jn(plan_ms), "plan_items": cut, "edit_save_ms": edit_save_ms, "bytes": saved })
             }
             "changes" => J::Array(
                 ed.changes

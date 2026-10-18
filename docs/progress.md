@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M7.13 BimCraft's IFC editing, plan view and Draw tools in the app (agent, work/bimdraw)
+
+- M7.13 (crates/ui-egui `bimedit.rs`, `bimplan.rs`; cc-bim `draw::schedule`): the IFC view edits and saves. Properties
+  edits names, attributes and property values (one undo step each), Undo / Redo (Ctrl+Z / Ctrl+Y), **Save as IFC**
+  through the host ("<name> (edited).ifc", the 0.5 status line), **New building** (dialog + `bim.new`). **Draw**
+  opens the storey plan beside / instead of the 3D view: cut walls with their pieces, door and window swings, rooms
+  with names and areas, roofs, dimensions (ft-in or mm), levels panel (add, rename, elevation,
+  height), Fit, Print (the plan PDF of model-pdf.js) and Schedules (doors, windows, walls, rooms; CSV). Tools: Wall
+  (chains with snapping, typed lengths, closing a room flips the outside), Door, Window (17 types, flip, typed
+  distance), Floor, Ceiling, Roof (hip, gables on the short or long sides, shed, pitch), Select (walls, openings,
+  rooms; Properties shows each one's own editor), Delete. Every action is a command (`bim.*`, 30 commands) and a
+  gesture; each change is one undo step. Rooms have no piece in the 3D view, so a room picked on the plan is kept
+  beside the 3D pick.
+- Parity: `forks/tools/bmuidiff.mjs --ui` drives cadcraft-shot through the commands and compares with the frozen JS:
+  the saved IFC, the plan PDF, both schedule CSVs and the status lines are byte-identical; the sample's Properties
+  edit + undo + redo + Save too. Whole harness: **2,513 / 2,513 steps equal, 420 / 420 saved files byte-identical**.
+- Timings (forks/tools/bmbench.mjs, best of 2, JS 0.5 in Node vs Rust release; ms):
+
+  | File | MB | open JS / Rust | load JS / Rust | plan JS / Rust | edit + save JS / Rust |
+  |---|---:|---:|---:|---:|---:|
+  | cc-ifc-big-210.ifc | 200.7 | 4728 / 2118 | 27539 / 5562 | 396 / 261 | 8035 / 529 |
+  | cc-ifc-big-120.ifc | 115.3 | 1367 / 753 | 8554 / 2765 | 208 / 148 | 3002 / 256 |
+  | AC25-Molio-IFC2X3.ifc | 70.5 | 571 / 306 | 2302 / 1315 | 42 / 24 | 1775 / 115 |
+  | Molio_with_URIs.ifc | 70.5 | 426 / 272 | 3328 / 1286 | 28 / 13 | 1591 / 161 |
+  | IFC_Schependomlaan_geo.ifc | 47.0 | 722 / 418 | 2864 / 1215 | 85 / 36 | 1263 / 201 |
+
+- Not in 0.5, so not here: columns (BimCraft 0.5 has no column tool). Not ported yet: grips (dragging wall ends,
+  sliding openings), res-follow.js residential sync, the Library's placed items.
+
 ## 2026-10-18 — M7.12 BimCraft's building tools and IFC editor in Rust (agent, work/bimdraw)
 
 - M7.12: cc-ifc writes: `IfcFile` keeps edits beside the original bytes (model.js: `set` / `add` / `remove`, every read

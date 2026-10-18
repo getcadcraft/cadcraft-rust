@@ -16,6 +16,8 @@
 )]
 
 pub mod autocount;
+pub mod bimedit;
+pub mod bimplan;
 pub mod bimtools;
 pub mod canvas;
 pub mod civil3d;
@@ -200,6 +202,8 @@ pub struct UiApp {
     pub detail: Option<detailview::DetailView>,
     /// an open PartCraft part (partview.rs)
     pub part: Option<partview::PartView>,
+    /// BimCraft's editing and Draw on the IFC view (bimedit.rs, bimplan.rs)
+    pub bimh: bimedit::Host,
 }
 
 impl Default for UiApp {
@@ -247,6 +251,7 @@ impl Default for UiApp {
             civil: None,
             detail: None,
             part: None,
+            bimh: bimedit::Host::default(),
         }
     }
 }
@@ -263,6 +268,7 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
+        bimedit::opened(self);
         if detailview::open_file(self, f) {
             return;
         }
@@ -682,6 +688,7 @@ impl UiApp {
             ui.label(RichText::new("Properties").strong().color(t.text_strong));
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                bimedit::props_top(self, ui);
                 for g in &groups {
                     egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
                         // name above value (a grid needs a frame to settle its column widths)
@@ -1200,6 +1207,8 @@ impl UiApp {
                 return pdfcmd::run(self, id, params);
             }
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
+            id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
+            id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
                 self.error = None;
@@ -1350,6 +1359,7 @@ impl UiApp {
         }
         self.app_bar(ui);
         self.status_bar(ui);
+        bimedit::new_dialog(self, &ctx);
         if self.editor.is_some() {
             self.command_line(ui);
         }
@@ -1437,6 +1447,8 @@ impl UiApp {
                 });
                 self.message = mc.status();
             }
+        } else if self.scene3.is_some() && self.ifc3.is_some() {
+            bimedit::ifc_branch(self, ui);
         } else if self.scene3.is_some() {
             self.model_panel(ui);
             self.props_panel(ui);
@@ -1504,6 +1516,9 @@ impl UiApp {
                         .clicked()
                     {
                         self.run_ui("detail.sample", &Params::default());
+                    }
+                    if ui.button(bimtools::bt("new.button", &[])).on_hover_text(bimtools::bt("new.title", &[])).clicked() {
+                        self.bimh.new_dlg = Some(bimedit::NewDlg::default());
                     }
                     if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
                         self.run_ui("file.new", &Params::default());

@@ -14,6 +14,7 @@ pub mod pdf;
 pub mod plan;
 pub mod roof;
 pub mod rooms;
+pub mod schedule;
 pub mod skeleton;
 pub mod slabs;
 pub mod tools;
