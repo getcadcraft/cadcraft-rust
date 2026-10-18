@@ -2,6 +2,17 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M4.11 Properties panel (agent, work/drafting)
+
+- `crates/engine/src/props.rs`: propdefs.js / propexpr.js — groups (All + one per type), General / Geometry / Text /
+  Pattern / dimension / Misc sections per type, *Varies*, each change one `PROPERTIES` undo step (objects on locked
+  layers left as they were), the number reader (units, feet and inches, `45d30'`, `0.5r`, `=2*45` through cc-part's
+  expr.js port). PROPERTIES (PR, PROPS, CH, MO, DDMODIFY), PROPERTIESCLOSE, QPMODE; the panel on the right (Ctrl+1),
+  commands `props.open/close/group/vertex/set`; `cadcraft-cli props` for the harness.
+- Parity (`forks/tools/propsdiff.mjs`, groups, defs, values, applied result, document, undo): 720/720 records
+  identical (12 scripts × 60 steps). Rust tests: `crates/engine/tests/props.rs`. Not ported: the dynamic-block Custom section, Attributes, Library, sheet / view
+  sections, Quick Properties' pop-up, the point pick buttons.
+
 ## 2026-10-18 — M4.10 Drafting commands past the M4 set (agent, work/drafting)
 
 - Ranked list of 0.5's 190 commands in `docs/gaps.md` item 1. Ported at parity: HATCH with pick-inside boundaries

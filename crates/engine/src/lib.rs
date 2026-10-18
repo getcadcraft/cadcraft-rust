@@ -8,11 +8,11 @@
 //! M4.10 HATCH (pick inside), the DIM family (linear, aligned, radius, diameter, angular, continue, baseline, the dim
 //! variables), FILLET CHAMFER EXPLODE STRETCH ARRAY BREAK LENGTHEN JOIN MATCHPROP XLINE RAY MTEXT REVCLOUD MLEADER
 //! TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DIST AREA MEASUREGEOM ID LIST SELECT DUPLICATE, the layer tools
-//! and RENAME LINETYPE LTSCALE LWEIGHT.
+//! and RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES (M4.11, [`props`]: propdefs.js / propexpr.js).
 //! Parity with the frozen JS is checked by `forks/tools/kdiff.mjs` (`cadcraft-cli cmds`).
 //!
 //! Not ported here: constraints carried through MIRROR / TRIM (ckeep.js; the M4 Doc solves no constraints), the 3D
-//! tab's versions of MOVE / COPY / ROTATE / ERASE / ZOOM, lasso selection.
+//! tab's versions of MOVE / COPY / ROTATE / ERASE / ZOOM, lasso selection, dynamic-block properties (the Custom section).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -33,6 +33,7 @@ pub mod engine;
 pub mod input;
 pub mod lang;
 pub mod prompt;
+pub mod props;
 pub mod tancircle;
 pub mod ucs;
 

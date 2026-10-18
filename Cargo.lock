@@ -481,6 +481,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-drawing",
  "cc-geom",
+ "cc-part",
  "cc-tools",
  "serde_json",
  "thiserror 2.0.21",

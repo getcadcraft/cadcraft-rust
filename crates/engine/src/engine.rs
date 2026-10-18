@@ -55,6 +55,10 @@ pub trait Host {
     fn view_rect(&self) -> Option<(f64, f64)> {
         None
     }
+    /// `host.props.open()` / `.close()` (PROPERTIES / PROPERTIESCLOSE)
+    fn props(&mut self, _open: bool) {}
+    /// `host.props.toggleQuick()` (QPMODE)
+    fn quick_props(&mut self) {}
     /// `host.viewExtents()`: the model area on screen (HATCH looks for boundaries there only), when the host has one.
     fn view_extents(&self) -> Option<Bounds> {
         None

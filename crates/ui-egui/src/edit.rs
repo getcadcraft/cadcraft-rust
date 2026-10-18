@@ -19,6 +19,11 @@ use cc_geom::P2;
 /// CadCraft 0.5's own catalogs (lang/*.json, unchanged).
 static EN: &str = include_str!("../../../assets/lang/cadcraft/en.json");
 
+/// The English catalog (the Properties panel reads it too).
+pub(crate) fn lang_en_pub() -> Lang {
+    lang_en()
+}
+
 fn lang_en() -> Lang {
     static V: OnceLock<serde_json::Value> = OnceLock::new();
     Lang::new(V.get_or_init(|| serde_json::from_str(EN).unwrap_or(serde_json::Value::Null)))
@@ -64,6 +69,8 @@ pub struct HostState {
     pub view_wh: Option<(f64, f64)>,
     /// the model area on screen (HATCH looks for boundaries there)
     pub view_box: Option<Bounds>,
+    /// PROPERTIES / PROPERTIESCLOSE asked the window to open / fold the Properties panel
+    pub props_open: Option<bool>,
     /// pick tolerance in drawing units (6 px at the current zoom)
     pub pick_tol: f64,
 }
@@ -217,6 +224,9 @@ impl Host for UiHost {
     }
     fn view_extents(&self) -> Option<Bounds> {
         self.0.borrow().view_box
+    }
+    fn props(&mut self, open: bool) {
+        self.0.borrow_mut().props_open = Some(open);
     }
 }
 

@@ -112,3 +112,19 @@ pub async fn redo(c: Ctx) -> R {
     c.print(&msg);
     Ok(())
 }
+
+/// PROPERTIES (PR, PROPS, CH, MO, DDMODIFY): open the Properties panel.
+pub async fn properties(c: Ctx) -> R {
+    c.sh().host.borrow_mut().props(true);
+    Ok(())
+}
+/// PROPERTIESCLOSE (PRCLOSE): fold it away.
+pub async fn properties_close(c: Ctx) -> R {
+    c.sh().host.borrow_mut().props(false);
+    Ok(())
+}
+/// QPMODE (QP): Quick Properties by the cursor on / off.
+pub async fn qpmode(c: Ctx) -> R {
+    c.sh().host.borrow_mut().quick_props();
+    Ok(())
+}

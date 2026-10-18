@@ -59,6 +59,7 @@ mod markup;
 mod markup2;
 mod mcp;
 mod part;
+mod props;
 mod skp;
 mod takeoff;
 mod takeoff_pdf;
@@ -95,6 +96,7 @@ fn main() -> ExitCode {
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),
         "save" => iocad::save(&rest),
+        "props" => props::props(&rest),
         "manifold" => manifold::manifold(&rest),
         "manifold-cs" => crosssection::run(&rest),
         "manifold-hull" => hull::run(&rest),

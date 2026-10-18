@@ -19,6 +19,7 @@ pub mod autocount;
 pub mod bimedit;
 pub mod bimplan;
 pub mod bimtools;
+pub mod cadprops;
 pub mod canvas;
 pub mod civil3d;
 pub mod civildialogs;
@@ -208,6 +209,8 @@ pub struct UiApp {
     pub bench_result: Option<String>,
     /// the drawing open for editing (M4): its display model is rebuilt into `doc` after every change
     pub editor: Option<edit::Editor>,
+    /// the drafting editor's Properties panel (M4.11)
+    pub cadprops: cadprops::CadProps,
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -270,6 +273,7 @@ impl Default for UiApp {
             bench: None,
             bench_result: None,
             editor: None,
+            cadprops: cadprops::CadProps::default(),
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -1302,6 +1306,7 @@ impl UiApp {
             }
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("hub.") => return hub::run(self, id, params),
+            id if id.starts_with("props.") => return cadprops::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if id.starts_with("part.") => {
@@ -1316,6 +1321,9 @@ impl UiApp {
     /// After any input to the editor: rebuild the display model if the drawing changed, apply ZOOM requests.
     pub fn sync_editor(&mut self) {
         let Some(ed) = self.editor.as_mut() else { return };
+        if let Some(open) = ed.hs.borrow_mut().props_open.take() {
+            self.cadprops.open = open;
+        }
         if ed.take_changed() || self.doc.is_none() {
             let drawing = ed.display.drawing(&ed.eng.doc());
             let n = drawing.spaces.len();
@@ -1370,6 +1378,11 @@ impl UiApp {
             ed.click(cc_geom::P2::new(x, y), pxu);
         }
         self.sync_editor();
+    }
+
+    /// `run_ui` for the panels in other modules.
+    pub(crate) fn run_ui_pub(&mut self, id: &str, params: &Params) {
+        self.run_ui(id, params);
     }
 
     fn run_ui(&mut self, id: &str, params: &Params) {
@@ -1452,6 +1465,9 @@ impl UiApp {
         if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::S)) {
             self.run_ui("file.save", &Params::default());
         }
+        if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
+            self.cadprops.open = !self.cadprops.open;
+        }
         self.app_bar(ui);
         self.status_bar(ui);
         bimedit::new_dialog(self, &ctx);
@@ -1460,6 +1476,9 @@ impl UiApp {
         }
         if self.doc.is_some() && self.show_layers {
             self.layers_panel(ui);
+        }
+        if self.editor.is_some() && self.cadprops.open {
+            cadprops::panel(self, ui);
         }
         self.tabs(ui);
         if self.part.is_some() {
@@ -2076,6 +2095,7 @@ impl UiApp {
         // read Enter before the text field consumes it
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let mut submit = false;
+        let mut cmd_id: Option<egui::Id> = None;
         egui::Panel::bottom("cmdline")
             .exact_size(96.0)
             .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
@@ -2093,6 +2113,7 @@ impl UiApp {
                     // the field keeps the focus on Enter (no return key: Enter is read above). A text field lets go
                     // of the focus on Enter, and on the web the keys typed in the next frame were lost with it
                     let id = ui.make_persistent_id("cmdline.input");
+                    cmd_id = Some(id);
                     if ctx.memory(|m| m.focused()).is_none_or(|f| f == id) {
                         ctx.memory_mut(|m| m.request_focus(id));
                     }
@@ -2126,17 +2147,19 @@ impl UiApp {
         if submit {
             ed.submit();
         }
-        if esc {
+        // keys typed into another field (the Properties panel) stay there
+        let elsewhere = ctx.memory(|m| m.focused()).is_some_and(|f| Some(f) != cmd_id);
+        if esc && !elsewhere {
             ed.escape();
             ed.line.clear();
         }
-        if del && ed.line.is_empty() {
+        if del && ed.line.is_empty() && !elsewhere {
             ed.delete();
         }
-        if undo {
+        if undo && !elsewhere {
             ed.undo();
         }
-        if redo {
+        if redo && !elsewhere {
             ed.redo();
         }
         if f3 {

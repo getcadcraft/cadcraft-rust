@@ -19,6 +19,8 @@ workspace = true
 cc-geom.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
+# expr.js (the Properties panel's expressions): the same file in CadCraft and PartCraft 0.5, ported once in cc-part
+cc-part.workspace = true
 cc-drawing.workspace = true
 cc-tools.workspace = true
 serde_json.workspace = true

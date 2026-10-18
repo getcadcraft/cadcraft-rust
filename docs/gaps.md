@@ -1,9 +1,10 @@
 # Gaps against CadCraft 0.5
 
+Last updated 2026-10-18 · Change: drafting commands and the Properties panel (M4.10, M4.11); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: drafting commands (M4.10); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 
-1. **Drafting vs 0.5** (after M4.10). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
+1. **Drafting vs 0.5** (after M4.10, M4.11). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
    everyday use. **In, at kdiff parity** (same prompts, printed lines, previews, drawing, undo labels): LINE … ZOOM (M4);
    HATCH (pick-inside boundaries with islands, Select objects, pattern / scale / angle), DIMLINEAR DIMALIGNED DIMANGULAR
@@ -11,14 +12,16 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    CHAMFER (polyline, trim, multiple, Shift), EXPLODE, STRETCH, ARRAY ARRAYRECT ARRAYPOLAR, BREAK BREAKATPOINT, LENGTHEN,
    JOIN, MATCHPROP, XLINE RAY, MTEXT, REVCLOUD, MLEADER, TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DUPLICATE
    SELECTALL DESELECT SELECT, DIST AREA MEASUREGEOM ID LIST, LAYISO LAYUNISO LAYOFF LAYFRZ LAYMCUR LAYON LAYTHW LAYMRG
-   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT (M4.10). **Next, by everyday
-   use:** PROPERTIES and the Properties panel, PLOT; COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
+   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE (M4.10, M4.11). **Next, by everyday
+   use:** PLOT; COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
    VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD; LWDISPLAY POLARANG;
    COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a dynamic block without
    its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
-   SAVEAS DXFOUT HELP are the window's own buttons. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
+   SAVEAS DXFOUT HELP are the window's own buttons. The Properties panel (M4.11) has General, Geometry, Text, Pattern,
+   the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
+   sections, Quick Properties and the point pick buttons. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
    shows them); on drawings whose objects carry many extra fields MOVE / ARRAY / MATCHPROP / ERASE + UNDO run 0.1–0.6× the JS (every object's extra JSON is deep-copied per preview and per change; the JS shares it: share extras in cc-cad); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
    slower than the JS (0.7×).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
