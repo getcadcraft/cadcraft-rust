@@ -156,6 +156,7 @@ mod web {
                             })),
                             pick_open: None,
                             read_xref: None,
+                            read_path: None,
                             save: Some(Box::new(download)),
                         };
                         let mut app = UiApp::new(services);

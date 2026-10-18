@@ -188,7 +188,9 @@ fn wasm() -> R {
         c.args(["-p", &p.name]);
         n += 1;
     }
-    run(&format!("wasm ({n} crates)"), c)
+    // the web entry too: a new field in the UI's Services once broke only `cargo xtask web` (M16.7)
+    c.args(["-p", "cadcraft-web"]);
+    run(&format!("wasm ({} crates + cadcraft-web)", n), c)
 }
 
 fn assets() -> R {
