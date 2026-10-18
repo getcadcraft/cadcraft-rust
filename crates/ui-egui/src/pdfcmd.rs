@@ -21,6 +21,8 @@
 //! - `markup.style` name = `key=value` (color, width, fill on|off|#hex, fillOpacity, opacity, fontSize): the
 //!   selection, or the tool's next markups; `markup.prop` name = `field=value` (status, subject, layer, text,
 //!   comment, label, stamp).
+//! - `pdf.file` name = a file id ("f2"): open that file of the plan set (another PDF joins by opening it).
+//! - `markup.compare` name = the old sheet's key ("f1:0") against the open sheet, `cloud`, `stop`.
 //! - `markup.cal` name = the calibrate line's real distance; `markup.delete`, `markup.redo`, `markup.save`.
 
 use crate::{Params, UiApp};
@@ -39,10 +41,12 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     if id == "markup.save" {
         // Save marked-up PDF through the host's save
         let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
-        let (file, bytes) = app.pdf.as_mut().ok_or("markup.save: open a PDF first")?.save_marked(now)?;
+        let outs = app.pdf.as_mut().ok_or("markup.save: open a PDF first")?.save_files(now)?;
         let save = app.services.save.as_mut().ok_or("markup.save: saving is not available here")?;
-        if let Some(to) = save(&file, bytes)? {
-            app.message = format!("Saved {to}");
+        for (file, bytes) in outs {
+            if let Some(to) = save(&file, bytes)? {
+                app.message = format!("Saved {to}");
+            }
         }
         return Ok(());
     }
@@ -107,6 +111,23 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         "takeoff.redo" => {
             tk.message = tk.tk.redo().unwrap_or_default();
+            Ok(())
+        }
+        "markup.compare" => match name.as_str() {
+            // name = the old sheet's key ("f1:0"), cloud (Cloud the changes) or stop
+            "cloud" => p.compare_cloud(),
+            "stop" => {
+                p.compare_stop();
+                Ok(())
+            }
+            old => p.compare_start(old),
+        },
+        "pdf.file" => {
+            // open the project's file `name` ("f2", …), its first sheet
+            if p.cur.id != name && !p.others.iter().any(|f| f.id == name) {
+                return Err(format!("pdf.file: no file {name}"));
+            }
+            p.go_file(&name, 0);
             Ok(())
         }
         "pdf.zoom" => {

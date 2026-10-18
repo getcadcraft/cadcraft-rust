@@ -509,13 +509,13 @@ impl crate::pdfview::PdfView {
             ui.label(RichText::new(t("props.tool.note", &[("type", Fill::S(t0(&format!("type.{tool}.lower"))))])).color(tok.text_dim));
         } else {
             head(ui, t0("props.h.sheet"));
-            let p = self.pages.get(self.page).cloned();
+            let p = self.cur.pages.get(self.page).cloned();
             kv(ui, t0("props.sheet"), p.as_ref().map(|p| p.label.clone()).unwrap_or_default());
-            kv(ui, t0("props.file"), self.name.clone());
+            kv(ui, t0("props.file"), self.cur.name.clone());
             kv(
                 ui,
                 t0("props.page"),
-                t("props.page.of", &[("i", Fill::N((self.page + 1) as f64)), ("n", Fill::N(self.pages.len() as f64))]),
+                t("props.page.of", &[("i", Fill::N((self.page + 1) as f64)), ("n", Fill::N(self.cur.pages.len() as f64))]),
             );
             if let Some(p) = &p {
                 let (w, h) = if (self.page_rot() % 180.0) != 0.0 { (p.height, p.width) } else { (p.width, p.height) };
@@ -528,6 +528,8 @@ impl crate::pdfview::PdfView {
             kv(ui, t0("props.scale"), self.store.calibrations.get(&key).map_or_else(|| t0("status.scale.none"), |c| c.label.clone()));
             kv(ui, t0("tab.list"), self.store.on_sheet(&key).len().to_string());
         }
+        ui.separator();
+        self.compare_panel(ui, tok);
         for (k, v) in style_set {
             let _ = self.tools.style_edit(&mut self.store, k, &v);
         }

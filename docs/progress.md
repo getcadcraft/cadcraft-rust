@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M9.15 Several PDFs per plan set; Compare sheets (agent, work/markuptools)
+
+- M9.15: the sheet view holds a project of PDFs (`PdfFile` per file: MarkupCraft id "f1", "f2"…, pages, bytes, the
+  reader's page keys / views / titles / removeRefs). Opening a PDF while a plan set is open adds it, as 0.5's Open does:
+  its markups, scales, sheet names, layers and columns join the one store with the same id sequence, and TakeoffCraft's
+  file list gets it (marks are "<hash>:<page>" of the open file). The sheet list shows every file's sheets under its
+  name; `pdf.file` switches. Save follows markupcraft.js saveFiles (one file → it; several → the files with changes,
+  else the open one; saved sheets stop being dirty); TakeoffCraft's marked PDF is written once per file that has marks
+  (exportPdf). Compare sheets by changed lines (`markupcompare.rs`, markupcraft.js vectorCompare / cloudChanges): any
+  sheet of any open file against the open one through cc-io-markup `page_ops` → `page_segments` (cached) →
+  `diffSegments` at 1.5 pt; lines only on the old sheet in red, only on the new one in blue, the status line with
+  their lengths; Cloud the changes adds a revision cloud round each cluster (gap 18, ≥ 6 pt) in one undo step with
+  "Changed since <old sheet>". Command `markup.compare` (old key | cloud | stop). Not yet: the picture overlay, line-up /
+  nudge / align by two points, compare a whole set, closing one file.
+- Parity: mkuidiff.mjs gained `twofiles` (draw on both files, Save twice: the dirty-file rule) and `compare` (a second
+  PDF, compare, cloud, status, Save): 6 scenarios × kitchen sheet 6 / 6, plus compare on rev-a / rev-b (a generated
+  revision pair: lines gone, a moved group, a new room → 16 clouds, each with its status reply) and on blank-grid /
+  pdflib edits: identical.
+  tkopsdiff.mjs gained `twofiles` (marks on two files, scales per sheet, one item across both, four exports incl. two
+  marked PDFs): 17 / 17 identical over 4 scenarios.
+
 ## 2026-10-18 — M9.14 MarkupCraft's tools and Properties panel as 0.5 has them (agent, work/markuptools)
 
 - M9.14: `crates/ui-egui/src/markuptools.rs` rewritten as a port of markupcraft.js's pointer handlers (onDown /

@@ -21,7 +21,8 @@ Last updated 2026-10-18 · Change: PartCraft (M13.1) and DetailCraft (M14.1) app
    move / grips / window, the text editor and the Properties panel, save marked-up PDF at parity; takeoff count / linear
    / area, exports, Auto count. Missing in MarkupCraft: picture and signature stamps, tool chest presets, cut-outs in
    areas, spaces, legends, links, replies, punch list, markups list, copy / paste, sheet rename, pages menu, BCF,
-   compare, several PDFs per project.
+   compare's picture overlay / line-up / whole-set compare, closing one PDF of a plan set (several PDFs and compare by
+   changed lines are in, M9.15).
    TakeoffCraft has its item / mark panels, assemblies, bid areas, alternates, deducts, slopes and cut-outs (M9.13);
    still missing there: arcs and circles in runs and outlines, dragging mark corners, multi-select, groups (typicals),
    notes / clouds, the 3D view, revisions.

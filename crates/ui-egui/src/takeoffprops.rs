@@ -1287,7 +1287,7 @@ mod tests {
 
     fn mode() -> (TakeoffMode, String) {
         let mut m = TakeoffMode::new("abc");
-        m.add_file("Plan.pdf", 10, 1);
+        m.add_file("abc", "Plan.pdf", 10, 1);
         let sheet = m.sheet(0);
         m.set_preset(&sheet, "a1/4", 1.0);
         (m, sheet)

@@ -138,10 +138,25 @@ impl TakeoffMode {
         }
     }
 
-    /// The open PDF joins the project's file list (not an undo step, as in the JS): its name labels its sheets.
-    pub fn add_file(&mut self, name: &str, size: usize, pages: usize) {
-        let f = obj(json!({ "hash": self.hash, "name": name, "size": size, "pages": pages }));
+    /// A PDF joins the project's file list (not an undo step, as in the JS): its name labels its sheets.
+    pub fn add_file(&mut self, hash: &str, name: &str, size: usize, pages: usize) {
+        let f = obj(json!({ "hash": hash, "name": name, "size": size, "pages": pages }));
         self.tk.add_file(&f);
+    }
+
+    /// The file whose sheets the view shows now (its marks are "<hash>:<page>").
+    pub fn set_file(&mut self, hash: &str) {
+        self.hash = hash.to_string();
+        self.pts.clear();
+        self.ded.clear();
+        self.ac = None;
+        self.ac_box = None;
+    }
+
+    /// Whether any mark is on one of the file's sheets.
+    pub fn has_marks(&self, hash: &str) -> bool {
+        let p = format!("{hash}:");
+        self.tk.marks().iter().any(|m| m.get("sheet").and_then(Value::as_str).is_some_and(|s| s.starts_with(&p)))
     }
 
     /// `sheetLabel(key)` for a sheet nobody named: "<file>, page <n>".
@@ -162,7 +177,7 @@ impl TakeoffMode {
     /// One of the 0.5 exports, named as takeoffcraft.js names it: the estimate as XLSX or CSV (with a BOM), the PDF
     /// with the takeoff drawn in ("<pdf> (takeoff).pdf"), or the project ("<name>.takeoff.json", indent 1).
     /// `now_ms` is local time: the workbook's dates and the project's savedAt.
-    pub fn export_file(&self, kind: &str, pdf: &[u8], pdf_name: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+    pub fn export_file(&self, kind: &str, hash: &str, pdf: &[u8], pdf_name: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
         let name = safe_name(self.tk.state.get("name").and_then(Value::as_str).unwrap_or(""));
         let has_items = !self.tk.items().is_empty();
         match kind {
@@ -179,7 +194,7 @@ impl TakeoffMode {
                 Ok((format!("{name}.csv"), format!("\u{feff}{csv}").into_bytes()))
             }
             "pdf" => {
-                let out = cc_io_takeoff::pdfmarks::pdf_with_marks(pdf, &self.hash, &self.tk.state, true)?; // exportPdf: with the legend (the default)
+                let out = cc_io_takeoff::pdfmarks::pdf_with_marks(pdf, hash, &self.tk.state, true)?; // exportPdf: with the legend (the default)
                 if out.marks == 0 {
                     return Err(t("export.pdf.none"));
                 }
@@ -780,20 +795,20 @@ mod tests {
     #[test]
     fn exports_need_items_and_are_named_from_the_takeoff() {
         let mut m = TakeoffMode::new("abc");
-        m.add_file("Kitchen.pdf", 10, 1);
+        m.add_file("abc", "Kitchen.pdf", 10, 1);
         assert_eq!(m.sheet_label("abc:0"), "Kitchen, page 1");
-        assert_eq!(m.export_file("csv", &[], "Kitchen.pdf", 0.0).unwrap_err(), t("export.empty"));
+        assert_eq!(m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0).unwrap_err(), t("export.empty"));
         m.add_item("Outlets", "count");
-        let (name, bytes) = m.export_file("csv", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
         assert!(name.ends_with(".csv"));
         assert!(bytes.starts_with("\u{feff}".as_bytes()));
-        let (name, bytes) = m.export_file("xlsx", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("xlsx", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
         assert!(name.ends_with(".xlsx") && bytes.starts_with(b"PK"));
-        let (name, bytes) = m.export_file("project", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("project", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
         assert!(name.ends_with(".takeoff.json"));
         let back: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(back["items"].as_array().map(Vec::len), Some(1));
-        assert!(m.export_file("nope", &[], "", 0.0).is_err());
+        assert!(m.export_file("nope", "abc", &[], "", 0.0).is_err());
     }
 
     #[test]

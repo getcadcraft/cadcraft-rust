@@ -30,6 +30,7 @@ pub mod detailview;
 pub mod document;
 pub mod edit;
 pub mod ifc3d;
+pub mod markupcompare;
 pub mod markupprops;
 pub mod markuptools;
 pub mod model3d;
@@ -276,6 +277,15 @@ impl UiApp {
             return;
         }
         self.civil = None;
+        if lower.ends_with(".pdf")
+            && let Some(p) = self.pdf.as_mut()
+        {
+            // a plan set is open: the PDF joins it, as 0.5's Open does
+            if let Err(e) = p.add_file(&f.name, &f.bytes) {
+                self.error = Some(format!("{}: {e}", f.name));
+            }
+            return;
+        }
         if lower.ends_with(".pdf") {
             match pdfview::PdfView::open(&f.name, &f.bytes) {
                 Ok(v) => {
@@ -969,7 +979,7 @@ impl UiApp {
                 // a preset scale for the open sheet (a1/4, m100, …)
                 let k = params.name.clone().ok_or("takeoff.scale: name = preset key")?;
                 let p = self.pdf.as_mut().ok_or("takeoff.scale: open a PDF first")?;
-                let (key, uu) = (p.takeoff.sheet(p.page), p.pages.get(p.page).map_or(1.0, |i| i.user_unit));
+                let (key, uu) = (p.takeoff.sheet(p.page), p.cur.pages.get(p.page).map_or(1.0, |i| i.user_unit));
                 p.takeoff.set_preset(&key, &k, uu);
             }
             "takeoff.item" => {
@@ -1029,10 +1039,12 @@ impl UiApp {
                 let kind = params.name.clone().ok_or("takeoff.export: name = xlsx, csv, pdf or project")?;
                 let p = self.pdf.as_ref().ok_or("takeoff.export: open a PDF first")?;
                 let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
-                let (name, bytes) = p.takeoff_export(&kind, now)?;
+                let outs = p.takeoff_exports(&kind, now)?;
                 let save = self.services.save.as_mut().ok_or("takeoff.export: saving is not available here")?;
-                if let Some(to) = save(&name, bytes)? {
-                    self.message = format!("Saved {to}");
+                for (name, bytes) in outs {
+                    if let Some(to) = save(&name, bytes)? {
+                        self.message = format!("Saved {to}");
+                    }
                 }
             }
             "markup.finish" => {
@@ -1184,7 +1196,9 @@ impl UiApp {
                 }
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
-            id if id.starts_with("takeoff.") || id.starts_with("markup.") || id == "pdf.zoom" => return pdfcmd::run(self, id, params),
+            id if id.starts_with("takeoff.") || id.starts_with("markup.") || matches!(id, "pdf.zoom" | "pdf.file") => {
+                return pdfcmd::run(self, id, params);
+            }
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
@@ -1379,24 +1393,32 @@ impl UiApp {
             }
             let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
             if let Some(kind) = pdf.takeoff.export.take() {
-                match pdf.takeoff_export(kind, now) {
-                    Ok((name, bytes)) => match self.services.save.as_mut().map(|f| f(&name, bytes)) {
-                        Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
-                        Some(Ok(None)) => {}
-                        Some(Err(e)) => self.error = Some(e),
-                        None => self.error = Some("Saving is not available here".into()),
-                    },
+                match pdf.takeoff_exports(kind, now) {
+                    Ok(outs) => {
+                        for (name, bytes) in outs {
+                            match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                                Some(Ok(None)) => {}
+                                Some(Err(e)) => self.error = Some(e),
+                                None => self.error = Some("Saving is not available here".into()),
+                            }
+                        }
+                    }
                     Err(e) => pdf.takeoff.message = e,
                 }
             }
             if save {
-                match pdf.save_marked(now) {
-                    Ok((name, bytes)) => match self.services.save.as_mut().map(|f| f(&name, bytes)) {
-                        Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
-                        Some(Ok(None)) => {}
-                        Some(Err(e)) => self.error = Some(e),
-                        None => self.error = Some("Saving is not available here".into()),
-                    },
+                match pdf.save_files(now) {
+                    Ok(outs) => {
+                        for (name, bytes) in outs {
+                            match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                                Some(Ok(None)) => {}
+                                Some(Err(e)) => self.error = Some(e),
+                                None => self.error = Some("Saving is not available here".into()),
+                            }
+                        }
+                    }
                     Err(e) => self.error = Some(e),
                 }
             }
