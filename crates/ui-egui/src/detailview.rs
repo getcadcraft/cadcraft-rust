@@ -8,6 +8,7 @@
 
 use cc_detail::build::Built;
 use cc_detail::i18n::{F, t, t0};
+use cc_detail::js::str_to_number;
 use cc_detail::marks::Marks;
 use cc_detail::model::Model;
 use cc_detail::rebar::Schedule;
@@ -23,6 +24,8 @@ use crate::{ImportedFile, Params, UiApp};
 /// Largest model file opened (detailcraft.js: 50 MB) and IFC file imported (200 MB).
 pub const MAX_MODEL_BYTES: usize = 50 * 1024 * 1024;
 pub const MAX_IFC_BYTES: usize = 200 * 1024 * 1024;
+/// How near (points) a grid intersection snaps (view3d.js SNAP_PX).
+pub const SNAP_PX: f64 = 18.0;
 
 /// The `detail.*` UI commands (id, label, shortcut, params doc).
 pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
@@ -64,7 +67,55 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("detail.phase", "Show or hide a phase", "", "{factor: phase number} → switches it in the view (and the clash check)"),
     ("detail.tab", "Report tab", "", "{name: problems|bom|clashes|phases|bending|nest}"),
     ("detail.camera", "3D view direction", "", "{name: iso|top|front|back|left|right}"),
-    ("detail.timings", "Timings", "", "{} → the status line lists the last open / build / scene times in ms"),
+    ("detail.timings", "Timings", "", "{} → the status line lists the last open / build / edit / select / scene times in ms"),
+    ("detail.tool", "Tool", "V B C R P F S M", "{name: select|beam|column|brace|plate|footing|stair|move|paste} → detailcraft.js setTool"),
+    (
+        "detail.node",
+        "Click a grid intersection",
+        "",
+        "{name: \"gy/gx/level\" | \"x,y,z\"} → what a click on that intersection does with the tool (placeAt)",
+    ),
+    (
+        "detail.opt",
+        "Tool option",
+        "",
+        "{name: \"<tool>.<field>=<value>\"} → beam|column|brace .profile/.material/.position/.rotation, column.to, plate.t/.w/…, footing.L/.mat.barX/.starters.on/…, stair.rise/.tread.t/…",
+    ),
+    ("detail.bygrid", "Add by grid", "", "{name: \"gy/gx/level\" | \"gy1/gx1/l1;gy2/gx2/l2\"} → the tool options' Add by grid form"),
+    (
+        "detail.act",
+        "Action",
+        "",
+        "{name: endplates|sheartabs|baseplate|splice|gusset|similar|copy|cut|paste|paste-in-place|duplicate|move|delete|select-all|select-none|remove-bolts}",
+    ),
+    ("detail.paste", "Paste by form", "", "{name: \"offset:x,y,z\" | \"at:gy/gx/level\" | \"in-place\"} → the paste tool's forms"),
+    (
+        "detail.xf",
+        "Move, rotate, mirror",
+        "",
+        "{name: \"move:dx,dy,dz\" | \"rotate:deg[@gy/gx]\" | \"mirror:x|y:<label>\", \":copy\" keeps the original}",
+    ),
+    (
+        "detail.many",
+        "Change on all of them",
+        "",
+        "{name: \"profile|plateT|plateW|material|position|rotation=<value>\"} on the selected members",
+    ),
+    ("detail.grids", "Apply grids", "", "{name: \"1 2 3|6000 6000|A B|6000\"}"),
+    ("detail.levels", "Apply levels", "", "{name: \"Level 1=0;Level 2=4000\"}"),
+    ("detail.phases", "Phases", "", "{name: add | rename:<n>=<name> | remove:<n> | current:<n> | per:true|false | of:<n>}"),
+    ("detail.hole", "Holes", "", "{name: \"<member>:add:face,x,y,d\" | \"<member>:remove:<hole id>\"}"),
+    ("detail.cope", "Copes", "", "{name: \"<member>:add:end,side,length,depth\" | \"<member>:remove:<cope id>\"}"),
+    ("detail.profile", "Custom profile", "", "{name: \"<name>;<kind>;<dim>=<value>;…\"}"),
+    ("detail.view", "View", "", "{name: 3d | plan[:<level>] | elevation[:<lettered grid line>]}"),
+    (
+        "detail.window",
+        "Selection window",
+        "",
+        "{name: \"[+]x1,y1:x2,y2\" (view points) | \"[+]plan:x1,y1:x2,y2\" (mm on the plan's level)} → to the right wholly inside, to the left touching",
+    ),
+    ("detail.lasso", "Selection lasso", "", "{name: \"[+]x,y;x,y;…\" (view points)}"),
+    ("detail.settings", "Settings window", "", "{name: open | close}"),
 ];
 
 /// The report tabs (detailcraft.js `reportTab`).
@@ -115,7 +166,7 @@ pub struct DetailView {
     pub sel: Option<Ref>,
     pub scene: Option<DetailScene>,
     scene_key: Option<(u64, Vec<u64>, bool)>,
-    sel_shown: Option<Option<Ref>>,
+    sel_shown: Option<(Vec<Ref>, ViewMode, String, String)>,
     pub view: View3,
     seq: u64,
     pub settings: Settings,
@@ -134,6 +185,44 @@ pub struct DetailView {
     pub dwg_format: String,
     /// the report tab's tables, made once per model version and settings
     pub tables: Option<crate::detailpanel::TabTables>,
+    /// two or more selected (sel is then None: detailcraft.js `multi`)
+    pub multi: Vec<Ref>,
+    /// the tool state (detailtools.rs)
+    pub tools: crate::detailtools::Tools,
+    /// 3D, plan (looking down on a level) or elevation (looking north at a lettered grid line)
+    pub mode: ViewMode,
+    /// the plan's level and the elevation's grid line (names)
+    pub vlevel: String,
+    pub vgrid: String,
+    /// a selection window or lasso being dragged
+    pub win: Option<Win>,
+    /// the panels' form fields (detailprops.rs)
+    pub forms: crate::detailprops::Forms,
+    /// the Settings window is open
+    pub settings_open: bool,
+    /// points to pixels of the last frame (commands with view points use it)
+    pub ppp: f64,
+}
+
+/// The view's mode (detailcraft.js `viewMode`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ViewMode {
+    D3,
+    Plan,
+    Elevation,
+}
+
+/// A selection window or lasso being dragged (view3d.js `win`), in view points.
+#[derive(Clone, Debug)]
+pub struct Win {
+    pub start: egui::Pos2,
+    pub cur: egui::Pos2,
+    pub mode: Option<&'static str>,
+    pub add: bool,
+    pub moved: bool,
+    pub lasso: bool,
+    pub path: Vec<egui::Pos2>,
+    pub fixed: bool,
 }
 
 fn ms(t0: web_time::Instant) -> f64 {
@@ -178,7 +267,18 @@ impl DetailView {
             editing: None,
             dwg_format: "pdf".into(),
             tables: None,
+            multi: Vec::new(),
+            tools: crate::detailtools::Tools::default(),
+            mode: ViewMode::D3,
+            vlevel: String::new(),
+            vgrid: String::new(),
+            win: None,
+            forms: crate::detailprops::Forms::default(),
+            settings_open: false,
+            ppp: 1.0,
         };
+        v.tools.cur_phase =
+            cc_detail::js::arr(v.model.state.get("phases")).first().and_then(|p| p.get("n")).and_then(Value::as_f64).unwrap_or(1.0);
         v.recompute();
         v
     }
@@ -291,10 +391,18 @@ impl DetailView {
         {
             self.sel = None;
         }
+        let multi = std::mem::take(&mut self.multi);
+        self.multi = multi.into_iter().filter(|r| self.exists(r)).collect();
+        if self.multi.len() == 1 {
+            self.sel = self.multi.pop();
+        }
         self.hidden_phases.retain(|n| phases.contains(n));
+        if !phases.contains(&self.tools.cur_phase) {
+            self.tools.cur_phase = phases.first().copied().unwrap_or(1.0);
+        }
     }
 
-    fn set_timing(&mut self, k: &'static str, v: f64) {
+    pub fn set_timing(&mut self, k: &'static str, v: f64) {
         match self.timings.iter_mut().find(|(x, _)| *x == k) {
             Some(slot) => slot.1 = v,
             None => self.timings.push((k, v)),
@@ -335,7 +443,7 @@ impl DetailView {
 
     /// detailcraft.js `describeRef(r)`.
     pub fn describe(&self, r: &Ref) -> String {
-        let mm = |v: f64| cc_detail::js::num_to_string(v.round());
+        let mm = |v: f64| cc_detail::js::num_to_string(cc_detail::js::round(v));
         match r {
             Ref::Member(i) => {
                 let Some(m) = self.member(i) else { return String::new() };
@@ -360,7 +468,18 @@ impl DetailView {
                 let ty = c.and_then(|c| c.get("type")).and_then(Value::as_str).unwrap_or("");
                 t(&format!("app.ref.{ty}"), &[("id", F::S(i.clone()))])
             }
-            Ref::Stair(i) => t("app.ref.stair", &[("mark", F::S(self.marks.asm_mark(&format!("{i}.stringerL")).unwrap_or("").into()))]),
+            Ref::Stair(i) => {
+                let x = cc_detail::js::arr(self.model.state.get("stairs")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(i));
+                let g = |k: &str| x.and_then(|x| x.get(k)).and_then(Value::as_f64).unwrap_or(f64::NAN);
+                t(
+                    "app.ref.stair",
+                    &[
+                        ("mark", F::S(self.marks.asm_mark(&format!("{i}.stringerL")).unwrap_or("").into())),
+                        ("rise", F::S(mm(g("rise")))),
+                        ("width", F::S(mm(g("width")))),
+                    ],
+                )
+            }
             Ref::Footing(i) => {
                 let f =
                     cc_detail::js::arr(self.model.state.get("footings")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(i));
@@ -374,9 +493,9 @@ impl DetailView {
         }
     }
 
+    /// detailcraft.js `select(ref)`: that one only (or nothing), said in the status line.
     pub fn select(&mut self, r: Option<Ref>) {
-        self.sel = r.filter(|r| self.exists(r));
-        self.editing = None;
+        self.set_selection(r.into_iter().collect());
         if let Some(r) = self.sel.clone() {
             self.message = self.describe(&r);
         }
@@ -385,7 +504,7 @@ impl DetailView {
     /// `detail.set`: one property of a member (or the model's name) through `Model::change`, one undo step.
     pub fn set(&mut self, spec: &str) -> Result<(), String> {
         let (path, value) = spec.split_once('=').ok_or("detail.set: name = \"<member id>.<field>=<value>\"")?;
-        let (id, field) = path.rsplit_once('.').ok_or("detail.set: <member id>.<field>=<value>")?;
+        let (id, field) = path.split_once('.').ok_or("detail.set: <member id>.<field>=<value>")?;
         let (id, field, value) = (id.trim(), field.trim(), value.trim());
         if id == "model" && field == "name" {
             let v = Value::from(value);
@@ -393,6 +512,9 @@ impl DetailView {
                 tx.set_name(Some(&v));
                 Ok(())
             });
+        }
+        if let Some(r) = self.set_other(id, field, value) {
+            return r;
         }
         let m = self.member(id).cloned().ok_or_else(|| format!("detail.set: no member {id}"))?;
         let num = |s: &str| s.parse::<f64>().ok().filter(|x| x.is_finite()).ok_or_else(|| t0("app.num.bad"));
@@ -422,8 +544,7 @@ impl DetailView {
             }
             "phase" => {
                 let n = num(value)?;
-                let refs = json!([{ "kind": "member", "id": id }]);
-                self.change(&t0("phase.undo.set"), |tx| tx.set_phase_of(Some(&refs), Some(&json!(n))))
+                self.phase_of_one(Ref::Member(id.into()), n)
             }
             other => Err(format!("detail.set: unknown field {other}")),
         }
@@ -472,6 +593,24 @@ impl DetailView {
         self.tab = Tab::Clashes;
     }
 
+    /// detailcraft.js `setSetting(k, v, say)`: what a changed setting does and says.
+    pub fn setting_changed(&mut self, before: &Settings) {
+        let s = &self.settings;
+        if s.steel != before.steel {
+            self.tools.opts.apply_steel(&s.steel);
+            self.message = t0(if s.steel == "eu" { "app.set.steel.eu" } else { "app.set.steel.us" });
+        } else if s.offset != before.offset {
+            let f = |v: f64| F::S(cc_detail::js::num_to_string(v));
+            self.message = t("app.set.offset.done", &[("x", f(s.offset[0])), ("y", f(s.offset[1])), ("z", f(s.offset[2]))]);
+        } else if s.conns != before.conns {
+            self.message = t0(if s.conns { "app.set.conns.on" } else { "app.set.conns.off" });
+        } else if s.bolts != before.bolts {
+            self.message = t0(if s.bolts { "app.set.bolts.on" } else { "app.set.bolts.off" });
+        } else if s.paper != before.paper {
+            self.message = t("dwg.paper.set", &[("paper", F::S(cc_detail::paper::paper_label(&s.paper)))]);
+        }
+    }
+
     /// The export context (what `recompute` made).
     pub fn ctx(&self) -> detailexport::Ctx<'_> {
         detailexport::Ctx {
@@ -502,21 +641,145 @@ impl DetailView {
             self.sel_shown = None;
             self.set_timing("scene", ms(t1));
         }
-        if self.sel_shown.as_ref() != Some(&self.sel)
-            && let Some(s) = self.scene.as_mut()
-        {
-            let sel = self.sel.clone();
-            let refs = s.refs.clone();
-            s.scene.set_tints(&|i| match (refs.get(i), &sel) {
-                (Some(Some(r)), Some(x)) if r == x => Some(detail3d::palette::PICK),
-                _ => None,
-            });
-            self.sel_shown = Some(self.sel.clone());
+        let vis = (self.shown_selection(), self.mode, self.vlevel.clone(), self.vgrid.clone());
+        if self.sel_shown.as_ref() != Some(&vis) {
+            let cut = self.hide_band();
+            if let Some(s) = self.scene.as_mut() {
+                let refs = s.refs.clone();
+                let sel = vis.0.clone();
+                s.scene.set_tints(&|i| match refs.get(i) {
+                    Some(Some(r)) if sel.contains(r) => Some(detail3d::palette::PICK),
+                    _ => None,
+                });
+                let boxes = s.boxes.clone();
+                s.scene.set_hidden(&|i| match (boxes.get(i), cut) {
+                    (Some(Some((lo, hi))), Some((axis, a, b))) => {
+                        let (l, h) = (lo.get(axis).copied().unwrap_or(0.0), hi.get(axis).copied().unwrap_or(0.0));
+                        h < a || l > b
+                    }
+                    _ => false,
+                });
+            }
+            self.sel_shown = Some(vis);
         }
+    }
+
+    /// The plan's level (detailcraft.js setView: the chosen one, else the top level): (name, z).
+    pub fn plan_level(&self) -> Option<(String, f64)> {
+        let lv = cc_detail::js::arr(self.model.state.get("levels"));
+        let l = lv.iter().find(|l| l.get("name").and_then(Value::as_str) == Some(self.vlevel.as_str())).or(lv.last())?;
+        Some((cc_detail::js::string_of(l.get("name")), cc_detail::js::num(l.get("z"))))
+    }
+    /// The elevation's lettered grid line (the chosen one, else the first): (label, at).
+    pub fn elev_grid(&self) -> Option<(String, f64)> {
+        let gy = cc_detail::js::arr(self.model.state.get("grids").and_then(|g| g.get("y")));
+        let g = gy.iter().find(|g| g.get("label").and_then(Value::as_str) == Some(self.vgrid.as_str())).or(gy.first())?;
+        Some((cc_detail::js::string_of(g.get("label")), cc_detail::js::num(g.get("at"))))
+    }
+    /// What a plan or an elevation leaves out (metres): (axis, from, to) — a plan keeps up to 1.5 m above its level, an
+    /// elevation 1 m either side of its grid line (view3d.js `applyClipping`).
+    fn hide_band(&self) -> Option<(usize, f64, f64)> {
+        match self.mode {
+            ViewMode::D3 => None,
+            ViewMode::Plan => self.plan_level().map(|(_, z)| (2, f64::NEG_INFINITY, (z + 1500.0) * 0.001)),
+            ViewMode::Elevation => self.elev_grid().map(|(_, y)| (1, (y - 1000.0) * 0.001, (y + 1000.0) * 0.001)),
+        }
+    }
+    /// The view's cut as winsel.js planes (view3d.js `cutPlanes()`).
+    pub fn cut_planes(&self) -> Vec<cc_detail::winsel::Plane> {
+        match self.mode {
+            ViewMode::D3 => Vec::new(),
+            ViewMode::Plan => {
+                self.plan_level().map(|(_, z)| vec![cc_detail::winsel::Plane { n: [0.0, 0.0, -1.0], d: z + 1500.0 }]).unwrap_or_default()
+            }
+            ViewMode::Elevation => self
+                .elev_grid()
+                .map(|(_, y)| {
+                    vec![
+                        cc_detail::winsel::Plane { n: [0.0, -1.0, 0.0], d: y + 1000.0 },
+                        cc_detail::winsel::Plane { n: [0.0, 1.0, 0.0], d: -(y - 1000.0) },
+                    ]
+                })
+                .unwrap_or_default(),
+        }
+    }
+    /// Grid intersections that can be picked in this view (view3d.js `activeNodes()`).
+    pub fn active_nodes(&self) -> Vec<crate::detailtools::Node> {
+        let all = crate::detailtools::all_nodes(&self.model.state);
+        match (self.mode, self.plan_level(), self.elev_grid()) {
+            (ViewMode::Plan, Some((_, z)), _) => all.into_iter().filter(|n| (n.p[2] - z).abs() < 0.5).collect(),
+            (ViewMode::Elevation, _, Some((_, y))) => all.into_iter().filter(|n| (n.p[1] - y).abs() < 0.5).collect(),
+            _ => all,
+        }
+    }
+
+    /// `detail.view`: "3d", "plan[:<level>]" or "elevation[:<grid line>]" (detailcraft.js `setView`).
+    pub fn set_view(&mut self, spec: &str) -> Result<(), String> {
+        let (m, which) = spec.split_once(':').unwrap_or((spec, ""));
+        self.mode = match m {
+            "3d" => ViewMode::D3,
+            "plan" => ViewMode::Plan,
+            "elevation" => ViewMode::Elevation,
+            o => return Err(format!("detail.view: 3d | plan[:level] | elevation[:grid], not {o}")),
+        };
+        if !which.is_empty() {
+            match self.mode {
+                ViewMode::Plan => self.vlevel = which.into(),
+                ViewMode::Elevation => self.vgrid = which.into(),
+                ViewMode::D3 => {}
+            }
+        }
+        if let Some((l, _)) = self.plan_level()
+            && self.mode == ViewMode::Plan
+        {
+            self.vlevel = l;
+        }
+        if let Some((g, _)) = self.elev_grid()
+            && self.mode == ViewMode::Elevation
+        {
+            self.vgrid = g;
+        }
+        self.view.cam.persp = self.mode == ViewMode::D3;
+        self.view.lock_orbit = self.mode != ViewMode::D3;
+        self.view.style.section = match self.mode {
+            ViewMode::D3 => None,
+            ViewMode::Plan => self.plan_level().map(|(_, z)| ([0.0, 0.0, 1.0], (z + 1500.0) * 0.001)),
+            ViewMode::Elevation => self.elev_grid().map(|(_, y)| ([0.0, -1.0, 0.0], -(y - 1000.0) * 0.001)),
+        };
+        self.win = None;
+        self.fit();
+        self.fit_now();
+        Ok(())
     }
 
     pub fn fit(&mut self) {
         self.view.fit_pending = true;
+    }
+
+    /// view3d.js `fit()`: the whole model; a plan looks straight down on its level, an elevation north at its line.
+    pub fn fit_now(&mut self) {
+        self.sync_scene();
+        let Some(s) = &self.scene else { return };
+        let (mut lo, mut hi) = (s.scene.min, s.scene.max);
+        let dir = match self.mode {
+            ViewMode::D3 => None,
+            ViewMode::Plan => {
+                let z = self.plan_level().map_or(0.0, |l| l.1 * 0.001);
+                lo[2] = z;
+                hi[2] = z;
+                Some([0.0, 0.0, 1.0])
+            }
+            ViewMode::Elevation => {
+                let y = self.elev_grid().map_or((lo[1] + hi[1]) / 2.0, |g| g.1 * 0.001);
+                lo[1] = y;
+                hi[1] = y;
+                Some([0.0, -1.0, 0.0])
+            }
+        };
+        if self.view.cam.width > 0.0 {
+            self.view.cam.fit(lo, hi, dir);
+            self.view.fit_pending = false;
+        }
     }
 
     /// view3d.js `focusPoint(p, span)`: a model point (mm) to the middle of the view, about `span` mm across.
@@ -524,7 +787,12 @@ impl DetailView {
         let h = span / 2.0 * 0.001;
         let c = [at[0] * 0.001, at[1] * 0.001, at[2] * 0.001];
         if c.iter().all(|v| v.is_finite()) {
-            self.view.cam.fit([c[0] - h, c[1] - h, c[2] - h], [c[0] + h, c[1] + h, c[2] + h], None);
+            let dir = match self.mode {
+                ViewMode::D3 => None,
+                ViewMode::Plan => Some([0.0, 0.0, 1.0]),
+                ViewMode::Elevation => Some([0.0, -1.0, 0.0]),
+            };
+            self.view.cam.fit([c[0] - h, c[1] - h, c[2] - h], [c[0] + h, c[1] + h, c[2] + h], dir);
             self.view.fit_pending = false;
         }
     }
@@ -539,6 +807,9 @@ impl DetailView {
             "iso" | "" => [0.9, -1.2, 0.8],
             o => return Err(format!("detail.camera: unknown view {o}")),
         };
+        if self.mode != ViewMode::D3 {
+            self.set_view("3d")?;
+        }
         self.sync_scene();
         if let Some(s) = &self.scene {
             self.view.cam.fit(s.scene.min, s.scene.max, Some(dir));
@@ -547,13 +818,27 @@ impl DetailView {
         Ok(())
     }
 
-    /// A click at (sx, sy) physical pixels of the view: the nearest part or footing (view3d.js `pickRef`).
+    /// A click at (sx, sy) physical pixels of the view: the nearest part or footing (view3d.js `pickRef`); what a
+    /// plan or an elevation leaves out is not picked.
     pub fn pick_at(&mut self, sx: f64, sy: f64) -> Option<Ref> {
         let s = self.scene.as_ref()?;
         let hit = crate::view3d::pick(&s.scene, &self.view.cam, sx, sy);
         let part = hit.and_then(|h| s.refs.get(h.instance).cloned().flatten().map(|r| (r, h.t)));
         let (o, d) = self.view.cam.ray(sx, sy);
-        let foot = detail3d::pick_footing(&s.footings, o, d);
+        let band = self.hide_band();
+        let foot_list: Vec<detail3d::FootBox> = s
+            .footings
+            .iter()
+            .filter(|f| match band {
+                Some((axis, a, b)) => {
+                    let (c, h) = (f.c.get(axis).copied().unwrap_or(0.0), f.half.get(axis).copied().unwrap_or(0.0));
+                    !(c + h < a || c - h > b)
+                }
+                None => true,
+            })
+            .cloned()
+            .collect();
+        let foot = detail3d::pick_footing(&foot_list, o, d);
         match (part, foot) {
             (Some(a), Some(b)) => Some(if a.1 <= b.1 { a.0 } else { b.0 }),
             (Some(a), None) => Some(a.0),
@@ -581,44 +866,204 @@ impl DetailView {
         if self.message.is_empty() { counts } else { format!("{}   · {counts}", self.message) }
     }
 
-    /// Show the 3D view in `rect`: orbit with the left button too (view3d.js OrbitControls), click to pick.
+    /// A model point (mm) → view points (winsel.js's `project`), behind the eye flagged.
+    pub fn screen_of(&self, p: [f64; 3], ppp: f64) -> cc_detail::transform::Screen {
+        match project(&self.view.cam, [p[0] * 0.001, p[1] * 0.001, p[2] * 0.001]) {
+            Some((x, y)) => cc_detail::transform::Screen { x: x / ppp, y: y / ppp, behind: false },
+            None => cc_detail::transform::Screen { x: f64::NAN, y: f64::NAN, behind: true },
+        }
+    }
+
+    /// view3d.js `nearestNode(px, py)`: the active grid intersection within 18 points of a view point.
+    pub fn nearest_node(&self, at: egui::Vec2, ppp: f64) -> Option<crate::detailtools::Node> {
+        let mut best: Option<(f64, crate::detailtools::Node)> = None;
+        for n in self.active_nodes() {
+            let s = self.screen_of(n.p, ppp);
+            if s.behind {
+                continue;
+            }
+            let d = (s.x - f64::from(at.x)).hypot(s.y - f64::from(at.y));
+            if d < best.as_ref().map_or(SNAP_PX, |b| b.0) {
+                best = Some((d, n));
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// The end of a selection window or lasso (view3d.js `endWindow`): what it took, through winsel.js.
+    pub fn end_window(&mut self, w: &Win, ppp: f64) {
+        if !w.moved {
+            return;
+        }
+        let pt = |p: &egui::Pos2| cc_detail::lasso_core::Pt { x: f64::from(p.x), y: f64::from(p.y) };
+        let path: Vec<cc_detail::lasso_core::Pt> = if w.lasso {
+            cc_detail::lasso_core::thin(&w.path.iter().map(pt).collect::<Vec<_>>(), 2.0)
+        } else {
+            vec![pt(&w.start), pt(&egui::pos2(w.cur.x, w.start.y)), pt(&w.cur), pt(&egui::pos2(w.start.x, w.cur.y))]
+        };
+        let planes = self.cut_planes();
+        let cam = self.view.cam;
+        let proj = move |p: [f64; 3]| match project(&cam, [p[0] * 0.001, p[1] * 0.001, p[2] * 0.001]) {
+            Some((x, y)) => cc_detail::transform::Screen { x: x / ppp, y: y / ppp, behind: false },
+            None => cc_detail::transform::Screen { x: f64::NAN, y: f64::NAN, behind: true },
+        };
+        self.window_picked(&proj, &path, w.mode.unwrap_or("window"), w.add, &planes);
+    }
+
+    /// `detail.window` / `detail.lasso`: a window "x1,y1:x2,y2" or a lasso "x,y;x,y;…" in view points, or a window
+    /// "plan:x1,y1:x2,y2" between two model points (mm) on the plan's level; a leading "+" adds (Shift).
+    pub fn window_cmd(&mut self, spec: &str, lasso: bool, ppp: f64) -> Result<(), String> {
+        let (spec, add) = match spec.strip_prefix('+') {
+            Some(s) => (s, true),
+            None => (spec, false),
+        };
+        let xy = |s: &str| -> Option<egui::Pos2> {
+            let (a, b) = s.split_once(',')?;
+            let (x, y) = (str_to_number(a.trim()), str_to_number(b.trim()));
+            (x.is_finite() && y.is_finite()).then(|| egui::pos2(x as f32, y as f32))
+        };
+        let bad = || format!("detail.{}: bad points {spec}", if lasso { "lasso" } else { "window" });
+        let mut pts: Vec<egui::Pos2> = Vec::new();
+        if let Some(world) = spec.strip_prefix("plan:") {
+            if self.mode != ViewMode::Plan {
+                self.set_view("plan")?;
+            }
+            let z = self.plan_level().map_or(0.0, |l| l.1);
+            for p in world.split(':') {
+                let q = xy(p).ok_or_else(bad)?;
+                let s = self.screen_of([f64::from(q.x), f64::from(q.y), z], ppp);
+                pts.push(egui::pos2(s.x as f32, s.y as f32));
+            }
+        } else {
+            for p in spec.split(if lasso { ';' } else { ':' }) {
+                pts.push(xy(p).ok_or_else(bad)?);
+            }
+        }
+        let (Some(&a), Some(&b)) = (pts.first(), pts.last()) else { return Err(bad()) };
+        if pts.len() < 2 {
+            return Err(bad());
+        }
+        let pt = |p: egui::Pos2| cc_detail::lasso_core::Pt { x: f64::from(p.x), y: f64::from(p.y) };
+        let mode = cc_detail::lasso_core::lasso_mode(pt(a), pt(b), if lasso { 6.0 } else { 1.0 }).unwrap_or("window");
+        let w = Win { start: a, cur: b, mode: Some(mode), add, moved: true, lasso, path: pts, fixed: false };
+        self.end_window(&w, ppp);
+        Ok(())
+    }
+
+    /// Show the 3D view in `rect`: left drag orbits (3D) or draws a selection window (plan, elevation; Shift+drag in
+    /// 3D), a click selects or places on the grid intersection under the pointer.
     pub fn show(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens, dark: bool) {
         self.sync_scene();
         let c = t.canvas_bg;
         self.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
         self.view.style.edge = if dark { [0.78, 0.8, 0.84, 1.0] } else { [0.09, 0.13, 0.17, 1.0] };
         self.view.style.back = if dark { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };
+        let ppp = f64::from(ui.ctx().pixels_per_point());
+        self.ppp = ppp;
+        self.view.cam.width = f64::from(rect.width()) * ppp;
+        self.view.cam.height = f64::from(rect.height()) * ppp;
+        if self.view.fit_pending && self.mode != ViewMode::D3 {
+            self.fit_now();
+        }
         let Some(scene) = self.scene.as_ref() else { return };
         let scene3 = scene.scene.clone();
         let resp = crate::view3d::show(ui, rect, &scene3, &mut self.view);
-        let ppp = f64::from(ui.ctx().pixels_per_point());
+        let placing = self.tools.tool != "select";
+        let mods = ui.input(|i| i.modifiers);
+        let hover = resp.hover_pos().map(|p| p - rect.min);
+        self.tools.hover = if placing { hover.and_then(|p| self.nearest_node(p, ppp)) } else { None };
+        if resp.drag_started_by(egui::PointerButton::Primary) && !placing && (self.mode != ViewMode::D3 || mods.shift) {
+            let origin = ui.input(|i| i.pointer.press_origin()).map_or(egui::Vec2::ZERO, |p| p - rect.min);
+            let start = origin.to_pos2();
+            self.win = Some(Win {
+                start,
+                cur: start,
+                mode: None,
+                add: mods.shift,
+                moved: false,
+                lasso: self.settings.drag_sel == "lasso",
+                path: vec![start],
+                fixed: false,
+            });
+        }
         if resp.dragged_by(egui::PointerButton::Primary) {
             let d = resp.drag_delta();
             let (dx, dy) = (f64::from(d.x) * ppp, f64::from(d.y) * ppp);
-            if ui.input(|i| i.modifiers.shift) {
-                self.view.cam.pan(dx, dy);
-            } else {
+            if let Some(w) = self.win.as_mut() {
+                if let Some(p) = hover {
+                    let p = p.to_pos2();
+                    w.cur = p;
+                    if !w.moved && (p - w.start).length() > 5.0 {
+                        w.moved = true;
+                    }
+                    let pt = |p: egui::Pos2| cc_detail::lasso_core::Pt { x: f64::from(p.x), y: f64::from(p.y) };
+                    if w.lasso {
+                        w.path.push(p);
+                        if w.moved && !w.fixed {
+                            w.mode = w.mode.or_else(|| cc_detail::lasso_core::lasso_mode(pt(w.start), pt(w.cur), 6.0));
+                        }
+                    } else if w.moved {
+                        w.mode = cc_detail::lasso_core::lasso_mode(pt(w.start), pt(w.cur), 1.0).or(w.mode).or(Some("window"));
+                    }
+                }
+            } else if self.mode == ViewMode::D3 && !mods.shift {
                 self.view.cam.orbit(dx, dy);
+            } else {
+                self.view.cam.pan(dx, dy);
             }
+        }
+        if let Some(w) = self.win.as_mut()
+            && w.lasso
+            && w.moved
+            && ui.input(|i| i.key_pressed(egui::Key::Space))
+        {
+            // view3d.js: Space while lassoing steps window → crossing → fence
+            w.mode = Some(cc_detail::lasso_core::next_mode(w.mode.unwrap_or("window")));
+            w.fixed = true;
+        }
+        if resp.drag_stopped_by(egui::PointerButton::Primary)
+            && let Some(w) = self.win.take()
+        {
+            self.end_window(&w, ppp);
+            ui.ctx().request_repaint();
         }
         if resp.clicked_by(egui::PointerButton::Primary)
             && let Some(p) = resp.interact_pointer_pos()
         {
-            let r = self.pick_at(f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp);
-            self.select(r);
-            if self.sel.is_none() {
-                self.message = t0("app.sel.none.done");
+            let at = p - rect.min;
+            if placing {
+                if let Some(n) = self.nearest_node(at, ppp) {
+                    self.place_at(&n);
+                }
+            } else {
+                let r = self.pick_at(f64::from(at.x) * ppp, f64::from(at.y) * ppp);
+                self.pick(r, mods.shift || mods.command);
             }
             ui.ctx().request_repaint();
         }
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && self.sel.is_some() {
-            self.select(None);
-        }
-        // grid bubbles and level names over the picture
+        self.overlays(ui, rect, t, ppp);
+    }
+
+    /// Grid bubbles and level names, the placing marker, rubber band and ghost, the selection window.
+    fn overlays(&self, ui: &egui::Ui, rect: Rect, t: &Tokens, ppp: f64) {
         let painter = ui.painter_at(rect);
         let font = egui::FontId::proportional(12.0);
+        let at_pt = |p_mm: [f64; 3]| -> Option<egui::Pos2> {
+            let s = self.screen_of(p_mm, ppp);
+            (!s.behind && s.x.is_finite()).then(|| egui::pos2(rect.min.x + s.x as f32, rect.min.y + s.y as f32))
+        };
         if let Some(scene) = self.scene.as_ref() {
+            let plan_z = self.plan_level().map(|l| l.1);
             for l in &scene.labels {
+                // a plan names only its own level; an elevation looks along the lettered lines
+                let skip = match (self.mode, l.axis) {
+                    (ViewMode::Plan, 'l') => plan_z.is_none_or(|z| (z - l.z).abs() > 0.5),
+                    (ViewMode::Elevation, 'y') => true,
+                    _ => false,
+                };
+                if skip {
+                    continue;
+                }
                 let Some((x, y)) = project(&self.view.cam, l.at) else { continue };
                 let at = egui::pos2(rect.min.x + (x / ppp) as f32, rect.min.y + (y / ppp) as f32);
                 if !rect.contains(at) {
@@ -632,8 +1077,83 @@ impl DetailView {
                 }
             }
         }
+        let pick = egui::Color32::from_rgb(detail3d::palette::PICK[0], detail3d::palette::PICK[1], detail3d::palette::PICK[2]);
+        let stroke = egui::Stroke::new(1.6, pick);
+        if self.tools.tool != "select" {
+            let hover = self.tools.hover.as_ref();
+            if let (Some(from), Some(to)) = (self.tools.pending.as_ref(), hover)
+                && let (Some(a), Some(b)) = (at_pt(from.p), at_pt(to.p))
+            {
+                painter.extend(egui::Shape::dashed_line(&[a, b], stroke, 7.0, 4.0));
+            }
+            if let Some(from) = self.tools.pending.as_ref()
+                && let Some(a) = at_pt(from.p)
+            {
+                painter.circle_stroke(a, 5.0, stroke);
+            }
+            // a ghost of what a paste or a move puts down, at the hovered intersection
+            let ghost: Vec<[[f64; 3]; 2]> = match (self.tools.tool, &self.tools.paste_clip, &self.tools.pending, &self.tools.move_refs) {
+                ("paste", Some(c), _, _) => cc_detail::clipboard::clip_segments(c),
+                ("move", _, Some(from), Some(refs)) => {
+                    let rj: Vec<Value> = refs.iter().map(crate::detailtools::ref_json).collect();
+                    cc_detail::transform::ghost_lines(&self.model.state, &rj, from.p).unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            if let Some(h) = hover {
+                for [a, b] in ghost.iter().take(4000) {
+                    let (pa, pb) = ([h.p[0] + a[0], h.p[1] + a[1], h.p[2] + a[2]], [h.p[0] + b[0], h.p[1] + b[1], h.p[2] + b[2]]);
+                    if let (Some(a), Some(b)) = (at_pt(pa), at_pt(pb)) {
+                        painter.extend(egui::Shape::dashed_line(&[a, b], egui::Stroke::new(1.2, pick), 6.0, 4.0));
+                    }
+                }
+                if let Some(p) = at_pt(h.p) {
+                    painter.circle(p, 6.0, pick.gamma_multiply(0.35), stroke);
+                }
+                let name = cc_detail::model::node_name(&self.model.state, h.p);
+                painter.text(
+                    egui::pos2(rect.min.x + 10.0, rect.max.y - 10.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    name,
+                    egui::FontId::monospace(12.0),
+                    t.text_strong,
+                );
+            }
+        }
+        if let Some(w) = &self.win
+            && w.moved
+        {
+            let off = rect.min.to_vec2();
+            let crossing = w.mode != Some("window");
+            if w.lasso {
+                let pts: Vec<egui::Pos2> = w.path.iter().map(|p| *p + off).collect();
+                if w.mode == Some("fence") {
+                    painter.add(egui::Shape::line(pts, egui::Stroke::new(1.5, pick)));
+                } else {
+                    let mut closed = pts.clone();
+                    if let Some(f) = pts.first() {
+                        closed.push(*f);
+                    }
+                    if crossing {
+                        painter.extend(egui::Shape::dashed_line(&closed, stroke, 6.0, 4.0));
+                    } else {
+                        painter.add(egui::Shape::line(closed, stroke));
+                    }
+                }
+            } else {
+                let r = Rect::from_two_pos(w.start + off, w.cur + off);
+                painter.rect_filled(r, 0.0, pick.gamma_multiply(if crossing { 0.06 } else { 0.12 }));
+                if crossing {
+                    let c = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+                    painter.extend(egui::Shape::dashed_line(&c, stroke, 6.0, 4.0));
+                } else {
+                    painter.rect_stroke(r, 0.0, stroke, egui::StrokeKind::Inside);
+                }
+            }
+        }
         if self.model.state.get("members").and_then(Value::as_array).is_some_and(Vec::is_empty)
             && self.model.state.get("footings").and_then(Value::as_array).is_some_and(Vec::is_empty)
+            && self.tools.tool == "select"
         {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, t0("page.hint.start"), egui::FontId::proportional(18.0), t.text_dim);
         }
@@ -749,23 +1269,86 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "detail.select" => {
             if name.is_empty() {
                 dv.select(None);
-            } else {
-                let r = Ref::parse(&name).ok_or_else(|| format!("detail.select: kind:id expected, not {name}"))?;
+            } else if let Some(one) = name.strip_prefix('+') {
+                // Shift+click: add it or take it away
+                let r = Ref::parse(one).ok_or_else(|| format!("detail.select: kind:id expected, not {one}"))?;
                 if !dv.exists(&r) {
-                    return Err(format!("detail.select: no {name}"));
+                    return Err(format!("detail.select: no {one}"));
                 }
-                dv.select(Some(r));
+                if dv.tools.tool != "select" {
+                    dv.set_tool("select")?;
+                }
+                dv.pick(Some(r), true);
+            } else {
+                let mut refs = Vec::new();
+                for k in name.split(',') {
+                    let r = Ref::parse(k).ok_or_else(|| format!("detail.select: kind:id expected, not {k}"))?;
+                    if !dv.exists(&r) {
+                        return Err(format!("detail.select: no {k}"));
+                    }
+                    refs.push(r);
+                }
+                if refs.len() == 1 {
+                    dv.select(refs.pop());
+                } else {
+                    let n = refs.len();
+                    dv.set_selection(refs);
+                    dv.message = t("app.sel.many", &[("n", F::N(n as f64))]);
+                }
             }
         }
+        "detail.tool" => dv.set_tool(&name)?,
+        "detail.node" => {
+            let n = crate::detailtools::node_at(&dv.model.state, &name)?;
+            dv.place_at(&n);
+        }
+        "detail.opt" => {
+            // a number that does not read is said, as numIn does (not an error of the command)
+            if let Err(e) = dv.tools.opts.set(&name) {
+                dv.message = e;
+            }
+        }
+        "detail.bygrid" => dv.by_grid(&name)?,
+        "detail.act" => dv.act(&name),
+        "detail.paste" => dv.paste_form(&name)?,
+        "detail.xf" => dv.xf_form(&name)?,
+        "detail.many" => dv.many(&name)?,
+        "detail.grids" => dv.set_grids(&name)?,
+        "detail.levels" => dv.set_levels(&name),
+        "detail.phases" => dv.phase_op(&name)?,
+        "detail.hole" => dv.hole_op(&name)?,
+        "detail.cope" => dv.cope_op(&name)?,
+        "detail.profile" => dv.add_profile(&name)?,
+        "detail.view" => dv.set_view(&name)?,
+        "detail.window" => {
+            let ppp = dv.ppp;
+            dv.window_cmd(&name, false, ppp)?;
+        }
+        "detail.lasso" => {
+            let ppp = dv.ppp;
+            dv.window_cmd(&name, true, ppp)?;
+        }
+        "detail.settings" => dv.settings_open = name != "close",
+
         "detail.set" => {
             if let Err(e) = dv.set(&name) {
                 dv.message = e.clone();
-                return Err(e);
+                // a number that does not read is said, as numIn does; anything else is a bad command
+                if e != t0("app.num.bad") {
+                    return Err(e);
+                }
             }
         }
         "detail.undo" => dv.undo(),
         "detail.redo" => dv.redo(),
-        "detail.setting" => dv.settings.set(&name)?,
+        "detail.setting" => {
+            let before = dv.settings.clone();
+            if let Err(e) = dv.settings.set(&name) {
+                dv.message = e.clone();
+                return Err(e);
+            }
+            dv.setting_changed(&before);
+        }
         "detail.clash" => {
             if let Some(f) = params.factor {
                 dv.clash_tol = f.clamp(0.0, 50.0);
@@ -774,11 +1357,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         "detail.phase" => {
             let n = params.factor.or_else(|| name.parse().ok()).ok_or("detail.phase: factor = phase number")?;
-            if let Some(i) = dv.hidden_phases.iter().position(|x| *x == n) {
-                dv.hidden_phases.remove(i);
-            } else {
-                dv.hidden_phases.push(n);
-            }
+            let hidden = dv.hidden_phases.contains(&n);
+            dv.set_phase_shown(n, hidden);
         }
         "detail.tab" => dv.tab = Tab::parse(&name).ok_or_else(|| format!("detail.tab: unknown tab {name}"))?,
         "detail.camera" => dv.camera(&name)?,
@@ -820,6 +1400,69 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     Ok(())
 }
 
+/// detailcraft.js's keys: Ctrl+Z / Y / S / C / X / V / D / A, Ctrl+Shift+V (paste in place), Esc, Delete and the tool
+/// letters (V B C R P F S M); none while typing in a field.
+fn keys(dv: &mut DetailView, ui: &egui::Ui, acts: &mut Vec<crate::detailpanel::Act>) {
+    use crate::detailpanel::Act;
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    let events = ui.input(|i| i.events.clone());
+    let run = |acts: &mut Vec<Act>, id: &'static str, name: &str| acts.push(Act::Run(id, name.into()));
+    for e in events {
+        match e {
+            egui::Event::Copy if !typing => run(acts, "detail.act", "copy"),
+            egui::Event::Cut if !typing => run(acts, "detail.act", "cut"),
+            egui::Event::Paste(text) if !typing => {
+                // a copy from another DetailCraft window reads back as untrusted as a file (clipboard.js readClip)
+                if let Ok(c) = cc_detail::clipboard::read_clip(&Value::String(text)) {
+                    dv.tools.clip = Some(c);
+                }
+                run(acts, "detail.act", "paste");
+            }
+            egui::Event::Key { key, pressed: true, modifiers: m, .. } => {
+                if m.command && !m.alt {
+                    match key {
+                        egui::Key::S => run(acts, "detail.save", ""),
+                        _ if typing => {}
+                        egui::Key::Z if m.shift => run(acts, "detail.redo", ""),
+                        egui::Key::Z => run(acts, "detail.undo", ""),
+                        egui::Key::Y => run(acts, "detail.redo", ""),
+                        egui::Key::V if m.shift => run(acts, "detail.act", "paste-in-place"),
+                        egui::Key::V => run(acts, "detail.act", "paste"),
+                        egui::Key::C => run(acts, "detail.act", "copy"),
+                        egui::Key::X => run(acts, "detail.act", "cut"),
+                        egui::Key::D => run(acts, "detail.act", "duplicate"),
+                        egui::Key::A => run(acts, "detail.act", "select-all"),
+                        _ => {}
+                    }
+                    continue;
+                }
+                if typing || m.alt {
+                    continue;
+                }
+                match key {
+                    egui::Key::Escape => acts.push(Act::Escape),
+                    egui::Key::Delete | egui::Key::Backspace if !dv.selected().is_empty() => run(acts, "detail.act", "delete"),
+                    _ => {
+                        let tool = match key {
+                            egui::Key::V => "select",
+                            egui::Key::B => "beam",
+                            egui::Key::C => "column",
+                            egui::Key::R => "brace",
+                            egui::Key::P => "plate",
+                            egui::Key::F => "footing",
+                            egui::Key::S => "stair",
+                            egui::Key::M => "move",
+                            _ => continue,
+                        };
+                        run(acts, "detail.tool", tool);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The DetailCraft frame: bar, left / right / bottom panels and the 3D view (lib.rs calls this while a model is open).
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let tok = app.tokens;
@@ -827,41 +1470,37 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut acts: Vec<crate::detailpanel::Act> = Vec::new();
     if let Some(dv) = app.detail.as_mut() {
         dv.recompute();
-        let (undo, redo, save) = ui.input(|i| {
-            (
-                i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z),
-                i.modifiers.command && (i.key_pressed(egui::Key::Y) || (i.modifiers.shift && i.key_pressed(egui::Key::Z))),
-                i.modifiers.command && i.key_pressed(egui::Key::S),
-            )
-        });
-        let typing = ui.ctx().memory(|m| m.focused().is_some());
-        if undo && !typing {
-            acts.push(crate::detailpanel::Act::Run("detail.undo", String::new()));
-        }
-        if redo && !typing {
-            acts.push(crate::detailpanel::Act::Run("detail.redo", String::new()));
-        }
-        if save {
-            acts.push(crate::detailpanel::Act::Run("detail.save", String::new()));
-        }
+        keys(dv, ui, &mut acts);
         egui::Panel::top("detail_bar")
-            .exact_size(30.0)
+            .exact_size(32.0)
             .frame(egui::Frame::new().fill(tok.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
             .show(ui, |ui| crate::detailpanel::bar(dv, ui, &tok, &mut acts));
         let frame = egui::Frame::new().fill(tok.panel).inner_margin(8);
         egui::Panel::left("detail_left").default_size(250.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::detailpanel::left(dv, ui, &tok, &mut acts));
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                crate::detailpanel::left_head(dv, ui, &tok, &mut acts);
+                crate::detailprops::left_setup(dv, ui, &tok, &mut acts);
+                crate::detailpanel::left(dv, ui, &tok, &mut acts);
+            });
         });
         egui::Panel::right("detail_right").default_size(300.0).size_range(230.0..=480.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::detailpanel::right(dv, ui, &tok, &mut acts));
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::detailprops::right(dv, ui, &tok, &mut acts));
         });
         egui::Panel::bottom("detail_reports").default_size(220.0).size_range(90.0..=520.0).resizable(true).frame(frame).show(ui, |ui| {
             crate::detailpanel::reports(dv, ui, &tok, &mut acts);
         });
         egui::CentralPanel::no_frame().show(ui, |ui| {
+            egui::Panel::top("detail_viewbar")
+                .exact_size(26.0)
+                .frame(egui::Frame::new().fill(tok.panel).inner_margin(egui::Margin::symmetric(8, 2)))
+                .show(ui, |ui| crate::detailprops::view_bar(dv, ui, &tok, &mut acts));
             let rect = ui.max_rect();
             dv.show(ui, rect, &tok, dark);
         });
+        crate::detailprops::settings_window(dv, ui.ctx(), &tok, &mut acts);
+        if let Some(text) = dv.tools.clip_out.take() {
+            ui.ctx().copy_text(text);
+        }
         if !dv.report.is_empty() {
             let mut open = true;
             egui::Window::new(RichText::new(t("app.ifc.rep.title", &[("file", F::S(dv.name.clone()))])).strong())
@@ -903,6 +1542,16 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             crate::detailpanel::Act::Focus(at) => {
                 if let Some(dv) = app.detail.as_mut() {
                     dv.focus(at, 2500.0);
+                }
+                Ok(())
+            }
+            crate::detailpanel::Act::Escape => {
+                if let Some(dv) = app.detail.as_mut() {
+                    if dv.win.take().is_some() {
+                        dv.message = t0("sel.window.cancel");
+                    } else {
+                        dv.escape();
+                    }
                 }
                 Ok(())
             }

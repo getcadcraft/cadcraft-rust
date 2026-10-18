@@ -19,6 +19,8 @@ pub enum Act {
     /// bring a model point (mm) to the middle of the view, about 2.5 m across (view3d.js `focusPoint`)
     Focus([f64; 3]),
     CloseReport,
+    /// Esc: cancel the window being dragged, the placement, the tool or the selection
+    Escape,
     /// a `detail.*` command with its name parameter
     Run(&'static str, String),
 }
@@ -58,6 +60,8 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
             if ui.add_enabled(dv.model.can_redo(), egui::Button::new(t0("page.tool.redo"))).on_hover_text(redo_tip).clicked() {
                 acts.push(Act::Run("detail.redo", String::new()));
             }
+            ui.separator();
+            crate::detailprops::tool_bar(dv, ui, tk, acts);
             ui.separator();
             ui.menu_button(t0("input.m.export"), |ui| {
                 for (kind, label, tip) in [
@@ -117,9 +121,6 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
                 acts.push(Act::Run("detail.export", "shop".into()));
             }
             ui.separator();
-            if ui.button(t0("page.view.fit")).on_hover_text(t0("page.view.fit.title")).clicked() {
-                acts.push(Act::Fit);
-            }
             // plain English: the 0.5 app turns the view with its view cube, which has no words
             for (v, label) in [("iso", "Iso"), ("top", "Top"), ("front", "Front"), ("right", "Right")] {
                 if ui.small_button(label).clicked() {
@@ -130,12 +131,15 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
             if ui.checkbox(&mut bolts, t0("app.k.bolts")).changed() {
                 acts.push(Act::Run("detail.setting", format!("bolts={bolts}")));
             }
+            if ui.button(t0("input.cmd.app.settings")).clicked() {
+                acts.push(Act::Run("detail.settings", "open".into()));
+            }
         });
     });
 }
 
-/// The left panel: the model, phases, part marks and the members by type.
-pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
+/// The left panel's head: the model's name.
+pub fn left_head(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let st = &dv.model.state;
     let head = ui.label(RichText::new(t0("page.left.model")).strong().color(tk.text_strong));
     let name = st.get("name").and_then(Value::as_str).unwrap_or("").to_string();
@@ -143,32 +147,12 @@ pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     if let Some(v) = text_field(dv, ui, &key, &name, 200.0, head.id) {
         acts.push(Act::Run("detail.set", format!("model.name={v}")));
     }
-    let st = &dv.model.state;
     ui.label(RichText::new(t0("page.left.model.note")).small().color(tk.text_dim));
     ui.add_space(6.0);
-    // phases: show / hide
-    let phases: Vec<(f64, String)> = cc_detail::js::arr(st.get("phases"))
-        .iter()
-        .filter_map(|p| {
-            let n = p.get("n").and_then(Value::as_f64)?;
-            let nm = p
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map_or_else(|| t("phase.default", &[("n", F::N(n))]), str::to_string);
-            Some((n, nm))
-        })
-        .collect();
-    if phases.len() > 1 {
-        ui.label(RichText::new(t0("phase.title")).strong().color(tk.text_strong));
-        for (n, nm) in &phases {
-            let mut on = !dv.hidden_phases.contains(n);
-            if ui.checkbox(&mut on, nm).on_hover_text(t("phase.show", &[("phase", F::S(nm.clone()))])).changed() {
-                acts.push(Act::Run("detail.phase", cc_detail::js::num_to_string(*n)));
-            }
-        }
-        ui.add_space(6.0);
-    }
+}
+
+/// The left panel: part marks and the members by type.
+pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     ui.label(RichText::new(t0("page.left.marks.title")).strong().color(tk.text_strong));
     if dv.marks.parts.is_empty() {
         ui.label(RichText::new(t0("app.marks.none")).color(tk.text_dim));
@@ -228,7 +212,7 @@ pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
 }
 
 /// A one-line text field that hands back its text when Enter is pressed or it loses focus with a change.
-fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &str, width: f32, label: egui::Id) -> Option<String> {
+pub(crate) fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &str, width: f32, label: egui::Id) -> Option<String> {
     let mut text = match &dv.editing {
         Some((k, v)) if k == key => v.clone(),
         _ => current.to_string(),
@@ -245,51 +229,14 @@ fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &str, width:
 }
 
 /// A labelled row: label on the left, the widget on the right.
-fn row(ui: &mut Ui, tk: &Tokens, label: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
+pub(crate) fn row(ui: &mut Ui, tk: &Tokens, label: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
     ui.horizontal(|ui| {
         let l = ui.add_sized([96.0, 18.0], egui::Label::new(RichText::new(label).color(tk.text_dim)).truncate());
         add(ui, l.id);
     });
 }
 
-/// The right panel: Properties.
-pub fn right(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
-    match dv.sel.clone() {
-        Some(Ref::Member(id)) => member_props(dv, ui, tk, acts, &id),
-        Some(r) => {
-            // detailcraft.js renderProps' headings
-            let head = match &r {
-                Ref::Conn(i) => {
-                    let c = cc_detail::js::arr(dv.model.state.get("connections"))
-                        .iter()
-                        .find(|x| x.get("id").and_then(Value::as_str) == Some(i));
-                    t0(&format!("app.props.{}", c.and_then(|c| c.get("type")).and_then(Value::as_str).unwrap_or("")))
-                }
-                Ref::Stair(i) => t("app.props.stair", &[("mark", F::S(dv.marks.asm_mark(&format!("{i}.stringerL")).unwrap_or("").into()))]),
-                Ref::Footing(i) => {
-                    let mark = dv.footing_marks.iter().find(|(k, _)| k == i).map_or("", |(_, v)| v.as_str());
-                    t("app.props.footing", &[("mark", F::S(mark.into()))])
-                }
-                Ref::Member(_) => t0("page.right.props"),
-            };
-            ui.label(RichText::new(head).strong().color(tk.text_strong));
-            ui.label(dv.describe(&r));
-            let probs: Vec<&cc_detail::build::BProblem> = dv.built.problems.iter().filter(|x| x.r#ref.as_deref() == Some(r.id())).collect();
-            for p in probs {
-                ui.label(RichText::new(&p.text).color(if p.hard == Some(true) { tk.accent } else { tk.text_dim }));
-            }
-            if matches!(r, Ref::Conn(_)) {
-                let why = cc_detail::shop::shop_refusal(dv.selected_part());
-                if ui.add_enabled(why.is_none(), egui::Button::new(t0("app.btn.shop"))).clicked() {
-                    acts.push(Act::Run("detail.export", "shop".into()));
-                }
-            }
-        }
-        None => model_summary(dv, ui, tk),
-    }
-}
-
-fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, id: &str) {
+pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, id: &str) {
     let Some(m) = dv.member(id).cloned() else { return };
     let kind = cc_detail::js::string_of(m.get("type"));
     let mark = dv.marks.part_mark(id).map(|x| format!(" {x}")).unwrap_or_default();
@@ -456,7 +403,7 @@ fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
 }
 
 /// detailcraft.js `modelSummary()`.
-fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
+pub(crate) fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
     ui.label(RichText::new(t0("app.props.model")).strong().color(tk.text_strong));
     let st = &dv.model.state;
     let len = |k: &str| cc_detail::js::arr(st.get(k)).len();

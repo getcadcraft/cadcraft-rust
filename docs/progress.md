@@ -2,6 +2,41 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M14.3 DetailCraft's modelling tools (agent, work/detailtools)
+
+- M14.3: `crates/ui-egui/src/detailtools.rs` (tool state and detailcraft.js's actions on the engine) and
+  `detailprops.rs` (the panels), hooks in `detailview.rs` / `detailpanel.rs` / `detail3d.rs`, `View3::lock_orbit`.
+  Placing beams, columns (up to the next level or a chosen one), braces, plates, footings and stairs by clicking grid
+  intersections (snap within 18 points, marker, rubber band, the intersection's name) or with the tool options' "Add by
+  grid"; tool options as 0.5 types them (profile, material, position, rotation, plate size, footing mat and starters,
+  stair sizes; US / EU steel from Settings). Connections: end plates, shear tabs, base plate, splices, gussets, Apply to
+  similar, every parameter in Properties (choices, numbers, grades). Several selected (Shift+click, Ctrl+A, selection
+  window and crossing in plan / elevation or Shift+drag in 3D, lasso with Space cycling the mode), copy / cut / paste on
+  a grid intersection (ghost follows the pointer), by offset or in place, duplicate, delete; "Move, rotate, mirror" by
+  form or by picking two intersections (M), "Change on all of them". Left panel: grids, levels, phases (show, rename,
+  add, remove, current, marks per phase), custom profiles; holes and copes editors; footing and stair fields; the
+  Settings window (steel, offset, copy connections, bolts, drag lasso, sheet size, KISS sizes, bar names, shape codes);
+  plan (looking down on a level, 1.5 m above cut) and elevation (north at a lettered line, ±1 m) views. Keys as 0.5
+  (V B C R P F S M, Esc, Delete, Ctrl+Z/Y/C/X/V/D/A, Ctrl+Shift+V). Every edit is one step on the engine's undo stack.
+  Fixed on the way: the stair's status line lacked its rise and width; a click on nothing no longer says "Nothing
+  selected" (0.5 says nothing).
+- Commands (all headless): `detail.tool`, `detail.node`, `detail.opt`, `detail.bygrid`, `detail.act`, `detail.paste`,
+  `detail.xf`, `detail.many`, `detail.grids`, `detail.levels`, `detail.phases`, `detail.hole`, `detail.cope`,
+  `detail.profile`, `detail.view`, `detail.window`, `detail.lasso`, `detail.settings`; `detail.set` also takes footing,
+  stair and connection fields; `detail.select` takes lists and `+ref`.
+- Parity (forks/tools/dcuidiff.mjs `--steps-file`, dcdiff/page.mjs = detailcraft.js's functions without the DOM; steps in
+  forks/tools/dcdiff/steps/): the status line after every step, then the saved project and every export. place 45 steps
+  100/100, +connections 76 steps 135/135, +editing 120 steps 179/179 (window and crossing selections included),
+  +setup 89 steps 144/144: 558 comparisons, 0 differences.
+- Timings on testfiles/generated/detail/grid24x12x5 (2820 members, 3048 connections; forks/tools/dcuitoolbench.mjs,
+  best of 3, machine at load 25–30 so both sides are noisy): place a beam JS 2101 ms vs Rust 1103 ms (+498 ms 3D scene);
+  a column 976 vs 648; change a profile 1287 vs 786; window select a quarter 714 vs 387; move a column 6311 vs 2191; copy +
+  paste in place 4000 vs 2131. The cost on both sides is the full rebuild after an edit (engine build + marks); the JS
+  times leave out three.js's scene rebuild, the Rust 3D scene is listed apart. "Duplicate everything" ran past an hour in
+  the JS harness and was left out.
+- Not done: dragging selected parts (D2), the view cube / axis icon, exact clipping of parts crossing a plan's or an
+  elevation's band, settings kept between runs, the clipboard between windows other than through the system clipboard,
+  the drawings dialog's preview and issue log, es-MX.
 ## 2026-10-18 — M6.17 ModelCraft's panels (agent, work/modelpanels)
 
 - `crates/ui-egui/src/mcact.rs` (actions), `mcpanels.rs` (the side panel), `mcprint.rs`, `mcmats.rs`: 0.5's panels in the

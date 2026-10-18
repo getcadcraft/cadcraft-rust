@@ -227,11 +227,13 @@ pub struct View3 {
     pub style: Style3,
     /// fit the camera to the scene on the next frame
     pub fit_pending: bool,
+    /// the middle and right buttons pan instead of orbiting (a plan or an elevation)
+    pub lock_orbit: bool,
 }
 
 impl Default for View3 {
     fn default() -> Self {
-        View3 { cam: Cam3::default(), style: Style3::default(), fit_pending: true }
+        View3 { cam: Cam3::default(), style: Style3::default(), fit_pending: true, lock_orbit: false }
     }
 }
 
@@ -250,7 +252,7 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, scene: &Scene3D, view: &mut View3) ->
     if orbiting {
         let d = resp.drag_delta();
         let (dx, dy) = (f64::from(d.x) * ppp, f64::from(d.y) * ppp);
-        if mods.shift {
+        if mods.shift || view.lock_orbit {
             view.cam.pan(dx, dy);
         } else {
             view.cam.orbit(dx, dy);

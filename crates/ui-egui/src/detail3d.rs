@@ -86,6 +86,10 @@ pub struct Label {
     pub text: String,
     pub at: [f64; 3],
     pub bubble: bool,
+    /// 'x' a numbered grid line's bubble, 'y' a lettered one's, 'l' a level's name
+    pub axis: char,
+    /// a level's z (mm), so a plan shows only its own
+    pub z: f64,
 }
 
 /// A footing's box for picking (the faces are not drawn, so the triangle picker cannot find it): centre (m), half
@@ -109,6 +113,8 @@ pub struct DetailScene {
     pub labels: Vec<Label>,
     /// triangles in the scene (shared meshes counted once per placement)
     pub triangles: usize,
+    /// per instance: its box (metres; grids and bolts: none, never hidden by a plan or elevation)
+    pub boxes: Vec<Option<([f64; 3], [f64; 3])>>,
 }
 
 fn colour_of(kind: &str) -> [u8; 4] {
@@ -392,6 +398,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
     let mut triangles = 0usize;
+    let mut boxes: Vec<Option<([f64; 3], [f64; 3])>> = Vec::new();
     let push = |meshes: &mut Vec<MeshData>, m: MeshData| {
         meshes.push(m);
         meshes.len() - 1
@@ -421,13 +428,19 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
             }
         }
         for (name, z) in &levels {
-            labels.push(Label { text: format!("{name} ({})", z.round()), at: [(x1 + 300.0) * MM, y0 * MM, z * MM], bubble: false });
+            labels.push(Label {
+                text: format!("{name} ({})", z.round()),
+                at: [(x1 + 300.0) * MM, y0 * MM, z * MM],
+                bubble: false,
+                axis: 'l',
+                z: *z,
+            });
         }
         for (l, at) in &gx {
-            labels.push(Label { text: l.clone(), at: [at * MM, (y0 - 700.0) * MM, l0.1 * MM], bubble: true });
+            labels.push(Label { text: l.clone(), at: [at * MM, (y0 - 700.0) * MM, l0.1 * MM], bubble: true, axis: 'x', z: l0.1 });
         }
         for (l, at) in &gy {
-            labels.push(Label { text: l.clone(), at: [(x0 - 700.0) * MM, at * MM, l0.1 * MM], bubble: true });
+            labels.push(Label { text: l.clone(), at: [(x0 - 700.0) * MM, at * MM, l0.1 * MM], bubble: true, axis: 'y', z: l0.1 });
         }
         let zt = levels.last().map_or(l0.1, |l| l.1);
         grow(&mut lo, &mut hi, [x0 * MM, y0 * MM, l0.1 * MM]);
@@ -436,6 +449,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         instances.push(Instance3 { mesh: mi, m: IDENT, tint: None, hidden: false });
         refs.push(None);
         base.push([0; 4]);
+        boxes.push(None);
     }
 
     // parts: one mesh per shape
@@ -457,6 +471,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         };
         triangles = triangles.saturating_add(tris);
         let mat = part_matrix(p);
+        let (mut blo, mut bhi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
         if let Some(md) = meshes.get(mi) {
             // the box of the part: its mesh's corners through the frame (8 corners of the local box)
             let mut l = [f32::INFINITY; 3];
@@ -472,12 +487,14 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
                     let q =
                         [if c & 1 == 0 { l[0] } else { h[0] }, if c & 2 == 0 { l[1] } else { h[1] }, if c & 4 == 0 { l[2] } else { h[2] }];
                     grow(&mut lo, &mut hi, mul_pt(&mat, q));
+                    grow(&mut blo, &mut bhi, mul_pt(&mat, q));
                 }
             }
         }
         instances.push(Instance3 { mesh: mi, m: mat, tint: None, hidden: false });
         refs.push(Ref::of_part(p));
         base.push(colour_of(&p.kind));
+        boxes.push(blo[0].is_finite().then_some((blo, bhi)));
     }
 
     // bolts and anchor rods: one mesh (they are not picked: view3d.js gives them no ref)
@@ -496,6 +513,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
             instances.push(Instance3 { mesh: mi, m: IDENT, tint: None, hidden: false });
             refs.push(None);
             base.push(palette::BOLT);
+            boxes.push(None);
         }
     }
 
@@ -521,8 +539,10 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         for (a, b) in [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)] {
             m.edge(corner(a), corner(b));
         }
+        let (mut blo, mut bhi) = ([f64::INFINITY; 3], [f64::NEG_INFINITY; 3]);
         for i in 0..8 {
             grow(&mut lo, &mut hi, corner(i));
+            grow(&mut blo, &mut bhi, corner(i));
         }
         for g in &ft.bars {
             let db = cc_detail::rebar::bar(&g.bar).map_or(12.0, |b| b.db);
@@ -544,6 +564,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         instances.push(Instance3 { mesh: mi, m: IDENT, tint: None, hidden: false });
         refs.push(Some(r.clone()));
         base.push(palette::BAR);
+        boxes.push(Some((blo, bhi)));
         footings.push(FootBox { r, c: [f.x * MM, f.y * MM, cz * MM], half: [f.l / 2.0 * MM, f.b / 2.0 * MM, f.h / 2.0 * MM], rot });
     }
 
@@ -551,7 +572,7 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         lo = [-5.0, -5.0, 0.0];
         hi = [5.0, 5.0, 3.0];
     }
-    DetailScene { scene: Scene3D::new(id, meshes, instances, lo, hi), refs, base, footings, labels, triangles }
+    DetailScene { scene: Scene3D::new(id, meshes, instances, lo, hi), refs, base, footings, labels, triangles, boxes }
 }
 
 /// The nearest footing box a ray (metres) passes through: (ref, distance).

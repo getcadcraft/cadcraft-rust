@@ -33,6 +33,8 @@ pub mod civilview;
 pub mod detail3d;
 pub mod detailexport;
 pub mod detailpanel;
+pub mod detailprops;
+pub mod detailtools;
 pub mod detailview;
 pub mod document;
 pub mod edit;

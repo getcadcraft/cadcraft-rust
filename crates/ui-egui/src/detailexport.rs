@@ -27,6 +27,14 @@ pub struct Settings {
     pub nest_keep: f64,
     /// bolts and anchor rods shown in 3D
     pub bolts: bool,
+    /// "us" | "eu": the steel new members start as
+    pub steel: String,
+    /// how far Duplicate puts the copy (mm)
+    pub offset: [f64; 3],
+    /// copy connections along with their members
+    pub conns: bool,
+    /// "rect" | "lasso": what a drag to select draws
+    pub drag_sel: String,
 }
 
 impl Default for Settings {
@@ -41,6 +49,10 @@ impl Default for Settings {
             nest_trim: 0.0,
             nest_keep: 500.0,
             bolts: true,
+            steel: "us".into(),
+            offset: [6000.0, 0.0, 0.0],
+            conns: true,
+            drag_sel: "rect".into(),
         }
     }
 }
@@ -62,6 +74,18 @@ impl Settings {
             "barNames" if ["imperial", "metric"].contains(&v) => self.bar_names = v.into(),
             "shapeCodes" if ["dc", "aci", "bs8666"].contains(&v) => self.shape_codes = v.into(),
             "bolts" if ["true", "false"].contains(&v) => self.bolts = v == "true",
+            "conns" if ["true", "false"].contains(&v) => self.conns = v == "true",
+            "steel" if ["us", "eu"].contains(&v) => self.steel = v.into(),
+            "dragSel" if ["rect", "lasso"].contains(&v) => self.drag_sel = v.into(),
+            "offset" => {
+                let o: Vec<f64> = v.split(',').map(|x| cc_detail::js::str_to_number(x.trim())).collect();
+                match o.as_slice() {
+                    [x, y, z] if o.iter().all(|n| n.is_finite() && n.abs() <= 1e6) && v.split(',').all(|x| !x.trim().is_empty()) => {
+                        self.offset = [*x, *y, *z]
+                    }
+                    _ => return Err(t0("app.set.offset.bad")),
+                }
+            }
             "stock" => {
                 let st: Vec<f64> = v
                     .split([' ', ',', ';'])

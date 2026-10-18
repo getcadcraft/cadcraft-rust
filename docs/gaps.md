@@ -45,11 +45,14 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. Live tools in the window, Live and the start screen are being built.
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel for assistants is in (M16.1, `cadcraft --control`); the MCP tools, Live and the start screen are being built.
    rebuilds on a thread (a big part blocks the window), Spanish words. **Studio**: in progress (M16).
-   **DetailCraft** (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
-   members / plates / footings / stairs, connection tools and parameters (end plate … gusset, apply to similar), holes and
-   copes editors, grids / levels / custom profiles, phases add / rename / remove, copy / paste, move / rotate / mirror,
-   window and lasso selection, plan and elevation views, the drawings dialog's preview and issue log, the Settings dialog
-   (`detail.setting` only), es-MX labels; several of the bar's labels are plain English (view buttons, Steel sample).
+   **DetailCraft** (M14.1, M14.3): view, properties, reports, clash, every 0.5 export, and the modelling tools (placing on
+   grid intersections with snapping and Add by grid, connections and their parameters with Apply to similar, copy / cut /
+   paste / duplicate, move / rotate / mirror, Change on all of them, window / crossing / lasso selection, grids, levels,
+   phases, holes, copes, custom profiles, Settings, plan and elevation views) at parity with the frozen JS doing the same.
+   Missing: dragging selected parts to move them (D2), the view cube and axis icon, a plan / elevation that clips parts
+   crossing its band exactly (one section plane; parts wholly outside are hidden), the drawings dialog's preview and issue
+   log, the clipboard between windows only through the system clipboard (no localStorage), settings kept between runs,
+   touch long-press, es-MX labels; the bar's view buttons (Iso, Top, Front, Right) are plain English.
 9. Panel buttons in the new views are partly plain English rather than 0.5 catalog words (MarkupCraft's tool bar and
    TakeoffCraft's export row use the catalogs).
 10. Accessibility: full screen-reader support is a **known issue, skipped** (owner, 2026-10-15). Icon buttons get
