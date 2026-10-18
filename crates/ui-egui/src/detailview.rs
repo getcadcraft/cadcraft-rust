@@ -132,6 +132,8 @@ pub struct DetailView {
     pub editing: Option<(String, String)>,
     /// the drawings format chosen in the bar
     pub dwg_format: String,
+    /// the report tab's tables, made once per model version and settings
+    pub tables: Option<crate::detailpanel::TabTables>,
 }
 
 fn ms(t0: web_time::Instant) -> f64 {
@@ -175,6 +177,7 @@ impl DetailView {
             timings: Vec::new(),
             editing: None,
             dwg_format: "pdf".into(),
+            tables: None,
         };
         v.recompute();
         v
@@ -516,6 +519,16 @@ impl DetailView {
         self.view.fit_pending = true;
     }
 
+    /// view3d.js `focusPoint(p, span)`: a model point (mm) to the middle of the view, about `span` mm across.
+    pub fn focus(&mut self, at: [f64; 3], span: f64) {
+        let h = span / 2.0 * 0.001;
+        let c = [at[0] * 0.001, at[1] * 0.001, at[2] * 0.001];
+        if c.iter().all(|v| v.is_finite()) {
+            self.view.cam.fit([c[0] - h, c[1] - h, c[2] - h], [c[0] + h, c[1] + h, c[2] + h], None);
+            self.view.fit_pending = false;
+        }
+    }
+
     pub fn camera(&mut self, name: &str) -> Result<(), String> {
         let dir = match name {
             "top" => [0.0, -1e-4, 1.0],
@@ -551,8 +564,8 @@ impl DetailView {
 
     /// The status line: the last message, then the counts (detailcraft.js `renderBar` counts).
     pub fn status(&self) -> String {
-        let steel: f64 = self.built.parts.iter().map(|p| p.weight).sum();
-        let bars: f64 = self.schedule.rows.iter().map(|r| r.total_weight).sum();
+        let steel: f64 = self.built.parts.iter().fold(0.0, |s, p| s + p.weight);
+        let bars: f64 = self.schedule.rows.iter().fold(0.0, |s, r| s + r.total_weight);
         let mut counts = t(
             "app.bar.counts",
             &[
@@ -876,6 +889,12 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 }
                 Ok(())
             }
+            crate::detailpanel::Act::Focus(at) => {
+                if let Some(dv) = app.detail.as_mut() {
+                    dv.focus(at, 2500.0);
+                }
+                Ok(())
+            }
             crate::detailpanel::Act::CloseReport => {
                 if let Some(dv) = app.detail.as_mut() {
                     dv.report.clear();
@@ -985,6 +1004,17 @@ mod tests {
         assert_eq!(cc_detail::js::arr(imp.model.state.get("members")).len(), v.built.parts.len());
         assert!(imp.model.dirty(), "an imported model is not saved yet");
         assert!(!imp.report.is_empty());
+    }
+
+    #[test]
+    fn focus_brings_a_point_to_the_middle() {
+        let mut v = DetailView::sample().unwrap();
+        v.focus([6000.0, 7000.0, 4000.0], 2500.0);
+        let c = v.view.cam.target;
+        assert!((c[0] - 6.0).abs() < 1e-9 && (c[1] - 7.0).abs() < 1e-9 && (c[2] - 4.0).abs() < 1e-9);
+        assert!(!v.view.fit_pending);
+        v.focus([f64::NAN, 0.0, 0.0], 2500.0);
+        assert!((v.view.cam.target[0] - 6.0).abs() < 1e-9, "a bad point changes nothing");
     }
 
     #[test]

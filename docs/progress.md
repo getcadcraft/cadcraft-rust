@@ -34,6 +34,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   (sample) to 116 ms (grid24x12x5). Exports on grid24x12x5, the app's export alone vs the JS composition: IFC 1,362 /
   2,344, all drawings PDF 1,029 / 1,812, DXF zip 1,394 / 3,734, DWG 2000 zip 2,216 / 1,767, DWG 2018 zip 1,733 / 1,903,
   cut list 192 / 196. Big models in testfiles/generated/detail (LARGE-FILES.md).
+- M14.2: the report tabs' tables are made once per model version and settings (the cut list nested every bar each
+  frame: a frame of the 2,820-member model took 84 ms of UI time, now 17 ms); a clash's Show also brings it to the middle
+  of the view, 2.5 m across (view3d.js `focusPoint`); Properties headings for connections, stairs and footings from the
+  catalog (app.props.*); empty weights read 0.0 kg, not -0.0.
 
 ## 2026-10-17 — M11.6 plot dates from the caller
 

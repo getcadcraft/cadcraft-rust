@@ -16,6 +16,8 @@ use crate::theme::Tokens;
 pub enum Act {
     Select(Option<Ref>),
     Fit,
+    /// bring a model point (mm) to the middle of the view, about 2.5 m across (view3d.js `focusPoint`)
+    Focus([f64; 3]),
     CloseReport,
     /// a `detail.*` command with its name parameter
     Run(&'static str, String),
@@ -458,8 +460,8 @@ fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
     ui.label(RichText::new(t0("app.props.model")).strong().color(tk.text_strong));
     let st = &dv.model.state;
     let len = |k: &str| cc_detail::js::arr(st.get(k)).len();
-    let steel: f64 = dv.built.parts.iter().map(|p| p.weight).sum();
-    let bars: f64 = dv.schedule.rows.iter().map(|r| r.total_weight).sum();
+    let steel: f64 = dv.built.parts.iter().fold(0.0, |s, p| s + p.weight);
+    let bars: f64 = dv.schedule.rows.iter().fold(0.0, |s, r| s + r.total_weight);
     let gx = cc_detail::js::arr(st.get("grids").and_then(|g| g.get("x"))).len();
     let gy = cc_detail::js::arr(st.get("grids").and_then(|g| g.get("y"))).len();
     let rows = [
@@ -557,32 +559,53 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                 });
             }
         }
-        Tab::Bom => {
-            let b = cc_detail::marks::bom_tables(&dv.marks, &dv.built.bolts);
+        Tab::Bom | Tab::Phases | Tab::Bending | Tab::Nest => {
+            // made once per model version and settings (the cut list nests every bar: not every frame)
+            let key = format!("{:?}|{}|{:?}", dv.tab, dv.model.version, dv.settings);
+            if dv.tables.as_ref().is_none_or(|x| x.key != key) {
+                dv.tables = Some(tab_tables(dv, key));
+            }
+            let Some(tt) = dv.tables.as_ref() else { return };
             ui.horizontal(|ui| {
-                ui.label(RichText::new(t("app.rep.parts", &[("kg", F::S(format!("{:.1}", b.total_weight)))])).strong());
-                if ui.link(t0("app.rep.csv")).clicked() {
-                    acts.push(Act::Run("detail.export", "bom".into()));
+                ui.label(RichText::new(&tt.title).strong());
+                for (label, kind) in &tt.links {
+                    if ui.link(t0(label)).clicked() {
+                        acts.push(Act::Run("detail.export", (*kind).into()));
+                    }
                 }
             });
+            if let Some(sub) = &tt.sub {
+                ui.label(RichText::new(sub).small().color(tk.text_dim));
+            }
+            if let Some(e) = &tt.empty {
+                ui.label(RichText::new(e).color(tk.text_dim));
+            }
             let marks = &dv.marks;
             let built = &dv.built;
-            table(ui, tk, "bom_parts", &b.parts, &[4, 5, 6, 7], |mark| {
-                let r = marks
-                    .parts
-                    .iter()
-                    .find(|p| p.mark == mark)
-                    .and_then(|p| p.ids.first())
-                    .and_then(|id| built.get(id))
-                    .and_then(Ref::of_part);
-                if r.is_some() {
-                    acts.push(Act::Select(r));
+            for (i, (head, rows, numeric)) in tt.blocks.iter().enumerate() {
+                if let Some(h) = head {
+                    ui.label(RichText::new(h).strong());
                 }
-            });
-            ui.label(RichText::new(t0("app.rep.assemblies")).strong());
-            table(ui, tk, "bom_asm", &b.assemblies, &[3, 4, 5], |_| {});
-            ui.label(RichText::new(t0("app.rep.bolts")).strong());
-            table(ui, tk, "bom_bolts", &b.bolts, &[1, 2, 4], |_| {});
+                let links = dv.tab == Tab::Bom && i == 0;
+                table(ui, tk, &format!("detail_tab{i}"), rows, numeric, |mark| {
+                    if !links {
+                        return;
+                    }
+                    let r = marks
+                        .parts
+                        .iter()
+                        .find(|p| p.mark == mark)
+                        .and_then(|p| p.ids.first())
+                        .and_then(|id| built.get(id))
+                        .and_then(Ref::of_part);
+                    if r.is_some() {
+                        acts.push(Act::Select(r));
+                    }
+                });
+            }
+            if let Some(n) = &tt.note {
+                ui.label(RichText::new(n).small().color(tk.text_dim));
+            }
         }
         Tab::Clashes => {
             ui.horizontal(|ui| {
@@ -643,6 +666,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                                 ui.label(cc_detail::model::node_name(&dv.model.state, c.at));
                                 if ui.link(t0("clash.show")).clicked() {
                                     acts.push(Act::Select(as_ref(&c.a)));
+                                    acts.push(Act::Focus(c.at));
                                 }
                                 ui.end_row();
                             }
@@ -657,43 +681,60 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                 }
             }
         }
+    });
+}
+
+/// One table of a report tab: (heading, rows with the head first, numeric columns).
+pub type Block = (Option<String>, Vec<Vec<String>>, Vec<usize>);
+
+/// The tables of a report tab, made once per model version and settings.
+pub struct TabTables {
+    pub key: String,
+    pub title: String,
+    /// (catalog label, export kind) links after the title
+    pub links: Vec<(&'static str, &'static str)>,
+    pub sub: Option<String>,
+    pub empty: Option<String>,
+    pub blocks: Vec<Block>,
+    pub note: Option<String>,
+}
+
+/// detailcraft.js `renderReport` for the BOM, phases, bending and cut-list tabs.
+fn tab_tables(dv: &DetailView, key: String) -> TabTables {
+    let mut tt = TabTables { key, title: String::new(), links: Vec::new(), sub: None, empty: None, blocks: Vec::new(), note: None };
+    match dv.tab {
+        Tab::Bom => {
+            let b = cc_detail::marks::bom_tables(&dv.marks, &dv.built.bolts);
+            tt.title = t("app.rep.parts", &[("kg", F::S(format!("{:.1}", b.total_weight)))]);
+            tt.links.push(("app.rep.csv", "bom"));
+            tt.blocks.push((None, b.parts, vec![4, 5, 6, 7]));
+            tt.blocks.push((Some(t0("app.rep.assemblies")), b.assemblies, vec![3, 4, 5]));
+            tt.blocks.push((Some(t0("app.rep.bolts")), b.bolts, vec![1, 2, 4]));
+        }
         Tab::Phases => {
             let rep = cc_detail::report::phase_report(&dv.model.state, &dv.built, &dv.marks, &dv.schedule);
             let (summary, phases) = cc_detail::report::report_tables(&rep);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(t0("rep.summary")).strong());
-                if ui.link(t0("rep.csv")).clicked() {
-                    acts.push(Act::Run("detail.export", "report-csv".into()));
-                }
-                if ui.link(t0("rep.pdf")).clicked() {
-                    acts.push(Act::Run("detail.export", "report-pdf".into()));
-                }
-            });
-            table(ui, tk, "rep_summary", &summary, &[1, 2, 3, 4, 5], |_| {});
-            for (i, p) in phases.iter().enumerate() {
-                ui.label(RichText::new(&p.title).strong());
-                table(ui, tk, &format!("rep_parts{i}"), &p.parts, &[4, 5, 6, 7, 8], |_| {});
-                if p.bolts.len() > 1 {
-                    table(ui, tk, &format!("rep_bolts{i}"), &p.bolts, &[1, 2, 4], |_| {});
+            tt.title = t0("rep.summary");
+            tt.links.push(("rep.csv", "report-csv"));
+            tt.links.push(("rep.pdf", "report-pdf"));
+            tt.blocks.push((None, summary, vec![1, 2, 3, 4, 5]));
+            for p in phases {
+                let bolts = p.bolts;
+                tt.blocks.push((Some(p.title), p.parts, vec![4, 5, 6, 7, 8]));
+                if bolts.len() > 1 {
+                    tt.blocks.push((None, bolts, vec![1, 2, 4]));
                 }
             }
-            ui.label(RichText::new(t0("rep.note")).small().color(tk.text_dim));
+            tt.note = Some(t0("rep.note"));
         }
         Tab::Bending => {
-            let rows = cc_detail::rebar::schedule_table(&dv.schedule.rows, &dv.settings.shape_codes, &dv.settings.bar_names);
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(t("app.rep.bending2", &[("codes", F::S(t0(&format!("app.codes.{}", dv.settings.shape_codes))))]))
-                        .strong(),
-                );
-                if ui.link(t0("app.rep.csv")).clicked() {
-                    acts.push(Act::Run("detail.export", "bending".into()));
-                }
-            });
+            tt.title = t("app.rep.bending2", &[("codes", F::S(t0(&format!("app.codes.{}", dv.settings.shape_codes))))]);
+            tt.links.push(("app.rep.csv", "bending"));
             if dv.schedule.rows.is_empty() {
-                ui.label(RichText::new(t0("app.rep.bending.none")).color(tk.text_dim));
+                tt.empty = Some(t0("app.rep.bending.none"));
             } else {
-                table(ui, tk, "bending", &rows, &[3, 4, 5, 6, 7, 8, 9, 10, 11], |_| {});
+                let rows = cc_detail::rebar::schedule_table(&dv.schedule.rows, &dv.settings.shape_codes, &dv.settings.bar_names);
+                tt.blocks.push((None, rows, vec![3, 4, 5, 6, 7, 8, 9, 10, 11]));
             }
         }
         Tab::Nest => {
@@ -706,38 +747,28 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                 s.nest_keep,
             );
             let (summary, bars) = cc_detail::nest::cut_list_tables(&r);
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(t("nest.title", &[("bars", F::N(r.bars as f64)), ("waste", F::S(format!("{:.1}", r.waste * 100.0)))]))
-                        .strong(),
-                );
-                if ui.link(t0("app.rep.csv")).clicked() {
-                    acts.push(Act::Run("detail.export", "cutlist".into()));
-                }
-            });
-            ui.label(
-                RichText::new(format!(
-                    "{}: {} · {}: {} · {}: {} · {}: {}",
-                    t0("nest.stock"),
-                    s.nest_stock.iter().map(|x| cc_detail::js::num_to_string(*x)).collect::<Vec<_>>().join(" "),
-                    t0("nest.kerf"),
-                    cc_detail::js::num_to_string(s.nest_kerf),
-                    t0("nest.trim"),
-                    cc_detail::js::num_to_string(s.nest_trim),
-                    t0("nest.keep-from"),
-                    cc_detail::js::num_to_string(s.nest_keep)
-                ))
-                .small()
-                .color(tk.text_dim),
-            );
+            tt.title = t("nest.title", &[("bars", F::N(r.bars as f64)), ("waste", F::S(format!("{:.1}", r.waste * 100.0)))]);
+            tt.links.push(("app.rep.csv", "cutlist"));
+            tt.sub = Some(format!(
+                "{}: {} · {}: {} · {}: {} · {}: {}",
+                t0("nest.stock"),
+                s.nest_stock.iter().map(|x| cc_detail::js::num_to_string(*x)).collect::<Vec<_>>().join(" "),
+                t0("nest.kerf"),
+                cc_detail::js::num_to_string(s.nest_kerf),
+                t0("nest.trim"),
+                cc_detail::js::num_to_string(s.nest_trim),
+                t0("nest.keep-from"),
+                cc_detail::js::num_to_string(s.nest_keep)
+            ));
             if r.groups.is_empty() {
-                ui.label(RichText::new(t0("nest.none")).color(tk.text_dim));
+                tt.empty = Some(t0("nest.none"));
             } else {
-                table(ui, tk, "nest_summary", &summary, &[2, 4, 5, 6], |_| {});
-                ui.label(RichText::new(t0("nest.bars")).strong());
-                table(ui, tk, "nest_bars", &bars, &[1, 2, 4], |_| {});
-                ui.label(RichText::new(t0("nest.note")).small().color(tk.text_dim));
+                tt.blocks.push((None, summary, vec![2, 4, 5, 6]));
+                tt.blocks.push((Some(t0("nest.bars")), bars, vec![1, 2, 4]));
+                tt.note = Some(t0("nest.note"));
             }
         }
-    });
+        Tab::Problems | Tab::Clashes => {}
+    }
+    tt
 }
