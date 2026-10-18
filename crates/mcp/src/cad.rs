@@ -1086,3 +1086,122 @@ pub fn undo_steps(doc: &mut Doc, steps: u64, any: bool, prefix: &str) -> Vec<Val
     }
     undone
 }
+
+/// What the window knows about its 2D view (for `view_describe`).
+#[derive(Debug, Clone, Copy)]
+pub struct ViewInfo {
+    pub min_x: f64,
+    pub min_y: f64,
+    pub max_x: f64,
+    pub max_y: f64,
+    pub zoom: f64,
+}
+
+/// The space shown: a sheet's name, or "model".
+fn space_name(doc: &Doc) -> String {
+    doc.layout().map_or_else(|| "model".to_string(), |l| l.name.clone())
+}
+
+/// CadCraft's live tools (agents.js `installAgents`) on the window's drawing and command line. `drawing_save`,
+/// `drawing_plot` and `view_screenshot` are the window's own (they write files or need the GPU).
+pub fn live_run(eng: &mut Engine, name: &str, a: &Value, allowed: &[String], view: Option<ViewInfo>) -> Result<Value, String> {
+    const PREFIX: &str = "Assistant: ";
+    match name {
+        "app_info" => {
+            let d = eng.doc();
+            Ok(json!({
+                "app": "cadcraft", "title": "CadCraft", "allowed": allowed, "drawing": d.meta.get("name").cloned().unwrap_or(Value::Null),
+                "source": d.meta.get("source").filter(|v| js::truthy(Some(v))).cloned().unwrap_or(Value::Null), "unsaved": d.version != d.saved_version,
+                "space": space_name(&d), "objects": d.count(), "busy": if eng.busy() { eng.running().map(Value::from).unwrap_or(Value::Null) } else { Value::Null },
+            }))
+        }
+        "drawing_describe" => Ok(describe_drawing(&eng.doc(), None, None)),
+        "objects_list" => list_objects(&eng.doc(), a),
+        "object_get" => {
+            let id = a.get("id").and_then(Value::as_u64).unwrap_or(0);
+            object_in_full(&eng.doc(), id).ok_or_else(|| format!("There is no object {id}."))
+        }
+        "drawing_check" => check_drawing(&eng.doc(), a.get("rules").unwrap_or(&Value::Null)),
+        "selection_get" => {
+            let sel = eng.host().selection();
+            let d = eng.doc();
+            let ids: Vec<u64> = sel.into_iter().filter(|id| d.get(*id).is_some()).collect();
+            let objects: Vec<Value> = ids
+                .iter()
+                .take(1000)
+                .filter_map(|id| d.get(*id))
+                .map(|e| json!({"id": e.id, "type": e.typ(), "layer": e.layer_str(), "description": describe(&d, e)}))
+                .collect();
+            Ok(json!({"count": ids.len(), "objects": objects}))
+        }
+        "view_describe" => {
+            let d = eng.doc();
+            let shown: Vec<String> = d.layers.values().filter(|l| l.on && !l.frozen).map(|l| l.name.clone()).collect();
+            Ok(json!({
+                "space": space_name(&d),
+                "visible": view.map(|v| json!({"minX": num(v.min_x), "minY": num(v.min_y), "maxX": num(v.max_x), "maxY": num(v.max_y)})),
+                "zoom": view.map(|v| num(v.zoom)), "panes": null, "layersShown": shown,
+            }))
+        }
+        "command_run" => {
+            let input = a.get("input").cloned().unwrap_or(Value::Null);
+            let text: Vec<String> = match &input {
+                Value::Array(l) => l.iter().map(|x| x.as_str().map_or_else(|| crate::json::stringify(x), str::to_string)).collect(),
+                Value::String(s) => script_lines(s),
+                _ => Vec::new(),
+            };
+            let echo = lang_en().t("agents.echo", &[("input", crate::json::slice16(&text.join(" · "), 300))]);
+            eng.host_mut().print(&echo);
+            let select: Option<Vec<u64>> = a.get("select").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_u64).collect());
+            let mut r = run_input(eng, &input, select.as_deref(), None, PREFIX);
+            let mut counts = Map::new();
+            for k in ["added", "changed", "removed"] {
+                let n = r.get(k).and_then(Value::as_array).map_or(0, Vec::len);
+                counts.insert(k.into(), json!(n));
+                if let Some(arr) = r.get_mut(k).and_then(Value::as_array_mut) {
+                    arr.truncate(2000);
+                }
+            }
+            if let Some(o) = r.as_object_mut() {
+                o.insert("counts".into(), Value::Object(counts));
+            }
+            Ok(r)
+        }
+        "selection_set" => {
+            let ids: Vec<u64> =
+                a.get("ids").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
+            let bad: Vec<String> = {
+                let d = eng.doc();
+                ids.iter().filter(|id| d.get(**id).is_none()).map(u64::to_string).collect()
+            };
+            if !bad.is_empty() {
+                let more = if bad.len() > 10 { ", …" } else { "" };
+                return Err(format!(
+                    "No objects {}{more} in the space shown.",
+                    bad.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
+                ));
+            }
+            let mode = a.get("mode").and_then(Value::as_str).unwrap_or("replace");
+            let mut s: Vec<u64> = if mode == "replace" { Vec::new() } else { eng.host().selection() };
+            for id in ids {
+                if mode == "remove" {
+                    s.retain(|x| *x != id);
+                } else if !s.contains(&id) {
+                    s.push(id);
+                }
+            }
+            eng.host_mut().set_selection(&s);
+            Ok(json!({"count": s.len()}))
+        }
+        "undo" => {
+            let steps = a.get("steps").and_then(Value::as_u64).unwrap_or(1);
+            let any = a.get("any").and_then(Value::as_bool).unwrap_or(false);
+            Ok(json!({"undone": undo_steps(&mut eng.doc_mut(), steps, any, PREFIX)}))
+        }
+        "drawing_plot" => {
+            Err("drawing_plot is not available in this version of CadCraft yet: its PDF plotting (plot.js) has not been ported.".into())
+        }
+        "view_screenshot" => Err("A picture of the view is not available in this version of CadCraft yet.".into()),
+        other => Err(format!("{other} is not one of CadCraft's tools.")),
+    }
+}

@@ -7,6 +7,7 @@ dispatcher.
 |---|---|
 | 2026-10-18 | M16.1: `cc-mcp` dispatcher (core.mjs), HTTP control channel (control.rs), token, confinement; `cadcraft --control`. |
 | 2026-10-18 | M16.2: the headless MCP server `cadcraft-cli mcp` with 0.5's 22 tools; parity harness `forks/tools/mcpdiff.mjs`. |
+| 2026-10-18 | M16.3: the window's live tools (CadCraft, TakeoffCraft, MarkupCraft, ModelCraft; DetailCraft listed). |
 
 The apps contain no AI. They give the person's own assistant (or script) **tools**, and the person decides which
 permission groups are allowed: `read`, `edit`, `save`, `export` (0.5 `docs/AGENTS-SPEC.md` § 3). Tool names, titles,
@@ -81,6 +82,18 @@ window): time, client, tool, group, arguments (strings over 200 characters cut),
 The fork has one window, `main`. `tools/list` = Studio's `windows_list` + the window's tools (each with an optional
 `window` argument); a tool call naming another window is refused with 0.5's sentence. Edit, save and export calls are
 refused while the person is in the middle of a command. Which app the window is follows what is open in it.
+
+The window's tools are 0.5's live tools of that app (`data/live-tools-0.5.json`, read from the frozen 0.5 agents.js by
+`forks/tools/livedefs.mjs`; `mcpdiff.mjs` checks all 43 definitions):
+
+| App shown | Tools | Not available yet (a clear error) |
+|---|---|---|
+| CadCraft (a drawing; a viewed one is opened for editing first) | app_info, drawing_describe, objects_list, object_get, drawing_check, selection_get, view_describe, command_run (one `Assistant: …` undo step, echoed `[Assistant] …` in the history), selection_set, undo, drawing_save (in place when the drawing has a file, else the save dialog) | drawing_plot (plot.js), view_screenshot |
+| TakeoffCraft (a plan set in takeoff mode) | app_info, sheets_list, items_list, takeoff_quantities, takeoff_estimate, takeoff_export (the app's own export) | — |
+| MarkupCraft (a plan set) | app_info, sheets_list, markups_list, markup_add (one undo step) | — |
+| ModelCraft (a model) | app_info, model_describe, box_add, cylinder_add, instance_move, instances_erase, undo | view_screenshot |
+| DetailCraft (a model) | app_info | the other 11 (their port is still to do) |
+| BimCraft, CivilCraft, PartCraft, the start screen | app_info (0.5 had no live tools there) | — |
 
 ## Fuzzing
 

@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M16.3 the window's live tools (agent, work/studio)
+
+- The control channel's window answers with 0.5's live tools for the app it shows (data/live-tools-0.5.json from the frozen
+  agents.js; 43 definitions checked by mcpdiff, 0 different): CadCraft (describe, list, get, check, selection, view,
+  command_run as one `Assistant:` step with the `[Assistant]` history line, undo, save in place), TakeoffCraft, MarkupCraft
+  (markup_add), ModelCraft (box / cylinder / move / erase / undo on cc-m3d); DetailCraft lists its tools with app_info
+  only. Not yet: drawing_plot, view_screenshot, DetailCraft's other 11. `cc_mcp::{cad,takeoff,markups,modelcraft}::live_run`
+  hold the logic; apps/cadcraft/src/control.rs only maps the window's state to them.
+
 ## 2026-10-18 — M16.2 the headless MCP server (agent, work/studio)
 
 - `cadcraft-cli mcp`: 0.5's stdio MCP server (tools/mcp/server.mjs) with the 22 headless tools of tools.mjs, definitions byte

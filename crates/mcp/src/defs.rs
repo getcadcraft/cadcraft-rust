@@ -365,3 +365,30 @@ pub fn headless_defs() -> Vec<ToolDef> {
         ),
     ]
 }
+
+/// The live tools of each app's window (0.5 `dev/agents.js` of CadCraft, TakeoffCraft, MarkupCraft, ModelCraft and
+/// DetailCraft): names, groups, titles, descriptions and schemas as those windows register them (`data/live-tools-0.5.json`,
+/// read from the frozen 0.5 build by forks/tools/livedefs.mjs and checked by forks/tools/mcpdiff.mjs --live).
+pub fn live_defs(app: &str) -> Vec<ToolDef> {
+    static ALL: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    let all = ALL.get_or_init(|| serde_json::from_str(include_str!("../data/live-tools-0.5.json")).unwrap_or(Value::Null));
+    let group = |g: &str| -> &'static str {
+        match g {
+            "edit" => "edit",
+            "save" => "save",
+            "export" => "export",
+            _ => "read",
+        }
+    };
+    all.get(app)
+        .and_then(Value::as_array)
+        .map(|list| {
+            list.iter()
+                .map(|t| {
+                    let s = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("");
+                    ToolDef::new(s("name"), group(s("group")), s("title"), s("description"), t.get("inputSchema").cloned())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}

@@ -1,0 +1,1398 @@
+{
+ "cadcraft": [
+  {
+   "name": "app_info",
+   "group": "read",
+   "title": "About this window",
+   "description": "CadCraft's window: the drawing open, whether it has unsaved changes, the space shown (model or a sheet), whether a command is running, and the permissions the person allowed.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "drawing_describe",
+   "group": "read",
+   "title": "Describe the drawing",
+   "description": "Units and length format, extents, the layer table (state and object counts), blocks and their uses, objects by type, sheets with their viewports, views.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "objects_list",
+   "group": "read",
+   "title": "List objects",
+   "description": "Objects of the drawing, filtered and paged: id, type, layer, colour, geometry (drawing units), length/area where it has one, and a one-line description.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "line",
+       "circle",
+       "arc",
+       "poly",
+       "ellipse",
+       "text",
+       "point",
+       "insert",
+       "hatch",
+       "dim",
+       "viewport",
+       "mleader",
+       "spline",
+       "face3d",
+       "image",
+       "wipeout"
+      ]
+     },
+     "layer": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "block": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "text": {
+      "type": "string",
+      "maxLength": 200
+     },
+     "within": {
+      "type": "object",
+      "properties": {
+       "minX": {
+        "type": "number"
+       },
+       "minY": {
+        "type": "number"
+       },
+       "maxX": {
+        "type": "number"
+       },
+       "maxY": {
+        "type": "number"
+       }
+      },
+      "required": [
+       "minX",
+       "minY",
+       "maxX",
+       "maxY"
+      ],
+      "additionalProperties": false
+     },
+     "space": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 100
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "object_get",
+   "group": "read",
+   "title": "Get one object",
+   "description": "One object in full (every field; a reference with its block definition).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "drawing_check",
+   "group": "read",
+   "title": "Check against standards",
+   "description": "Check the drawing against layer and drafting rules (layers.allowed / required / noObjectsOn, objects.colorByLayer / linetypeByLayer / lineweightByLayer / textHeights / textStyles, blocks.noUnused, units).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "rules": {
+      "type": "object",
+      "properties": {
+       "layers": {
+        "type": "object",
+        "properties": {
+         "allowed": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "maxItems": 500
+         },
+         "required": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "maxItems": 500
+         },
+         "noObjectsOn": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "maxItems": 50
+         }
+        },
+        "required": [],
+        "additionalProperties": false
+       },
+       "objects": {
+        "type": "object",
+        "properties": {
+         "colorByLayer": {
+          "type": "boolean"
+         },
+         "linetypeByLayer": {
+          "type": "boolean"
+         },
+         "lineweightByLayer": {
+          "type": "boolean"
+         },
+         "textHeights": {
+          "type": "array",
+          "items": {
+           "type": "number"
+          },
+          "maxItems": 50
+         },
+         "textStyles": {
+          "type": "array",
+          "items": {
+           "type": "string"
+          },
+          "maxItems": 50
+         }
+        },
+        "required": [],
+        "additionalProperties": false
+       },
+       "blocks": {
+        "type": "object",
+        "properties": {
+         "noUnused": {
+          "type": "boolean"
+         }
+        },
+        "required": [],
+        "additionalProperties": false
+       },
+       "units": {
+        "type": "object",
+        "properties": {
+         "lunits": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5
+         },
+         "insunits": {
+          "type": "string",
+          "maxLength": 40
+         }
+        },
+        "required": [],
+        "additionalProperties": false
+       }
+      },
+      "additionalProperties": false
+     }
+    },
+    "required": [
+     "rules"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "selection_get",
+   "group": "read",
+   "title": "Get the selection",
+   "description": "The objects the person has selected now (ids and one-line descriptions, up to 1000).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "view_describe",
+   "group": "read",
+   "title": "Describe the view",
+   "description": "What is on screen: the space or sheet, the visible area in drawing units, the zoom, split-screen panes, and which layers are visible.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "view_screenshot",
+   "group": "read",
+   "title": "Picture of the view",
+   "description": "A PNG of the drawing as it is on screen (up to 1600 px on the long side).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "maxSize": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 1600,
+      "default": 1200
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "command_run",
+   "group": "edit",
+   "title": "Run a CadCraft command",
+   "description": "Type at CadCraft's command line: one string, or a list where each item answers the next prompt (\"\" = Enter); items may also be {pick: [x, y]}, {window: [x1, y1, x2, y2], crossing}, {entity: id} or {escape: true}. Example: [\"LINE\", \"0,0\", \"@100,0\", \"\"]. A command still waiting at the end is ended with Esc. The whole call is one undo step labelled \"Assistant: …\"; the person sees it in the command history.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "input": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 100000
+       },
+       {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 5000,
+        "items": {
+         "anyOf": [
+          {
+           "type": "string",
+           "maxLength": 10000
+          },
+          {
+           "type": "object",
+           "properties": {
+            "pick": {
+             "type": "array",
+             "items": {
+              "type": "number"
+             },
+             "minItems": 2,
+             "maxItems": 2
+            },
+            "shift": {
+             "type": "boolean"
+            }
+           },
+           "required": [
+            "pick"
+           ],
+           "additionalProperties": false
+          },
+          {
+           "type": "object",
+           "properties": {
+            "window": {
+             "type": "array",
+             "items": {
+              "type": "number"
+             },
+             "minItems": 4,
+             "maxItems": 4
+            },
+            "crossing": {
+             "type": "boolean"
+            }
+           },
+           "required": [
+            "window"
+           ],
+           "additionalProperties": false
+          },
+          {
+           "type": "object",
+           "properties": {
+            "entity": {
+             "type": "integer",
+             "minimum": 1
+            },
+            "at": {
+             "type": "array",
+             "items": {
+              "type": "number"
+             },
+             "minItems": 2,
+             "maxItems": 2
+            },
+            "shift": {
+             "type": "boolean"
+            }
+           },
+           "required": [
+            "entity"
+           ],
+           "additionalProperties": false
+          },
+          {
+           "type": "object",
+           "properties": {
+            "escape": {
+             "type": "boolean",
+             "const": true
+            }
+           },
+           "required": [
+            "escape"
+           ],
+           "additionalProperties": false
+          }
+         ]
+        }
+       }
+      ]
+     },
+     "select": {
+      "type": "array",
+      "items": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "maxItems": 100000
+     }
+    },
+    "required": [
+     "input"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "selection_set",
+   "group": "edit",
+   "title": "Set the selection",
+   "description": "Select objects by id (replace, add or remove); the next command acts on them (noun-verb). Unknown ids are refused.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ids": {
+      "type": "array",
+      "items": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "maxItems": 100000
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "replace",
+       "add",
+       "remove"
+      ],
+      "default": "replace"
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "undo",
+   "group": "edit",
+   "title": "Undo",
+   "description": "Undo the assistant's last steps (only steps labelled \"Assistant:\" unless any is true).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 1
+     },
+     "any": {
+      "type": "boolean",
+      "default": false
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "drawing_save",
+   "group": "save",
+   "title": "Save the drawing",
+   "description": "CadCraft's own Save, in the drawing's format (or the one given): on the desktop it is written to its file; in a browser it is downloaded as a copy.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "format": {
+      "type": "string",
+      "enum": [
+       "dwg",
+       "dxf2000",
+       "dxf"
+      ]
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "drawing_plot",
+   "group": "export",
+   "title": "Plot to PDF",
+   "description": "A vector PDF of a sheet (layout) or of the model (extents or a window, on a paper at a scale or fitted), downloaded (desktop: saved where the person chooses). Papers iso-a4, iso-a3, iso-a2, iso-a1, iso-a0, letter, legal, ansi-b, ansi-c, ansi-d, arch-c, arch-d, arch-e; scales \"1:50\", \"1/4\\\" = 1'-0\\\"\" or \"fit\".",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "layout": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "window": {
+      "type": "object",
+      "properties": {
+       "minX": {
+        "type": "number"
+       },
+       "minY": {
+        "type": "number"
+       },
+       "maxX": {
+        "type": "number"
+       },
+       "maxY": {
+        "type": "number"
+       }
+      },
+      "required": [
+       "minX",
+       "minY",
+       "maxX",
+       "maxY"
+      ],
+      "additionalProperties": false
+     },
+     "paper": {
+      "type": "string",
+      "enum": [
+       "iso-a4",
+       "iso-a3",
+       "iso-a2",
+       "iso-a1",
+       "iso-a0",
+       "letter",
+       "legal",
+       "ansi-b",
+       "ansi-c",
+       "ansi-d",
+       "arch-c",
+       "arch-d",
+       "arch-e"
+      ],
+      "default": "iso-a3"
+     },
+     "portrait": {
+      "type": "boolean",
+      "default": false
+     },
+     "scale": {
+      "type": "string",
+      "maxLength": 40,
+      "default": "fit"
+     },
+     "mono": {
+      "type": "boolean",
+      "default": true
+     },
+     "pen": {
+      "type": "number",
+      "minimum": 0.05,
+      "maximum": 2,
+      "default": 0.25
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 120
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "takeoffcraft": [
+  {
+   "name": "app_info",
+   "group": "read",
+   "title": "About this window",
+   "description": "TakeoffCraft's window: the takeoff open, its PDFs, items and marks, the sheet shown, and the permissions the person allowed.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "sheets_list",
+   "group": "read",
+   "title": "List sheets",
+   "description": "The sheets of the open PDFs, each with its scale (or none) and how many marks it holds.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "items_list",
+   "group": "read",
+   "title": "List items",
+   "description": "The takeoff items: type (linear, area, count), unit, height, waste, material and labor rates, and their assembly components with formulas.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "takeoff_quantities",
+   "group": "read",
+   "title": "Quantities",
+   "description": "Quantities per item (in its unit) or per sheet. Marks on sheets with no scale are listed as unscaled, never counted as zero.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "by": {
+      "type": "string",
+      "enum": [
+       "item",
+       "sheet"
+      ],
+      "default": "item"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "takeoff_estimate",
+   "group": "read",
+   "title": "Estimate",
+   "description": "The priced estimate as TakeoffCraft computes it: a row per item and per assembly component, totals in cents and as text; incomplete when a formula fails or marks are unscaled.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "takeoff_export",
+   "group": "export",
+   "title": "Export the estimate",
+   "description": "TakeoffCraft's own export of the estimate, as .csv or .xlsx, downloaded (desktop: saved where the person chooses).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "format": {
+      "type": "string",
+      "enum": [
+       "csv",
+       "xlsx"
+      ],
+      "default": "xlsx"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "markupcraft": [
+  {
+   "name": "app_info",
+   "group": "read",
+   "title": "About this window",
+   "description": "MarkupCraft's window: the PDF sets open, the sheet shown, how many markups, the reviewer name, and the permissions the person allowed.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "sheets_list",
+   "group": "read",
+   "title": "List sheets",
+   "description": "The sheets of the open PDFs (number from 1, title, file, size in inches) with their markup counts.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "markups_list",
+   "group": "read",
+   "title": "List markups",
+   "description": "Markups (type, sheet, text, comment, measurement, status, author, dates, punch item, replies), filtered by sheet, status, type or author, paged.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sheet": {
+      "type": "string",
+      "maxLength": 255
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "Open",
+       "Accepted",
+       "Rejected",
+       "Completed"
+      ]
+     },
+     "type": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "author": {
+      "type": "string",
+      "maxLength": 200
+     },
+     "offset": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "default": 200
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "markup_add",
+   "group": "edit",
+   "title": "Add a markup",
+   "description": "Add a markup to a sheet as one undo step (\"Assistant: add …\"): rect, cloudrect, ellipse or text take rect [x0, y0, x1, y1]; note takes at [x, y]; line and arrow take from [x, y] and to [x, y]. Coordinates are fractions of the sheet (0 to 1 from its lower-left corner, as the page is stored, before any rotation) unless units is \"pt\" (PDF points). text is the words of a text box or note; comment is a note on any markup.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "sheet": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "string",
+        "maxLength": 255
+       }
+      ]
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "rect",
+       "cloudrect",
+       "ellipse",
+       "text",
+       "note",
+       "line",
+       "arrow"
+      ]
+     },
+     "rect": {
+      "type": "array",
+      "items": {
+       "type": "number",
+       "minimum": -10,
+       "maximum": 100000
+      },
+      "minItems": 4,
+      "maxItems": 4
+     },
+     "at": {
+      "type": "array",
+      "items": {
+       "type": "number",
+       "minimum": -10,
+       "maximum": 100000
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "from": {
+      "type": "array",
+      "items": {
+       "type": "number",
+       "minimum": -10,
+       "maximum": 100000
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "to": {
+      "type": "array",
+      "items": {
+       "type": "number",
+       "minimum": -10,
+       "maximum": 100000
+      },
+      "minItems": 2,
+      "maxItems": 2
+     },
+     "units": {
+      "type": "string",
+      "enum": [
+       "fraction",
+       "pt"
+      ],
+      "default": "fraction"
+     },
+     "text": {
+      "type": "string",
+      "maxLength": 4000
+     },
+     "comment": {
+      "type": "string",
+      "maxLength": 4000
+     },
+     "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "Open",
+       "Accepted",
+       "Rejected",
+       "Completed"
+      ]
+     }
+    },
+    "required": [
+     "type"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "modelcraft": [
+  {
+   "name": "app_info",
+   "group": "read",
+   "title": "About this window",
+   "description": "ModelCraft's window: the model's display unit, how many groups and components it has, unsaved changes, and the permissions the person allowed.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "model_describe",
+   "group": "read",
+   "title": "Describe the model",
+   "description": "The model: display unit, extents (meters, Z up) and size, loose faces and edges, every group and component placed (id, name, where, whether it is a closed solid, volume in m³), components and scenes.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "view_screenshot",
+   "group": "read",
+   "title": "Picture of the view",
+   "description": "A PNG of the 3D view as shown (up to 1600 px on the long side).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "maxSize": {
+      "type": "integer",
+      "minimum": 200,
+      "maximum": 1600,
+      "default": 1200
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "box_add",
+   "group": "edit",
+   "title": "Add a box",
+   "description": "A box as a new group: its lowest corner at `at` [x, y] or [x, y, z] and its size [width (x), depth (y), height (z)]. Numbers are in the model's display unit; text such as \"10'\", \"3.2m\" or \"600mm\" works too. One undo step.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "at": {
+      "type": "array",
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 40
+        }
+       ]
+      },
+      "minItems": 2,
+      "maxItems": 3
+     },
+     "size": {
+      "type": "array",
+      "items": {
+       "anyOf": [
+        {
+         "type": "number",
+         "exclusiveMinimum": 0
+        },
+        {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 40
+        }
+       ]
+      },
+      "minItems": 3,
+      "maxItems": 3
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 80
+     }
+    },
+    "required": [
+     "size"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "cylinder_add",
+   "group": "edit",
+   "title": "Add a cylinder",
+   "description": "A cylinder as a new group standing on `center` [x, y] or [x, y, z], with a radius and a height (display unit, or text with a unit), 24 sides unless given. One undo step.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "center": {
+      "type": "array",
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 40
+        }
+       ]
+      },
+      "minItems": 2,
+      "maxItems": 3
+     },
+     "radius": {
+      "anyOf": [
+       {
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+       }
+      ]
+     },
+     "height": {
+      "anyOf": [
+       {
+        "type": "number",
+        "exclusiveMinimum": 0
+       },
+       {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 40
+       }
+      ]
+     },
+     "sides": {
+      "type": "integer",
+      "minimum": 3,
+      "maximum": 96,
+      "default": 24
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 80
+     }
+    },
+    "required": [
+     "radius",
+     "height"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "instance_move",
+   "group": "edit",
+   "title": "Move a group",
+   "description": "Move a group or component (id from model_describe) by [dx, dy] or [dx, dy, dz]. One undo step.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "by": {
+      "type": "array",
+      "items": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string",
+         "minLength": 1,
+         "maxLength": 40
+        }
+       ]
+      },
+      "minItems": 2,
+      "maxItems": 3
+     }
+    },
+    "required": [
+     "id",
+     "by"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "instances_erase",
+   "group": "edit",
+   "title": "Erase groups",
+   "description": "Erase groups or components placed in the model (ids from model_describe). One undo step.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "ids": {
+      "type": "array",
+      "items": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "minItems": 1,
+      "maxItems": 1000
+     }
+    },
+    "required": [
+     "ids"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "undo",
+   "group": "edit",
+   "title": "Undo",
+   "description": "Undo the assistant's last steps (only steps labelled \"Assistant:\" unless any is true).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 1
+     },
+     "any": {
+      "type": "boolean",
+      "default": false
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  }
+ ],
+ "detailcraft": [
+  {
+   "name": "app_info",
+   "group": "read",
+   "title": "About this window",
+   "description": "DetailCraft's window: the model open (name, unsaved changes), how many members, connections, footings, stairs, parts, marks and bolts it has, its steel weight, how many problems, and what the person is in the middle of.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "model_describe",
+   "group": "read",
+   "title": "Describe the model",
+   "description": "The open DetailCraft model in millimetres: grids (numbered lines at x, lettered at y), levels (z), phases, members by type and profile, connections by type, footings and stairs.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "parts_list",
+   "group": "read",
+   "title": "List part marks",
+   "description": "The bill of materials by part mark: type, profile, material, cut length (mm), count, weight each and in all (kg, gross), phase, assembly marks and the part ids. Filters: type, profile, mark, phase.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "beam",
+       "column",
+       "brace",
+       "plate",
+       "stringer"
+      ]
+     },
+     "profile": {
+      "type": "string"
+     },
+     "mark": {
+      "type": "string"
+     },
+     "phase": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "offset": {
+      "type": "integer",
+      "minimum": 0
+     },
+     "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "problems_list",
+   "group": "read",
+   "title": "List problems",
+   "description": "What the Problems tab lists: connections that cannot be built or need a look, holes off their parts, footings without room for their bars, stair checks. Each with the member, connection, footing or stair it is about.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "clash_check",
+   "group": "read",
+   "title": "Check clashes",
+   "description": "The clash check: steel parts and footings that reach into each other by more than the tolerance (mm), leaving out what a connection means to meet. Optionally only some phases.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "tolerance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 50
+     },
+     "phases": {
+      "type": "array",
+      "items": {
+       "type": "integer",
+       "minimum": 1
+      },
+      "maxItems": 999
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "selection_get",
+   "group": "read",
+   "title": "What is selected",
+   "description": "What the person has selected in DetailCraft, each described (member: type, profile, mark, ends; connection: type and members; footing; stair).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "selection_set",
+   "group": "edit",
+   "title": "Select",
+   "description": "Select members, connections, footings or stairs to show them to the person: by refs ({kind, id}) or by part marks (every member with that mark). Changes nothing in the model.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "refs": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "kind": {
+         "type": "string",
+         "enum": [
+          "member",
+          "conn",
+          "footing",
+          "stair"
+         ]
+        },
+        "id": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "kind",
+        "id"
+       ],
+       "additionalProperties": false
+      },
+      "maxItems": 100000
+     },
+     "marks": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 1000
+     },
+     "mode": {
+      "type": "string",
+      "enum": [
+       "replace",
+       "add",
+       "remove"
+      ]
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "member_add",
+   "group": "edit",
+   "title": "Add a member",
+   "description": "Add a beam, column, brace or plate between two points (mm). Profile by name (catalog, e.g. W16x26, IPE300, HSS4x4x1/4, or PL20x200 for a plate); position top|middle|bottom puts the reference line on the top of steel, the middle or the bottom; rotation in degrees about its axis. One undo step.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "beam",
+       "column",
+       "brace",
+       "plate"
+      ]
+     },
+     "start": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+     },
+     "end": {
+      "type": "array",
+      "items": {
+       "type": "number"
+      },
+      "minItems": 3,
+      "maxItems": 3
+     },
+     "profile": {
+      "type": "string"
+     },
+     "material": {
+      "type": "string"
+     },
+     "position": {
+      "type": "string",
+      "enum": [
+       "top",
+       "middle",
+       "bottom"
+      ]
+     },
+     "rotation": {
+      "type": "number"
+     },
+     "name": {
+      "type": "string",
+      "maxLength": 40
+     },
+     "phase": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "type",
+     "start",
+     "end"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "connection_add",
+   "group": "edit",
+   "title": "Add connections",
+   "description": "Connect where the given members meet, as the Connect buttons do: endplate or sheartab (at every free end of the beams that meets a column), baseplate (under each column), splice (where the pieces meet another of their profile end to end), gusset (at every brace end on a column or beam). Default parameters; one undo step. Returns the new connection ids and any problems they report.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "type": {
+      "type": "string",
+      "enum": [
+       "endplate",
+       "sheartab",
+       "baseplate",
+       "splice",
+       "gusset"
+      ]
+     },
+     "members": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 1000
+     }
+    },
+    "required": [
+     "type",
+     "members"
+    ],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "undo",
+   "group": "edit",
+   "title": "Undo",
+   "description": "Undo the assistant's last steps (labelled \"Assistant: …\"); steps the person made are only undone with any: true.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "steps": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+     },
+     "any": {
+      "type": "boolean"
+     }
+    },
+    "required": [],
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "model_save",
+   "group": "save",
+   "title": "Save the model",
+   "description": "DetailCraft's own Save: the model as .detailcraft.json (desktop: in place; browser: downloaded).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "model_export",
+   "group": "export",
+   "title": "Export",
+   "description": "One of DetailCraft's own exports, downloaded as the Output buttons do: ifc (IFC4), nc (DSTV NC files, zipped), bom (CSV), bending (bending schedule CSV), kiss (KISS file), cutlist (cut list CSV).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "format": {
+      "type": "string",
+      "enum": [
+       "ifc",
+       "nc",
+       "bom",
+       "bending",
+       "kiss",
+       "cutlist"
+      ]
+     }
+    },
+    "required": [
+     "format"
+    ],
+    "additionalProperties": false
+   }
+  }
+ ]
+}

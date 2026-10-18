@@ -54,7 +54,47 @@ pub fn sheet_label(state: &Value, key: &str) -> String {
 
 /// `{file, ...takeoffSummary(state, sheetLabel), warnings}`.
 pub fn summary(t: &TakeoffDoc) -> Value {
-    let st = &t.state;
+    let mut v = summary_with(&t.state, &|k| sheet_label(&t.state, k));
+    if let Some(o) = v.as_object_mut() {
+        let mut out = Map::new();
+        out.insert("file".into(), Value::String(t.name.clone()));
+        out.extend(std::mem::take(o));
+        out.insert("warnings".into(), json!(t.warnings));
+        return Value::Object(out);
+    }
+    v
+}
+
+/// agents.js `itemsList(state)`.
+pub fn items_list(state: &Value) -> Value {
+    let items: Vec<Value> = state
+        .get("items")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+        .iter()
+        .map(|it| {
+            let f = |k: &str| it.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            let comps: Vec<Value> = it
+                .get("components")
+                .and_then(Value::as_array)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .map(|c| json!({"name": c.get("name"), "unit": c.get("unit"), "formula": c.get("formula")}))
+                .collect();
+            json!({
+                "id": it.get("id"), "name": it.get("name"), "type": it.get("type"), "unit": cc_takeoff::units::unit_label(s(it, "unit")),
+                "color": it.get("color"), "heightFt": r4(f("heightFt")), "wastePercent": r4(f("waste") / 100.0),
+                "materialPerUnit": cc_takeoff::units::format_rate(f("mat")), "laborPerUnit": cc_takeoff::units::format_rate(f("lab")), "components": comps,
+            })
+        })
+        .collect();
+    Value::Array(items)
+}
+
+/// agents.js `takeoffSummary(state, sheetLabel)`.
+pub fn summary_with(st: &Value, label: &dyn Fn(&str) -> String) -> Value {
     let q = model::quantities(st, &QOpts::default());
     let unscaled: f64 = q.list.iter().map(|(_, x)| x.unscaled).sum();
     let arr = |k: &str| st.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
@@ -68,32 +108,36 @@ pub fn summary(t: &TakeoffDoc) -> Value {
                 .filter(|(_, v)| v.get("scale").is_some_and(|x| cc_cad::js::truthy(Some(x))))
                 .map(|(k, v)| {
                     let sc = &v["scale"];
-                    let label = sc
+                    let sc_label = sc
                         .get("label")
                         .filter(|x| cc_cad::js::truthy(Some(x)))
                         .or_else(|| sc.get("preset").filter(|x| cc_cad::js::truthy(Some(x))))
                         .cloned();
-                    json!({"sheet": sheet_label(st, k), "scale": label})
+                    json!({"sheet": label(k), "scale": sc_label})
                 })
                 .collect()
         })
         .unwrap_or_default();
     let areas: Vec<Value> = arr("areas").iter().map(|a| a.get("name").cloned().unwrap_or(Value::Null)).collect();
     json!({
-        "file": t.name, "name": st.get("name"), "items": arr("items").len(), "marks": arr("marks").len(), "files": files,
-        "scaledSheets": scaled, "unscaledMarks": unscaled, "bidAreas": areas, "warnings": t.warnings,
+        "name": st.get("name"), "items": arr("items").len(), "marks": arr("marks").len(), "files": files,
+        "scaledSheets": scaled, "unscaledMarks": unscaled, "bidAreas": areas,
     })
 }
 
-/// agents.js `takeoffQuantities(state, sheetLabel, {by})`.
+/// agents.js `takeoffQuantities(state, sheetLabel, {by})` with takeoff.mjs's sheet labels.
 pub fn quantities(t: &TakeoffDoc, by: &str) -> Value {
-    let st = &t.state;
+    quantities_with(&t.state, &|k| sheet_label(&t.state, k), by)
+}
+
+/// agents.js `takeoffQuantities(state, sheetLabel, {by})`.
+pub fn quantities_with(st: &Value, sheet_label: &dyn Fn(&str) -> String, by: &str) -> Value {
     let q = model::quantities(st, &QOpts::default());
     if by == "sheet" {
         let rows: Vec<Value> = model::sheet_breakdown(st, &q)
             .iter()
             .map(|r| {
-                json!({"sheet": sheet_label(st, s(r, "sheet")), "item": r.get("name"), "quantity": r4(r.get("qty").and_then(Value::as_f64).unwrap_or(f64::NAN)),
+                json!({"sheet": sheet_label(s(r, "sheet")), "item": r.get("name"), "quantity": r4(r.get("qty").and_then(Value::as_f64).unwrap_or(f64::NAN)),
                     "unit": r.get("unit"), "marks": r.get("marks")})
             })
             .collect();
@@ -118,7 +162,7 @@ pub fn quantities(t: &TakeoffDoc, by: &str) -> Value {
                     o.insert("quantity".into(), r4(model::item_qty(it, &t.tot)));
                     o.insert("marks".into(), cc_cad::num(t.tot.marks));
                     o.insert("unscaledMarks".into(), cc_cad::num(t.unscaled));
-                    o.insert("sheets".into(), json!(t.by_sheet.iter().map(|(k, _)| sheet_label(st, k)).collect::<Vec<_>>()));
+                    o.insert("sheets".into(), json!(t.by_sheet.iter().map(|(k, _)| sheet_label(k)).collect::<Vec<_>>()));
                     if ty == "area" {
                         o.insert("perimeterFt".into(), r4(t.tot.perimeter_ft));
                     }
@@ -139,7 +183,12 @@ pub fn quantities(t: &TakeoffDoc, by: &str) -> Value {
 
 /// agents.js `takeoffEstimate(state)`.
 pub fn estimate(t: &TakeoffDoc) -> Value {
-    let e = model::estimate_all(&t.state);
+    estimate_of(&t.state)
+}
+
+/// agents.js `takeoffEstimate(state)`.
+pub fn estimate_of(state: &Value) -> Value {
+    let e = model::estimate_all(state);
     let rate = |r: &Value, k: &str| cc_takeoff::units::format_rate(r.get(k).and_then(Value::as_f64).unwrap_or(0.0));
     let rows: Vec<Value> = e
         .rows
@@ -190,5 +239,46 @@ pub fn export(t: &TakeoffDoc, kind: &str, now_ms: f64) -> Result<Vec<u8>, String
             Ok(cc_io_takeoff::export::estimate_xlsx(&t.state, &label, true, &stamp))
         }
         _ => Err("Exports: csv, xlsx.".into()),
+    }
+}
+
+/// TakeoffCraft's live tools (agents.js `installAgents`) on the window's takeoff. `sheets` = (key, title) of the open
+/// PDFs' pages; `takeoff_export` is the window's own (it writes a file).
+pub fn live_run(
+    state: &Value,
+    sheets: &[(String, String)],
+    current: Option<&str>,
+    name: &str,
+    a: &Value,
+    allowed: &[String],
+) -> Result<Value, String> {
+    let label = |k: &str| sheets.iter().find(|(x, _)| x == k).map_or_else(|| sheet_label(state, k), |(_, t)| t.clone());
+    match name {
+        "app_info" => {
+            let mut o = Map::new();
+            o.insert("app".into(), json!("takeoffcraft"));
+            o.insert("title".into(), json!("TakeoffCraft"));
+            o.insert("allowed".into(), json!(allowed));
+            o.insert("sheet".into(), current.map_or(Value::Null, |k| Value::String(label(k))));
+            if let Value::Object(s) = summary_with(state, &label) {
+                o.extend(s);
+            }
+            Ok(Value::Object(o))
+        }
+        "sheets_list" => {
+            let marks = state.get("marks").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+            let list: Vec<Value> = sheets
+                .iter()
+                .map(|(k, t)| {
+                    let scale = state.get("sheets").and_then(|s| s.get(k)).and_then(|s| s.get("scale")).and_then(|s| s.get("label")).filter(|x| cc_cad::js::truthy(Some(x))).cloned();
+                    json!({"key": k, "sheet": t, "scale": scale, "marks": marks.iter().filter(|m| m.get("sheet").and_then(Value::as_str) == Some(k.as_str())).count()})
+                })
+                .collect();
+            Ok(json!({"sheets": list}))
+        }
+        "items_list" => Ok(json!({"items": items_list(state)})),
+        "takeoff_quantities" => Ok(quantities_with(state, &label, a.get("by").and_then(Value::as_str).unwrap_or("item"))),
+        "takeoff_estimate" => Ok(estimate_of(state)),
+        other => Err(format!("{other} is not one of TakeoffCraft's tools.")),
     }
 }

@@ -428,6 +428,8 @@ dependencies = [
  "cc-io-ifc",
  "cc-io-markup",
  "cc-io-takeoff",
+ "cc-m3d",
+ "cc-m3d-tools",
  "cc-markup",
  "cc-takeoff",
  "getrandom 0.3.4",

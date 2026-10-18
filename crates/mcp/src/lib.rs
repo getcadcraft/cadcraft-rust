@@ -28,6 +28,7 @@ pub mod ifc;
 pub mod json;
 pub mod live;
 pub mod markups;
+pub mod modelcraft;
 pub mod rpc;
 pub mod schema;
 pub mod takeoff;

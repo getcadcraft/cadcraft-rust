@@ -97,9 +97,120 @@ pub struct Win<'a> {
     pub groups: Vec<String>,
 }
 
+/// The apps whose 0.5 windows have live tools (agents.js); the others list only `app_info`.
+const LIVE_APPS: [&str; 5] = ["cadcraft", "takeoffcraft", "markupcraft", "modelcraft", "detailcraft"];
+
+impl Win<'_> {
+    /// CadCraft's tools work on the drawing open for editing: a drawing only viewed is opened for editing first.
+    fn cad_engine(&mut self) -> Result<&mut cc_engine::Engine, String> {
+        if self.app.editor.is_none() {
+            if self.app.source.is_none() {
+                return Err("No drawing is open in CadCraft.".into());
+            }
+            self.app.run("file.edit", &cc_ui_egui::Params::default())?;
+        }
+        self.app.editor.as_mut().map(|e| &mut e.eng).ok_or_else(|| "No drawing is open in CadCraft.".to_string())
+    }
+
+    fn view_info(&self) -> Option<cc_mcp::cad::ViewInfo> {
+        let v = self.app.views.get(self.app.space).copied().flatten()?;
+        let corners = [v.to_world(0.0, 0.0), v.to_world(v.width, 0.0), v.to_world(0.0, v.height), v.to_world(v.width, v.height)];
+        let (mut a, mut b) = ((f64::INFINITY, f64::INFINITY), (f64::NEG_INFINITY, f64::NEG_INFINITY));
+        for (x, y) in corners {
+            a = (a.0.min(x), a.1.min(y));
+            b = (b.0.max(x), b.1.max(y));
+        }
+        Some(cc_mcp::cad::ViewInfo { min_x: a.0, min_y: a.1, max_x: b.0, max_y: b.1, zoom: v.zoom })
+    }
+
+    /// CadCraft's own Save: in place when the drawing has a file (desktop), else through the app's save service.
+    fn cad_save(&mut self, format: Option<&str>) -> Result<Value, String> {
+        let busy = self.app.editor.as_ref().is_some_and(|e| e.eng.busy());
+        if busy {
+            return Err("A command is running; try again when it is done.".into());
+        }
+        self.cad_engine()?;
+        let src = self.app.source.clone();
+        let ext = src.as_ref().map(|f| f.name.rsplit_once('.').map_or("", |(_, e)| e).to_ascii_lowercase()).unwrap_or_default();
+        let last = self.app.save_format.clone();
+        let fmt = match format {
+            Some("dxf") => "dxf12".to_string(),
+            Some("dxf2000") => "dxf2000".to_string(),
+            // dwg: the version saved last, else 2018
+            Some(_) => {
+                if last.starts_with("dxf") {
+                    "2018".to_string()
+                } else {
+                    last
+                }
+            }
+            None if ext == "dxf" => "dxf2000".to_string(),
+            None => last,
+        };
+        let ed = self.app.editor.as_mut().ok_or("No drawing is open in CadCraft.")?;
+        let (bytes, out_ext, _report) = cc_io_cad_save(&ed.eng.doc(), &fmt)?;
+        let printed;
+        match src.as_ref().and_then(|f| f.dir.as_ref().map(|d| (d.clone(), f.name.clone()))) {
+            Some((dir, name)) if !name.is_empty() => {
+                let stem = name.rsplit_once('.').map_or(name.as_str(), |(s, _)| s);
+                let path = std::path::Path::new(&dir).join(format!("{stem}.{out_ext}"));
+                cc_mcp::confine::write_file_atomic(&path, &bytes)?;
+                ed.mark_saved();
+                ed.eng.doc_mut().mark_saved();
+                printed = vec![format!("Saved {}", path.display())];
+            }
+            _ => {
+                let name = format!("{}.{out_ext}", ed.name);
+                let save = self.app.services.save.as_mut().ok_or("Saving is not available here.")?;
+                match save(&name, bytes)? {
+                    Some(to) => {
+                        if let Some(ed) = self.app.editor.as_mut() {
+                            ed.mark_saved();
+                            ed.eng.doc_mut().mark_saved();
+                        }
+                        printed = vec![format!("Saved {to}")];
+                    }
+                    None => printed = vec!["Not saved.".to_string()],
+                }
+            }
+        }
+        let saved = self.app.editor.as_ref().is_some_and(|e| !e.dirty());
+        self.app.sync_editor();
+        Ok(json!({"saved": saved, "printed": printed}))
+    }
+
+    fn pdf_sheets(&self) -> Vec<cc_mcp::markups::LiveSheet> {
+        let Some(p) = self.app.pdf.as_ref() else { return Vec::new() };
+        let stem = p.name.rsplit_once('.').map_or(p.name.as_str(), |(s, _)| s).to_string();
+        p.pages
+            .iter()
+            .map(|pg| {
+                let title =
+                    if pg.number.is_empty() { format!("{stem} — page {}", pg.index.saturating_add(1)) } else { pg.number.clone() };
+                cc_mcp::markups::LiveSheet {
+                    key: format!("f1:{}", pg.index),
+                    title,
+                    width: pg.width,
+                    height: pg.height,
+                    view: pg.view,
+                    file: Some(p.name.clone()),
+                }
+            })
+            .collect()
+    }
+}
+
+/// Save a drawing in one of CadCraft's save formats.
+fn cc_io_cad_save(doc: &cc_cad::Doc, fmt: &str) -> Result<(Vec<u8>, &'static str, Value), String> {
+    cc_io_cad::save_bytes(doc, fmt, None).map_err(|e| e.0)
+}
+
 impl Tools for Win<'_> {
     fn tools(&self) -> Vec<ToolDef> {
         let slug = self.app.active_app();
+        if LIVE_APPS.contains(&slug) {
+            return cc_mcp::defs::live_defs(slug);
+        }
         let app = app_title(slug);
         vec![ToolDef::new(
             "app_info",
@@ -109,14 +220,74 @@ impl Tools for Win<'_> {
             None,
         )]
     }
-    fn run(&mut self, name: &str, _args: Value, _ctx: &CallCtx) -> Result<ToolOut, ToolError> {
-        match name {
-            "app_info" => {
-                let slug = self.app.active_app();
-                Ok(ToolOut::Json(json!({"app": slug, "title": app_title(slug), "allowed": self.groups})))
+    fn run(&mut self, name: &str, args: Value, ctx: &CallCtx) -> Result<ToolOut, ToolError> {
+        let slug = self.app.active_app();
+        let groups = self.groups.clone();
+        let out = match slug {
+            "cadcraft" => match name {
+                "drawing_save" => self.cad_save(args.get("format").and_then(Value::as_str)),
+                _ => {
+                    let view = self.view_info();
+                    let r = self.cad_engine().and_then(|eng| cc_mcp::cad::live_run(eng, name, &args, &groups, view));
+                    self.app.sync_editor();
+                    r
+                }
+            },
+            "takeoffcraft" => {
+                let p = self.app.pdf.as_ref().ok_or("No plan set is open.")?;
+                let st = p.takeoff.tk.state.clone();
+                let sheets: Vec<(String, String)> =
+                    (0..p.pages.len()).map(|i| (p.takeoff.sheet(i), cc_mcp::takeoff::sheet_label(&st, &p.takeoff.sheet(i)))).collect();
+                let current = p.takeoff.sheet(p.page);
+                if name == "takeoff_export" {
+                    if p.takeoff.tk.items().is_empty() {
+                        return Err(ToolError::new("The takeoff has no items yet."));
+                    }
+                    let fmt = args.get("format").and_then(Value::as_str).unwrap_or("xlsx").to_string();
+                    let id = if fmt == "csv" { "csv" } else { "xlsx" };
+                    self.app
+                        .run("takeoff.export", &cc_ui_egui::Params { name: Some(id.into()), ..Default::default() })
+                        .map(|()| json!({"exported": fmt}))
+                } else {
+                    cc_mcp::takeoff::live_run(&st, &sheets, Some(&current), name, &args, &groups)
+                }
             }
-            other => Err(ToolError::new(format!("{other} is not available in this window."))),
-        }
+            "markupcraft" => {
+                let sheets = self.pdf_sheets();
+                let p = self.app.pdf.as_mut().ok_or("No plan set is open.")?;
+                let current = format!("f1:{}", p.page);
+                let r = cc_mcp::markups::live_run(&mut p.store, &sheets, Some(&current), "", ctx.client.as_deref(), name, &args, &groups);
+                match r {
+                    Ok((v, go)) => {
+                        if let Some(k) = go
+                            && let Some(i) = k.strip_prefix("f1:").and_then(|i| i.parse::<f64>().ok())
+                        {
+                            let _ = self.app.run("pdf.page", &cc_ui_egui::Params { factor: Some(i + 1.0), ..Default::default() });
+                        }
+                        Ok(v)
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            "modelcraft" => match name {
+                "view_screenshot" => Err("A picture of the view is not available in this version of ModelCraft yet.".into()),
+                _ => {
+                    let mc = self.app.mc.as_mut().ok_or("No model is open for editing in ModelCraft.")?;
+                    cc_mcp::modelcraft::run(&mut mc.tools.host.model, name, &args, &groups)
+                }
+            },
+            "detailcraft" => match name {
+                "app_info" => Ok(json!({"app": "detailcraft", "title": "DetailCraft", "allowed": groups})),
+                other => {
+                    Err(format!("{other} is not available in this version of DetailCraft yet: its assistant tools have not been ported."))
+                }
+            },
+            other => match name {
+                "app_info" => Ok(json!({"app": other, "title": app_title(other), "allowed": groups})),
+                n => Err(format!("{n} is not available in {}.", app_title(other))),
+            },
+        };
+        out.map(ToolOut::Json).map_err(ToolError::new)
     }
     fn info(&mut self) -> Option<Value> {
         let slug = self.app.active_app();
@@ -130,6 +301,10 @@ impl Window for Win<'_> {
     }
     fn title(&self) -> String {
         app_title(self.app.active_app()).to_string()
+    }
+    fn busy(&self) -> Option<String> {
+        let ed = self.app.editor.as_ref()?;
+        if ed.eng.busy() { ed.eng.running().map(str::to_string) } else { None }
     }
 }
 
@@ -176,5 +351,53 @@ mod tests {
         assert_eq!(v["result"]["structuredContent"]["windows"][0]["app"], "studio");
         assert_eq!(v["result"]["structuredContent"]["windows"][0]["tools"], 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn ask(c: &mut Control, app: &mut UiApp, m: Value) -> Value {
+        let mut w = Win { app, groups: c.groups.clone() };
+        c.handle(&m, "t", &mut w).unwrap_or(Value::Null)
+    }
+    fn call(c: &mut Control, app: &mut UiApp, name: &str, args: Value) -> Value {
+        let r = ask(c, app, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}}));
+        r["result"].clone()
+    }
+
+    /// The live tools on the real window state: CadCraft's on the sample drawing, ModelCraft's on the sample model.
+    #[test]
+    fn live_tools_act_on_the_window() {
+        let all: Vec<String> = ["read", "edit", "save", "export"].iter().map(|s| s.to_string()).collect();
+        let mut c = Control::new(all, "t");
+        let mut app = UiApp::default();
+        app.run("file.sample", &cc_ui_egui::Params::default()).unwrap();
+        let list = ask(&mut c, &mut app, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}));
+        let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert_eq!(names.len(), 14, "{names:?}");
+        assert!(names.contains(&"command_run") && names.contains(&"view_describe"));
+        let info = call(&mut c, &mut app, "app_info", json!({}));
+        assert_eq!(info["structuredContent"]["app"], "cadcraft");
+        let run = call(&mut c, &mut app, "command_run", json!({"input": ["LINE", "0,0", "@100,0", ""]}));
+        assert_eq!(run["structuredContent"]["undo"], "Assistant: LINE", "{run}");
+        let id = run["structuredContent"]["added"][0].as_u64().unwrap();
+        let sel = call(&mut c, &mut app, "selection_set", json!({"ids": [id]}));
+        assert_eq!(sel["structuredContent"]["count"], 1);
+        let got = call(&mut c, &mut app, "selection_get", json!({}));
+        assert_eq!(got["structuredContent"]["objects"][0]["type"], "line");
+        let bad = call(&mut c, &mut app, "selection_set", json!({"ids": [999999]}));
+        assert_eq!(bad["content"][0]["text"], "No objects 999999 in the space shown.");
+        let undo = call(&mut c, &mut app, "undo", json!({}));
+        assert_eq!(undo["structuredContent"]["undone"], json!(["Assistant: LINE"]));
+        let plot = call(&mut c, &mut app, "drawing_plot", json!({}));
+        assert_eq!(plot["isError"], true);
+        // ModelCraft
+        app.run("view.model.sample", &cc_ui_egui::Params::default()).unwrap();
+        let list = ask(&mut c, &mut app, json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}));
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 9);
+        let boxed = call(&mut c, &mut app, "box_add", json!({"size": [1, 2, 3], "at": [10, 0]}));
+        assert_eq!(boxed["structuredContent"]["closed"], true, "{boxed}");
+        assert!(boxed["structuredContent"]["volume"].as_f64().unwrap() > 0.0, "a 1 × 2 × 3 box in the model's display unit");
+        let d = call(&mut c, &mut app, "model_describe", json!({}));
+        assert!(d["structuredContent"]["instances"].as_array().unwrap().iter().any(|i| i["name"] == "Box"));
+        let u = call(&mut c, &mut app, "undo", json!({}));
+        assert_eq!(u["structuredContent"]["undone"], json!(["Assistant: box"]));
     }
 }
