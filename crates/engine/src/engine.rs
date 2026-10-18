@@ -55,18 +55,31 @@ pub trait Host {
     fn view_rect(&self) -> Option<(f64, f64)> {
         None
     }
+    /// `host.viewExtents()`: the model area on screen (HATCH looks for boundaries there only), when the host has one.
+    fn view_extents(&self) -> Option<Bounds> {
+        None
+    }
 }
 
-/// A set of ids that keeps insertion order (a JS `Set`).
+/// A set of ids that keeps insertion order (a JS `Set`). The order is the Vec (read it as `.0`); the hash index
+/// keeps `has` / `add` / `delete` O(1) (ALL on a drawing of 20,000 objects was quadratic).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct IdSet(pub Vec<u64>);
+pub struct IdSet(pub Vec<u64>, std::collections::HashSet<u64>);
 impl IdSet {
+    /// The ids in this order (repeats dropped).
+    pub fn from_vec(ids: Vec<u64>) -> IdSet {
+        let mut s = IdSet::default();
+        for id in ids {
+            s.add(id);
+        }
+        s
+    }
     pub fn has(&self, id: u64) -> bool {
-        self.0.contains(&id)
+        self.1.contains(&id)
     }
     /// → true when it was not there
     pub fn add(&mut self, id: u64) -> bool {
-        if self.has(id) {
+        if !self.1.insert(id) {
             return false;
         }
         self.0.push(id);
@@ -74,9 +87,11 @@ impl IdSet {
     }
     /// → true when it was there
     pub fn delete(&mut self, id: u64) -> bool {
-        let n = self.0.len();
+        if !self.1.remove(&id) {
+            return false;
+        }
         self.0.retain(|x| *x != id);
-        self.0.len() != n
+        true
     }
     pub fn len(&self) -> usize {
         self.0.len()
@@ -84,6 +99,13 @@ impl IdSet {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+}
+
+/// What "Select objects" ended with: the objects, or one of the command's own options.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Sel {
+    Set(IdSet),
+    Opt(String),
 }
 
 /// A deferred Tangent snap riding on a clicked point (DR.3): the circle and where it was picked.
@@ -201,6 +223,10 @@ pub struct State {
     pub edge_mode: i32,
     /// the freehand path being dragged (the host sets it; TRIM / EXTEND preview what it crosses)
     pub drag_path: Option<Vec<P2>>,
+    /// the windows the last "Select objects" was given (`set.windows`: STRETCH stretches what they hold)
+    pub sel_windows: Vec<Bounds>,
+    /// what commands remember between runs (`E.hatch`, `E.filletR`, …)
+    pub memo: crate::cmd::Memo,
 }
 
 /// What the engine and its commands share.
@@ -597,6 +623,9 @@ impl Engine {
                 }
             }
         });
+        if !shift && !opts.remove {
+            self.sh.st.borrow_mut().sel_windows.push(rect);
+        }
         let msg = if opts.remove { self.sh.tv("sel.removed", &[("n", ids.len().to_string())]) } else { format!("{} found", ids.len()) };
         let mut h = self.sh.host.borrow_mut();
         h.set_selection(&set.0);
@@ -732,21 +761,32 @@ impl Ctx {
     /// Objects to work on: the current selection (noun-verb), else ask until Enter. Besides clicks and windows the
     /// prompt takes ALL, L(ast), P(revious), F(ence), W(indow), C(rossing), R(emove) / A(dd) and ? (the list).
     pub async fn select(&self, prompt: Option<String>, fresh: bool) -> R<IdSet> {
+        match self.select_with(prompt, fresh, Vec::new()).await? {
+            Sel::Set(s) => Ok(s),
+            Sel::Opt(_) => Ok(IdSet::default()),
+        }
+    }
+
+    /// `c.select(prompt, { fresh, options })`: as [`Ctx::select`], and the command's own options answer `Sel::Opt`.
+    pub async fn select_with(&self, prompt: Option<String>, fresh: bool, own: Vec<Opt>) -> R<Sel> {
         let pre: Vec<u64> = {
             let d = self.doc();
             self.sh.host.borrow().selection().into_iter().filter(|id| d.get(*id).is_some_and(|e| d.editable(e))).collect()
         };
+        self.st().sel_windows.clear();
         if !pre.is_empty() && !fresh {
             self.print(&format!("{} found", pre.len()));
-            self.st().prev_selection = Some(IdSet(pre.clone()));
-            return Ok(IdSet(pre));
+            self.st().prev_selection = Some(IdSet::from_vec(pre.clone()));
+            return Ok(Sel::Set(IdSet::from_vec(pre)));
         }
         self.set_selection(&[]);
         let prompt = prompt.unwrap_or_else(|| self.t("cmd.sim.select"));
         let mut set = IdSet::default();
         let mut remove = false;
         loop {
-            let opts = Opts { none: true, remove, options: select_options(&self.sh.lang), ..Opts::default() };
+            let mut options = own.clone();
+            options.extend(select_options(&self.sh.lang));
+            let opts = Opts { none: true, remove, options, ..Opts::default() };
             let p = if remove { self.t("sel.remove.prompt") } else { prompt.clone() };
             let (r, s) = self.ask_set(Kind::Select, p, opts, set).await?;
             set = s;
@@ -758,14 +798,14 @@ impl Ctx {
                 if self.select_option(&k, &mut set, remove).await? {
                     continue;
                 }
-                return Ok(set);
+                return Ok(Sel::Opt(k));
             }
             break;
         }
         if !set.is_empty() {
             self.st().prev_selection = Some(set.clone());
         }
-        Ok(set)
+        Ok(Sel::Set(set))
     }
 
     fn take(&self, ids: &[u64], set: &mut IdSet, remove: bool) {
@@ -810,6 +850,9 @@ impl Ctx {
                 let w = Bounds { min_x: js::min(a.x, b.x), min_y: js::min(a.y, b.y), max_x: js::max(a.x, b.x), max_y: js::max(a.y, b.y) };
                 let ids = self.sh.host.borrow().pick_window(&self.doc(), &w, key == "C");
                 self.take(&ids, set, remove);
+                if !remove {
+                    self.st().sel_windows.push(w);
+                }
                 Ok(true)
             }
             "F" => {

@@ -61,7 +61,7 @@ pub fn undo_inside(c: &Ctx) {
     }
 }
 
-fn sources(c: &Ctx, ids: &[u64]) -> Vec<Entity> {
+pub(crate) fn sources(c: &Ctx, ids: &[u64]) -> Vec<Entity> {
     let d = c.doc();
     ids.iter().filter_map(|id| d.get(*id).cloned()).collect()
 }
@@ -167,7 +167,7 @@ pub async fn mirror(c: Ctx) -> R {
 }
 
 /// geom.primParam without the arc rev flag (commands.js `closestT`).
-fn closest_t(p: &Prim, q: P2) -> f64 {
+pub(crate) fn closest_t(p: &Prim, q: P2) -> f64 {
     if p.is_l() {
         let (dx, dy) = (p.x2 - p.x1, p.y2 - p.y1);
         let l = dx * dx + dy * dy;

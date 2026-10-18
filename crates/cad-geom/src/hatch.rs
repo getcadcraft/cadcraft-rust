@@ -1,9 +1,10 @@
 //! hatch.js (patterns and closed boundaries): `{ type: 'hatch', loops (even-odd), solid, pattern, pscale, pangle,
-//! piso, patlines?, ox?, oy? }`. `boundaryAt` (the HATCH command's pick-inside search) is not ported in M4.
+//! piso, patlines?, ox?, oy? }`. [`boundary_at`] is the HATCH command's pick-inside search (M4.10).
 
 use crate::jsmath::JsMath;
 use cc_cad::entity::{Entity, Geo};
 use cc_cad::{Doc, js};
+use cc_geom::P2;
 use serde_json::Value;
 
 use crate::geom::*;
@@ -285,4 +286,430 @@ pub fn loops_of(e: &Entity) -> Option<Vec<Vec<f64>>> {
         }
         _ => None,
     }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// boundaryAt: the HATCH command's pick-inside search (M4.10)
+
+const MAX_BOUNDARY_SEGS: usize = 80000;
+
+/// Why no boundary was found round a point (the HATCH command prints `cmd.hatch.err.<code>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoundaryError {
+    None,
+    Open,
+    Large,
+}
+impl BoundaryError {
+    pub fn code(self) -> &'static str {
+        match self {
+            BoundaryError::None => "none",
+            BoundaryError::Open => "open",
+            BoundaryError::Large => "large",
+        }
+    }
+}
+
+struct Half {
+    from: usize,
+    to: usize,
+    ang: f64,
+    twin: usize,
+    used: bool,
+}
+
+/// Floor of a cell coordinate as a grid index (the JS `Math.floor` feeds a 32-bit hash: wraps the same way).
+fn cell_index(v: f64) -> i32 {
+    let f = v.floor();
+    if !f.is_finite() {
+        return 0;
+    }
+    // |f| is far below 2^31 in practice (≈ √segments); clamp keeps the cast defined for hostile input
+    #[allow(clippy::cast_possible_truncation)]
+    let i = f.clamp(-2_147_483_648.0, 2_147_483_647.0) as i32;
+    i
+}
+
+/// `Math.round(v)` as a grid key (NaN and ±Infinity keep their own keys).
+fn round_key(v: f64) -> i64 {
+    let r = js::round(v);
+    if r.is_nan() {
+        return i64::MIN;
+    }
+    #[allow(clippy::cast_possible_truncation)]
+    let i = r.clamp(-9.0e18, 9.0e18) as i64;
+    i
+}
+
+fn in_ring(q: P2, ring: &[P2]) -> bool {
+    let mut inside = false;
+    let n = ring.len();
+    let mut j = n.wrapping_sub(1);
+    for i in 0..n {
+        let (Some(a), Some(b)) = (ring.get(i), ring.get(j)) else { break };
+        if (a.y > q.y) != (b.y > q.y) && q.x < (b.x - a.x) * (q.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+fn flat_of(ring: &[P2]) -> Vec<f64> {
+    ring.iter().flat_map(|p| [p.x, p.y]).collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn on_seg(px: f64, py: f64, x1: f64, y1: f64, vx: f64, vy: f64, l: f64, tol: f64) -> Option<f64> {
+    let u = ((px - x1) * vx + (py - y1) * vy) / (l * l);
+    let d = ((px - x1) * vy - (py - y1) * vx).abs() / l;
+    (d <= tol && u > -tol / l && u < 1.0 + tol / l).then(|| js::max(0.0, js::min(1.0, u)))
+}
+
+fn cross_split(s: &[f64; 4], t: &[f64; 4], ss: &mut Vec<f64>, ts: &mut Vec<f64>, tol: f64) {
+    let [ax, ay, bx, by] = *s;
+    let [cx, cy, dx, dy] = *t;
+    let (rx, ry, qx, qy) = (bx - ax, by - ay, dx - cx, dy - cy);
+    let den = rx * qy - ry * qx;
+    let lr = js::hypot(rx, ry);
+    let lq = js::hypot(qx, qy);
+    if den.abs() <= 1e-12 * lr * lq {
+        for (px, py) in [(cx, cy), (dx, dy)] {
+            if let Some(u) = on_seg(px, py, ax, ay, rx, ry, lr, tol) {
+                ss.push(u);
+            }
+        }
+        for (px, py) in [(ax, ay), (bx, by)] {
+            if let Some(u) = on_seg(px, py, cx, cy, qx, qy, lq, tol) {
+                ts.push(u);
+            }
+        }
+        return;
+    }
+    let u = ((cx - ax) * qy - (cy - ay) * qx) / den;
+    let v = ((cx - ax) * ry - (cy - ay) * rx) / den;
+    let eu = tol / lr;
+    let ev = tol / lq;
+    if u < -eu || u > 1.0 + eu || v < -ev || v > 1.0 + ev {
+        return;
+    }
+    ss.push(js::max(0.0, js::min(1.0, u)));
+    ts.push(js::max(0.0, js::min(1.0, v)));
+}
+
+/// hatch.js `boundaryAt`: the smallest closed area round `pt` made by the objects, and the islands inside it (other
+/// pieces of the graph, so even-odd leaves them empty). Arcs and curves become short straight pieces. `within`
+/// limits the search to what is on screen.
+pub fn boundary_at(entities: &[&Entity], pt: P2, blocks: Option<&Blocks>, within: Option<&Bounds>) -> Result<Vec<Vec<f64>>, BoundaryError> {
+    use std::collections::{HashMap, HashSet};
+    // 1. every boundary-making object as straight pieces
+    let mut segs: Vec<[f64; 4]> = Vec::new();
+    let add = |segs: &mut Vec<[f64; 4]>, x1: f64, y1: f64, x2: f64, y2: f64| {
+        if (x1 - x2).abs() > EPS || (y1 - y2).abs() > EPS {
+            segs.push([x1, y1, x2, y2]);
+        }
+    };
+    for e in entities {
+        if matches!(e.typ(), "text" | "point" | "hatch" | "dim" | "mleader" | "viewport") {
+            continue;
+        }
+        if let Some(w) = within {
+            let b = crate::pick::entity_bounds(e, blocks);
+            if !crate::pick::valid_bounds(&b) || b.max_x < w.min_x || b.min_x > w.max_x || b.max_y < w.min_y || b.min_y > w.max_y {
+                continue;
+            }
+        }
+        for q in prims(e, blocks) {
+            if q.boxed {
+                continue;
+            }
+            if q.is_l() {
+                add(&mut segs, q.x1, q.y1, q.x2, q.y2);
+            } else {
+                let fl = arc_points(&q, false);
+                let mut i = 0usize;
+                while let (Some(a), Some(b), Some(c), Some(d)) = (fl.get(i), fl.get(i + 1), fl.get(i + 2), fl.get(i + 3)) {
+                    add(&mut segs, *a, *b, *c, *d);
+                    i += 2;
+                }
+            }
+        }
+        if segs.len() > MAX_BOUNDARY_SEGS {
+            return Err(BoundaryError::Large);
+        }
+    }
+    if segs.is_empty() {
+        return Err(BoundaryError::None);
+    }
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for s in &segs {
+        min_x = js::min(min_x, js::min(s[0], s[2]));
+        max_x = js::max(max_x, js::max(s[0], s[2]));
+        min_y = js::min(min_y, js::min(s[1], s[3]));
+        max_y = js::max(max_y, js::max(s[1], s[3]));
+    }
+    let tol = js::max(js::max(max_x - min_x, max_y - min_y), 1.0) * 1e-9;
+
+    // 2. split every piece where others cross or touch it (a grid keeps this near linear)
+    let n = segs.len();
+    let mut splits: Vec<Vec<f64>> = vec![vec![0.0, 1.0]; n];
+    let cs = js::max(js::max(max_x - min_x, max_y - min_y), 1e-9) / js::max(1.0, f(n).sqrt());
+    let mut cell_of: HashMap<i32, usize> = HashMap::new();
+    let mut cells: Vec<Vec<usize>> = Vec::new();
+    for (idx, s) in segs.iter().enumerate() {
+        let i0 = cell_index((js::min(s[0], s[2]) - min_x) / cs);
+        let i1 = cell_index((js::max(s[0], s[2]) - min_x) / cs);
+        let j0 = cell_index((js::min(s[1], s[3]) - min_y) / cs);
+        let j1 = cell_index((js::max(s[1], s[3]) - min_y) / cs);
+        let mut i = i0;
+        while i <= i1 {
+            let mut j = j0;
+            while j <= j1 {
+                let k = i.wrapping_mul(73_856_093) ^ j.wrapping_mul(19_349_663);
+                let slot = *cell_of.entry(k).or_insert_with(|| {
+                    cells.push(Vec::new());
+                    cells.len() - 1
+                });
+                if let Some(c) = cells.get_mut(slot) {
+                    c.push(idx);
+                }
+                j = j.saturating_add(1);
+                if j == i32::MAX {
+                    break;
+                }
+            }
+            i = i.saturating_add(1);
+            if i == i32::MAX {
+                break;
+            }
+        }
+    }
+    let mut done: HashSet<(usize, usize)> = HashSet::new();
+    for list in &cells {
+        for (a, &i) in list.iter().enumerate() {
+            for &j in list.iter().skip(a + 1) {
+                let pk = if i < j { (i, j) } else { (j, i) };
+                if i == j || !done.insert(pk) {
+                    continue;
+                }
+                let (Some(si), Some(sj)) = (segs.get(i), segs.get(j)) else { continue };
+                let mut ti = splits.get_mut(i).map(std::mem::take).unwrap_or_default();
+                let mut tj = splits.get_mut(j).map(std::mem::take).unwrap_or_default();
+                cross_split(si, sj, &mut ti, &mut tj, tol);
+                if let Some(x) = splits.get_mut(i) {
+                    *x = ti;
+                }
+                if let Some(x) = splits.get_mut(j) {
+                    *x = tj;
+                }
+            }
+        }
+    }
+
+    // 3. a planar graph: vertices merged within the tolerance, edges once each
+    let snap = tol * 1000.0;
+    let mut vid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    let mut verts: Vec<P2> = Vec::new();
+    let mut vertex = |x: f64, y: f64, verts: &mut Vec<P2>| -> usize {
+        let gx = round_key(x / snap);
+        let gy = round_key(y / snap);
+        for di in -1i64..=1 {
+            for dj in -1i64..=1 {
+                if let Some(list) = vid.get(&(gx.wrapping_add(di), gy.wrapping_add(dj))) {
+                    for &v in list {
+                        if let Some(p) = verts.get(v)
+                            && (p.x - x).abs() <= snap
+                            && (p.y - y).abs() <= snap
+                        {
+                            return v;
+                        }
+                    }
+                }
+            }
+        }
+        let v = verts.len();
+        verts.push(P2::new(x, y));
+        vid.entry((gx, gy)).or_default().push(v);
+        v
+    };
+    let mut edge_set: HashSet<(usize, usize)> = HashSet::new();
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    for (s, sp) in segs.iter().zip(&splits) {
+        let mut ts = sp.clone();
+        // `[...new Set(ts)].sort((p, q) => p - q)`: values are in 0…1
+        ts.sort_by(|p, q| p.partial_cmp(q).unwrap_or(std::cmp::Ordering::Equal));
+        ts.dedup_by(|a, b| a == b);
+        let Some(&t0) = ts.first() else { continue };
+        let mut prev = vertex(s[0] + (s[2] - s[0]) * t0, s[1] + (s[3] - s[1]) * t0, &mut verts);
+        for &t in ts.iter().skip(1) {
+            let v = vertex(s[0] + (s[2] - s[0]) * t, s[1] + (s[3] - s[1]) * t, &mut verts);
+            if v != prev {
+                let ek = if prev < v { (prev, v) } else { (v, prev) };
+                if edge_set.insert(ek) {
+                    edges.push((prev, v));
+                }
+            }
+            prev = v;
+        }
+    }
+    let nv = verts.len();
+    let vat = |v: usize| verts.get(v).copied().unwrap_or(P2::new(f64::NAN, f64::NAN));
+    // drop dangling pieces: they bound nothing
+    let mut deg: Vec<i64> = vec![0; nv];
+    let bump = |deg: &mut Vec<i64>, v: usize, d: i64| {
+        if let Some(x) = deg.get_mut(v) {
+            *x += d;
+        }
+    };
+    let deg_of = |deg: &Vec<i64>, v: usize| deg.get(v).copied().unwrap_or(0);
+    for &(a, b) in &edges {
+        bump(&mut deg, a, 1);
+        bump(&mut deg, b, 1);
+    }
+    let mut alive = vec![true; edges.len()];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for (&(a, b), al) in edges.iter().zip(alive.iter_mut()) {
+            if *al && (deg_of(&deg, a) < 2 || deg_of(&deg, b) < 2) {
+                *al = false;
+                bump(&mut deg, a, -1);
+                bump(&mut deg, b, -1);
+                changed = true;
+            }
+        }
+    }
+    let mut half: Vec<Half> = Vec::new();
+    let mut out: Vec<Vec<usize>> = vec![Vec::new(); nv];
+    for (&(a, b), al) in edges.iter().zip(&alive) {
+        if !*al {
+            continue;
+        }
+        let (pa, pb) = (vat(a), vat(b));
+        let h1 = half.len();
+        let h2 = h1 + 1;
+        half.push(Half { from: a, to: b, ang: (pb.y - pa.y).jatan2(pb.x - pa.x), twin: h2, used: false });
+        half.push(Half { from: b, to: a, ang: (pa.y - pb.y).jatan2(pa.x - pb.x), twin: h1, used: false });
+        if let Some(o) = out.get_mut(a) {
+            o.push(h1);
+        }
+        if let Some(o) = out.get_mut(b) {
+            o.push(h2);
+        }
+    }
+    if half.is_empty() {
+        return Err(BoundaryError::Open);
+    }
+    let ang_of = |h: usize| half.get(h).map_or(f64::NAN, |x| x.ang);
+    for o in &mut out {
+        o.sort_by(|p, q| {
+            let d = ang_of(*p) - ang_of(*q);
+            if d < 0.0 {
+                std::cmp::Ordering::Less
+            } else if d > 0.0 {
+                std::cmp::Ordering::Greater
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        });
+    }
+
+    // 4. every face: from a half-edge u→v, turn to the edge leaving v just clockwise of v→u (face on the left)
+    let next = |h: usize, half: &[Half]| -> usize {
+        let Some(hh) = half.get(h) else { return h };
+        let Some(o) = out.get(hh.to) else { return h };
+        let len = o.len();
+        if len == 0 {
+            return h;
+        }
+        // indexOf → -1 when absent: (−1 − 1 + len) % len
+        let k = match o.iter().position(|x| *x == hh.twin) {
+            Some(i) => (i + len - 1) % len,
+            None => (len + len - 2) % len,
+        };
+        o.get(k).copied().unwrap_or(h)
+    };
+    struct Face {
+        ring: Vec<usize>,
+        area: f64,
+        comp: i64,
+    }
+    let mut faces: Vec<Face> = Vec::new();
+    for h0 in 0..half.len() {
+        if half.get(h0).is_none_or(|x| x.used) {
+            continue;
+        }
+        let mut ring: Vec<usize> = Vec::new();
+        let mut h = h0;
+        let mut guard = 0usize;
+        while let Some(hh) = half.get_mut(h) {
+            hh.used = true;
+            ring.push(hh.from);
+            h = next(h, &half);
+            guard += 1;
+            if h == h0 || guard >= half.len() + 2 {
+                break;
+            }
+        }
+        let mut area = 0.0;
+        for (i, v) in ring.iter().enumerate() {
+            let p = vat(*v);
+            let q = vat(ring.get((i + 1) % ring.len()).copied().unwrap_or(*v));
+            area += p.x * q.y - q.x * p.y;
+        }
+        faces.push(Face { ring, area: area / 2.0, comp: -1 });
+    }
+    // components (connected pieces of the graph), for islands
+    let mut comp: Vec<i64> = vec![-1; nv];
+    let comp_of = |comp: &Vec<i64>, v: usize| comp.get(v).copied().unwrap_or(0);
+    let mut n_comp = 0i64;
+    for i in 0..nv {
+        if comp_of(&comp, i) >= 0 || out.get(i).is_none_or(Vec::is_empty) {
+            continue;
+        }
+        let mut stack = vec![i];
+        if let Some(x) = comp.get_mut(i) {
+            *x = n_comp;
+        }
+        while let Some(u) = stack.pop() {
+            for &h in out.get(u).map_or(&[][..], Vec::as_slice) {
+                let Some(to) = half.get(h).map(|x| x.to) else { continue };
+                if comp_of(&comp, to) < 0 {
+                    if let Some(x) = comp.get_mut(to) {
+                        *x = n_comp;
+                    }
+                    stack.push(to);
+                }
+            }
+        }
+        n_comp += 1;
+    }
+    for fc in &mut faces {
+        fc.comp = fc.ring.first().map_or(-1, |v| comp_of(&comp, *v));
+    }
+    let pts_of = |ring: &[usize]| -> Vec<P2> { ring.iter().map(|v| vat(*v)).collect() };
+
+    // 5. the smallest bounded face round the point
+    let mut outer: Option<&Face> = None;
+    for fc in &faces {
+        if fc.area > 0.0 && outer.is_none_or(|o| fc.area < o.area) && in_ring(pt, &pts_of(&fc.ring)) {
+            outer = Some(fc);
+        }
+    }
+    let Some(o) = outer else { return Err(BoundaryError::Open) };
+    let oring = pts_of(&o.ring);
+    let mut loops = vec![flat_of(&oring)];
+    for fc in &faces {
+        if fc.area >= 0.0 || fc.comp == o.comp {
+            continue;
+        }
+        let ring = pts_of(&fc.ring);
+        if let Some(first) = ring.first()
+            && in_ring(*first, &oring)
+            && !in_ring(pt, &ring)
+        {
+            loops.push(flat_of(&ring));
+        }
+    }
+    Ok(loops)
 }

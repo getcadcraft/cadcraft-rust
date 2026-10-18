@@ -1,11 +1,26 @@
 # Gaps against CadCraft 0.5
 
+Last updated 2026-10-18 · Change: drafting commands (M4.10); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 
-1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
-   ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
-   drawings are not shown in edit mode (the viewer shows them); objects with a dense linetype draw continuous past 400
-   dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is slower than the JS (0.7×); every edit rebuilds the whole display.
+1. **Drafting vs 0.5** (after M4.10). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
+   `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
+   everyday use. **In, at kdiff parity** (same prompts, printed lines, previews, drawing, undo labels): LINE … ZOOM (M4);
+   HATCH (pick-inside boundaries with islands, Select objects, pattern / scale / angle), DIMLINEAR DIMALIGNED DIMANGULAR
+   DIMRADIUS DIMDIAMETER DIMCONTINUE DIMBASELINE, DIMSCALE DIMTXT DIMASZ DIMDEC DIMGAP DIMEXE DIMEXO DIMLUNIT, FILLET
+   CHAMFER (polyline, trim, multiple, Shift), EXPLODE, STRETCH, ARRAY ARRAYRECT ARRAYPOLAR, BREAK BREAKATPOINT, LENGTHEN,
+   JOIN, MATCHPROP, XLINE RAY, MTEXT, REVCLOUD, MLEADER, TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DUPLICATE
+   SELECTALL DESELECT SELECT, DIST AREA MEASUREGEOM ID LIST, LAYISO LAYUNISO LAYOFF LAYFRZ LAYMCUR LAYON LAYTHW LAYMRG
+   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT (M4.10). **Next, by everyday
+   use:** PROPERTIES and the Properties panel, PLOT; COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
+   VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD; LWDISPLAY POLARANG;
+   COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a dynamic block without
+   its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
+   DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
+   POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
+   SAVEAS DXFOUT HELP are the window's own buttons. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
+   shows them); on drawings whose objects carry many extra fields MOVE / ARRAY / MATCHPROP / ERASE + UNDO run 0.1–0.6× the JS (every object's extra JSON is deep-copied per preview and per change; the JS shares it: share extras in cc-cad); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
+   slower than the JS (0.7×).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
    and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
 3. **Viewer details** vs CadCraft 0.5: raster images (IMAGE) not drawn, per-viewport frozen layers, print view /
@@ -35,6 +50,16 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    still missing there: arcs and circles in runs and outlines, dragging mark corners, multi-select, groups (typicals),
    notes / clouds, the 3D view, revisions.
 8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
+   parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity. Missing: the sketcher and every
+   tool that makes or edits features (new sketch / extrude / hole … , picking edges and faces for them, delete, move,
+   rename), assemblies, drawings (PDF), DXF of a sketch or face, measure / mass / section, configurations (a parameter
+   edit does not follow `configs` yet), the exact kernel's features (they say "not built", as 0.5's mesh build does),
+   rebuilds on a thread (a big part blocks the window), Spanish words. **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; missing there: `drawing_plot` (plot.js) and LISP scripts. The window's live tools are in (M16.3) except drawing_plot, view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
+   **DetailCraft** (M14.1): view, member properties with undo, reports, clash check and every 0.5 export at parity. Missing: placing
+   members / plates / footings / stairs, connection tools and parameters (end plate … gusset, apply to similar), holes and
+   copes editors, grids / levels / custom profiles, phases add / rename / remove, copy / paste, move / rotate / mirror,
+   window and lasso selection, plan and elevation views, the drawings dialog's preview and issue log, the Settings dialog
+   (`detail.setting` only), es-MX labels; several of the bar's labels are plain English (view buttons, Steel sample).
    parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity; the sketcher (every 0.5 sketch
    tool, relations, dimensions, live drag) and the feature tools (extrude … shell, edge / face picking, edit, delete, move,
    rename) at byte parity (M13.3). Missing: sketch Project (needs exact edges), sketch copy / paste between parts, the

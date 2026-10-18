@@ -1,7 +1,8 @@
-//! Dev: `cadcraft-cli cmds <script.json>` — drive the command line (cc-engine) with a stub host, for the parity
+//! Dev: `cadcraft-cli cmds <script.json>` (or `--names`: the ported commands and aliases as JSON) — drive the command line (cc-engine) with a stub host, for the parity
 //! harness (`forks/tools/kdiff.mjs`, which runs the frozen JS Engine on the same script).
 //!
-//! Script: `{ strings: {key: text}, doc: <doc.load input> | null, inputs: [input] }`. An input sets the stub host first
+//! Script: `{ strings: {key: text}, doc: <doc.load input> | null, inputs: [input], time?: true }` (`time`: records are
+//! only `{ ms, printed, running }`, for timing commands on big drawings). An input sets the stub host first
 //! (`cursor: {x, y}`, `shift: bool`, `select: [ids]` = the selection before the input, `dragPath: [{x, y}…] | null`) and then does one of
 //! `text: "line"` · `click: {x, y}` (+ `raw: {x, y}`, `tan: {c: {cx, cy, r}, near: {x, y}}`) ·
 //! `window: {minX, minY, maxX, maxY}` (+ `crossing`) · `path: [{x, y}, …]` · `escape: true`.
@@ -36,6 +37,8 @@ struct Log {
     previews: Vec<Value>,
     events: Vec<Value>,
     prev_calls: u32,
+    /// timing run: previews are not turned into JSON
+    timing: bool,
 }
 
 struct Stub {
@@ -82,6 +85,9 @@ impl Host for Stub {
         doc.entities().filter(|e| in_window(e, w, crossing, Some(&doc.blocks))).filter_map(|e| e.id).collect()
     }
     fn preview(&mut self, ents: &[Entity]) {
+        if self.log.borrow().timing {
+            return;
+        }
         self.log.borrow_mut().previews.push(Value::Array(ents.iter().map(Entity::to_value).collect()));
     }
     fn on_command(&mut self, name: Option<&str>) {
@@ -140,7 +146,11 @@ pub fn run_script(script: &Value) -> Vec<Value> {
     let empty = Vec::new();
     let inputs = script.get("inputs").and_then(Value::as_array).unwrap_or(&empty);
     let mut out = Vec::with_capacity(inputs.len());
+    // `time: true`: each record is only { ms, printed } (timing scripts on big drawings: no snapshots)
+    let timing = script.get("time").and_then(Value::as_bool).unwrap_or(false);
+    log.borrow_mut().timing = timing;
     for inp in inputs {
+        let t0 = std::time::Instant::now();
         if let Some(ids) = inp.get("select").and_then(Value::as_array) {
             eng.host_mut().set_selection(&ids.iter().filter_map(Value::as_u64).collect::<Vec<_>>());
         }
@@ -180,6 +190,15 @@ pub fn run_script(script: &Value) -> Vec<Value> {
         } else if inp.get("escape").is_some() {
             ret = Value::Bool(eng.escape());
         }
+        if timing {
+            let ms = t0.elapsed().as_secs_f64() * 1000.0;
+            let mut l = log.borrow_mut();
+            out.push(json!({ "ms": ms, "printed": std::mem::take(&mut l.printed), "running": eng.running() }));
+            l.prompts.clear();
+            l.previews.clear();
+            l.events.clear();
+            continue;
+        }
         let cursor = eng.host().cursor();
         let pv = cursor.map_or_else(Vec::new, |c| eng.preview(c));
         let mut l = log.borrow_mut();
@@ -202,8 +221,14 @@ pub fn run_script(script: &Value) -> Vec<Value> {
 }
 
 pub fn cmds(rest: &[&str]) -> ExitCode {
+    if rest.first() == Some(&"--names") {
+        // the ported commands and their aliases, for the harness's list of what may be typed
+        let m: serde_json::Map<String, Value> = cc_engine::cmd::COMMANDS.iter().map(|c| (c.name.to_string(), json!(c.aliases))).collect();
+        println!("{}", Value::Object(m));
+        return ExitCode::SUCCESS;
+    }
     let Some(file) = rest.first() else {
-        eprintln!("usage: cadcraft-cli cmds <script.json>");
+        eprintln!("usage: cadcraft-cli cmds <script.json> | --names");
         return ExitCode::from(2);
     };
     let script: Value =

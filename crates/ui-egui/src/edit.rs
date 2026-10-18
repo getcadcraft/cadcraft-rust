@@ -62,6 +62,8 @@ pub struct HostState {
     pub zoom: Vec<Zoom>,
     /// the view on screen in drawing units
     pub view_wh: Option<(f64, f64)>,
+    /// the model area on screen (HATCH looks for boundaries there)
+    pub view_box: Option<Bounds>,
     /// pick tolerance in drawing units (6 px at the current zoom)
     pub pick_tol: f64,
 }
@@ -213,6 +215,9 @@ impl Host for UiHost {
     fn view_rect(&self) -> Option<(f64, f64)> {
         self.0.borrow().view_wh
     }
+    fn view_extents(&self) -> Option<Bounds> {
+        self.0.borrow().view_box
+    }
 }
 
 /// The open editable drawing and its command line.
@@ -229,6 +234,7 @@ pub struct Editor {
     /// a selection window being drawn: its first corner (world)
     pub pending_box: Option<P2>,
     seen: Option<u64>,
+    seen_space: Option<cc_cad::SpaceId>,
     /// the doc version at the last save (None = never saved)
     saved: Option<u64>,
     /// each object's display, kept between edits (only what an edit changed is walked again)
@@ -249,6 +255,7 @@ impl Editor {
             snap: None,
             pending_box: None,
             seen: None,
+            seen_space: None,
             saved: None,
             display: cc_cad_geom::display::DisplayCache::new(),
         };
@@ -260,11 +267,14 @@ impl Editor {
     pub fn version(&self) -> u64 {
         self.eng.doc().version
     }
-    /// Has the document changed since the last call? (the canvas rebuilds its geometry then)
+    /// Has the document (or the open space: BEDIT / BCLOSE) changed since the last call? (the canvas rebuilds its
+    /// geometry then)
     pub fn take_changed(&mut self) -> bool {
         let v = self.version();
-        let changed = self.seen != Some(v);
+        let sp = self.eng.doc().space;
+        let changed = self.seen != Some(v) || self.seen_space != Some(sp);
         self.seen = Some(v);
+        self.seen_space = Some(sp);
         changed
     }
     pub fn dirty(&self) -> bool {

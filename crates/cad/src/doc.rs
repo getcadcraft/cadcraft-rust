@@ -542,6 +542,25 @@ impl Doc {
         self.spaces.insert(id, OMap::new());
         id
     }
+    /// A space of its own (the block editor's, commands.js BEDIT), holding these objects as they are (each keeps
+    /// its id): not an edit. Open it with `set_space_id`; `drop_space` when done.
+    pub fn loose_space(&mut self, ents: Vec<Entity>) -> SpaceId {
+        let id = self.new_space();
+        if let Some(m) = self.spaces.get_mut(&id) {
+            for e in ents {
+                if let Some(i) = e.id {
+                    m.insert(i, e);
+                }
+            }
+        }
+        id
+    }
+    /// Forget a loose space (never the model or a layout's).
+    pub fn drop_space(&mut self, s: SpaceId) {
+        if s != MODEL && !self.layouts.iter().any(|l| l.space == s) {
+            self.spaces.remove(&s);
+        }
+    }
     pub fn space_map(&self, s: SpaceId) -> Option<&OMap<u64, Entity>> {
         self.spaces.get(&s)
     }

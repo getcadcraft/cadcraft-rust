@@ -2,6 +2,44 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M4.10 Drafting commands past the M4 set (agent, work/drafting)
+
+- Ranked list of 0.5's 190 commands in `docs/gaps.md` item 1. Ported at parity: HATCH with pick-inside boundaries
+  (hatch.js `boundaryAt` → `cc_cad_geom::hatch::boundary_at`: islands, open / none / too large), the DIM family
+  (linear, aligned, radius, diameter, angular, continue, baseline, DIMSCALE … DIMLUNIT), FILLET, CHAMFER, EXPLODE,
+  STRETCH (the windows of "Select objects"), ARRAY (rectangular, polar, path-less), BREAK, BREAKATPOINT, LENGTHEN, JOIN,
+  MATCHPROP, XLINE, RAY, MTEXT, REVCLOUD, MLEADER, TEXTEDIT, BLOCK, ATTDEF, INSERT, BEDIT / BCLOSE (the block editor in
+  its own space), PURGE, DUPLICATE, SELECT / SELECTALL / DESELECT, DIST, AREA, MEASUREGEOM, ID, LIST, the layer tools
+  (LAYISO … LAYDEL), RENAME, LINETYPE, LTSCALE, LWEIGHT. Edits stay display-incremental (the block editor's space swaps
+  in the model slot).
+- `IdSet` (the selection set) had a linear `has`: ALL on 21,000 objects took 200 ms+ per call; now hashed.
+- Parity (`forks/tools/kdiff.mjs`, every record: drawing, printed lines, prompts, previews, selection, undo):
+  22 scenarios 1386/1386 identical; random scripts over every ported command, seeds 1–7: 5600 + 3000 / 8600
+  identical. Rust tests: `crates/engine/tests/drafting.rs` (14 cases from bin/test-cadcraft.mjs).
+- Timings (`forks/tools/drafttime.mjs`, frozen JS engine vs `cadcraft-cli cmds`, best of 3, machine at load 30–50):
+
+  | Drawing | Command | 0.5 JS ms | Rust ms | × |
+  |---|---|---:|---:|---:|
+  | Carey Foodservice (21,491 objects) | HATCH pick inside | 585 | 12 | 51× |
+  | | SELECT ALL + MOVE | 1008 | 702 | 1.4× |
+  | | STRETCH (crossing ¼) | 896 | 387 | 2.3× |
+  | | ARRAY 2 × 1 of ALL | 2306 | 994 | 2.3× |
+  | | EXPLODE ALL | 3215 | 1891 | 1.7× |
+  | | MATCHPROP onto ALL | 4697 | 1722 | 2.7× |
+  | | LAYISO + LAYUNISO | 3090 | 212 | 15× |
+  | | LIST ALL | 3103 | 3092 | 1.0× |
+  | | ERASE ALL + UNDO | 299 | 202 | 1.5× |
+  | ar1all floor plan (9,021 objects) | HATCH pick inside | 905 | 13 | 71× |
+  | | SELECT ALL + MOVE | 324 | 1623–5511 | 0.1–0.2× |
+  | | ARRAY 2 × 1 of ALL | 1000 | 1602 | 0.6× |
+  | | MATCHPROP onto ALL | 498 | 813 | 0.6× |
+  | | ERASE ALL + UNDO | 86 | 221 | 0.4× |
+  | kitchen-equipment (254 objects) | HATCH (whole drawing) | 16608 | 7698 | 2.2× |
+  | | the other eight | 5–23 | 0.5–19 | 1.0–10× |
+
+  The slow rows: every object is deep-copied (its extra JSON fields) for each preview and each change, where the JS
+  shares nested data; perf shows serde_json Value / indexmap clones. Fix belongs in cc-cad (shared extras), listed in
+  gaps.
 ## 2026-10-18 — M13.4 PartCraft rebuilds on a thread, configurations (agent, work/partsketch)
 
 - Rebuilds of parts whose last rebuild took over 60 ms go to a thread in the desktop window (`BACKGROUND_REBUILDS`, set

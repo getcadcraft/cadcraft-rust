@@ -1953,6 +1953,9 @@ impl UiApp {
             let mut h = ed.hs.borrow_mut();
             h.shift = shift;
             h.view_wh = Some((view.width / view.zoom, view.height / view.zoom));
+            let (x0, y0) = view.to_world(0.0, 0.0);
+            let (x1, y1) = view.to_world(view.width, view.height);
+            h.view_box = Some(cc_cad_geom::geom::Bounds { min_x: x0.min(x1), min_y: y0.min(y1), max_x: x0.max(x1), max_y: y0.max(y1) });
         }
         if let Some(p) = resp.hover_pos() {
             ed.hover(world(p), pxu);

@@ -54,6 +54,17 @@ pub fn to_world(u: Option<Ucs>, q: P2) -> P2 {
     P2::new(uu.x + w.x, uu.y + w.y)
 }
 
+pub fn vec_to_ucs(u: Option<Ucs>, v: P2) -> P2 {
+    let Some(u) = u else { return v };
+    let (c, s) = (u.ang.jcos(), u.ang.jsin());
+    P2::new(v.x * c + v.y * s, -v.x * s + v.y * c)
+}
+
+pub fn to_ucs(u: Option<Ucs>, q: P2) -> P2 {
+    let Some(uu) = u else { return q };
+    vec_to_ucs(u, P2::new(q.x - uu.x, q.y - uu.y))
+}
+
 /// The UCS angle (0 for the world).
 pub fn ang_of(u: Option<Ucs>) -> f64 {
     u.map_or(0.0, |u| u.ang)

@@ -353,7 +353,10 @@ impl DisplayCache {
         self.walked = 0;
         self.reused = 0;
         let mut seen: HashMap<(SpaceId, u64), ()> = HashMap::with_capacity(self.ents.len());
-        let mut spaces = vec![self.space(doc, cc_cad::MODEL, "model".into(), "Model".into(), SpaceKind::Model, None, &mut seen)];
+        // the block editor (BEDIT) opens a space of its own: it shows in the model's place while it is open
+        let loose = doc.space != cc_cad::MODEL && !doc.layouts.iter().any(|l| l.space == doc.space);
+        let first = if loose { doc.space } else { cc_cad::MODEL };
+        let mut spaces = vec![self.space(doc, first, "model".into(), "Model".into(), SpaceKind::Model, None, &mut seen)];
         for (i, l) in doc.layouts.iter().enumerate() {
             spaces.push(self.space(
                 doc,

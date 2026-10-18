@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M4.10: HATCH (pick inside), DIM family, FILLET / CHAMFER, STRETCH, ARRAY, BLOCK / INSERT / BEDIT, MATCHPROP and 40 more commands; 8,600 + 1,386 command-line records identical to 0.5.
 - 2026-10-18 M13.4: PartCraft rebuilds over 60 ms on a thread (newest part wins); configurations follow parameter edits, Configurations panel; 257 steps / 27 files byte-identical
 - 2026-10-18 M13.3: PartCraft sketcher (every 0.5 sketch tool, relations, dimensions, live drag) and feature tools (extrude … shell, edge / face picking, edit, delete, move, rename); pcuidiff scenarios: 239 steps and 22 files byte-identical to 0.5
 - 2026-10-18 M14.3: DetailCraft modelling tools in the app (placing with snapping, connections, clipboard, transforms, windows / lasso, grids, levels, phases, holes, copes, Settings, plan / elevation); 558/558 status lines and files identical to the frozen 0.5 doing the same; 1.5–2.9× the JS on a 2820-member model.

@@ -70,6 +70,47 @@ pub fn fmt(n: f64) -> String {
     js::num_to_string(js::str_to_number(&js::to_fixed(n, 4)))
 }
 
+/// JS `parseFloat(s)`: the longest number at the start (after white space), NaN when there is none.
+pub fn parse_float(s: &str) -> f64 {
+    let t = js::trim_start(s);
+    let b = t.as_bytes();
+    let mut i = 0usize;
+    if matches!(b.first(), Some(b'+' | b'-')) {
+        i = i.saturating_add(1);
+    }
+    if t.get(i..).is_some_and(|r| r.starts_with("Infinity")) {
+        return if b.first() == Some(&b'-') { f64::NEG_INFINITY } else { f64::INFINITY };
+    }
+    let digits = |i: &mut usize| {
+        let s0 = *i;
+        while b.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i = (*i).saturating_add(1);
+        }
+        *i > s0
+    };
+    let mut any = digits(&mut i);
+    if b.get(i) == Some(&b'.') {
+        let mut j = i.saturating_add(1);
+        if digits(&mut j) || any {
+            any = true;
+            i = j;
+        }
+    }
+    if !any {
+        return f64::NAN;
+    }
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        let mut j = i.saturating_add(1);
+        if matches!(b.get(j), Some(b'+' | b'-')) {
+            j = j.saturating_add(1);
+        }
+        if digits(&mut j) {
+            i = j;
+        }
+    }
+    t.get(..i).map_or(f64::NAN, js::str_to_number)
+}
+
 /// The default a question shows and Enter takes.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Def {
