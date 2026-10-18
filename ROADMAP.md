@@ -120,6 +120,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-18 M11.10: CivilCraft survey points: Shift+click / box / Ctrl+A selection, copy, cut, paste, duplicate, Delete; 52/52 projects byte-identical to 0.5.
 - 2026-10-18 M11.9: CivilCraft section panel and sample lines; 48/48 projects and 4/4 section CSVs byte-identical to 0.5.
 - 2026-10-18 M11.8: CivilCraft profile panel (ground, design, curves, PVI drag / add / delete, PI and PVI tables typed); 44/44 projects byte-identical to 0.5.
 - 2026-10-18 M11.7: CivilCraft drawing tools (alignment, pad, pipes, breakline, boundary, feature line, parcel), traverse and deed-calls dialogs, grips and Delete in the app; 40/40 projects byte-identical to 0.5 after the same clicks; 1.8–2.8× the JS on a 500k-point survey.

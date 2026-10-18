@@ -3,7 +3,7 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
@@ -129,6 +129,8 @@ fn shot(args: &[String]) -> Result<(), String> {
         Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
     };
     let trace = args.iter().any(|a| a == "--trace");
+    // modifier keys held for the pointer and key events that follow (--mods shift|ctrl|shift+ctrl|none)
+    let mut mods = egui::Modifiers::NONE;
     let mut i = 0;
     while let Some(a) = args.get(i) {
         let v = args.get(i + 1).cloned().unwrap_or_default();
@@ -169,12 +171,7 @@ fn shot(args: &[String]) -> Result<(), String> {
                     let pos = egui::pos2(x as f32, y as f32);
                     hs.event(egui::Event::PointerMoved(pos));
                     hs.run_steps(1);
-                    let b = |pressed| egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    };
+                    let b = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods };
                     hs.event(b(true));
                     hs.run_steps(1);
                     hs.event(b(false));
@@ -187,12 +184,8 @@ fn shot(args: &[String]) -> Result<(), String> {
                     && let (Some((x1, y1)), Some((x2, y2))) = (xy(a), xy(b))
                 {
                     let at = |k: f64| egui::pos2((x1 + (x2 - x1) * k) as f32, (y1 + (y2 - y1) * k) as f32);
-                    let button = |pos, pressed| egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        modifiers: egui::Modifiers::NONE,
-                    };
+                    let button =
+                        |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods };
                     hs.event(egui::Event::PointerMoved(at(0.0)));
                     hs.run_steps(1);
                     hs.event(button(at(0.0), true));
@@ -225,10 +218,39 @@ fn shot(args: &[String]) -> Result<(), String> {
                 // a key pressed and released (egui's key names: Enter, Escape, Backspace, Delete, A …)
                 if let Some(key) = egui::Key::from_name(&v) {
                     for pressed in [true, false] {
-                        hs.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE });
+                        hs.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: mods });
                         hs.run_steps(1);
                     }
                     hs.run_steps(1);
+                }
+            }
+            "--mods" => {
+                mods = egui::Modifiers::NONE;
+                for m in v.split('+') {
+                    match m.trim() {
+                        "shift" => mods.shift = true,
+                        "ctrl" => {
+                            mods.ctrl = true;
+                            mods.command = true;
+                        }
+                        "alt" => mods.alt = true,
+                        _ => {}
+                    }
+                }
+                hs.event(egui::Event::ModifiersChanged(mods));
+                hs.run_steps(1);
+            }
+            "--event" => {
+                // what the platform sends for Ctrl+C / Ctrl+X / Ctrl+V: copy, cut, paste:TEXT (\n = a new line)
+                let e = match v.split_once(':') {
+                    Some(("paste", text)) => Some(egui::Event::Paste(text.replace("\\n", "\n"))),
+                    _ if v == "copy" => Some(egui::Event::Copy),
+                    _ if v == "cut" => Some(egui::Event::Cut),
+                    _ => None,
+                };
+                if let Some(e) = e {
+                    hs.event(e);
+                    hs.run_steps(2);
                 }
             }
             "--mouse-move" => {

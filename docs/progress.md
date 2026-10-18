@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-18 — M11.10 CivilCraft survey points: selection, copy / cut / paste / duplicate, Delete (agent, work/civiltools)
+
+- M11.10: `crates/ui-egui/src/civilpoints.rs`: several survey points selected (Shift+click, Shift+drag a box, Ctrl+A,
+  Esc clears; one picked point is the selected point with its Properties and grip), Copy (Ctrl+C: the copy in the app
+  and P,N,E,Z,D rows on the system clipboard), Cut (Ctrl+X), Paste (Ctrl+V: point rows copied elsewhere paste too) and
+  Duplicate (Ctrl+D) carry the points under the pointer — crosses where they would land and a line from where they are —
+  until a click places them (Enter = at their own coordinates, Esc cancels), Paste in place (Ctrl+Shift+V); clashing
+  numbers renumbered (clip.js `renumber`), one undo step each, the new points selected; Delete removes the picked
+  points. Toolbar Copy / Paste. civilcraft.js copyPoints / paste / startPlacing / commitPaste / boxSelect words.
+- Commands: `civil.pts` (all | none | toggle:x,y | box:x0,y0,x1,y1), `civil.copy`, `civil.cut`, `civil.paste`
+  (inplace), `civil.duplicate`. `cadcraft-shot --mods shift|ctrl` (held for the pointer and keys that follow) and
+  `--event copy|cut|paste:TEXT`: the real Shift+drag box, copy and paste events checked in a shot.
+- Parity: `cvtooldiff.mjs` gained a points scenario (nothing to copy / duplicate / paste, toggles in and out, copy +
+  paste with renumbering, duplicate cancelled then placed in place, undo, boxes with and without points, cut + paste in
+  place, a selected point dragged and deleted, two picked points deleted, all copied and pasted far away):
+  **52/52 projects byte-identical, 908/908 status lines, 4/4 files** to the frozen 0.5 JS.
+- Speed on the 500k-point survey: select all and frames with every point picked 6–11 ms; pasting 200 000 copied points
+  (clip.js's cap) 1.3 s for the edit, then the surface of 700 000 points rebuilds (7.7 s, the TIN).
+
 ## 2026-10-18 — M11.9 CivilCraft section panel and sample lines (agent, work/civiltools)
 
 - M11.9: `crates/ui-egui/src/civilsections.rs`: the section view under the plan (X, an alignment's Section view

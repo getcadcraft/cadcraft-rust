@@ -273,6 +273,8 @@ impl CivilView {
         }
         self.tools.tool = tl;
         self.tools.snap = None;
+        // civilcraft.js setTool: any tool but Paste drops the points being carried (start_placing sets them after)
+        self.points.paste = None;
         if matches!(tl, Tool::Breakline | Tool::Boundary | Tool::Pad) && self.project.eg().surface.is_none() {
             self.message = t("cv.surface.need", &[]);
         }
@@ -294,7 +296,12 @@ impl CivilView {
         let tool = self.tools.tool;
         match tool {
             Tool::Select => {
+                if self.points.paste.is_some() {
+                    self.paste_at(x, y);
+                    return;
+                }
                 let zoom = self.view.zoom / self.ppp;
+                self.points.picked.clear();
                 self.sel = self.pick_at(x, y, zoom);
                 self.profile.sel_pvi = None;
                 if let Some(Sel::Alignment(id)) = &self.sel
@@ -413,9 +420,14 @@ impl CivilView {
             self.message = t("pt.drag.cancel", &[]);
             return;
         }
+        if self.paste_cancel() {
+            return;
+        }
         if self.tools.draft.is_empty() {
             self.set_tool(Tool::Select);
             self.sel = None;
+            self.profile.sel_pvi = None;
+            self.points.picked.clear();
         } else {
             self.tools.draft.clear();
             self.tools.closed = false;
@@ -425,6 +437,10 @@ impl CivilView {
 
     /// Enter: civilcraft.js `finishDraft()` — the draft becomes one undo step (or stays, with what is missing said).
     pub fn finish(&mut self) {
+        if self.points.paste.is_some() {
+            self.paste_in_place_now();
+            return;
+        }
         if self.tools.draft.is_empty() {
             return;
         }
@@ -689,6 +705,10 @@ impl CivilView {
             return;
         }
         let Some(sel) = self.sel.clone() else {
+            if !self.points.picked.is_empty() {
+                self.delete_points();
+                return;
+            }
             self.message = t("cv.delete.none", &[]);
             return;
         };
@@ -745,19 +765,19 @@ impl CivilView {
                 if !self.project.points.iter().any(|p| p.n == n) {
                     return self.nothing();
                 }
-                let label = tr!("cv.undo.pts.delete", n = 1usize, count = "1");
-                self.project.edit_points(&label, &mut |pts, _| Some(pts.into_iter().filter(|p| p.n != n).collect()));
-                let surface = t(
-                    if self.project.state.get("surface").and_then(|s| s.get("tin")).is_some_and(|t| !t.is_null()) {
-                        "cv.surface.tin.kept"
-                    } else {
-                        "cv.surface.rebuilt"
-                    },
-                    &[],
-                );
-                self.message = tr!("cv.pts.deleted", n = 1usize, count = "1", surface = surface);
+                self.delete_points();
+                return;
             }
         }
+        self.sel = None;
+    }
+
+    /// The selected survey points go (civilcraft.js deleteSelected, last branch): one undo step.
+    fn delete_points(&mut self) {
+        let n = self.picked_numbers().len();
+        let c = cc_civil::units::grouped(n as f64, 0);
+        self.remove_points(&tr!("cv.undo.pts.delete", n = n, count = c.as_str()));
+        self.message = tr!("cv.pts.deleted", n = n, count = c.as_str(), surface = self.rebuilt());
         self.sel = None;
     }
 

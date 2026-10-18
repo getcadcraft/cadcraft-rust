@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7), profile (M11.8) and section (M11.9) panels; PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7), profile (M11.8) and section (M11.9) panels, point editing (M11.10); PartCraft (M13.1) and DetailCraft (M14.1) app views; per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4): the commands past the M4 set (HATCH, DIM*, BLOCK/INSERT, STRETCH, FILLET, …), the
    ribbon / menus / properties panel, constraints, 3D, UCS, block editor, add-on hooks, recovery snapshots; linked
@@ -12,10 +12,12 @@ Last updated 2026-10-18 · Change: CivilCraft drawing tools (M11.7), profile (M1
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11): drawing tools, typed traverse / deed calls, grips, point moves and Delete (M11.7),
    the profile panel with PVI add / drag / delete and the PI / PVI tables (M11.8), the section panel and sample lines
-   (M11.9) are in at byte parity. Missing: cross-section sheets (PDF) and mass haul from the section panel, feature
-   lines in the profile (WL.20), the curve "why" fixes (WL.23), the
-   other Properties edits (names, pad elevation and slopes, corridor, pipes …), the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), copy / paste / duplicate of points,
-   multi-point selection (Shift+click, box, lasso), the catchment tool, touch's draft bar.
+   (M11.9), point selection with copy / cut / paste / duplicate (M11.10) are in at byte parity (cvtooldiff 52/52).
+   Missing: cross-section sheets (PDF) and mass haul from the section panel, feature lines in the profile (WL.20), the
+   curve "why" fixes (WL.23), the other Properties edits (names, pad elevation and slopes, corridor, pipes, feature
+   line grades …), the lasso (a Shift+drag that bends) and its window / crossing / fence modes, renumber settings,
+   the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), the catchment
+   tool, touch's draft bar; a 500k-point survey zoomed out draws every point cross (fast, but a carpet).
 5. **ModelCraft** (M6): render, print check, materials editor, the full inference set; SKP import works.
 6. **BimCraft** (M7): no grips (dragging wall ends, sliding doors / windows), no residential sync (res-follow.js), no
    Library items placed from the plan.

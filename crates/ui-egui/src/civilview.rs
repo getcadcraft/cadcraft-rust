@@ -165,6 +165,21 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: add | remove | step=n | left=n | right=n | extra+=station | extra-=station} → the selected alignment's sample lines (one undo step)",
     ),
+    (
+        "civil.pts",
+        "Select survey points",
+        "Ctrl+A",
+        "{name: all | none | toggle:x,y (as Shift+click) | box:x0,y0,x1,y1 (world, as Shift+drag)}",
+    ),
+    ("civil.copy", "Copy points", "Ctrl+C", "{} → the selected survey points (also as P,N,E,Z,D rows on the clipboard)"),
+    ("civil.cut", "Cut points", "Ctrl+X", "{} → copied, then removed (one undo step)"),
+    (
+        "civil.paste",
+        "Paste points",
+        "Ctrl+V",
+        "{name?: \"inplace\"} → the copy follows the pointer until a click (civil.click) places it; inplace = at its own coordinates",
+    ),
+    ("civil.duplicate", "Duplicate points", "Ctrl+D", "{} → copies of the selected points follow the pointer until a click places them"),
     ("civil.group", "Point group use", "", "{name: \"GROUP=points|breakline|off\"} → how a point group builds the surface (one undo step)"),
     ("civil.undo", "Undo", "Ctrl+Z", "{}"),
     ("civil.redo", "Redo", "Ctrl+Y", "{}"),
@@ -278,6 +293,8 @@ pub struct CivilView {
     pub profile: crate::civilprofile::ProfilePanel,
     /// the section panel (civilsections.rs)
     pub sections: crate::civilsections::SectionsPanel,
+    /// survey point selection, the copy and a paste on the way (civilpoints.rs)
+    pub points: crate::civilpoints::PointsState,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
     pub ppp: f64,
     dark: bool,
@@ -334,6 +351,7 @@ impl CivilView {
             dialogs: crate::civildialogs::Dialogs::default(),
             profile: crate::civilprofile::ProfilePanel::default(),
             sections: crate::civilsections::SectionsPanel::default(),
+            points: crate::civilpoints::PointsState::default(),
             ppp: 1.0,
             dark: true,
         }
@@ -936,15 +954,36 @@ impl CivilView {
         let (pressed, released, press_at) =
             ui.ctx().input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.press_origin()));
         let mut grip_used = false;
+        let shift = ui.ctx().input(|i| i.modifiers.shift);
         if pressed
             && resp.hovered()
             && let Some(p) = press_at
         {
             let (sx, sy) = to_px(p);
             let (wx, wy) = self.view.to_world(sx, sy);
-            grip_used = self.grip_press(wx, wy);
+            if shift && self.tools.tool == crate::civiltools::Tool::Select && self.points.paste.is_none() {
+                // Shift+drag draws a box that adds the survey points inside it (a Shift+click still clicks)
+                self.points.boxing = Some((wx, wy));
+            } else {
+                grip_used = self.grip_press(wx, wy);
+            }
         }
-        if self.tools.drag.is_some() {
+        if let Some(start) = self.points.boxing {
+            grip_used = true;
+            if released || !ui.ctx().input(|i| i.pointer.primary_down()) {
+                self.points.boxing = None;
+                if let Some(p) = ui.ctx().input(|i| i.pointer.latest_pos()) {
+                    let (sx, sy) = to_px(p);
+                    let (wx, wy) = self.view.to_world(sx, sy);
+                    let (qx, qy) = self.css(start.0, start.1);
+                    if (qx - sx / ppp).hypot(qy - sy / ppp) > 4.0 {
+                        self.box_select(start, (wx, wy));
+                    } else {
+                        self.pick_toggle(start.0, start.1);
+                    }
+                }
+            }
+        } else if self.tools.drag.is_some() {
             grip_used = true;
             if let Some(p) = ui.ctx().input(|i| i.pointer.latest_pos()) {
                 let (sx, sy) = to_px(p);
@@ -1020,8 +1059,35 @@ impl CivilView {
         if esc {
             self.cancel();
         }
-        if enter && !self.tools.draft.is_empty() {
+        if enter && (!self.tools.draft.is_empty() || self.points.paste.is_some()) {
             self.finish();
+        }
+        // Ctrl+A / Ctrl+D, and the copy, cut and paste events (Ctrl+C / X / V; Ctrl+Shift+V pastes in place)
+        let (all, dup, events, shift) = ui.ctx().input(|i| {
+            (
+                i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::A),
+                i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::D),
+                i.events
+                    .iter()
+                    .filter(|e| matches!(e, egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_)))
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                i.modifiers.shift,
+            )
+        });
+        if all {
+            self.select_all();
+        }
+        if dup {
+            self.duplicate_points();
+        }
+        for e in events {
+            match e {
+                egui::Event::Copy => self.copy_points(false, now_ms()),
+                egui::Event::Cut => self.copy_points(true, now_ms()),
+                egui::Event::Paste(text) => self.paste(shift, Some(&text)),
+                _ => {}
+            }
         }
         if back && !self.tools.draft.is_empty() {
             self.tools.draft.pop();
@@ -1274,6 +1340,43 @@ impl CivilView {
             }
             grip(to, true);
         }
+        // the picked survey points
+        if !self.points.picked.is_empty() {
+            let (bx0, by0, bx1, by1) = self.view_bounds();
+            let mut drawn = 0usize;
+            for p in &self.project.points {
+                if p.x >= bx0 && p.x <= bx1 && p.y >= by0 && p.y <= by1 && self.points.picked.contains(&p.n) {
+                    painter.circle_stroke(s(p.x, p.y), 5.0, egui::Stroke::new(2.0, act));
+                    drawn += 1;
+                    if drawn >= 20_000 {
+                        break;
+                    }
+                }
+            }
+        }
+        // a Shift+drag box
+        if let (Some(a), Some((cx, cy))) = (self.points.boxing, self.cursor) {
+            let r = Rect::from_two_pos(s(a.0, a.1), s(cx, cy));
+            painter.rect_filled(r, 0.0, act.gamma_multiply(0.12));
+            painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, act), egui::StrokeKind::Middle);
+        }
+        // points carried by the pointer: crosses where they would land, a thin line from where they are
+        if let (Some(j), Some((cx, cy))) = (&self.points.paste, self.cursor) {
+            let (dx, dy) = (cx - j.anchor.0, cy - j.anchor.1);
+            let (bx0, by0, bx1, by1) = self.view_bounds();
+            let stride = j.pts.len().div_ceil(20_000).max(1);
+            let st = egui::Stroke::new(1.5, act);
+            for p in j.pts.iter().step_by(stride) {
+                let (x, y) = (p.x + dx, p.y + dy);
+                if x < bx0 || x > bx1 || y < by0 || y > by1 {
+                    continue;
+                }
+                let q = s(x, y);
+                painter.line_segment([q - egui::vec2(4.0, 0.0), q + egui::vec2(4.0, 0.0)], st);
+                painter.line_segment([q - egui::vec2(0.0, 4.0), q + egui::vec2(0.0, 4.0)], st);
+            }
+            painter.add(egui::Shape::dashed_line(&[s(j.anchor.0, j.anchor.1), s(cx, cy)], egui::Stroke::new(1.0, act), 3.0, 4.0));
+        }
         let tool = self.tools.tool;
         if tool == Tool::Select {
             return;
@@ -1342,7 +1445,8 @@ impl CivilView {
 
     /// The tool's hint over the plan's top left corner (civilcraft.js `ui.toolhint`).
     fn tool_hint(&self, painter: &egui::Painter, rect: Rect, pal: &Palette) {
-        let Some(key) = self.tools.tool.hint_key() else { return };
+        let key = if self.points.paste.is_some() { Some("cv.hint.paste") } else { self.tools.tool.hint_key() };
+        let Some(key) = key else { return };
         let width = (rect.width() - 24.0).clamp(120.0, 560.0);
         let galley = painter.layout(t0(key), egui::FontId::proportional(12.0), pal.ink, width);
         let at = rect.min + egui::vec2(12.0, 10.0);
@@ -1614,6 +1718,7 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         "civil.display" => cv.display(&name)?,
         "civil.select" => {
             cv.profile.sel_pvi = None;
+            cv.points.picked.clear();
             cv.sel = if name.is_empty() {
                 None
             } else {
@@ -1778,6 +1883,26 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.sampling" => cv.sampling_edit(&name)?,
+        "civil.pts" => {
+            let (k, rest) = name.split_once(':').unwrap_or((name.as_str(), ""));
+            match k {
+                "all" => cv.select_all(),
+                "none" => cv.select_none(),
+                "toggle" => {
+                    let v = xy_param(rest).ok_or("civil.pts: toggle:x,y")?;
+                    cv.pick_toggle(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0));
+                }
+                "box" => {
+                    let v = xy_param(rest).filter(|v| v.len() >= 4).ok_or("civil.pts: box:x0,y0,x1,y1")?;
+                    let g = |i: usize| v.get(i).copied().unwrap_or(0.0);
+                    cv.box_select((g(0), g(1)), (g(2), g(3)));
+                }
+                o => return Err(format!("civil.pts: all, none, toggle:x,y or box:x0,y0,x1,y1 (not {o})")),
+            }
+        }
+        "civil.copy" | "civil.cut" => cv.copy_points(id == "civil.cut", now_ms()),
+        "civil.paste" => cv.paste(name == "inplace", None),
+        "civil.duplicate" => cv.duplicate_points(),
         "civil.traverse" => {
             if let Some((fname, bytes)) = crate::civildialogs::traverse_command(cv, &name)? {
                 let save = app.services.save.as_mut().ok_or("civil.traverse: saving is not available here")?;
@@ -1901,6 +2026,12 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     if ui.button(t0("ui.tb.save")).on_hover_text(t0("ui.tb.save.title")).clicked() {
                         cmd = Some(("civil.save", Params::default()));
                     }
+                    if ui.button(t0("ui.tb.copy")).on_hover_text(t0("ui.tb.copy.title")).clicked() {
+                        cmd = Some(("civil.copy", Params::default()));
+                    }
+                    if ui.button(t0("ui.tb.paste")).on_hover_text(t0("ui.tb.paste.title")).clicked() {
+                        cmd = Some(("civil.paste", Params::default()));
+                    }
                     if !cv.show3d {
                         ui.separator();
                         for tl in crate::civiltools::TOOLS {
@@ -1995,6 +2126,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             match a {
                 crate::civildialogs::DlgAct::Save(n, b) => save_file = Some((n, b)),
             }
+        }
+        if let Some(text) = cv.points.copy_out.take() {
+            ui.ctx().copy_text(text);
         }
         app.cursor = if cv.show3d { None } else { cv.cursor };
         app.message = cv.status();
