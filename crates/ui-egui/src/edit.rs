@@ -206,8 +206,8 @@ impl Host for UiHost {
     fn pick_window(&self, doc: &Doc, w: &Bounds, crossing: bool) -> Vec<u64> {
         pick_window(doc, w, crossing)
     }
-    fn preview(&mut self, ents: &[Entity]) {
-        self.0.borrow_mut().preview = ents.to_vec();
+    fn preview(&mut self, ents: Vec<Entity>) {
+        self.0.borrow_mut().preview = ents;
     }
     fn on_command(&mut self, name: Option<&str>) {
         if name.is_none() {
@@ -414,12 +414,16 @@ impl Editor {
         } else if !self.eng.busy() {
             let ids = pick_window(&self.eng.doc(), &rect, crossing);
             let mut h = self.hs.borrow_mut();
-            let shift = h.shift;
-            for id in ids {
-                if shift {
-                    h.selection.retain(|x| *x != id);
-                } else if !h.selection.contains(&id) {
-                    h.selection.push(id);
+            // hashed, not a scan of the selection per id (a window over 9,000 objects was quadratic)
+            if h.shift {
+                let off: std::collections::HashSet<u64> = ids.into_iter().collect();
+                h.selection.retain(|x| !off.contains(x));
+            } else {
+                let mut have: std::collections::HashSet<u64> = h.selection.iter().copied().collect();
+                for id in ids {
+                    if have.insert(id) {
+                        h.selection.push(id);
+                    }
                 }
             }
         }
@@ -478,13 +482,6 @@ impl Editor {
     /// Zoom requests from the last inputs.
     pub fn take_zoom(&mut self) -> Vec<Zoom> {
         std::mem::take(&mut self.hs.borrow_mut().zoom)
-    }
-
-    /// The selected objects (for the highlight).
-    pub fn selected(&self) -> Vec<Entity> {
-        let ids = self.hs.borrow().selection.clone();
-        let doc = self.eng.doc();
-        ids.iter().filter_map(|id| doc.get(*id).cloned()).collect()
     }
 }
 

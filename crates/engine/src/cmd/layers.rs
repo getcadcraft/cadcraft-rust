@@ -234,7 +234,7 @@ fn for_each_object(d: &mut cc_cad::Doc, f: &mut dyn FnMut(&Entity) -> Option<Opt
             let id = e.id.unwrap_or(0);
             match f(&e) {
                 Some(Some(next)) => {
-                    d.update_in(id, next, s)?;
+                    d.replace_in(id, next, s)?;
                 }
                 Some(None) => d.remove_in(id, s)?,
                 None => {}

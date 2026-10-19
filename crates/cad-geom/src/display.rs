@@ -186,7 +186,7 @@ impl WalkOut for Collect {
 }
 
 /// Any entities of a document (previews, a selection) walked into batches, in world coordinates.
-pub fn walk_batches(doc: &Doc, ents: &[Entity]) -> Vec<Batch> {
+pub fn walk_batches<E: std::borrow::Borrow<Entity>>(doc: &Doc, ents: &[E]) -> Vec<Batch> {
     let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
     walk(doc, ents, &mut out, &display_opts());
     out.batches
@@ -194,7 +194,7 @@ pub fn walk_batches(doc: &Doc, ents: &[Entity]) -> Vec<Batch> {
 
 fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKind, paper: Option<Bounds>) -> Space {
     // top-level objects grouped by layer (first-seen order), one walk per layer
-    let mut groups: Vec<(String, Vec<Entity>)> = Vec::new();
+    let mut groups: Vec<(String, Vec<&Entity>)> = Vec::new();
     let mut at: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for e in doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))) {
         let l = e.layer.as_deref().unwrap_or("0");
@@ -203,7 +203,7 @@ fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKin
             groups.len().saturating_sub(1)
         });
         if let Some((_, g)) = groups.get_mut(i) {
-            g.push(e.clone());
+            g.push(e);
         }
     }
     let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };

@@ -84,7 +84,7 @@ impl Host for Stub {
     fn pick_window(&self, doc: &Doc, w: &Bounds, crossing: bool) -> Vec<u64> {
         doc.entities().filter(|e| in_window(e, w, crossing, Some(&doc.blocks))).filter_map(|e| e.id).collect()
     }
-    fn preview(&mut self, ents: &[Entity]) {
+    fn preview(&mut self, ents: Vec<Entity>) {
         if self.log.borrow().timing {
             return;
         }

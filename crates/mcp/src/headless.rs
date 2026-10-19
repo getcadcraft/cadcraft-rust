@@ -64,7 +64,7 @@ impl Host for HeadlessHost {
             .filter_map(|e| e.id)
             .collect()
     }
-    fn preview(&mut self, _ents: &[cc_cad::Entity]) {}
+    fn preview(&mut self, _ents: Vec<cc_cad::Entity>) {}
     fn zoom_extents(&mut self) {}
     fn zoom_window(&mut self, _a: P2, _b: P2, _exact: bool) {}
 }

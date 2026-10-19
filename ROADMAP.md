@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-19 M4.14: objects' extra data (xdata, unknown codes) shared copy-on-write in cc-cad; SELECT ALL + MOVE on the 9k floor plan 219 → 15 ms (JS 42), ARRAY 211 → 26, MATCHPROP 110 → 22, ERASE + UNDO 29 → 8; every drafttime row now faster than 0.5; kdiff / propsdiff / plotdiff / mcpdiff / idiff --save unchanged.
 - 2026-10-18 M4.12: Plot to PDF (plot.js) in the window, the CLI and MCP `drawing_plot`; 1128/1128 kit plots + 32/32 byte-identical to 0.5 (plain streams).
 - 2026-10-18 M4.11: Properties panel (propdefs.js / propexpr.js), each edit one undo step; 720/720 records identical to 0.5.
 - 2026-10-18 M4.10: HATCH (pick inside), DIM family, FILLET / CHAMFER, STRETCH, ARRAY, BLOCK / INSERT / BEDIT, MATCHPROP and 40 more commands; 8,600 + 1,386 command-line records identical to 0.5.

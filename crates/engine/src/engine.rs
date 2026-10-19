@@ -40,8 +40,8 @@ pub trait Host {
     fn pick_at(&self, doc: &Doc, p: P2) -> Option<u64>;
     /// The objects a window (or crossing window) selects.
     fn pick_window(&self, doc: &Doc, w: &Bounds, crossing: bool) -> Vec<u64>;
-    /// Rubber-band entities to draw over the drawing.
-    fn preview(&mut self, ents: &[Entity]);
+    /// Rubber-band entities to draw over the drawing (handed over: the host keeps them without a copy).
+    fn preview(&mut self, ents: Vec<Entity>);
     fn on_command(&mut self, _name: Option<&str>) {}
     fn zoom_extents(&mut self);
     /// `exact`: ZOOM Center's window, not padded.
@@ -393,7 +393,7 @@ impl Engine {
         if !keep {
             h.set_selection(&[]);
         }
-        h.preview(&[]);
+        h.preview(Vec::new());
         h.prompt("");
         h.on_command(None);
     }
@@ -756,7 +756,7 @@ impl Ctx {
             (true, Some(c)) => self.sh.preview_at(c),
             _ => Vec::new(),
         };
-        self.sh.host.borrow_mut().preview(&ents);
+        self.sh.host.borrow_mut().preview(ents);
     }
 
     /// One change of the document (an undo step, folded into the command's when it ends).
@@ -835,7 +835,7 @@ impl Ctx {
         let keep = self.st().preview_fn.clone();
         let r = self.select_option_inner(key, set, remove).await;
         self.st().preview_fn = keep;
-        self.sh.host.borrow_mut().preview(&[]);
+        self.sh.host.borrow_mut().preview(Vec::new());
         r
     }
     async fn select_option_inner(&self, key: &str, set: &mut IdSet, remove: bool) -> R<bool> {

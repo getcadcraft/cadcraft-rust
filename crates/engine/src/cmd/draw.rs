@@ -2,7 +2,7 @@
 
 use std::rc::Rc;
 
-use cc_cad::entity::{Arc, Circle, Ellipse, Entity, Geo, Line, Obj, Point, Poly, Text, Vertex};
+use cc_cad::entity::{Arc, Circle, Ellipse, Entity, Geo, Line, Point, Poly, Text, Vertex};
 use cc_cad::js;
 use cc_cad_geom::geom::{PI, TAU, angle_of, bulge_arc, dist, norm_angle, polar};
 use cc_cad_geom::jsmath::JsMath;
@@ -25,7 +25,7 @@ pub fn ent(c: &Ctx, geo: Geo) -> Entity {
         lt: lt.map(Some),
         lw: lw.map(Some),
         geo,
-        extra: Obj::new(),
+        extra: Default::default(),
     }
 }
 

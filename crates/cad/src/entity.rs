@@ -15,6 +15,75 @@ use crate::js;
 
 pub type Obj = Map<String, Value>;
 
+/// An entity's extra keys (xdata, extension dictionaries, unknown codes, add-on fields), shared copy-on-write: a
+/// clone of an [`Entity`] (a preview, an edit's before / after, an undo step) shares the map, as the JS shares the
+/// object `{ ...e }` spreads; only a write ([`Extra::insert`], [`Extra::remove`], [`Extra::make_mut`]) copies it, and
+/// a remove of a key that is not there copies nothing. Reads go through `Deref` to the [`Obj`].
+#[derive(Clone, Default, PartialEq)]
+pub struct Extra(std::sync::Arc<Obj>);
+impl Extra {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// The map to write to (copied first when it is shared).
+    pub fn make_mut(&mut self) -> &mut Obj {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+    pub fn insert(&mut self, k: String, v: Value) -> Option<Value> {
+        self.make_mut().insert(k, v)
+    }
+    /// `Map::remove`.
+    pub fn remove(&mut self, k: &str) -> Option<Value> {
+        if !self.0.contains_key(k) {
+            return None;
+        }
+        self.make_mut().remove(k)
+    }
+    pub fn shift_remove(&mut self, k: &str) -> Option<Value> {
+        if !self.0.contains_key(k) {
+            return None;
+        }
+        self.make_mut().shift_remove(k)
+    }
+    pub fn get_mut(&mut self, k: &str) -> Option<&mut Value> {
+        if !self.0.contains_key(k) {
+            return None;
+        }
+        self.make_mut().get_mut(k)
+    }
+    /// The map itself (copied when shared).
+    pub fn into_obj(self) -> Obj {
+        std::sync::Arc::unwrap_or_clone(self.0)
+    }
+    /// Do both share one map (no copy was made)?
+    pub fn ptr_eq(a: &Extra, b: &Extra) -> bool {
+        std::sync::Arc::ptr_eq(&a.0, &b.0)
+    }
+}
+impl std::ops::Deref for Extra {
+    type Target = Obj;
+    fn deref(&self) -> &Obj {
+        &self.0
+    }
+}
+impl From<Obj> for Extra {
+    fn from(m: Obj) -> Self {
+        Extra(std::sync::Arc::new(m))
+    }
+}
+impl std::fmt::Debug for Extra {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl<'a> IntoIterator for &'a Extra {
+    type Item = (&'a String, &'a Value);
+    type IntoIter = serde_json::map::Iter<'a>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
 /// A number as JSON: integral values as integers, NaN / ±Infinity as "$NaN" / "$Inf" / "$-Inf" (the parity kit's
 /// canonical spelling; a JS `JSON.stringify` would write null).
 pub fn num(v: f64) -> Value {
@@ -290,7 +359,7 @@ pub struct Entity {
     /// `lw`: mm (-2 by block, -3 default), or null; None = absent (by layer)
     pub lw: Option<Option<f64>>,
     pub geo: Geo,
-    pub extra: Obj,
+    pub extra: Extra,
 }
 
 fn take_f(m: &mut Obj, k: &str) -> Option<f64> {
@@ -625,7 +694,7 @@ impl Geo {
 impl Entity {
     /// A new entity of this geometry with no id, layer or colour keys.
     pub fn new(geo: Geo) -> Self {
-        Entity { id: None, layer: None, color: None, lt: None, lw: None, geo, extra: Obj::new() }
+        Entity { id: None, layer: None, color: None, lt: None, lw: None, geo, extra: Extra::new() }
     }
     /// With `layer` and `color` set (most entities geometry makes carry both).
     pub fn with(geo: Geo, layer: Option<String>, color: Option<Color>) -> Self {
@@ -684,7 +753,7 @@ impl Entity {
             }
             None => Geo::Other,
         };
-        Entity { id, layer, color, lt, lw, geo, extra: m }
+        Entity { id, layer, color, lt, lw, geo, extra: m.into() }
     }
 
     /// The JSON object.

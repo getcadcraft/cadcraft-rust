@@ -1,9 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-18 · Change: drafting commands, Properties panel and plotting (M4.10–M4.12); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
-Last updated 2026-10-18 · Change: drafting commands and the Properties panel (M4.10, M4.11); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
-Last updated 2026-10-18 · Change: drafting commands (M4.10); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
-Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-19 · Change: drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15), ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -24,8 +21,11 @@ Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools a
    the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
    sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks pictures, Open / print and
    PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
-   shows them); on drawings whose objects carry many extra fields MOVE / ARRAY / MATCHPROP / ERASE + UNDO run 0.1–0.6× the JS (every object's extra JSON is deep-copied per preview and per change; the JS shares it: share extras in cc-cad); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
-   slower than the JS (0.7×).
+   shows them); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
+   slower than the JS (0.7×). Whole-drawing edits (M4.14, extra data shared copy-on-write) now run 1.2–7.4× the JS on
+   the ar1all floor plan and the Carey Foodservice drawing; the slimmest margins are EXPLODE ALL (1.2×) and ERASE ALL +
+   UNDO (1.2×) on Carey, where each object still gets one geometry copy per change (its undo op and the map share the
+   extra keys, not the geometry: a polyline's points, a hatch's loops).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
    and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
 3. **Viewer details** vs CadCraft 0.5: raster images (IMAGE) not drawn, per-viewport frozen layers, print view /

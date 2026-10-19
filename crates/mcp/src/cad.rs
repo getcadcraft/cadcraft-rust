@@ -827,7 +827,7 @@ impl Host for Rec {
     fn pick_window(&self, doc: &Doc, w: &Bounds, crossing: bool) -> Vec<u64> {
         self.with(Vec::new(), |h| h.pick_window(doc, w, crossing))
     }
-    fn preview(&mut self, ents: &[Entity]) {
+    fn preview(&mut self, ents: Vec<Entity>) {
         self.with((), |h| h.preview(ents));
     }
     fn on_command(&mut self, name: Option<&str>) {
@@ -871,7 +871,7 @@ impl Host for Lent {
     fn pick_window(&self, _doc: &Doc, _w: &Bounds, _crossing: bool) -> Vec<u64> {
         Vec::new()
     }
-    fn preview(&mut self, _ents: &[Entity]) {}
+    fn preview(&mut self, _ents: Vec<Entity>) {}
     fn zoom_extents(&mut self) {}
     fn zoom_window(&mut self, _a: P2, _b: P2, _exact: bool) {}
 }

@@ -34,8 +34,7 @@ fn apply(c: &Ctx, src: &[Entity], m: &M, copy: bool) -> R {
     c.change(if copy { "COPY" } else { "MOVE" }, |d| {
         for e in src {
             let id = e.id.unwrap_or(0);
-            let cur = d.get(id).cloned().unwrap_or_else(|| e.clone());
-            let mut t = tx_entity(&cur, m);
+            let mut t = tx_entity(d.get(id).unwrap_or(e), m);
             if copy {
                 t.id = None;
                 t.extra.remove("id");

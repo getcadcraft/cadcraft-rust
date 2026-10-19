@@ -2035,7 +2035,7 @@ impl UiApp {
             egui::pos2(rect.min.x + (sx / ppp) as f32, rect.min.y + (sy / ppp) as f32)
         };
         let doc = ed.eng.doc();
-        let draw = |ents: &[cc_cad::Entity], stroke: egui::Stroke| {
+        let draw = |ents: &[&cc_cad::Entity], stroke: egui::Stroke| {
             for b in cc_cad_geom::display::walk_batches(&doc, ents) {
                 for l in &b.lines {
                     let pts: Vec<egui::Pos2> = l.as_chunks::<2>().0.iter().map(|&[x, y]| to_pos(x, y)).collect();
@@ -2053,7 +2053,9 @@ impl UiApp {
                 }
             }
         };
-        let sel = ed.selected();
+        // borrowed, not copied: SELECT ALL on a big drawing drew a copy of every object each frame
+        let sel_ids = ed.hs.borrow().selection.clone();
+        let sel: Vec<&cc_cad::Entity> = sel_ids.iter().filter_map(|id| doc.get(*id)).collect();
         if !sel.is_empty() {
             draw(&sel, egui::Stroke::new(3.0, t.accent.gamma_multiply(0.55)));
             // grips
@@ -2064,9 +2066,12 @@ impl UiApp {
                 }
             }
         }
-        let preview = ed.hs.borrow().preview.clone();
-        if !preview.is_empty() {
-            draw(&preview, egui::Stroke::new(1.0, t.ink));
+        {
+            let hs = ed.hs.borrow();
+            if !hs.preview.is_empty() {
+                let preview: Vec<&cc_cad::Entity> = hs.preview.iter().collect();
+                draw(&preview, egui::Stroke::new(1.0, t.ink));
+            }
         }
         drop(doc);
         if let Some(s) = &ed.snap {

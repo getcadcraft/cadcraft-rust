@@ -18,11 +18,13 @@ use serde_json::Value;
 
 use crate::entity::{Color, Entity, Geo, Obj, num, pt};
 use crate::js;
-use crate::omap::OMap;
+use crate::omap::{IdBuild, OMap};
 
 /// Which entity map: 0 = the model, others = layouts' paper spaces.
 pub type SpaceId = u64;
 pub const MODEL: SpaceId = 0;
+/// One space's entities by id, in draw order.
+pub type Space = OMap<u64, Entity, IdBuild>;
 
 /// ISO-25-like dimension defaults (dims.js `DIM_DEFAULTS`; the measurements in drawing units, before × scale).
 pub const DIM_DEFAULTS: [(&str, f64); 11] = [
@@ -418,7 +420,7 @@ impl DocEvent {
 /// The drawing. See the module doc.
 #[derive(Clone, Debug)]
 pub struct Doc {
-    spaces: HashMap<SpaceId, OMap<u64, Entity>>,
+    spaces: HashMap<SpaceId, Space>,
     next_space: SpaceId,
     /// the open space
     pub space: SpaceId,
@@ -476,7 +478,7 @@ pub fn block_ref(e: &Entity) -> Option<&str> {
 impl Doc {
     pub fn new() -> Self {
         let mut spaces = HashMap::new();
-        spaces.insert(MODEL, OMap::new());
+        spaces.insert(MODEL, Space::default());
         let mut d = Doc {
             spaces,
             next_space: 1,
@@ -539,7 +541,7 @@ impl Doc {
     pub fn new_space(&mut self) -> SpaceId {
         let id = self.next_space;
         self.next_space = self.next_space.saturating_add(1);
-        self.spaces.insert(id, OMap::new());
+        self.spaces.insert(id, Space::default());
         id
     }
     /// A space of its own (the block editor's, commands.js BEDIT), holding these objects as they are (each keeps
@@ -561,7 +563,7 @@ impl Doc {
             self.spaces.remove(&s);
         }
     }
-    pub fn space_map(&self, s: SpaceId) -> Option<&OMap<u64, Entity>> {
+    pub fn space_map(&self, s: SpaceId) -> Option<&Space> {
         self.spaces.get(&s)
     }
     /// The open space's entities in draw order.
@@ -608,6 +610,12 @@ impl Doc {
             return l.clone();
         }
         self.add_layer(&serde_json::json!({ "name": name }))
+    }
+    /// `layer(name)` without the copy: make the layer (with the defaults) when it does not exist.
+    pub fn ensure_layer(&mut self, name: &str) {
+        if !self.layers.contains_key(name) {
+            self.add_layer(&serde_json::json!({ "name": name }));
+        }
     }
     /// What a new object takes besides layer and colour: `{lt, lw}` when they are not by layer.
     pub fn current_style(&self) -> (Option<String>, Option<f64>) {
@@ -695,7 +703,7 @@ impl Doc {
                                 n.extra.insert("frz".into(), f);
                             }
                             if let Some(id) = e.id {
-                                d.update_in(id, n, s)?;
+                                d.replace_in(id, n, s)?;
                             }
                         }
                     }
@@ -725,13 +733,13 @@ impl Doc {
         }
     }
     pub fn visible(&self, e: &Entity) -> bool {
-        match self.layers.get(&e.layer_str().to_string()) {
+        match self.layers.get(e.layer_str()) {
             None => true,
             Some(l) => l.on && !l.frozen,
         }
     }
     pub fn editable(&self, e: &Entity) -> bool {
-        self.visible(e) && !self.layers.get(&e.layer_str().to_string()).is_some_and(|l| l.locked)
+        self.visible(e) && !self.layers.get(e.layer_str()).is_some_and(|l| l.locked)
     }
     /// `resolveColor(doc, e, byBlock, parentLayer)`.
     pub fn resolve_color(&self, e: &Entity, by_block: Option<&Color>, parent_layer: Option<&str>) -> String {
@@ -806,26 +814,38 @@ impl Doc {
         self.next_id = self.next_id.saturating_add(1);
         ent.id = Some(id);
         ent.extra.remove("id");
-        let lname = ent.layer_str().to_string();
-        self.layer(&lname);
+        self.ensure_layer(ent.layer_str());
         self.spaces.entry(space).or_default().insert(id, ent.clone());
         self.push(Op::Ent { space, id, before: None, after: Some(ent.clone()) })?;
         Ok(ent)
     }
-    /// Replace entity `id` of the open space with `{ ...e, id }` (None when there is no such entity).
-    pub fn update(&mut self, id: u64, e: Entity) -> Result<Option<Entity>, DocError> {
+    /// Replace entity `id` of the open space with `{ ...e, id }` (false when there is no such entity).
+    pub fn update(&mut self, id: u64, e: Entity) -> Result<bool, DocError> {
         let s = self.space;
-        self.update_in(id, e, s)
+        self.replace_in(id, e, s)
     }
+    /// [`Doc::replace_in`], giving back the entity as stored (None when there is no such entity).
     pub fn update_in(&mut self, id: u64, e: Entity, space: SpaceId) -> Result<Option<Entity>, DocError> {
+        if !self.replace_in(id, e, space)? {
+            return Ok(None);
+        }
+        Ok(self.spaces.get(&space).and_then(|m| m.get(&id)).cloned())
+    }
+    /// Replace entity `id` of a space with `{ ...e, id }` → false when there is no such entity. The old entity moves
+    /// into the undo op as it is (no copy); the new one is stored once and shared with the op (one clone, whose extra
+    /// keys are shared, not copied).
+    pub fn replace_in(&mut self, id: u64, e: Entity, space: SpaceId) -> Result<bool, DocError> {
         self.must_be_in_change()?;
-        let Some(before) = self.spaces.get(&space).and_then(|m| m.get(&id)).cloned() else { return Ok(None) };
+        let Some(m) = self.spaces.get_mut(&space) else { return Ok(false) };
+        if !m.contains_key(&id) {
+            return Ok(false);
+        }
         let mut after = e;
         after.id = Some(id);
         after.extra.remove("id");
-        self.spaces.entry(space).or_default().insert(id, after.clone());
-        self.push(Op::Ent { space, id, before: Some(before), after: Some(after.clone()) })?;
-        Ok(Some(after))
+        let before = m.replace(id, after.clone());
+        self.push(Op::Ent { space, id, before, after: Some(after) })?;
+        Ok(true)
     }
     pub fn remove(&mut self, id: u64) -> Result<(), DocError> {
         let s = self.space;
@@ -1078,7 +1098,7 @@ impl Doc {
         self.faces3d = faces;
         let mut blocks = list("blocks");
         blocks.retain(|b| !b.get("name").is_some_and(|n| js::to_js_string(n).to_uppercase() == "CADCRAFT_3D"));
-        let mut model = OMap::new();
+        let mut model = Space::default();
         self.spaces.clear();
         self.layers.clear();
         self.blocks.clear();
@@ -1112,7 +1132,7 @@ impl Doc {
         self.parametric = if parametric { get("parametric").cloned() } else { None };
         self.spaces.insert(MODEL, model);
         for l in list("layouts") {
-            let mut map = OMap::new();
+            let mut map = Space::default();
             let ents = l.get("entities").and_then(Value::as_array).cloned().unwrap_or_default();
             self.fill(&mut map, &ents);
             let s = self.next_space;
@@ -1227,7 +1247,7 @@ impl Doc {
         self.saved_version = self.version;
         self.emit(DocEvent::Load);
     }
-    fn fill(&mut self, map: &mut OMap<u64, Entity>, list: &[Value]) {
+    fn fill(&mut self, map: &mut Space, list: &[Value]) {
         for v in list {
             let mut ent = Entity::from_value(v);
             if ent.color.is_none() && !ent.extra.contains_key("color") {
@@ -1241,8 +1261,7 @@ impl Doc {
             self.next_id = self.next_id.saturating_add(1);
             ent.id = Some(id);
             ent.extra.remove("id");
-            let lname = ent.layer_str().to_string();
-            self.layer(&lname);
+            self.ensure_layer(ent.layer_str());
             map.insert(id, ent);
         }
     }

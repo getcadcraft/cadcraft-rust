@@ -2,6 +2,49 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-19 — M4.14 Whole-drawing edits share each object's extra data (agent, work/cadshare)
+
+- `cc-cad`: `Entity::extra` is now `Extra`, an `Arc<Obj>` shared copy-on-write (reads through `Deref`; `insert`,
+  `remove`, `get_mut`, `make_mut` copy only when shared; removing a key that is not there copies nothing). A clone of
+  an object for a preview, an edit's before / after or an undo op no longer deep-copies its xdata, extension
+  dictionaries and unknown codes (8,995 of the floor plan's 9,021 objects carry `xd`), as the JS shares them.
+  `Doc::update` / new `replace_in` move the old object into the undo op instead of copying it and store the new one
+  once (update returns a bool; `update_in` still gives the object back); `add` and `load` make missing layers without
+  copying a `Layer`; entity spaces hash their u64 ids with a one-multiply hasher (`omap::IdBuild`; maps keyed by names
+  keep SipHash); `OMap::get` / `contains_key` take borrowed keys (`&str` for layer names, no `to_string` per lookup).
+- `cc-engine`: MOVE / COPY and MATCHPROP read the object in place instead of cloning it first; `Host::preview` takes
+  the preview `Vec` (the window kept a copy of every rubber-band object). `ui-egui`: the selection highlight and the
+  rubber band draw borrowed objects (SELECT ALL drew a copy of the whole drawing every frame); a selection window when
+  idle is linear (it scanned the selection per picked id). `cc-cad-geom`: `walk` / `walk_batches` take `&[E: Borrow<Entity>]`,
+  so the display build groups references instead of copying every object.
+- Undo stays op-based with O(1) shares per object. Tests: `crates/cad/tests/doc_tests.rs`
+  `extra_keys_shared_through_edits_and_undo`, `omap` `replace_keeps_place_and_ids_hash_fast`.
+- Parity on this build: kdiff (seed 1, 22 scenarios + 8 scripts) 2478/2506, report identical line for line to the
+  build before the change (the 28 are one random script where the JS harness itself throws `RangeError: Invalid string
+  length` stringifying a REVCLOUD preview at 4·10⁸ coordinates); seeds 3 and 4 1120/1120 each (seed 2: the JS side ran
+  out of Node heap); propsdiff 720/720; plotdiff 32/32; mcpdiff 297 messages, 0 different, 2 known (LISP); idiff --set kit
+  --save: 78 files 0 differences, DWG 2000–2018 and DXF 2000 saves byte-identical 78/78 each; the two Carey drawings saved
+  as 2000 / 2018 / DXF 2000 byte-identical to the build before.
+- Timings (`forks/tools/drafttime.mjs`, best of 3, 1-core cap; before = 391d059 on the same run conditions):
+
+  | Drawing | Command | 0.5 JS ms | Rust before | Rust after | × JS |
+  |---|---|---:|---:|---:|---:|
+  | ar1all floor plan (9,021) | SELECT ALL + MOVE | 42 | 219 | 15 | 2.7× |
+  | | ARRAY 2 × 1 of ALL | 132 | 211 | 26 | 5.0× |
+  | | EXPLODE ALL | 132 | 110 | 38 | 3.5× |
+  | | MATCHPROP onto ALL | 68 | 110 | 22 | 3.1× |
+  | | ERASE ALL + UNDO | 12 | 29 | 7.7 | 1.6× |
+  | | STRETCH / LIST / LAYISO / HATCH | 19–92 | 7–74 | 7–34 | 1.4–7.4× |
+  | Carey Foodservice (21,491) | SELECT ALL + MOVE | 60 | 116 | 36 | 1.7× |
+  | | ARRAY 2 × 1 of ALL | 191 | 122 | 69 | 2.8× |
+  | | EXPLODE ALL | 103 | 129 | 89 | 1.2× |
+  | | MATCHPROP onto ALL | 142 | 96 | 46 | 3.1× |
+  | | ERASE ALL + UNDO | 18 | 28 | 15 | 1.2× |
+  | | STRETCH / LIST / LAYISO / HATCH | 23–181 | 9–97 | 10–85 | 1.6–5.1× |
+
+  The JS column is noisy (V8 warm-up; 21–70 ms for the floor plan's MOVE across runs); M4.10's table was taken at
+  load 30–50 and is not comparable.
+
 ## 2026-10-19 — wave 3 merged; CPU cap on the VPS
 
 - Merged into the Rust repo and deployed: M6.17 ModelCraft panels (mcuidiff on this build 1,200/1,200 status lines,

@@ -502,7 +502,7 @@ fn override_layers<'a>(doc: &'a Doc, frozen: Option<&Frozen>) -> Cow<'a, Layers>
 }
 
 /// Draw `entities` (of `doc`) into `out`.
-pub fn walk(doc: &Doc, entities: &[Entity], out: &mut dyn WalkOut, opts: &WalkOpts) {
+pub fn walk<E: std::borrow::Borrow<Entity>>(doc: &Doc, entities: &[E], out: &mut dyn WalkOut, opts: &WalkOpts) {
     let ltscale = match doc.meta.get("ltscale") {
         Some(v) if js::to_number(v) > 0.0 => js::to_number(v),
         _ => 1.0,
@@ -519,6 +519,7 @@ pub fn walk(doc: &Doc, entities: &[Entity], out: &mut dyn WalkOut, opts: &WalkOp
     };
     let m = opts.m;
     for (i, e) in entities.iter().enumerate() {
+        let e: &Entity = e.borrow();
         out.begin(i);
         if let Geo::Viewport(_) = &e.geo {
             out.viewport(e);

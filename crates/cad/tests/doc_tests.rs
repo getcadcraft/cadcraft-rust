@@ -173,3 +173,39 @@ fn load_checks_file_data() {
     assert_eq!(s["viewTwist"], json!(0));
     assert!(!d.dirty() && d.undo_stack.is_empty());
 }
+
+/// M4.14: an object's extra keys (xdata, unknown codes) are shared copy-on-write, as the JS shares nested objects:
+/// a move, its undo step and an undo clone none of them; a write to one copy leaves the others as they were.
+#[test]
+fn extra_keys_shared_through_edits_and_undo() {
+    let xd = json!({ "ACAD": [[1000, "a long xdata string"], [1040, 2.5]], "APP": { "k": [1, 2, 3] } });
+    let mut d = Doc::new();
+    let a = d.change("L", |d| d.add(e(json!({ "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1, "xd": xd, "lw": 0.25 })))).unwrap();
+    let id = a.id.unwrap();
+    let stored = d.get(id).unwrap().extra.clone();
+    let mut moved = d.get(id).unwrap().clone();
+    assert!(cc_cad::entity::Extra::ptr_eq(&moved.extra, &stored), "a clone shares the extra keys");
+    if let cc_cad::Geo::Line(l) = &mut moved.geo {
+        l.x1 = 5.0;
+    }
+    assert!(d.change("MOVE", |d| d.update(id, moved)).unwrap());
+    assert!(cc_cad::entity::Extra::ptr_eq(&d.get(id).unwrap().extra, &stored), "the edit kept the same map");
+    // removing a key that is not there copies nothing (every add / update removes "id")
+    let mut c = d.get(id).unwrap().clone();
+    assert!(c.extra.remove("nope").is_none());
+    assert!(cc_cad::entity::Extra::ptr_eq(&c.extra, &stored));
+    // a write copies: the document keeps its own
+    c.extra.insert("tag".into(), json!("T"));
+    assert!(!cc_cad::entity::Extra::ptr_eq(&c.extra, &stored));
+    assert!(d.get(id).unwrap().extra.get("tag").is_none());
+    d.undo();
+    assert_eq!(d.get(id).unwrap().to_value()["x1"], json!(0));
+    assert_eq!(d.get(id).unwrap().to_value()["xd"], xd);
+    assert!(cc_cad::entity::Extra::ptr_eq(&d.get(id).unwrap().extra, &stored), "undo restores without a copy");
+    d.redo();
+    assert_eq!(d.get(id).unwrap().to_value()["x1"], json!(5));
+    assert_eq!(d.get(id).unwrap().to_value()["xd"], xd);
+    // updating an id that is not there changes nothing
+    assert!(!d.change("X", |d| d.update(999, line())).unwrap());
+    assert_eq!(d.undo_stack.len(), 2);
+}

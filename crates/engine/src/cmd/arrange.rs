@@ -787,11 +787,12 @@ pub async fn matchprop(c: Ctx) -> R {
         let mut n = 0usize;
         c.change("MATCHPROP", |d| {
             for id in &ids.0 {
-                let Some(dst) = d.get(*id).cloned() else { continue };
-                if d.editable(&dst) {
-                    d.update(*id, match_props(&src, &dst, &on))?;
-                    n = n.saturating_add(1);
-                }
+                let next = match d.get(*id) {
+                    Some(dst) if d.editable(dst) => match_props(&src, dst, &on),
+                    _ => continue,
+                };
+                d.update(*id, next)?;
+                n = n.saturating_add(1);
             }
             Ok(())
         })?;

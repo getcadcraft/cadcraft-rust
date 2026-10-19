@@ -38,4 +38,4 @@ pub mod script;
 
 pub use color::{aci_hex, nearest_aci, type_name};
 pub use doc::{Block, Doc, DocError, DocEvent, Layer, Layout, MODEL, SpaceId, View};
-pub use entity::{Color, Entity, Geo, Obj, Vertex, num, pt};
+pub use entity::{Color, Entity, Extra, Geo, Obj, Vertex, num, pt};
