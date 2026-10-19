@@ -814,6 +814,14 @@ fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, a
             acts.push(Act::Run("civil.sections.al", aid.clone()));
             acts.push(Act::Run("civil.sections", "on".into()));
         }
+        // sections-ui.js: "Section sheets (PDF)" with one section or more, "Mass haul" with two or more (0.4 V17, V24)
+        let n = cv.project.sections(a).map_or(0, |s| s.sections.len());
+        if n > 0 && ui.button(t0("xs.ui.open")).clicked() {
+            acts.push(Act::Run("civil.xs", String::new()));
+        }
+        if n > 1 && ui.button(t0("mh.open")).clicked() {
+            acts.push(Act::Run("civil.mh", String::new()));
+        }
         if ui.button(t0("sec.props.remove.all")).clicked() {
             acts.push(Act::Run("civil.sampling", "remove".into()));
         }

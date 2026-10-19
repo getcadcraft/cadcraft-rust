@@ -166,6 +166,29 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: add | remove | step=n | left=n | right=n | extra+=station | extra-=station} → the selected alignment's sample lines (one undo step)",
     ),
     (
+        "civil.xs",
+        "Section sheets (PDF)",
+        "",
+        "{name?: \"paper=letter|tabloid|ansi-d|arch-d|a4|a3|a1,scale=<label>,vex=10|5|2|1\"} → opens the cross-section sheets dialog for the selected alignment (it needs sample lines) and sets its choices",
+    ),
+    ("civil.xs.info", "Section sheets facts", "", "{} → the sheets dialog's page count and notes, on the status line"),
+    (
+        "civil.xs.go",
+        "Download the section sheets",
+        "",
+        "{name?: \"@<time ms>\" (a fixed clock)} → every section of the alignment on PDF pages, through the save service; the dialog closes",
+    ),
+    ("civil.xs.close", "Close the section sheets dialog", "Esc", "{}"),
+    (
+        "civil.mh",
+        "Mass haul",
+        "",
+        "{name?: shrink (−) or swell (+) of the cut in percent} → opens the mass haul dialog for the selected alignment (two or more sections)",
+    ),
+    ("civil.mh.info", "Mass haul facts", "", "{} → the dialog's totals, what is left over and the balance points, on the status line"),
+    ("civil.mh.csv", "Mass haul CSV", "", "{} → the mass ordinates and balanced stretches, through the save service"),
+    ("civil.mh.close", "Close the mass haul dialog", "Esc", "{}"),
+    (
         "civil.pts",
         "Select survey points",
         "Ctrl+A",
@@ -293,6 +316,8 @@ pub struct CivilView {
     pub profile: crate::civilprofile::ProfilePanel,
     /// the section panel (civilsections.rs)
     pub sections: crate::civilsections::SectionsPanel,
+    /// the cross-section sheets and mass haul dialogs (civilsheets.rs)
+    pub sheets: crate::civilsheets::SheetsState,
     /// survey point selection, the copy and a paste on the way (civilpoints.rs)
     pub points: crate::civilpoints::PointsState,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
@@ -351,6 +376,7 @@ impl CivilView {
             dialogs: crate::civildialogs::Dialogs::default(),
             profile: crate::civilprofile::ProfilePanel::default(),
             sections: crate::civilsections::SectionsPanel::default(),
+            sheets: crate::civilsheets::SheetsState::default(),
             points: crate::civilpoints::PointsState::default(),
             ppp: 1.0,
             dark: true,
@@ -723,7 +749,7 @@ impl CivilView {
     pub fn timings_text(&self) -> String {
         let mut keys: Vec<(&&str, &f64)> = self.timings.iter().collect();
         keys.sort_by(|a, b| a.0.cmp(b.0));
-        let mut out: Vec<String> = keys.iter().map(|(k, v)| format!("{k} {v:.0}")).collect();
+        let mut out: Vec<String> = keys.iter().map(|(k, v)| format!("{k} {v:.1}")).collect();
         if let Some(p) = &self.plan {
             let st: Vec<String> = p.stages.iter().map(|(k, v)| format!("{k} {v:.0}")).collect();
             out.push(format!("plan stages [{}] · {} segments · {} labels", st.join(", "), p.segments, p.labels.len()));
@@ -1883,6 +1909,31 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.sampling" => cv.sampling_edit(&name)?,
+        "civil.xs" => cv.xs_open(&name)?,
+        "civil.xs.info" => cv.message = cv.xs_info().ok_or("civil.xs.info: the section sheets dialog is not open")?,
+        "civil.xs.go" => {
+            let at = name.trim().strip_prefix('@').and_then(|v| v.parse::<f64>().ok());
+            let (fname, bytes, said) = cv.xs_pdf(at.unwrap_or_else(now_ms)).ok_or("civil.xs.go: the section sheets dialog is not open")?;
+            let save = app.services.save.as_mut().ok_or("civil.xs.go: saving is not available here")?;
+            if save(&fname, bytes)?.is_some()
+                && let Some(cv) = app.civil.as_mut()
+            {
+                cv.message = said;
+            }
+        }
+        "civil.xs.close" => cv.sheets.xs = None,
+        "civil.mh" => cv.mh_open(name.trim())?,
+        "civil.mh.info" => cv.message = cv.mh_info().ok_or("civil.mh.info: the mass haul dialog is not open")?,
+        "civil.mh.csv" => {
+            let (fname, bytes, said) = cv.mh_csv().ok_or("civil.mh.csv: the mass haul dialog is not open")?;
+            let save = app.services.save.as_mut().ok_or("civil.mh.csv: saving is not available here")?;
+            if save(&fname, bytes)?.is_some()
+                && let Some(cv) = app.civil.as_mut()
+            {
+                cv.message = said;
+            }
+        }
+        "civil.mh.close" => cv.sheets.mh = None,
         "civil.pts" => {
             let (k, rest) = name.split_once(':').unwrap_or((name.as_str(), ""));
             match k {
@@ -1987,7 +2038,8 @@ fn site_exag_ok(f: f64) -> bool {
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let dark = app.preset == Preset::Dark;
-    let mut cmd: Option<(&'static str, Params)> = None;
+    // every command the frame asked for, in order (a button may ask for two: show this alignment, then the panel)
+    let mut cmd: Vec<(&'static str, Params)> = Vec::new();
     let mut save_file: Option<(String, Vec<u8>)> = None;
     let frame_started = web_time::Instant::now();
     if let Some(cv) = app.civil.as_mut() {
@@ -2000,10 +2052,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     ui.label(RichText::new(site).strong().color(t.text_strong));
                     ui.separator();
                     if ui.selectable_label(!cv.show3d, t0("plot.title")).on_hover_text(t0("ui.plan.canvas")).clicked() {
-                        cmd = Some(("civil.view", Params { name: Some("plan".into()), ..Default::default() }));
+                        cmd.push(("civil.view", Params { name: Some("plan".into()), ..Default::default() }));
                     }
                     if ui.selectable_label(cv.show3d, t0("ui.tb.view3d")).on_hover_text(t0("ui.tb.view3d.title")).clicked() {
-                        cmd = Some(("civil.view", Params { name: Some("3d".into()), ..Default::default() }));
+                        cmd.push(("civil.view", Params { name: Some("3d".into()), ..Default::default() }));
                     }
                     ui.separator();
                     if ui.button(t0("ui.tb.fit")).on_hover_text(t0("ui.tb.fit.title")).clicked() {
@@ -2014,30 +2066,30 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         .on_hover_text(t0("ui.tb.undo.title"))
                         .clicked()
                     {
-                        cmd = Some(("civil.undo", Params::default()));
+                        cmd.push(("civil.undo", Params::default()));
                     }
                     if ui
                         .add_enabled(!cv.project.redo_stack.is_empty(), egui::Button::new(t0("ui.tb.redo")))
                         .on_hover_text(t0("ui.tb.redo.title"))
                         .clicked()
                     {
-                        cmd = Some(("civil.redo", Params::default()));
+                        cmd.push(("civil.redo", Params::default()));
                     }
                     if ui.button(t0("ui.tb.save")).on_hover_text(t0("ui.tb.save.title")).clicked() {
-                        cmd = Some(("civil.save", Params::default()));
+                        cmd.push(("civil.save", Params::default()));
                     }
                     if ui.button(t0("ui.tb.copy")).on_hover_text(t0("ui.tb.copy.title")).clicked() {
-                        cmd = Some(("civil.copy", Params::default()));
+                        cmd.push(("civil.copy", Params::default()));
                     }
                     if ui.button(t0("ui.tb.paste")).on_hover_text(t0("ui.tb.paste.title")).clicked() {
-                        cmd = Some(("civil.paste", Params::default()));
+                        cmd.push(("civil.paste", Params::default()));
                     }
                     if !cv.show3d {
                         ui.separator();
                         for tl in crate::civiltools::TOOLS {
                             let (label, title) = tl.label_keys();
                             if ui.selectable_label(cv.tools.tool == tl, t0(label)).on_hover_text(t0(title)).clicked() {
-                                cmd = Some(("civil.tool", Params { name: Some(tl.id().into()), ..Default::default() }));
+                                cmd.push(("civil.tool", Params { name: Some(tl.id().into()), ..Default::default() }));
                             }
                         }
                     }
@@ -2045,7 +2097,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         ui.separator();
                         for v in ["iso", "top", "front", "right"] {
                             if ui.small_button(v).clicked() {
-                                cmd = Some(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
+                                cmd.push(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
                             }
                         }
                         let mut ex = cv.exag;
@@ -2055,7 +2107,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                             }
                         });
                         if ex != cv.exag {
-                            cmd = Some(("civil.exag", Params { factor: Some(ex), ..Default::default() }));
+                            cmd.push(("civil.exag", Params { factor: Some(ex), ..Default::default() }));
                         }
                     }
                 });
@@ -2078,11 +2130,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 crate::civilpanel::Act::Display(s) => cv.display(&s),
                 crate::civilpanel::Act::Group(g, u) => cv.group_use(&g, &u),
                 crate::civilpanel::Act::Export(k) => {
-                    cmd = Some(("civil.export", Params { name: Some(k), ..Default::default() }));
+                    cmd.push(("civil.export", Params { name: Some(k), ..Default::default() }));
                     Ok(())
                 }
                 crate::civilpanel::Act::Run(id, k) => {
-                    cmd = Some((id, Params { name: Some(k), ..Default::default() }));
+                    cmd.push((id, Params { name: Some(k), ..Default::default() }));
                     Ok(())
                 }
             };
@@ -2100,7 +2152,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
                 .show(ui, |ui| crate::civilprofile::panel(cv, ui, &t, &pal, &mut pacts));
             for crate::civilprofile::ProfAct::Run(id, k) in pacts {
-                cmd = Some((id, Params { name: Some(k), ..Default::default() }));
+                cmd.push((id, Params { name: Some(k), ..Default::default() }));
             }
         }
         if cv.sections.open && !cv.show3d {
@@ -2113,13 +2165,18 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
                 .show(ui, |ui| crate::civilsections::panel(cv, ui, &t, &pal, &mut sacts));
             for crate::civilsections::SecAct::Run(id, k) in sacts {
-                cmd = Some((id, Params { name: Some(k), ..Default::default() }));
+                cmd.push((id, Params { name: Some(k), ..Default::default() }));
             }
         }
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             cv.show(ui, rect, &t, dark);
         });
+        let mut shacts = Vec::new();
+        crate::civilsheets::show(cv, ui.ctx(), &t, dark, &mut shacts);
+        for (id, k) in shacts {
+            cmd.push((id, Params { name: Some(k), ..Default::default() }));
+        }
         let mut dacts = Vec::new();
         crate::civildialogs::show(cv, ui.ctx(), &t, &mut dacts);
         for a in dacts {
@@ -2135,10 +2192,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         // the whole CivilCraft frame (panels, plan, overlays), for civil.timings
         cv.timings.insert("frame", ms(frame_started));
     }
-    if let Some((id, p)) = cmd
-        && let Err(e) = run(app, id, &p)
-    {
-        app.error = Some(e);
+    for (id, p) in cmd {
+        if let Err(e) = run(app, id, &p) {
+            app.error = Some(e);
+            break;
+        }
     }
     if let Some((n, b)) = save_file
         && let Some(save) = app.services.save.as_mut()

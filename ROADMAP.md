@@ -136,6 +136,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 - 2026-10-18 M14.3: DetailCraft modelling tools in the app (placing with snapping, connections, clipboard, transforms, windows / lasso, grids, levels, phases, holes, copes, Settings, plan / elevation); 558/558 status lines and files identical to the frozen 0.5 doing the same; 1.5–2.9× the JS on a 2820-member model.
 - 2026-10-18 M6.17: ModelCraft's panels (Entity info, Outliner, Components, Colors, Materials, Tags, Style + sun, Scenes, 3D-print check) and inference keys in the app; 4,076 / 4,076 saved files and 4,000 / 4,000 status lines byte-identical to 0.5 after the same actions.
 
+- 2026-10-19 M11.11: CivilCraft cross-section sheets (PDF) and mass haul from the alignment's Sample lines (dialogs, diagram, CSV); cvtooldiff 76/76 projects, 2084/2084 status lines, 20/20 files (PDFs inflated) identical to 0.5.
 - 2026-10-18 M11.10: CivilCraft survey points: Shift+click / box / Ctrl+A selection, copy, cut, paste, duplicate, Delete; 52/52 projects byte-identical to 0.5.
 - 2026-10-18 M11.9: CivilCraft section panel and sample lines; 48/48 projects and 4/4 section CSVs byte-identical to 0.5.
 - 2026-10-18 M11.8: CivilCraft profile panel (ground, design, curves, PVI drag / add / delete, PI and PVI tables typed); 44/44 projects byte-identical to 0.5.

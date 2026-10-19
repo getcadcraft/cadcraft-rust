@@ -29,6 +29,7 @@ pub mod civilplan;
 pub mod civilpoints;
 pub mod civilprofile;
 pub mod civilsections;
+pub mod civilsheets;
 pub mod civiltools;
 pub mod civilview;
 pub mod detail3d;
