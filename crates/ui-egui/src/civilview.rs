@@ -202,6 +202,18 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: \"<field>=<value>\"} → a typed Properties field of the selection, with 0.5's checks (one undo step). Alignment: name, start, minR, corridor (on|off), lane, laneSlope (%), shoulder, shoulderSlope (%), cut, fill, step, se (on|off), se.delta (%), se.r=i:radius, se.e=i:rate (%), se.add, se.remove=i. Pad: name, z, cut, fill. Structure: name, rim (empty = from the surface), sump, dia. Pipe: name, dia, invUp, invDn, auto. Feature line: name, use (eg|design|off), closed, daylight, cut, fill, elev=i:z, grade=i:%, raise, surface, even, offset=dist,dz|slope,amount. Parcel: name, pob, r=i:radius (empty = straight), turn=i:left|right. Point: n, x, y, z, d. Nothing selected: name, units, maxEdge, net.type, net.minSlope (%), net.minCover, net.minDrop, net.auto; project.<field> edits the project whatever is selected",
     ),
     (
+        "civil.lasso",
+        "Lasso",
+        "Shift+drag",
+        "{name: \"window|crossing|fence:x,y;x,y;…\"} → the survey points a freehand lasso along that path (world coordinates) picks join the selection",
+    ),
+    (
+        "civil.settings",
+        "Point settings",
+        "",
+        "{name: \"order=PNEZD|PENZD,renumber=clash|always,start=<n>|\"\"\"} → Settings › CivilCraft: point row order, how pasted points are numbered, where new numbers start",
+    ),
+    (
         "civil.xs",
         "Section sheets (PDF)",
         "",
@@ -354,6 +366,10 @@ pub struct CivilView {
     pub sections: crate::civilsections::SectionsPanel,
     /// the cross-section sheets and mass haul dialogs (civilsheets.rs)
     pub sheets: crate::civilsheets::SheetsState,
+    /// Settings › CivilCraft's point fields: row order, renumbering, start (civillasso.rs)
+    pub pt_settings: crate::civillasso::PtSettings,
+    /// the "New numbers start at" field being typed in
+    pub lasso_start_text: Option<String>,
     /// survey point selection, the copy and a paste on the way (civilpoints.rs)
     pub points: crate::civilpoints::PointsState,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
@@ -413,6 +429,8 @@ impl CivilView {
             profile: crate::civilprofile::ProfilePanel::default(),
             sections: crate::civilsections::SectionsPanel::default(),
             sheets: crate::civilsheets::SheetsState::default(),
+            pt_settings: crate::civillasso::PtSettings::default(),
+            lasso_start_text: None,
             points: crate::civilpoints::PointsState::default(),
             ppp: 1.0,
             dark: true,
@@ -1024,17 +1042,28 @@ impl CivilView {
             let (sx, sy) = to_px(p);
             let (wx, wy) = self.view.to_world(sx, sy);
             if shift && self.tools.tool == crate::civiltools::Tool::Select && self.points.paste.is_none() {
-                // Shift+drag draws a box that adds the survey points inside it (a Shift+click still clicks)
+                // Shift+drag draws a box that adds the survey points inside it (a Shift+click still clicks); 0.4 W2.7: a
+                // drag that bends away from a straight line becomes a lasso
                 self.points.boxing = Some((wx, wy));
+                self.points.lasso = Some(crate::civillasso::LassoDrag::new(cc_detail::lasso_core::Pt { x: sx / ppp, y: sy / ppp }));
             } else {
                 grip_used = self.grip_press(wx, wy);
             }
         }
         if let Some(start) = self.points.boxing {
             grip_used = true;
+            if let (Some(p), Some(d)) = (ui.ctx().input(|i| i.pointer.latest_pos()), self.points.lasso.as_mut()) {
+                let (sx, sy) = to_px(p);
+                if let Some(m) = d.track(cc_detail::lasso_core::Pt { x: sx / ppp, y: sy / ppp }) {
+                    self.message = m;
+                }
+            }
             if released || !ui.ctx().input(|i| i.pointer.primary_down()) {
                 self.points.boxing = None;
-                if let Some(p) = ui.ctx().input(|i| i.pointer.latest_pos()) {
+                let lasso = self.points.lasso.take().filter(|d| d.lasso);
+                if let Some(d) = lasso {
+                    self.lasso_pick(&d.path, d.mode.unwrap_or("window"));
+                } else if let Some(p) = ui.ctx().input(|i| i.pointer.latest_pos()) {
                     let (sx, sy) = to_px(p);
                     let (wx, wy) = self.view.to_world(sx, sy);
                     let (qx, qy) = self.css(start.0, start.1);
@@ -1105,6 +1134,22 @@ impl CivilView {
     fn keys(&mut self, ui: &egui::Ui) {
         if ui.ctx().memory(|m| m.focused().is_some()) {
             return;
+        }
+        // 0.4 W2.7: Space while Shift+dragging switches the lasso's mode, Esc drops the drag
+        if self.points.boxing.is_some() {
+            let (space, esc) = ui.ctx().input(|i| (i.key_pressed(egui::Key::Space), i.key_pressed(egui::Key::Escape)));
+            if esc {
+                self.points.boxing = None;
+                self.points.lasso = None;
+                self.message = t("cv.cancelled", &[]);
+                return;
+            }
+            if space {
+                if let Some(m) = self.points.lasso.as_mut().and_then(|d| d.space()) {
+                    self.message = m;
+                }
+                return;
+            }
         }
         use crate::civiltools::TOOLS;
         let (esc, undo, redo, enter, back, del) = ui.ctx().input(|i| {
@@ -1416,8 +1461,26 @@ impl CivilView {
                 }
             }
         }
-        // a Shift+drag box
-        if let (Some(a), Some((cx, cy))) = (self.points.boxing, self.cursor) {
+        // a Shift+drag lasso: window = solid, crossing = dashed green, fence = dashed orange (an open path)
+        if let Some(d) = self.points.lasso.as_ref().filter(|d| d.lasso && d.path.len() > 1) {
+            let at = |q: &cc_detail::lasso_core::Pt| Pos2::new(rect.min.x + q.x as f32, rect.min.y + q.y as f32);
+            let mut line: Vec<Pos2> = d.path.iter().map(at).collect();
+            let mode = d.mode.unwrap_or("window");
+            if mode != "fence"
+                && let Some(f) = line.first().copied()
+            {
+                line.push(f);
+            }
+            match mode {
+                "window" => {
+                    painter.add(egui::Shape::line(line, egui::Stroke::new(1.5, act)));
+                }
+                m => {
+                    let col = if m == "crossing" { pal.green } else { pal.orange };
+                    painter.add(egui::Shape::dashed_line(&line, egui::Stroke::new(1.5, col), 6.0, 4.0));
+                }
+            }
+        } else if let (Some(a), Some((cx, cy))) = (self.points.boxing, self.cursor) {
             let r = Rect::from_two_pos(s(a.0, a.1), s(cx, cy));
             painter.rect_filled(r, 0.0, act.gamma_multiply(0.12));
             painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, act), egui::StrokeKind::Middle);
@@ -1756,6 +1819,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             | "civil.traverse"
             | "civil.calls"
             | "civil.pi.remove"
+            | "civil.lasso"
             | "civil.prop"
             | "civil.why"
     ) && let Some(cv) = app.civil.as_mut()
@@ -1979,6 +2043,8 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             let (k, v) = name.split_once('=').ok_or("civil.prop: name = \"field=value\"")?;
             cv.prop_set(k.trim(), v)?;
         }
+        "civil.lasso" => cv.lasso_command(&name)?,
+        "civil.settings" => cv.settings_command(&name)?,
         "civil.xs" => cv.xs_open(&name)?,
         "civil.xs.info" => cv.message = cv.xs_info().ok_or("civil.xs.info: the section sheets dialog is not open")?,
         "civil.xs.go" => {

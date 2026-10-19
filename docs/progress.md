@@ -2,6 +2,32 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-19 — M11.11–M11.14 CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (agent, work/civilsheets)
+
+- M11.11 (`civilsheets.rs`): the alignment's Sample lines block opens Section sheets (PDF) (paper, scale,
+  exaggeration, live page count and notes, Download PDF through io-civil `section_sheets` + `to_pdf_pages`) and Mass
+  haul (shrink or swell, the diagram, balanced stretches, what is left over, CSV). Commands `civil.xs*`, `civil.mh*`.
+  The frame now runs every command a button asks for (it ran only the last one).
+- M11.12: feature lines in the profile (WL.20: crossings as diamonds with "name elevation", runs within a distance
+  dashed and named, the Feature lines button and "Alongside within" field saved in the project's display, a crossing
+  mark selects its line) and the "why" blocks (WL.23: curves and vertical curves that do not fit, under-minimum radii,
+  each fix a button, one undo step, its label said), the design minimum radius. Commands `civil.profile.fl`,
+  `.within`, `.pickfl`, `.fl.info`, `civil.why`.
+- M11.13 (`civilpropedit.rs`): `civil.prop=<field>=<value>` and typed fields in Properties for the alignment (name,
+  start, corridor and its assembly, superelevation Δ and rate table), pad, structure, pipe (and Auto inverts), feature
+  line (name, use, closed, daylight and slopes, vertex elevations and grades, Raise, From surface, Even grade, the
+  stepped offset), parcel (name, point of beginning, course radius and turn), one survey point (number, E, N, Z, D), and
+  with nothing selected the project's name, units, longest edge and the network's type and rules; the Site block's
+  name and units edit the project.
+- M11.14 (`civillasso.rs`): Shift+drag stays a box until it bends 12 px off its line, then a lasso whose mode follows the
+  first sideways move; Space cycles window / crossing / fence, Esc cancels (`civil.lasso` headless); Settings'
+  point fields (row order, numbers for pasted points, start) in the left panel and `civil.settings`.
+- Parity (`forks/tools/cvtooldiff.mjs`, 19 scenarios × 4 sites, 6 new): 76/76 projects, 2084/2084 status lines, 20/20
+  exported files (section PDFs compared inflated, mass haul and section CSVs byte for byte) identical to the frozen 0.5.
+- Timings (`forks/tools/cvsheetbench.mjs`, 500k-point survey, 107 sections, best of 3): lasso 8.5 ms vs 44 ms (5.2×);
+  mass haul, feature-line profile and why under 0.1 ms on both; section sheets PDF 128 ms vs 58 ms (0.5×: layout 3.7
+  ms, the rest is io-civil's PDF page writer, an engine follow-up).
+- Next: superelevation's per-curve table and diagram, the faster PDF page writer, the import dialog, GIS layers.
 ## 2026-10-19 — M4.14 Whole-drawing edits share each object's extra data (agent, work/cadshare)
 
 - `cc-cad`: `Entity::extra` is now `Extra`, an `Arc<Obj>` shared copy-on-write (reads through `Deref`; `insert`,

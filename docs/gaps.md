@@ -1,5 +1,9 @@
 # Gaps against CadCraft 0.5
 
+Last updated 2026-10-19 · Change: CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting commands, Properties panel and plotting (M4.10–M4.12); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: drafting commands and the Properties panel (M4.10, M4.11); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: drafting commands (M4.10); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-18 · Change: ModelCraft panels (M6.17); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15); per-app gaps below. Ranked; shrink as features land.
 Last updated 2026-10-19 · Change: drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); CivilCraft tools and panels (M11.7–M11.10), BimCraft Draw (M7.13), MarkupCraft / TakeoffCraft panels (M9.13–15), ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
@@ -32,12 +36,15 @@ Last updated 2026-10-19 · Change: drafting edits share each object's extra data
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11): drawing tools, typed traverse / deed calls, grips, point moves and Delete (M11.7),
    the profile panel with PVI add / drag / delete and the PI / PVI tables (M11.8), the section panel and sample lines
-   (M11.9), point selection with copy / cut / paste / duplicate (M11.10) are in at byte parity (cvtooldiff 52/52).
-   Missing: cross-section sheets (PDF) and mass haul from the section panel, feature lines in the profile (WL.20), the
-   curve "why" fixes (WL.23), the other Properties edits (names, pad elevation and slopes, corridor, pipes, feature
-   line grades …), the lasso (a Shift+drag that bends) and its window / crossing / fence modes, renumber settings,
-   the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), the catchment
-   tool, touch's draft bar; a 500k-point survey zoomed out draws every point cross (fast, but a carpet).
+   (M11.9), point selection with copy / cut / paste / duplicate (M11.10), cross-section sheets (PDF) and mass haul
+   (M11.11), feature lines in the profile and the curve "why" fixes (M11.12), the Properties edits (M11.13), the lasso
+   with window / crossing / fence and the renumber settings (M11.14) are in at byte parity (cvtooldiff 76/76).
+   Missing: superelevation's per-curve table and diagram, the drainage (catchment) rows of structures and pipes, a
+   parcel's legal description copy / download buttons, the mass haul factor kept between runs (0.5 keeps it in
+   localStorage; here per session) and Settings' other fields (labels, corner, exaggeration, lat/lon, internet,
+   assistants), the import dialog (format is detected), GIS layers and basemaps (so exports carry no map pictures), the
+   catchment tool, touch's draft bar; a 500k-point survey zoomed out draws every point cross (fast, but a carpet);
+   section sheets PDF runs 0.5× the JS (io-civil's PDF page writer: layout 3.7 ms, writing ~125 ms on 107 sections).
 5. **ModelCraft** (M6.17: panels, components, 3D-print check, inference keys at parity): missing the Render dialog
    (looks, path tracing, lamps' Lights panel and editor), sun shadows drawn in the view (the settings are kept and saved),
    procedural material textures (swatches and faces show the material's colour), components that stretch (partRules,

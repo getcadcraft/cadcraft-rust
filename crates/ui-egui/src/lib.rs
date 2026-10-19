@@ -24,6 +24,7 @@ pub mod canvas;
 pub mod civil3d;
 pub mod civildialogs;
 pub mod civilexport;
+pub mod civillasso;
 pub mod civilpanel;
 pub mod civilplan;
 pub mod civilpoints;

@@ -41,6 +41,8 @@ pub struct PointsState {
     pub copy_out: Option<String>,
     /// a Shift+drag box being drawn (world start)
     pub boxing: Option<(f64, f64)>,
+    /// the same drag's path in CSS px: a box until it bends, then a lasso (civillasso.rs)
+    pub lasso: Option<crate::civillasso::LassoDrag>,
 }
 
 fn count(n: usize) -> String {
@@ -64,7 +66,7 @@ impl CivilView {
     }
 
     /// One picked point is the selected point (its Properties and grip); more are the picked set.
-    fn set_picked(&mut self, s: BTreeSet<String>) {
+    pub(crate) fn set_picked(&mut self, s: BTreeSet<String>) {
         self.profile.sel_pvi = None;
         if s.len() == 1 {
             self.sel = s.into_iter().next().map(Sel::Point);
@@ -145,14 +147,15 @@ impl CivilView {
             );
             return;
         }
-        let c = make_clip(&pts, self.project.units(), ORDER, "", at_ms);
+        let order_s = self.pt_settings.order.clone();
+        let c = make_clip(&pts, self.project.units(), &order_s, "", at_ms);
         self.points.clip = read_clip(&c);
         self.points.copy_out = c.get("csv").and_then(Value::as_str).map(str::to_string);
         let n = pts.len();
         if cut {
             self.remove_points(&tr!("cv.undo.pts.cut", n = n, count = count(n)));
         }
-        let order = ORDER.chars().map(String::from).collect::<Vec<_>>().join(",");
+        let order = order_s.chars().map(String::from).collect::<Vec<_>>().join(",");
         let mut msg = vec![tr!(if cut { "cv.pts.cut.done" } else { "cv.pts.copied" }, n = n, count = count(n), order = order)];
         if cut {
             msg.push(self.rebuilt());
@@ -176,7 +179,7 @@ impl CivilView {
 
     /// civilcraft.js `paste(inPlace, systemText)`.
     pub fn paste(&mut self, in_place: bool, system_text: Option<&str>) {
-        let pick = choose_paste(self.points.clip.as_ref(), system_text, ORDER);
+        let pick = choose_paste(self.points.clip.as_ref(), system_text, &self.pt_settings.order);
         let kind = pick.get("kind").and_then(Value::as_str).unwrap_or("none");
         if kind == "none" {
             self.message = pick.get("why").and_then(Value::as_str).unwrap_or("").to_string();
@@ -234,7 +237,7 @@ impl CivilView {
     fn commit_paste(&mut self, pts: &[Pt], dx: f64, dy: f64, label: &str, note: &str) {
         let moved = if dx != 0.0 || dy != 0.0 { move_by(pts, dx, dy) } else { pts.to_vec() };
         let existing: Vec<String> = self.project.points.iter().map(|p| p.n.clone()).collect();
-        let (out, changed, kept) = renumber(&moved, &existing, "clash", None);
+        let (out, changed, kept) = renumber(&moved, &existing, &self.pt_settings.renumber, self.pt_settings.start);
         let (undo, done) = match label {
             "Duplicate" => ("cv.undo.duplicate", "cv.dup.done"),
             "Paste in place" => ("cv.undo.paste.place", "cv.paste.done.place"),

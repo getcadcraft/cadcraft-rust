@@ -137,6 +137,13 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
             }
         });
     }
+    // Settings › CivilCraft's point fields (M11.14)
+    let mut sacts = Vec::new();
+    crate::civillasso::settings_ui(cv, ui, tk, &mut sacts);
+    for (id, k) in sacts {
+        acts.push(Act::Run(id, k));
+    }
+    let p = &mut cv.project;
     // surface
     let has_tin = cc_civil::js::truthy(p.state.get("surface").and_then(|s| s.get("tin")));
     let grid_tin = p.state.get("surface").and_then(|s| s.get("tin")).and_then(|t| t.get("from")).and_then(Value::as_str) == Some("grid");
