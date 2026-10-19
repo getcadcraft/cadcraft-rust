@@ -2,6 +2,19 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-19 — wave 3 merged; CPU cap on the VPS
+
+- Merged into the Rust repo and deployed: M6.17 ModelCraft panels (mcuidiff on this build 1,200/1,200 status lines,
+  1,243/1,243 files), M14.3 DetailCraft tools (558/558 + sample 58/58), M13.3–M13.4 PartCraft sketcher, features,
+  threaded rebuilds, configurations (257/257 steps, 27/27 files), M4.10–M4.12 drafting, Properties, plot (on this build:
+  propsdiff 720/720, plotdiff 32/32, mcpdiff 0 different + 2 known LISP, gate green; kdiff was stopped by the
+  server's low-memory guard before finishing; the agent's run was 1,386/1,386 + 8,600 random records; rerun owed).
+- The VPS host caps the whole server at 30 % CPU after sustained load (2026-10-18). Fork builds, gates and harnesses
+  now run one at a time under a 1-core cgroup cap (`systemd-run --scope -p CPUQuota=100% … nice -n 19`); the move to
+  a 16-core WSL2 machine is planned. Disk: stale target output, harness temp dirs and old deploys pruned (95 % → 63 %).
+- Next: share each object's extra data in cc-cad (MOVE / ARRAY / MATCHPROP / ERASE + UNDO on the 9k floor plan run
+  0.1–0.6× the JS), then the gaps list.
+
 ## 2026-10-18 — M4.12 Plot to PDF and `drawing_plot` (agent, work/drafting)
 
 - `crates/io-cad/src/plot.rs`: plot.js — papers (ISO / ANSI / ARCH), layout sheets and the model (extents or a window),
