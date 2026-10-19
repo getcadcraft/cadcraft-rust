@@ -10,6 +10,7 @@ pub mod draw2;
 pub mod hatch;
 pub mod inquiry;
 pub mod layers;
+pub mod layout;
 pub mod modify;
 pub mod qselect;
 pub mod trim;
@@ -171,6 +172,14 @@ pub static COMMANDS: &[CmdDef] = &[
     quiet(def("LTSCALE", &["LTS"], |c| Box::pin(layers::ltscale(c)))),
     quiet(def("LWEIGHT", &["LW", "LINEWEIGHT"], |c| Box::pin(layers::lweight(c)))),
     quiet(def("PURGE", &["PU"], |c| Box::pin(inquiry::purge(c)))),
+    CmdDef { no_repeat: true, ..def("LAYOUT", &["LO", "NEWLAYOUT"], |c| Box::pin(layout::layout(c))) },
+    def("MVIEW", &["MV"], |c| Box::pin(layout::mview(c))),
+    quiet(def("VPORTS", &["VIEWPORTS"], |c| Box::pin(layout::vports(c)))),
+    CmdDef { no_repeat: true, ..def("MSPACE", &["MS"], |c| Box::pin(layout::mspace(c))) },
+    CmdDef { no_repeat: true, ..def("PSPACE", &["PS"], |c| Box::pin(layout::pspace(c))) },
+    def("VPLAYER", &[], |c| Box::pin(layout::vplayer(c))),
+    def("VIEWLABEL", &["VL"], |c| Box::pin(layout::viewlabel(c))),
+    quiet(def("NAMEDVIEW", &["NV", "VIEWS"], |c| Box::pin(layout::namedview(c)))),
     // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),

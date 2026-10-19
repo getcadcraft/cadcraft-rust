@@ -256,6 +256,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-drawing",
  "cc-geom",
+ "cc-io-cad",
  "cc-part",
  "cc-tools",
  "serde_json",

@@ -22,6 +22,8 @@ cc-cad-geom.workspace = true
 # expr.js (the Properties panel's expressions): the same file in CadCraft and PartCraft 0.5, ported once in cc-part
 cc-part.workspace = true
 cc-drawing.workspace = true
+# sheets.js papers, units and scales (LAYOUT, MVIEW): ported once in cc-io-cad's plot
+cc-io-cad.workspace = true
 cc-tools.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

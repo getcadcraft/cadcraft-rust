@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-19 · Change: clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-19 · Change: sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -12,9 +12,10 @@ Last updated 2026-10-19 · Change: clipboard, QSELECT / SELECTSIMILAR / FIND, UN
    SELECTALL DESELECT SELECT, DIST AREA MEASUREGEOM ID LIST, LAYISO LAYUNISO LAYOFF LAYFRZ LAYMCUR LAYON LAYTHW LAYMRG
    LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE, PLOT (M4.10–M4.12); COPYCLIP CUTCLIP
    COPYBASE PASTECLIP PASTEORIG (one clipboard for every drawing the window opens; Ctrl+C / X / V, Ctrl+Shift+V), QSELECT
-   SELECTSIMILAR FIND (with the window's Quick select and Find and replace dialogs), UNITS (M4.15). **Next, by everyday
-   use:** LAYOUT MVIEW VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD;
-   LWDISPLAY POLARANG; COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
+   SELECTSIMILAR FIND (with the window's Quick select and Find and replace dialogs), UNITS (M4.15); LAYOUT MVIEW VPORTS
+   MSPACE PSPACE VPLAYER VIEWLABEL NAMEDVIEW, the sheets they make saving byte-identically in DWG 2000–2018, DXF 2000 and
+   DXF R12 (M4.16; in the window MSPACE shows the model through the viewport's window, and VPORTS in the model says split
+   panes are the browser's). **Next, by everyday use:** PUBLISH; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD; LWDISPLAY POLARANG; COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
    dynamic block without
    its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,

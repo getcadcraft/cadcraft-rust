@@ -85,6 +85,10 @@ pub struct HostState {
     /// QSELECT / FIND asked for their dialogs
     pub qs_open: bool,
     pub find_open: bool,
+    /// MSPACE: the viewport worked in (its sheet's space, its id); the window shows the model through it
+    pub entered: Option<(cc_cad::SpaceId, u64)>,
+    /// MSPACE / PSPACE asked the window to go into a viewport (Some) or back to its sheet (None)
+    pub enter_req: Option<Option<(cc_cad::SpaceId, u64)>>,
 }
 
 impl HostState {
@@ -263,6 +267,43 @@ impl Host for UiHost {
     fn clip_get(&self) -> Option<cc_engine::clip::Shared> {
         CLIP_STORE.with(|s| s.borrow().clone()).map(cc_engine::clip::Shared::Clip)
     }
+    fn now_ms(&self) -> Option<f64> {
+        web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).ok().map(|d| d.as_secs_f64() * 1000.0)
+    }
+    fn view_center(&self) -> Option<P2> {
+        self.0.borrow().view_box.map(|b| P2::new((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0))
+    }
+    fn has_viewports(&self) -> bool {
+        true
+    }
+    fn viewport_entered(&self) -> Option<(cc_cad::SpaceId, u64)> {
+        self.0.borrow().entered
+    }
+    fn viewport_at(&self, doc: &Doc, p: P2) -> Option<u64> {
+        viewport_at(doc, p)
+    }
+    fn enter_viewport(&mut self, space: cc_cad::SpaceId, id: u64) {
+        let mut h = self.0.borrow_mut();
+        h.entered = Some((space, id));
+        h.enter_req = Some(Some((space, id)));
+    }
+    fn leave_viewport(&mut self) {
+        let mut h = self.0.borrow_mut();
+        h.entered = None;
+        h.enter_req = Some(None);
+    }
+}
+
+/// The viewport (turned on) of the open sheet under a point.
+pub fn viewport_at(doc: &Doc, p: P2) -> Option<u64> {
+    doc.entities()
+        .find(|e| match &e.geo {
+            cc_cad::entity::Geo::Viewport(v) => {
+                e.get("on") != Some(&serde_json::Value::Bool(false)) && (p.x - v.x).abs() <= v.w / 2.0 && (p.y - v.y).abs() <= v.h / 2.0
+            }
+            _ => false,
+        })
+        .and_then(|e| e.id)
 }
 
 thread_local! {

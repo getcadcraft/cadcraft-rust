@@ -137,7 +137,7 @@ pub fn save(rest: &[&str]) -> ExitCode {
         for a in rest {
             if skip {
                 skip = false;
-            } else if matches!(*a, "--created-ms" | "--bench") {
+            } else if matches!(*a, "--created-ms" | "--bench" | "--script") {
                 skip = true;
             } else if !a.starts_with("--") {
                 out.push(*a);
@@ -148,7 +148,7 @@ pub fn save(rest: &[&str]) -> ExitCode {
     let flag = |k: &str| rest.iter().position(|a| *a == k).and_then(|i| rest.get(i + 1)).copied();
     let (Some(src), Some(fmt), Some(out)) = (pos.first(), pos.get(1), pos.get(2)) else {
         eprintln!(
-            "usage: cadcraft-cli save <in.dwg|in.dxf> <2000|2004|2007|2010|2013|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq] [--bench N]"
+            "usage: cadcraft-cli save <in.dwg|in.dxf> <2000|2004|2007|2010|2013|2018|dxf12|dxf2000> <out> [--created-ms N] [--guid-seq] [--bench N] [--script cmds.json]"
         );
         return ExitCode::from(2);
     };
@@ -177,6 +177,15 @@ pub fn save(rest: &[&str]) -> ExitCode {
     };
     let mut d = Doc::new();
     d.load(&input);
+    // --script: a cmds script's inputs run on the drawing first (idiff.mjs --sheets)
+    if let Some(sf) = flag("--script") {
+        let script: Value =
+            match std::fs::read(sf).map_err(|e| e.to_string()).and_then(|b| serde_json::from_slice(&b).map_err(|e| e.to_string())) {
+                Ok(v) => v,
+                Err(e) => return err("io", &e),
+            };
+        d = crate::cmds::run_inputs(d, &script).1;
+    }
     if let Some(n) = flag("--bench").and_then(|s| s.parse::<usize>().ok()) {
         let _ = save_as(&d, fmt, &opts);
         let mut best = f64::INFINITY;

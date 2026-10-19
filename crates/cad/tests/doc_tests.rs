@@ -209,3 +209,36 @@ fn extra_keys_shared_through_edits_and_undo() {
     assert!(!d.change("X", |d| d.update(999, line())).unwrap());
     assert_eq!(d.undo_stack.len(), 2);
 }
+
+/// commands.js's VIEWLABEL edit hook: a view label follows its viewport's view name in the same undo step.
+#[test]
+fn view_labels_follow_their_viewport_name() {
+    let mut d = Doc::new();
+    let vp = d
+        .change("MVIEW", |d| d.add(e(json!({ "type": "viewport", "x": 50, "y": 50, "w": 80, "h": 60, "cx": 0, "cy": 0, "s": 1 }))))
+        .unwrap();
+    let vid = vp.id.unwrap();
+    let label = d
+        .change("VIEWLABEL", |d| {
+            d.add(e(json!({ "type": "text", "x": 10, "y": 10, "h": 2.5, "s": "Unnamed view", "field": { "k": "vpview", "vp": vid } })))
+        })
+        .unwrap();
+    let lid = label.id.unwrap();
+    let other = d.change("TEXT", |d| d.add(e(json!({ "type": "text", "x": 0, "y": 0, "h": 2.5, "s": "Plain" })))).unwrap().id.unwrap();
+    let mut named = d.get(vid).unwrap().clone();
+    named.extra.insert("vname".into(), json!("Plan"));
+    d.change("VIEW NAME", |d| d.update(vid, named)).unwrap();
+    assert_eq!(d.get(lid).unwrap().to_value()["s"], json!("Plan"));
+    assert_eq!(d.get(other).unwrap().to_value()["s"], json!("Plain"));
+    assert_eq!(d.undo_stack.last().unwrap().ops.len(), 2, "the label changed in the same step");
+    d.undo();
+    assert_eq!(d.get(lid).unwrap().to_value()["s"], json!("Unnamed view"));
+    // a name taken away: the label says so; the viewport erased: the label keeps its words
+    d.redo();
+    let mut plain = d.get(vid).unwrap().clone();
+    plain.extra.remove("vname");
+    d.change("VIEW NAME", |d| d.update(vid, plain)).unwrap();
+    assert_eq!(d.get(lid).unwrap().to_value()["s"], json!("Unnamed view"));
+    d.change("ERASE", |d| d.remove(vid)).unwrap();
+    assert_eq!(d.get(lid).unwrap().to_value()["s"], json!("Unnamed view"));
+}

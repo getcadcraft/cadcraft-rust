@@ -27,6 +27,9 @@ use cc_engine::{Engine, Host, Lang, Tan};
 use cc_geom::P2;
 use serde_json::{Value, json};
 
+/// The doc's sheets: each one's space and the ids on it (the stub's viewport_entered looks an id up there).
+type Sheets = Rc<RefCell<Vec<(cc_cad::SpaceId, Vec<u64>)>>>;
+
 /// The stub host's state, shared with the script runner (the engine owns the host).
 #[derive(Default)]
 struct Log {
@@ -44,6 +47,10 @@ struct Log {
 struct Stub {
     selection: Vec<u64>,
     log: Rc<RefCell<Log>>,
+    /// the viewport MSPACE entered (its id)
+    entered: Option<u64>,
+    /// the doc's sheets' spaces, refreshed by the runner after each input (viewport_entered looks the id up there)
+    spaces: Sheets,
 }
 
 fn pt_v(p: P2) -> Value {
@@ -113,6 +120,45 @@ impl Host for Stub {
     fn view_rect(&self) -> Option<(f64, f64)> {
         Some((100.0, 50.0))
     }
+    fn view_center(&self) -> Option<P2> {
+        Some(P2::new(0.0, 0.0))
+    }
+    fn now_ms(&self) -> Option<f64> {
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs_f64() * 1000.0)
+    }
+    // the page's split panes and viewport work, logged as kdiff.mjs's stub logs them
+    fn has_panes(&self) -> bool {
+        true
+    }
+    fn set_panes(&mut self, layout: &str) {
+        self.log.borrow_mut().events.push(json!(["setPanes", layout]));
+    }
+    fn has_viewports(&self) -> bool {
+        true
+    }
+    fn viewport_entered(&self) -> Option<(cc_cad::SpaceId, u64)> {
+        let id = self.entered?;
+        self.spaces.borrow().iter().find(|(_, ids)| ids.contains(&id)).map(|(s, _)| (*s, id))
+    }
+    fn viewport_at(&self, doc: &Doc, p: P2) -> Option<u64> {
+        doc.entities()
+            .find(|e| match &e.geo {
+                cc_cad::entity::Geo::Viewport(v) => {
+                    e.get("on") != Some(&Value::Bool(false)) && (p.x - v.x).abs() <= v.w / 2.0 && (p.y - v.y).abs() <= v.h / 2.0
+                }
+                _ => false,
+            })
+            .and_then(|e| e.id)
+    }
+    fn enter_viewport(&mut self, space: cc_cad::SpaceId, id: u64) {
+        let _ = space;
+        self.entered = Some(id);
+        self.log.borrow_mut().events.push(json!(["enterViewport", id]));
+    }
+    fn leave_viewport(&mut self) {
+        self.entered = None;
+        self.log.borrow_mut().events.push(json!(["leaveViewport"]));
+    }
 }
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
@@ -135,13 +181,19 @@ fn kind_name(k: &Kind) -> &'static str {
 
 /// Run a script → one record per input.
 pub fn run_script(script: &Value) -> Vec<Value> {
-    let lang = Lang::new(script.get("strings").unwrap_or(&Value::Null));
     let mut doc = Doc::new();
     if let Some(d) = script.get("doc").filter(|d| d.is_object()) {
         doc.load(d);
     }
+    run_inputs(doc, script).0
+}
+
+/// Run a script's inputs on a drawing → the records and the drawing after them (`save --script`).
+pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
+    let lang = Lang::new(script.get("strings").unwrap_or(&Value::Null));
     let log = Rc::new(RefCell::new(Log { cursor: Some(P2::new(0.0, 0.0)), ..Log::default() }));
-    let stub = Stub { selection: Vec::new(), log: Rc::clone(&log) };
+    let spaces: Sheets = Rc::default();
+    let stub = Stub { selection: Vec::new(), log: Rc::clone(&log), entered: None, spaces: Rc::clone(&spaces) };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();
     let inputs = script.get("inputs").and_then(Value::as_array).unwrap_or(&empty);
@@ -149,7 +201,12 @@ pub fn run_script(script: &Value) -> Vec<Value> {
     // `time: true`: each record is only { ms, printed } (timing scripts on big drawings: no snapshots)
     let timing = script.get("time").and_then(Value::as_bool).unwrap_or(false);
     log.borrow_mut().timing = timing;
+    let refresh = |eng: &Engine, spaces: &Sheets| {
+        let d = eng.doc();
+        *spaces.borrow_mut() = d.layouts.iter().map(|l| (l.space, d.space_entities(l.space).filter_map(|e| e.id).collect())).collect();
+    };
     for inp in inputs {
+        refresh(&eng, &spaces);
         let t0 = std::time::Instant::now();
         if let Some(ids) = inp.get("select").and_then(Value::as_array) {
             eng.host_mut().set_selection(&ids.iter().filter_map(Value::as_u64).collect::<Vec<_>>());
@@ -217,7 +274,8 @@ pub fn run_script(script: &Value) -> Vec<Value> {
         });
         out.push(rec);
     }
-    out
+    let doc = eng.doc().clone();
+    (out, doc)
 }
 
 pub fn cmds(rest: &[&str]) -> ExitCode {

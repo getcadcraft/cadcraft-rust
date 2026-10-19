@@ -2,6 +2,29 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-19 — M4.16 Sheets and viewports, named views (agent, work/cadcmds)
+
+- `cmd/layout.rs`: LAYOUT (sheets.js `sheetContents`: border, title block on layer "Title block", one viewport onto
+  the model at the largest standard scale that fits; `defaultPaper`, `aimViewport`, `bestScale`, `modelExtents` over
+  cc-io-cad's papers and scales), MVIEW, VPORTS (on a sheet MVIEW; in the model the host's split panes), MSPACE /
+  PSPACE (the host's viewport work), VPLAYER (? / Freeze / Thaw / Reset / Vpvisdflt; layer patterns with * and ?;
+  All / Select / Current), VIEWLABEL (a text with `field: {k: 'vpview', vp}`), NAMEDVIEW (? / Restore / Save /
+  Window / Delete, per tab). `cc-cad` `Doc::change` runs commands.js's view-label edit hook inside the change: a label
+  follows its viewport's view name in the same undo step (`view_labels_follow_their_viewport_name`). The engine reads
+  no clock: a new sheet's date comes from `Host::now_ms`.
+- Window: the sheet tabs show while editing, with cadcraft.js's "+" (LAYOUT); a tab click opens that space in the
+  drawing and LAYOUT / MSPACE / PSPACE move the tab; MSPACE shows the model zoomed to the viewport's window and PSPACE
+  goes back to the sheet. VPORTS in the model says split panes are the browser's (the window has one pane).
+- CLI: `cadcraft-cli save … --script cmds.json` runs a command script before saving (idiff.mjs `--sheets`); the cmds
+  stub logs the page's hooks (setPanes, enterViewport / leaveViewport, viewportAt) as kdiff.mjs's stub does.
+- Parity: kdiff scenarios (2 new: sheets and viewports, named views) all identical; idiff `--set kit --save --sheets`
+  (each of the 78 kit drawings gets LAYOUT, VIEWLABEL, VPLAYER Vpvisdflt + Freeze, a second MVIEW, a sheet named view
+  and a second LAYOUT + MVIEW on both sides, then saves): DWG 2000 / 2004 / 2007 / 2010 / 2013 / 2018, DXF 2000 and
+  DXF R12 byte-identical 78/78 each (624/624), reports equal.
+- Timings (JS / Rust ms, best of 3): Carey LAYOUT 40 / 19 (2.1×), LAYOUT + MVIEW 82 / 38 (2.2×), LAYOUT + VPLAYER
+  Freeze * 41 / 19 (2.2×), NAMEDVIEW Save + Restore 6.4 / 0.1; ar1all 31 / 8.5, 46 / 18, 29 / 9.2, 6.6 / 0.1.
+- Screenshot checked: a new sheet with its title block, a second viewport and its view label.
+
 ## 2026-10-19 — M4.15 Clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (agent, work/cadcmds)
 
 - `cc-engine` `clip` (clipboard.js with blockcopy.js's `planCopy(…, {refs})` / `applyCopy(…, 'keep')`): `make_clip`

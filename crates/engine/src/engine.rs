@@ -91,6 +91,34 @@ pub trait Host {
     fn find_dialog(&mut self) -> bool {
         false
     }
+    /// The time now, in ms since 1970 (a new sheet's title block dates itself; the engine reads no clock itself).
+    fn now_ms(&self) -> Option<f64> {
+        None
+    }
+    /// The view's centre on screen (NAMEDVIEW saves it with `view_rect`'s size).
+    fn view_center(&self) -> Option<P2> {
+        None
+    }
+    /// `host.setPanes`: split screen (VPORTS in the model) → false when the host has none.
+    fn has_panes(&self) -> bool {
+        false
+    }
+    fn set_panes(&mut self, _layout: &str) {}
+    /// `host.enterViewport`: working on the model through a sheet's viewport (MSPACE / PSPACE) → false when the host
+    /// has none.
+    fn has_viewports(&self) -> bool {
+        false
+    }
+    /// The viewport being worked in: (its sheet's space, its id).
+    fn viewport_entered(&self) -> Option<(cc_cad::SpaceId, u64)> {
+        None
+    }
+    /// The viewport (turned on) under a point of the open sheet.
+    fn viewport_at(&self, _doc: &Doc, _p: P2) -> Option<u64> {
+        None
+    }
+    fn enter_viewport(&mut self, _space: cc_cad::SpaceId, _id: u64) {}
+    fn leave_viewport(&mut self) {}
 }
 
 /// A set of ids that keeps insertion order (a JS `Set`). The order is the Vec (read it as `.0`); the hash index
@@ -315,7 +343,8 @@ impl std::fmt::Debug for Engine {
 }
 
 impl Engine {
-    pub fn new(doc: Doc, host: Box<dyn Host>, lang: Lang) -> Self {
+    pub fn new(mut doc: Doc, host: Box<dyn Host>, lang: Lang) -> Self {
+        doc.unnamed_view = lang.s("field.vpview.none");
         let sh = Rc::new(Shared { doc: RefCell::new(doc), host: RefCell::new(host), st: RefCell::new(State::default()), lang });
         Engine { sh, runner: Runner::default() }
     }

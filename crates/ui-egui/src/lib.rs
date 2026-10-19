@@ -225,6 +225,8 @@ pub struct UiApp {
     clip_keys: bool,
     /// a clipboard command the keys asked for (COPYCLIP, CUTCLIP, PASTECLIP, PASTEORIG)
     clip_cmd: Option<&'static str>,
+    /// the sheet whose viewport MSPACE entered (PSPACE goes back to it)
+    vp_sheet: cc_cad::SpaceId,
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -292,6 +294,7 @@ impl Default for UiApp {
             caddlg: qsdlg::CadDialogs::default(),
             clip_keys: false,
             clip_cmd: None,
+            vp_sheet: 0,
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -1294,6 +1297,15 @@ impl UiApp {
                     return Err(format!("space.select: index {i} is out of range (0..{n})"));
                 }
                 self.space = i;
+                if let Some(ed) = self.editor.as_mut() {
+                    if ed.eng.busy() {
+                        ed.escape();
+                    }
+                    ed.hs.borrow_mut().entered = None;
+                    let name = if i == 0 { None } else { ed.eng.doc().layouts.get(i.saturating_sub(1)).map(|l| l.name.clone()) };
+                    ed.eng.doc_mut().set_space(name.as_deref());
+                    self.sync_editor();
+                }
             }
             "layer.toggle" => {
                 let n = params.name.clone().ok_or("layer.toggle: name is required")?;
@@ -1369,14 +1381,53 @@ impl UiApp {
             qsdlg::open_find(self);
         }
         let Some(ed) = self.editor.as_mut() else { return };
+        // MSPACE / PSPACE: the model through the viewport, and back to its sheet
+        let enter = ed.hs.borrow_mut().enter_req.take();
+        let mut fit_to: Option<(f64, f64, f64, f64)> = None;
+        match enter {
+            Some(Some((space, id))) => {
+                let win = {
+                    let d = ed.eng.doc();
+                    d.space_map(space).and_then(|m| m.get(&id)).and_then(|e| match &e.geo {
+                        cc_cad::entity::Geo::Viewport(v) if v.s > 0.0 => {
+                            Some((v.cx - v.w / v.s / 2.0, v.cy - v.h / v.s / 2.0, v.cx + v.w / v.s / 2.0, v.cy + v.h / v.s / 2.0))
+                        }
+                        _ => None,
+                    })
+                };
+                ed.eng.doc_mut().set_space_id(cc_cad::MODEL);
+                fit_to = win;
+                self.vp_sheet = space;
+            }
+            Some(None) => {
+                let back = ed.eng.doc().layouts.iter().map(|l| l.space).find(|s| *s == self.vp_sheet);
+                if let Some(s) = back {
+                    ed.eng.doc_mut().set_space_id(s);
+                }
+            }
+            None => {}
+        }
         if ed.take_changed() || self.doc.is_none() {
             let drawing = ed.display.drawing(&ed.eng.doc());
             let n = drawing.spaces.len();
             self.doc = Some(document::from_drawing(&ed.name, drawing));
             self.views.resize(n, None);
+            // the tab follows the drawing's open space (LAYOUT opens its sheet; MSPACE the model)
+            let d = ed.eng.doc();
+            self.space =
+                if d.in_model() { 0 } else { d.layouts.iter().position(|l| l.space == d.space).map_or(0, |i| i.saturating_add(1)) };
             if self.space >= n {
                 self.space = 0;
             }
+        }
+        if let Some((x0, y0, x1, y1)) = fit_to
+            && let Some(slot) = self.views.get_mut(self.space)
+        {
+            let mut v = slot.unwrap_or_default();
+            v.width = self.canvas_px.0;
+            v.height = self.canvas_px.1;
+            v.fit(x0, y0, x1, y1, 0.0);
+            *slot = Some(v);
         }
         let zooms = ed.take_zoom();
         let (w, h) = self.canvas_px;
@@ -1929,10 +1980,12 @@ impl UiApp {
         let t = self.tokens;
         let Some(doc) = &self.doc else { return };
         let names: Vec<(String, bool)> = doc.drawing.spaces.iter().map(|s| (s.name.clone(), s.kind == SpaceKind::Paper)).collect();
-        if names.len() <= 1 {
+        let editing = self.editor.is_some();
+        if names.len() <= 1 && !editing {
             return;
         }
         let mut pick = None;
+        let mut add = false;
         egui::Panel::bottom("tabs")
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(6, 3)))
@@ -1944,11 +1997,19 @@ impl UiApp {
                                 pick = Some(i);
                             }
                         }
+                        // cadcraft.js's "+" tab: a new sheet (LAYOUT)
+                        if editing && ui.small_button("+").on_hover_text(crate::edit::lang_text("ui.new_sheet_layout_title", &[])).clicked()
+                        {
+                            add = true;
+                        }
                     });
                 });
             });
         if let Some(i) = pick {
             self.run_ui("space.select", &Params { index: Some(i), ..Default::default() });
+        }
+        if add {
+            self.run_ui("cmd.line", &Params { name: Some("LAYOUT".into()), ..Default::default() });
         }
     }
 

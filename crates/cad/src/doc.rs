@@ -457,6 +457,9 @@ pub struct Doc {
     pub faces3d: Vec<Value>,
     /// the file's dynamic-block objects (dwg-save.js)
     pub dyn_src: Option<Value>,
+    /// what a view label shows for a viewport with no view name (commands.js `field.vpview.none`; the engine sets
+    /// it from its catalog)
+    pub unnamed_view: String,
 }
 
 impl Default for Doc {
@@ -514,6 +517,7 @@ impl Doc {
             parametric: None,
             faces3d: Vec::new(),
             dyn_src: None,
+            unnamed_view: "Unnamed view".into(),
         };
         d.add_layer(&serde_json::json!({ "name": "0", "color": 7 }));
         d
@@ -765,7 +769,12 @@ impl Doc {
             return f(self);
         }
         self.pending = Some(Step { label: label.into(), ops: Vec::new() });
-        let result = f(self);
+        let mut result = f(self);
+        if result.is_ok()
+            && let Err(e) = self.view_label_hook()
+        {
+            result = Err(e);
+        }
         let step = self.pending.take().unwrap_or(Step { label: label.into(), ops: Vec::new() });
         match result {
             Err(e) => {
@@ -786,6 +795,51 @@ impl Doc {
                 Ok(r)
             }
         }
+    }
+    /// commands.js's VIEWLABEL edit hook, inside the change before it is recorded: a view label (a text carrying
+    /// `field: {k: 'vpview', vp}`) follows its viewport's view name in the same undo step.
+    fn view_label_hook(&mut self) -> Result<(), DocError> {
+        let Some(p) = self.pending.as_ref() else { return Ok(()) };
+        let is_vp = |e: &Option<Entity>| e.as_ref().is_some_and(|e| matches!(e.geo, Geo::Viewport(_)));
+        let vname =
+            |e: &Option<Entity>| e.as_ref().and_then(|e| e.extra.get("vname")).filter(|v| js::truthy(Some(v))).map(js::to_js_string);
+        let mut changed: Vec<(SpaceId, u64, Option<String>, bool)> = Vec::new();
+        for op in &p.ops {
+            let Op::Ent { space, id, before, after } = op else { continue };
+            if !(is_vp(before) || is_vp(after)) {
+                continue;
+            }
+            if after.is_some() && before.is_some() && vname(after).unwrap_or_default() == vname(before).unwrap_or_default() {
+                continue;
+            }
+            changed.push((*space, *id, vname(after), after.is_some()));
+        }
+        for (space, vp, name, alive) in changed {
+            let labels: Vec<Entity> = self
+                .space_entities(space)
+                .filter(|e| {
+                    matches!(e.geo, Geo::Text(_))
+                        && e.extra.get("field").is_some_and(|f| {
+                            f.get("k").and_then(Value::as_str) == Some("vpview") && f.get("vp").and_then(Value::as_u64) == Some(vp)
+                        })
+                })
+                .cloned()
+                .collect();
+            for e in labels {
+                let Geo::Text(t) = &e.geo else { continue };
+                let s2 = if alive { name.clone().unwrap_or_else(|| self.unnamed_view.clone()) } else { t.s.clone() };
+                if s2 != t.s
+                    && let Some(id) = e.id
+                {
+                    let mut n = e.clone();
+                    if let Geo::Text(nt) = &mut n.geo {
+                        nt.s = s2;
+                    }
+                    self.replace_in(id, n, space)?;
+                }
+            }
+        }
+        Ok(())
     }
     fn must_be_in_change(&self) -> Result<(), DocError> {
         if self.pending.is_some() { Ok(()) } else { Err(DocError::NotInChange) }
