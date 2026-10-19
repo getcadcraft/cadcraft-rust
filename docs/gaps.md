@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-19 · Change: CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-19 · Change: clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -10,10 +10,12 @@ Last updated 2026-10-19 · Change: CivilCraft sheets, mass haul, WL.20 / WL.23, 
    CHAMFER (polyline, trim, multiple, Shift), EXPLODE, STRETCH, ARRAY ARRAYRECT ARRAYPOLAR, BREAK BREAKATPOINT, LENGTHEN,
    JOIN, MATCHPROP, XLINE RAY, MTEXT, REVCLOUD, MLEADER, TEXTEDIT, BLOCK ATTDEF INSERT BEDIT BCLOSE PURGE, DUPLICATE
    SELECTALL DESELECT SELECT, DIST AREA MEASUREGEOM ID LIST, LAYISO LAYUNISO LAYOFF LAYFRZ LAYMCUR LAYON LAYTHW LAYMRG
-   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE, PLOT (M4.10–M4.12). **Next, by everyday
-   use:** COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG (clipboard.js); QSELECT SELECTSIMILAR FIND; UNITS; LAYOUT MVIEW
-   VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD; LWDISPLAY POLARANG;
-   COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a dynamic block without
+   LAYDEL RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES PROPERTIESCLOSE QPMODE, PLOT (M4.10–M4.12); COPYCLIP CUTCLIP
+   COPYBASE PASTECLIP PASTEORIG (one clipboard for every drawing the window opens; Ctrl+C / X / V, Ctrl+Shift+V), QSELECT
+   SELECTSIMILAR FIND (with the window's Quick select and Find and replace dialogs), UNITS (M4.15). **Next, by everyday
+   use:** LAYOUT MVIEW VPORTS MSPACE PSPACE VPLAYER VIEWLABEL; PUBLISH; NAMEDVIEW; UCS PLAN TURNLEFT TURNRIGHT TURNWORLD;
+   LWDISPLAY POLARANG; COUNT; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
+   dynamic block without
    its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE

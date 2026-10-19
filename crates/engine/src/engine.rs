@@ -69,6 +69,28 @@ pub trait Host {
     fn view_extents(&self) -> Option<Bounds> {
         None
     }
+    /// The shared clipboard store (another drawing, window or tab pastes from it): keep this copy → false when the
+    /// host keeps none (the engine's own copy only; the browser's "too big to share").
+    fn clip_put(&mut self, _clip: &crate::clip::Clip) -> bool {
+        false
+    }
+    /// The shared clipboard store's contents, if any (text is untrusted: read through `clip::read_clip`).
+    fn clip_get(&self) -> Option<crate::clip::Shared> {
+        None
+    }
+    /// Settings › CadCraft › paste base ('lower-left' | 'center'), when the host has settings.
+    fn paste_base(&self) -> Option<String> {
+        None
+    }
+    /// `host.quickSelect`: open the Quick select dialog (it applies its rule itself) → false when there is none
+    /// (QSELECT then asks on the command line).
+    fn quick_select(&mut self) -> bool {
+        false
+    }
+    /// `host.findDialog`: open the Find and replace dialog → false when there is none (FIND asks on the command line).
+    fn find_dialog(&mut self) -> bool {
+        false
+    }
 }
 
 /// A set of ids that keeps insertion order (a JS `Set`). The order is the Vec (read it as `.0`); the hash index
@@ -237,6 +259,8 @@ pub struct State {
     pub sel_windows: Vec<Bounds>,
     /// what commands remember between runs (`E.hatch`, `E.filletR`, …)
     pub memo: crate::cmd::Memo,
+    /// the engine's clipboard (`E.clipboard`; the host's shared store sits behind it)
+    pub clipboard: crate::clip::Clipboard,
 }
 
 /// What the engine and its commands share.

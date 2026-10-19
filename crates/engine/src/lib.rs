@@ -28,6 +28,7 @@
 #![allow(clippy::neg_cmp_op_on_partial_ord)]
 #![deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
+pub mod clip;
 pub mod cmd;
 pub mod engine;
 pub mod input;

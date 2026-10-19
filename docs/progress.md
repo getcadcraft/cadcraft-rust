@@ -2,6 +2,37 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-19 — M4.15 Clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (agent, work/cadcmds)
+
+- `cc-engine` `clip` (clipboard.js with blockcopy.js's `planCopy(…, {refs})` / `applyCopy(…, 'keep')`): `make_clip`
+  (objects without ids, `field` or readers' `_` keys; every block they reach, nested first; their layers' settings;
+  viewports stay on the sheet), `read_clip` (the untrusted-store validator: format, version, limits, entity types and
+  fields, finite numbers, colours, layer and block names, references and block loops, attribute tags; depth and node
+  caps), `Clipboard` (this engine's copy plus the host's shared store: `Shared::Text` is read through `read_clip`,
+  `Shared::Clip` is a copy made in this window), `base_point`, `paste_preview`, `paste_clip`. Commands COPYCLIP CUTCLIP
+  COPYBASE PASTECLIP PASTEORIG (`cmd/clipcmd.rs`). Not carried: constraints (gcons.js `clipConstraints`; the fork
+  solves none).
+- `cmd/qselect.rs`: qselect.js (`QS_PROPS`, `propsFor`, `quickSelect`, `valuesOf`, `similarTo`, wildcards, ICU-like
+  numeric `localeCompare`) and findtext.js (`findMatches` with match case / whole words / wildcards, `applyMatches`);
+  QSELECT SELECTSIMILAR (Settings toggles) FIND on the command line; `cmd/units.rs` UNITS (`setLengthFormat`, the
+  format phrase and example). Host hooks: `clip_put` / `clip_get`, `paste_base`, `quick_select`, `find_dialog`.
+- Window (`ui-egui`): one clipboard for every drawing the window opens (copy in one, paste in another); Ctrl+C / X / V
+  and Ctrl+Shift+V run the clipboard commands while the command line is empty; QSELECT and FIND open the Quick select
+  and Find and replace dialogs (`qsdlg.rs`, cadcraft.js's: type with counts, property, operator, value list or text,
+  include / exclude, append, a live count; find / replace with the options, the look-in kinds and a live list),
+  every control a `qs.*` / `find.*` command. 0.5 has no Units dialog: UNITS is the command line.
+- Parity: kdiff (seed 1) scenarios 1928/1928 records identical on this commit with 7 new scenarios (clipboard ×2,
+  QSELECT, SELECTSIMILAR, FIND, UNITS ×2); 30 random scripts at seed 7 4200/4200.
+- Timings (drafttime, best of 3; JS / Rust ms): Carey Foodservice (21,491 objects) COPYCLIP ALL + PASTEORIG 261 / 67
+  (3.9×), + PASTECLIP 363 / 107 (3.4×), CUTCLIP ALL + UNDO 153 / 31 (5.0×), QSELECT layer 14.5 / 8.1 (1.8×),
+  SELECTSIMILAR 71 / 29 (2.5×), FIND select 10.8 / 6.6 (1.6×), FIND replace + UNDO 23 / 15 (1.6×), UNITS 3.1 / 0.6;
+  ar1all floor plan (9,021) 244 / 38, 290 / 65, 223 / 23, 8.8 / 4.3, 27 / 9.4, 3.2 / 2.0, 4.0 / 2.2, 2.9 / 0.6. The
+  first cut was slower than 0.5 on CUTCLIP (0.9×) and FIND replace (1.0×): every copy serialised the clip as JSON for
+  a store the stub never reads, and FIND copied every string and grouped hits quadratically; now the store takes the
+  clip itself, plain searches run in place over the text and hits group through an index.
+- Screenshots checked (cadcraft-shot on the kitchen sample): the Quick select dialog, Find and replace with a live list,
+  UNITS on the command line.
+
 ## 2026-10-20 — M4.14 and M11.11–M11.14 merged and deployed
 
 - On the Rust repo's build: M4.14 kdiff seed 3 all same, propsdiff 720/720, plotdiff 32/32, mcpdiff 0 different

@@ -2,6 +2,7 @@
 
 pub mod arrange;
 pub mod block;
+pub mod clipcmd;
 pub mod corner;
 pub mod dim;
 pub mod draw;
@@ -10,7 +11,9 @@ pub mod hatch;
 pub mod inquiry;
 pub mod layers;
 pub mod modify;
+pub mod qselect;
 pub mod trim;
+pub mod units;
 pub mod view;
 
 use crate::engine::Ctx;
@@ -53,6 +56,8 @@ pub struct Memo {
     pub block_edit: Option<block::BlockEdit>,
     /// what the last LAYISO did (`doc.layIso`)
     pub lay_iso: Option<layers::LayIso>,
+    /// SELECTSIMILAR's switches (`E.similarOn`: layer, color, name, pattern, height)
+    pub similar_on: Option<[bool; 5]>,
 }
 
 /// One command.
@@ -129,10 +134,19 @@ pub static COMMANDS: &[CmdDef] = &[
     quiet(def("DIMEXE", &[], |c| Box::pin(dim::dimvar(c, "DIMEXE")))),
     quiet(def("DIMEXO", &[], |c| Box::pin(dim::dimvar(c, "DIMEXO")))),
     quiet(def("DIMLUNIT", &[], |c| Box::pin(dim::dimlunit(c)))),
+    CmdDef { keep_selection: true, ..def("COPYCLIP", &[], |c| Box::pin(clipcmd::copyclip(c))) },
+    def("CUTCLIP", &[], |c| Box::pin(clipcmd::cutclip(c))),
+    CmdDef { keep_selection: true, ..def("COPYBASE", &[], |c| Box::pin(clipcmd::copybase(c))) },
+    CmdDef { keep_selection: true, ..def("PASTECLIP", &[], |c| Box::pin(clipcmd::pasteclip(c))) },
+    CmdDef { keep_selection: true, ..def("PASTEORIG", &[], |c| Box::pin(clipcmd::pasteorig(c))) },
     CmdDef { keep_selection: true, ..def("DUPLICATE", &["DUP"], |c| Box::pin(inquiry::duplicate(c))) },
     quiet(def("SELECTALL", &["AI_SELALL"], |c| Box::pin(inquiry::selectall(c)))),
     CmdDef { no_repeat: true, ..def("DESELECT", &["AI_DESELECT", "SELECTNONE"], |c| Box::pin(inquiry::deselect(c))) },
     quiet(def("SELECT", &[], |c| Box::pin(inquiry::select_cmd(c)))),
+    quiet(def("QSELECT", &["QS"], |c| Box::pin(qselect::qselect(c)))),
+    CmdDef { keep_selection: true, ..def("SELECTSIMILAR", &["SIM"], |c| Box::pin(qselect::selectsimilar(c))) },
+    quiet(def("FIND", &[], |c| Box::pin(qselect::find(c)))),
+    quiet(def("UNITS", &["UN", "DDUNITS"], |c| Box::pin(units::units(c)))),
     def("DIST", &["DI"], |c| Box::pin(inquiry::dist_cmd(c))),
     def("AREA", &["AA"], |c| Box::pin(inquiry::area(c))),
     def("MEASUREGEOM", &["MEA"], |c| Box::pin(inquiry::measuregeom(c))),

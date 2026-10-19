@@ -82,10 +82,13 @@ pub struct HostState {
     pub plot_window: Option<Option<Bounds>>,
     /// pick tolerance in drawing units (6 px at the current zoom)
     pub pick_tol: f64,
+    /// QSELECT / FIND asked for their dialogs
+    pub qs_open: bool,
+    pub find_open: bool,
 }
 
 impl HostState {
-    fn push_log(&mut self, s: &str) {
+    pub(crate) fn push_log(&mut self, s: &str) {
         for line in s.split('\n') {
             self.log.push_back(line.to_string());
         }
@@ -244,6 +247,28 @@ impl Host for UiHost {
     fn plot_window(&mut self, w: Option<Bounds>) {
         self.0.borrow_mut().plot_window = Some(w);
     }
+    fn quick_select(&mut self) -> bool {
+        self.0.borrow_mut().qs_open = true;
+        true
+    }
+    fn find_dialog(&mut self) -> bool {
+        self.0.borrow_mut().find_open = true;
+        true
+    }
+    /// One clipboard for every drawing this window opens (copy in one, paste in another).
+    fn clip_put(&mut self, clip: &cc_engine::clip::Clip) -> bool {
+        CLIP_STORE.with(|s| *s.borrow_mut() = Some(clip.clone()));
+        true
+    }
+    fn clip_get(&self) -> Option<cc_engine::clip::Shared> {
+        CLIP_STORE.with(|s| s.borrow().clone()).map(cc_engine::clip::Shared::Clip)
+    }
+}
+
+thread_local! {
+    /// The window's shared clipboard store (cadcraft.js keeps it in localStorage so another tab pastes; one window
+    /// here, so the copy itself).
+    static CLIP_STORE: RefCell<Option<cc_engine::clip::Clip>> = const { RefCell::new(None) };
 }
 
 /// The open editable drawing and its command line.

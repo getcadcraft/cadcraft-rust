@@ -62,6 +62,7 @@ pub mod partview;
 pub mod pdfcmd;
 pub mod pdfview;
 pub mod plotdlg;
+pub mod qsdlg;
 pub mod takeoffprops;
 pub mod takeofftools;
 pub mod theme;
@@ -218,6 +219,12 @@ pub struct UiApp {
     pub cadprops: cadprops::CadProps,
     /// the drafting editor's Plot dialog (M4.12)
     pub plot: plotdlg::PlotDlg,
+    /// the drafting editor's Quick select and Find and replace dialogs (M4.15)
+    pub caddlg: qsdlg::CadDialogs,
+    /// the clipboard keys go to the clipboard commands (the command line is empty and has the focus)
+    clip_keys: bool,
+    /// a clipboard command the keys asked for (COPYCLIP, CUTCLIP, PASTECLIP, PASTEORIG)
+    clip_cmd: Option<&'static str>,
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -282,6 +289,9 @@ impl Default for UiApp {
             editor: None,
             cadprops: cadprops::CadProps::default(),
             plot: plotdlg::PlotDlg::default(),
+            caddlg: qsdlg::CadDialogs::default(),
+            clip_keys: false,
+            clip_cmd: None,
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -1316,6 +1326,7 @@ impl UiApp {
             id if id.starts_with("hub.") => return hub::run(self, id, params),
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
+            id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if id.starts_with("part.") => {
@@ -1347,6 +1358,17 @@ impl UiApp {
         if plot_req {
             self.plot.open = true;
         }
+        let (qs_req, find_req) = {
+            let mut h = ed.hs.borrow_mut();
+            (std::mem::take(&mut h.qs_open), std::mem::take(&mut h.find_open))
+        };
+        if qs_req {
+            qsdlg::open_qs(self);
+        }
+        if find_req {
+            qsdlg::open_find(self);
+        }
+        let Some(ed) = self.editor.as_mut() else { return };
         if ed.take_changed() || self.doc.is_none() {
             let drawing = ed.display.drawing(&ed.eng.doc());
             let n = drawing.spaces.len();
@@ -1426,6 +1448,29 @@ impl UiApp {
         }
         if self.editor.is_none() {
             return;
+        }
+        if self.clip_keys {
+            let shift = raw.events.iter().any(|e| matches!(e, egui::Event::Key { modifiers, .. } if modifiers.shift && modifiers.command));
+            let mut pick: Option<&'static str> = None;
+            raw.events.retain(|e| {
+                let c = match e {
+                    egui::Event::Copy => Some("COPYCLIP"),
+                    egui::Event::Cut => Some("CUTCLIP"),
+                    egui::Event::Paste(_) => Some(if shift { "PASTEORIG" } else { "PASTECLIP" }),
+                    // an empty system clipboard sends no Paste: the key itself
+                    egui::Event::Key { key: egui::Key::V, pressed: true, modifiers, .. } if modifiers.command => {
+                        Some(if modifiers.shift { "PASTEORIG" } else { "PASTECLIP" })
+                    }
+                    _ => None,
+                };
+                if c.is_some() {
+                    pick = c;
+                }
+                c.is_none()
+            });
+            if pick.is_some() {
+                self.clip_cmd = pick;
+            }
         }
         let enter = raw.events.iter().position(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. }));
         if let Some(i) = enter
@@ -1507,6 +1552,7 @@ impl UiApp {
             cadprops::panel(self, ui);
         }
         plotdlg::window(self, &ctx);
+        qsdlg::window(self, &ctx);
         self.tabs(ui);
         if self.part.is_some() {
             partpanel::ui(self, ui);
@@ -2166,6 +2212,20 @@ impl UiApp {
             ed.line.pop();
             submit = true;
         }
+        // Ctrl+C / X / V, Ctrl+Shift+V (taken out of the input in raw_input_hook while the line is empty)
+        if let Some(cmd) = self.clip_cmd.take()
+            && ed.line.is_empty()
+            && !ed.eng.busy()
+        {
+            ed.type_line(cmd);
+        }
+        let elsewhere0 = ctx.memory(|m| m.focused()).is_some_and(|f| Some(f) != cmd_id);
+        self.clip_keys = ed.line.is_empty()
+            && !ed.eng.busy()
+            && !elsewhere0
+            && self.caddlg.qs.is_none()
+            && self.caddlg.find.is_none()
+            && !self.plot.open;
         let (esc, del, undo, redo, f3, f8) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::Escape),
