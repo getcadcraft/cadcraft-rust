@@ -166,6 +166,42 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: add | remove | step=n | left=n | right=n | extra+=station | extra-=station} → the selected alignment's sample lines (one undo step)",
     ),
     (
+        "civil.profile.fl",
+        "Feature lines in the profile",
+        "",
+        "{name?: \"on\"|\"off\"} → the profile shows where feature lines cross the alignment (no name: switches; saved in the project's display)",
+    ),
+    (
+        "civil.profile.within",
+        "Feature lines alongside within",
+        "",
+        "{name: distance | \"\"} → the profile also draws feature lines running within that distance of the centerline (empty or 0: crossings only)",
+    ),
+    (
+        "civil.profile.pickfl",
+        "Pick a feature line in the profile",
+        "",
+        "{name: \"sta,z\" | \"#k\" (the k-th crossing mark)} → the feature line whose crossing mark is there is selected",
+    ),
+    (
+        "civil.profile.fl.info",
+        "Feature line labels in the profile",
+        "",
+        "{} → what the profile's feature line labels say, on the status line",
+    ),
+    (
+        "civil.why",
+        "Apply a fix that fits",
+        "",
+        "{name: \"<PI>:<radius>\" | \"both\" | \"L<PVI>:<length>\" | \"#k\"} → a fix the selected alignment's \"why\" blocks offer (one undo step)",
+    ),
+    (
+        "civil.prop",
+        "Set a property",
+        "",
+        "{name: \"<field>=<value>\"} → a typed Properties field of the selection, with 0.5's checks (one undo step); alignment: minR",
+    ),
+    (
         "civil.xs",
         "Section sheets (PDF)",
         "",
@@ -1720,6 +1756,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             | "civil.traverse"
             | "civil.calls"
             | "civil.pi.remove"
+            | "civil.prop"
+            | "civil.why"
     ) && let Some(cv) = app.civil.as_mut()
     {
         // the last edit's time (the command itself; the plan rebuilds on the next frame: "plan")
@@ -1909,6 +1947,38 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.sampling" => cv.sampling_edit(&name)?,
+        "civil.profile.fl" => cv.profile_fl(match name.as_str() {
+            "on" => Some(true),
+            "off" => Some(false),
+            "" => None,
+            o => return Err(format!("civil.profile.fl: on or off, not {o}")),
+        }),
+        "civil.profile.within" => cv.profile_within(&name)?,
+        "civil.profile.pickfl" => {
+            let (sta, z) = if let Some(k) = name.trim().strip_prefix('#') {
+                let k: usize = k.parse().map_err(|_| "civil.profile.pickfl: #k = a crossing number from 0")?;
+                let a = cv.profile_alignment().ok_or("civil.profile.pickfl: no alignment")?;
+                let f = cv.profile_features(&a);
+                let all: Vec<(f64, f64)> = arr(Some(&f))
+                    .iter()
+                    .flat_map(|x| arr(x.get("crossings")).iter().map(|c| (numf(c.get("sta")), numf(c.get("z")))).collect::<Vec<_>>())
+                    .collect();
+                match all.get(k) {
+                    Some(q) => *q,
+                    None => return Ok(()),
+                }
+            } else {
+                let v = xy_param(&name).ok_or("civil.profile.pickfl: name = \"sta,z\" or \"#k\"")?;
+                (v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0))
+            };
+            cv.profile_pick_fl(sta, z)?;
+        }
+        "civil.profile.fl.info" => cv.message = cv.profile_fl_info(),
+        "civil.why" => cv.why_fix(&name)?,
+        "civil.prop" => {
+            let (k, v) = name.split_once('=').ok_or("civil.prop: name = \"field=value\"")?;
+            cv.prop_set(k.trim(), v)?;
+        }
         "civil.xs" => cv.xs_open(&name)?,
         "civil.xs.info" => cv.message = cv.xs_info().ok_or("civil.xs.info: the section sheets dialog is not open")?,
         "civil.xs.go" => {

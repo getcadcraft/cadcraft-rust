@@ -50,6 +50,17 @@ pub struct ProfilePanel {
     pub cursor: Option<(String, f64)>,
     /// a table cell being typed in (key, text)
     pub editing: Option<(String, String)>,
+    /// the last frame's plot (headless picks in data units go through it)
+    pub plot: Option<Plot>,
+    /// 0.5 WL.20: the feature lines in the profile, kept per (alignment, project version, within)
+    pub fl_cache: Option<(String, u64, f64, Value)>,
+    /// the "Alongside within" field being typed in
+    pub within_text: Option<String>,
+}
+
+/// profile-view.js `colors().fl` (--layer-violet).
+fn fl_color(pal: &Palette) -> Color32 {
+    if pal.dark { Color32::from_rgb(0xa8, 0x92, 0xff) } else { Color32::from_rgb(0x5b, 0x3c, 0xc4) }
 }
 
 /// The plot area inside the panel (profile-view.js `pad`): left 58, right 16, top 14, bottom 30.
@@ -82,6 +93,23 @@ impl Plot {
             self.z0 + (self.y0 - sy) / if h == 0.0 { 1.0 } else { h } * (self.z1 - self.z0),
         )
     }
+}
+
+/// profile-view.js `hitFeature`: the nearest crossing mark within 8 px.
+fn hit_feature(f: &Value, p: &Plot, at: (f64, f64)) -> Option<String> {
+    let mut best = None;
+    let mut bd = 8.0;
+    for x in arr(Some(f)) {
+        for c in arr(x.get("crossings")) {
+            let q = p.to_screen(numf(c.get("sta")), numf(c.get("z")));
+            let d = (q.0 - at.0).hypot(q.1 - at.1);
+            if d < bd {
+                bd = d;
+                best = x.get("id").and_then(Value::as_str).map(str::to_string);
+            }
+        }
+    }
+    best
 }
 
 /// profile-view.js `niceStep`.
@@ -157,6 +185,95 @@ impl CivilView {
         if let Some(a) = al {
             self.profile.want = Some(a.to_string());
         }
+    }
+
+    /// 0.5 WL.20 (civilcraft.js `renderProfile`): the feature lines crossing the alignment (and, within the set
+    /// distance, running alongside) — featureline.js `featureProfile`, worked out again after every edit; [] when the
+    /// profile's Feature lines switch is off.
+    pub fn profile_features(&mut self, a: &Value) -> Value {
+        let d = self.project.state.get("display").cloned().unwrap_or(Value::Null);
+        if !cc_civil::js::truthy(d.get("profFeatures")) {
+            return Value::Array(Vec::new());
+        }
+        let within = numf(d.get("profWithin"));
+        let id = string_of(a.get("id"));
+        let v = self.project.version;
+        if let Some((k, ver, w, f)) = &self.profile.fl_cache
+            && *k == id
+            && *ver == v
+            && (*w == within || (w.is_nan() && within.is_nan()))
+        {
+            return f.clone();
+        }
+        let t0 = web_time::Instant::now();
+        let al = self.project.alignment(a);
+        let feats: Vec<cc_civil::featureline::Feature> =
+            arr(self.project.state.get("features")).iter().map(cc_civil::featureline::read_feature).collect();
+        let f = cc_civil::featureline::feature_profile(&al, &feats, within);
+        self.profile.fl_cache = Some((id, v, within, f.clone()));
+        self.timings.insert("flprof", t0.elapsed().as_secs_f64() * 1000.0);
+        f
+    }
+
+    /// The profile's Feature lines button (civilcraft.js `ui.profFl`): `display.profFeatures` on, off or switched.
+    pub fn profile_fl(&mut self, on: Option<bool>) {
+        let cur = cc_civil::js::truthy(self.project.state.get("display").and_then(|d| d.get("profFeatures")));
+        self.project.set_display("profFeatures", Value::Bool(on.unwrap_or(!cur)));
+    }
+
+    /// The "Alongside within" field (civilcraft.js `ui.profWithin` change): empty = 0 (crossings only).
+    pub fn profile_within(&mut self, text: &str) -> Result<(), String> {
+        if !cc_civil::js::truthy(self.project.state.get("display").and_then(|d| d.get("profFeatures"))) {
+            return Err("civil.profile.within: turn the profile's feature lines on first".into());
+        }
+        let v = cc_civil::js::str_to_number(&text.replacen(',', ".", 1));
+        let empty = cc_civil::js::trim(text).is_empty();
+        if !empty && (!v.is_finite() || v < 0.0) {
+            self.message = t("pv.fl.within.bad", &[]);
+            return Ok(());
+        }
+        self.project.set_display("profWithin", jnum(if empty { 0.0 } else { v }));
+        Ok(())
+    }
+
+    /// profile-view.js `hitFeature(sx, sy, 8)` at a point in data units (through the last frame's plot): the feature
+    /// line whose crossing mark is there is selected (civilcraft.js profile pointerdown).
+    pub fn profile_pick_fl(&mut self, sta: f64, z: f64) -> Result<bool, String> {
+        let p = self.profile.plot.ok_or("civil.profile.pickfl: open the profile first (civil.profile=on)")?;
+        let Some(a) = self.profile_alignment() else { return Ok(false) };
+        let f = self.profile_features(&a);
+        let at = p.to_screen(sta, z);
+        let Some(id) = hit_feature(&f, &p, at) else { return Ok(false) };
+        self.select_profile_feature(&a, &id);
+        Ok(true)
+    }
+
+    fn select_profile_feature(&mut self, a: &Value, id: &str) {
+        if arr(self.project.state.get("features")).iter().any(|x| x.get("id").and_then(Value::as_str) == Some(id)) {
+            // the profile keeps the alignment it shows (civilcraft.js: ui.profAl keeps its value)
+            self.profile.want = Some(string_of(a.get("id")));
+            self.sel = Some(Sel::Feature(id.to_string()));
+            self.profile.sel_pvi = None;
+            self.points.picked.clear();
+        }
+    }
+
+    /// What the profile's feature line labels say (`pv.fl.cross` at each crossing, each run's name), for agents and
+    /// tests: "" when there is none.
+    pub fn profile_fl_info(&mut self) -> String {
+        let Some(a) = self.profile_alignment() else { return String::new() };
+        let f = self.profile_features(&a);
+        let mut out = Vec::new();
+        for x in arr(Some(&f)) {
+            let name = string_of(x.get("name"));
+            for c in arr(x.get("crossings")) {
+                out.push(tr!("pv.fl.cross", name = name.as_str(), z = fixed(numf(c.get("z")), 2)));
+            }
+            for _ in arr(x.get("runs")) {
+                out.push(name.clone());
+            }
+        }
+        out.join(" · ")
     }
 
     /// Add PVI mode on or off (civilcraft.js `setPviAdd`).
@@ -454,6 +571,34 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         if ui.selectable_label(cv.profile.add, t("ui.pvi.add", &[])).on_hover_text(t("ui.pvi.add.title", &[])).clicked() {
             acts.push(ProfAct::Run("civil.pvi.addmode", String::new()));
         }
+        // 0.5 WL.20: feature lines in the profile, and how far alongside
+        let d = cv.project.state.get("display").cloned().unwrap_or(Value::Null);
+        let fl_on = cc_civil::js::truthy(d.get("profFeatures"));
+        if ui.selectable_label(fl_on, t("ui.prof.fl", &[])).on_hover_text(t("ui.prof.fl.title", &[])).clicked() {
+            acts.push(ProfAct::Run("civil.profile.fl", String::new()));
+        }
+        let l = ui.label(RichText::new(t("ui.prof.fl.within", &[])).small().color(tk.text_dim));
+        let shown = {
+            let w = numf(d.get("profWithin"));
+            if w != 0.0 && !w.is_nan() { cc_civil::js::num_to_string(w) } else { String::new() }
+        };
+        let mut text = cv.profile.within_text.clone().unwrap_or_else(|| shown.clone());
+        let r = ui
+            .add_enabled(fl_on, egui::TextEdit::singleline(&mut text).desired_width(48.0))
+            .labelled_by(l.id)
+            .on_hover_text(t("ui.prof.fl.within.title", &[]));
+        if r.has_focus() || r.changed() {
+            cv.profile.within_text = Some(text.clone());
+        }
+        if r.lost_focus() {
+            let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+            if let Some(v) = cv.profile.within_text.take()
+                && !esc
+                && v != shown
+            {
+                acts.push(ProfAct::Run("civil.profile.within", v));
+            }
+        }
         ui.label(RichText::new(cv.profile.read.clone()).small().color(tk.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("×").on_hover_text(t("ui.prof.close", &[])).clicked() {
@@ -494,6 +639,12 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
     }
     let (w, h) = (f64::from(rect.width()), f64::from(rect.height()));
     let p = Plot::new(w, h, al.start, al.end, cv.profile.z0, cv.profile.z1);
+    cv.profile.plot = Some(p);
+    let feats = cv.profile_features(&a);
+    let feat_sel = match &cv.sel {
+        Some(Sel::Feature(f)) => Some(f.clone()),
+        _ => None,
+    };
     let s = |sta: f64, z: f64| {
         let (x, y) = p.to_screen(sta, z);
         Pos2::new(rect.min.x + x as f32, rect.min.y + y as f32)
@@ -520,8 +671,14 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         && let Some(q) = press_at
     {
         let px = local(q);
+        let fl = if hit(px).is_none() { hit_feature(&feats, &p, px) } else { None };
         match hit(px) {
             Some(i) => cv.pvi_press(i, px),
+            None if fl.is_some() => {
+                if let Some(f) = &fl {
+                    cv.select_profile_feature(&a, f);
+                }
+            }
             None => {
                 if cv.profile.add {
                     let (sta, z) = p.to_data(px.0, px.1);
@@ -674,6 +831,19 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
             }
         }
     }
+    // ---- feature lines alongside (0.5 WL.20): dashed, in the feature colour; the selected one in the action colour
+    let flc = fl_color(pal);
+    for f in arr(Some(&feats)) {
+        let on = f.get("id").and_then(Value::as_str).is_some_and(|i| feat_sel.as_deref() == Some(i));
+        let col = if on { pal.action } else { flc };
+        for r in arr(f.get("runs")) {
+            let line: Vec<Pos2> = arr(Some(r)).iter().map(|q| s(numf(q.get("sta")), numf(q.get("z")))).collect();
+            if line.len() >= 2 {
+                clip.add(egui::Shape::dashed_line(&line, Stroke::new(1.6, col), 7.0, 4.0));
+            }
+        }
+    }
+    draw_features(&painter, &feats, feat_sel.as_deref(), &s, frame, pal, flc);
     // ---- PVIs
     let n = pvis.len();
     for (i, v) in pvis.iter().enumerate() {
@@ -702,6 +872,64 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
     {
         let x = s(*sta, p.z0).x;
         painter.line_segment([Pos2::new(x, frame.min.y), Pos2::new(x, frame.max.y)], Stroke::new(1.0, pal.action));
+    }
+}
+
+/// profile-view.js `drawFeatures`: each run named at its middle; each crossing a diamond with "<name> <elevation>"
+/// upright above the mark (or below; flat beside it when neither fits).
+fn draw_features(
+    painter: &egui::Painter,
+    feats: &Value,
+    sel: Option<&str>,
+    s: &dyn Fn(f64, f64) -> Pos2,
+    frame: Rect,
+    pal: &Palette,
+    flc: Color32,
+) {
+    let font = egui::FontId::proportional(11.0);
+    for f in arr(Some(feats)) {
+        let on = f.get("id").and_then(Value::as_str).is_some_and(|i| sel == Some(i));
+        let col = if on { pal.action } else { flc };
+        let name = string_of(f.get("name"));
+        for r in arr(f.get("runs")) {
+            let r = arr(Some(r));
+            let Some(m) = r.get(r.len() / 2) else { continue };
+            let q = s(numf(m.get("sta")), numf(m.get("z")));
+            if q.x < frame.min.x || q.x > frame.max.x {
+                continue;
+            }
+            painter.text(q - egui::vec2(0.0, 5.0), egui::Align2::CENTER_BOTTOM, &name, font.clone(), col);
+        }
+        for c in arr(f.get("crossings")) {
+            let z = numf(c.get("z"));
+            let q = s(numf(c.get("sta")), z);
+            if q.x < frame.min.x - 1.0 || q.x > frame.max.x + 1.0 {
+                continue;
+            }
+            let d = 5.5;
+            painter.add(egui::Shape::convex_polygon(
+                vec![q - egui::vec2(0.0, d), q + egui::vec2(d, 0.0), q + egui::vec2(0.0, d), q - egui::vec2(d, 0.0)],
+                col,
+                Stroke::new(1.2, pal.bg),
+            ));
+            let text = tr!("pv.fl.cross", name = name.as_str(), z = fixed(z, 2));
+            let galley = painter.layout_no_wrap(text, font.clone(), col);
+            let (w, h) = (galley.size().x, galley.size().y);
+            let room_up = q.y - 9.0 - frame.min.y;
+            let room_down = frame.max.y - (q.y + 9.0);
+            if w <= room_up || w <= room_down {
+                let up = w <= room_up;
+                // rotated −90°: the text runs upward from its start
+                let angle = -std::f32::consts::FRAC_PI_2;
+                let start = if up { Pos2::new(q.x - h / 2.0, q.y - 9.0) } else { Pos2::new(q.x - h / 2.0, q.y + 9.0 + w) };
+                painter.add(egui::epaint::TextShape::new(start, galley, col).with_angle(angle));
+            } else {
+                let right = q.x + 9.0 + w <= frame.max.x;
+                let y = (frame.min.y + 12.0).max(q.y - 6.0);
+                let x = if right { q.x + 8.0 } else { q.x - 8.0 - w };
+                painter.galley(Pos2::new(x, y - h), galley, col);
+            }
+        }
     }
 }
 

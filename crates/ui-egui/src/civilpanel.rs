@@ -586,7 +586,24 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
         r.push((t0("cv.al.end"), format_station(al.end, &units, None)));
     }
     rows(ui, tk, "cv_al", &r);
-    report(ui, tk, &al.errors, true);
+    // 0.5 WL.23: the design minimum radius (empty = none), then why the curves have no solution, with fixes
+    let aid0 = string_of(a.get("id"));
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(t0("why.minr")).color(tk.text_dim));
+        let mr = numf(a.get("minR"));
+        let shown = if mr > 0.0 { cc_civil::js::num_to_string(mr) } else { String::new() };
+        if let Some(v) = cell_a(cv, ui, &format!("al:{aid0}:minR"), &shown, 70.0, &t0("why.minr")) {
+            acts.push(Act::Run("civil.prop", format!("minR={v}")));
+        }
+        ui.label(RichText::new(&u).color(tk.text_dim));
+    });
+    let why = cv.why_of(a);
+    let mut wacts = Vec::new();
+    if why.curve.is_empty() {
+        report(ui, tk, &al.errors, true);
+    } else {
+        crate::civilprops::why_ui(ui, tk, &why.curve, &crate::civilprops::curve_head(why.curve_error), why.curve_error, &mut wacts);
+    }
     head(ui, tk, &t0("cv.al.pis"));
     egui::Grid::new("cv_al_pis").num_columns(5).spacing([6.0, 2.0]).show(ui, |ui| {
         for h in ["#".to_string(), t0("pt.props.easting"), t0("pt.props.northing"), t0("se.c.r"), String::new()] {
@@ -711,7 +728,11 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
                     ui.end_row();
                 }
             });
-            report(ui, tk, &prof.errors, true);
+            if why.vertical.is_empty() {
+                report(ui, tk, &prof.errors, true);
+            } else {
+                crate::civilprops::why_ui(ui, tk, &why.vertical, &t0("why.head.error"), true, &mut wacts);
+            }
             if prof.ok() {
                 for (i, g) in prof.grades.iter().enumerate() {
                     note(ui, tk, &tr!("cv.prof.grade", n = i + 1, g = pct(g.g, 2)));
@@ -750,6 +771,9 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
             acts.push(Act::Run("civil.profile", "on".into()));
         }
         sample_lines(cv, ui, tk, a, acts);
+    }
+    for (id, k) in wacts {
+        acts.push(Act::Run(id, k));
     }
 }
 
@@ -830,12 +854,35 @@ fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, a
 
 /// A table cell typed in: its text when Enter is pressed or it loses focus with a change (Esc keeps the old one).
 fn cell(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32) -> Option<String> {
+    cell_x(cv, ui, key, current, width, None, None)
+}
+
+/// `cell` with 0.5's aria-label as its accessible name (shown on hover).
+fn cell_a(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32, aria: &str) -> Option<String> {
+    cell_x(cv, ui, key, current, width, None, Some(aria))
+}
+
+fn cell_x(
+    cv: &mut CivilView,
+    ui: &mut egui::Ui,
+    key: &str,
+    current: &str,
+    width: f32,
+    label: Option<egui::Id>,
+    aria: Option<&str>,
+) -> Option<String> {
     let mut text = match &cv.profile.editing {
         Some((k, v)) if k == key => v.clone(),
         _ => current.to_string(),
     };
     // a fixed size: inside a grid a text field otherwise shrinks to the column's last width
-    let r = ui.add_sized([width, 18.0], egui::TextEdit::singleline(&mut text).id_salt(("civil_cell", key)));
+    let mut r = ui.add_sized([width, 18.0], egui::TextEdit::singleline(&mut text).id_salt(("civil_cell", key)));
+    if let Some(l) = label {
+        r = r.labelled_by(l);
+    }
+    if let Some(a) = aria {
+        r = r.on_hover_text(a);
+    }
     if r.has_focus() || r.changed() {
         cv.profile.editing = Some((key.to_string(), text.clone()));
     }
