@@ -260,6 +260,10 @@ impl CivilView {
     /// it refuses is an error and changes nothing) and its undo label.
     pub fn prop_set(&mut self, field: &str, v: &str) -> Result<(), String> {
         let bad = || format!("civil.prop: {field} = {v} is refused");
+        // the Site block's fields (name, units) and the surface's longest edge edit the project whatever is selected
+        if let Some(f) = field.strip_prefix("project.") {
+            return self.project_prop(f, v);
+        }
         match self.sel.clone() {
             Some(Sel::Alignment(id)) => match field {
                 // 0.5 WL.23: the design minimum radius (empty = none)
@@ -273,9 +277,9 @@ impl CivilView {
                     });
                     Ok(())
                 }
-                _ => Err(format!("civil.prop: an alignment has no field {field}")),
+                _ => self.prop_set_more(field, v),
             },
-            _ => Err(format!("civil.prop: nothing selected has a field {field}")),
+            _ => self.prop_set_more(field, v),
         }
     }
 }

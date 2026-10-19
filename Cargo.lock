@@ -767,6 +767,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "indexmap",
+ "libm",
  "rayon",
  "serde_json",
  "web-time",

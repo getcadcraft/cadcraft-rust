@@ -199,7 +199,7 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "civil.prop",
         "Set a property",
         "",
-        "{name: \"<field>=<value>\"} → a typed Properties field of the selection, with 0.5's checks (one undo step); alignment: minR",
+        "{name: \"<field>=<value>\"} → a typed Properties field of the selection, with 0.5's checks (one undo step). Alignment: name, start, minR, corridor (on|off), lane, laneSlope (%), shoulder, shoulderSlope (%), cut, fill, step, se (on|off), se.delta (%), se.r=i:radius, se.e=i:rate (%), se.add, se.remove=i. Pad: name, z, cut, fill. Structure: name, rim (empty = from the surface), sump, dia. Pipe: name, dia, invUp, invDn, auto. Feature line: name, use (eg|design|off), closed, daylight, cut, fill, elev=i:z, grade=i:%, raise, surface, even, offset=dist,dz|slope,amount. Parcel: name, pob, r=i:radius (empty = straight), turn=i:left|right. Point: n, x, y, z, d. Nothing selected: name, units, maxEdge, net.type, net.minSlope (%), net.minCover, net.minDrop, net.auto; project.<field> edits the project whatever is selected",
     ),
     (
         "civil.xs",

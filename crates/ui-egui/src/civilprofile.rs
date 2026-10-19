@@ -56,6 +56,8 @@ pub struct ProfilePanel {
     pub fl_cache: Option<(String, u64, f64, Value)>,
     /// the "Alongside within" field being typed in
     pub within_text: Option<String>,
+    /// a feature line's Stepped offset fields (line id, distance, "dz" | "slope", amount), kept while it stays selected
+    pub offset_form: Option<(String, String, String, String)>,
 }
 
 /// profile-view.js `colors().fl` (--layer-violet).

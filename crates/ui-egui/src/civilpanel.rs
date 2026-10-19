@@ -68,10 +68,29 @@ fn link(ui: &mut egui::Ui, tk: &Tokens, s: &str, on: bool) -> bool {
 /// The left panel: site, points, groups, surface, display, objects.
 pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let units = cv.project.units().to_string();
-    let p = &mut cv.project;
     head(ui, tk, &t0("ui.site"));
-    let name = p.state.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-    rows(ui, tk, "cv_site", &[(t0("ui.site.name"), name), (t0("ui.site.units"), cc_civil::units::unit_of(&units).name())]);
+    let name = cv.project.state.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+    // civilcraft.js ui.name / ui.units: one undo step each
+    egui::Grid::new("cv_site").num_columns(2).spacing([10.0, 3.0]).show(ui, |ui| {
+        let l = ui.label(RichText::new(t0("ui.site.name")).color(tk.text_dim));
+        if let Some(v) = cell_l(cv, ui, "site:name", &name, 150.0, Some(l.id)) {
+            acts.push(Act::Run("civil.prop", format!("project.name={v}")));
+        }
+        ui.end_row();
+        ui.label(RichText::new(t0("ui.site.units")).color(tk.text_dim));
+        egui::ComboBox::new("cv_site_units", "")
+            .selected_text(cc_civil::units::unit_of(&units).name())
+            .show_ui(ui, |ui| {
+                for k in ["ft", "m"] {
+                    if ui.selectable_label(units == k, cc_civil::units::unit_of(k).name()).clicked() && units != k {
+                        acts.push(Act::Run("civil.prop", format!("project.units={k}")));
+                    }
+                }
+            })
+            .response
+            .on_hover_text(t0("ui.site.units"));
+        ui.end_row();
+    });
     export_group(cv, ui, tk, acts);
     let p = &mut cv.project;
     // points
@@ -395,18 +414,18 @@ pub fn right(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
     let st = cv.project.state.clone();
     let shown = match &sel {
         Some(Sel::Alignment(id)) => find(arr(st.get("alignments")), id).cloned().map(|a| alignment(cv, ui, tk, &a, acts)).is_some(),
-        Some(Sel::Pad(id)) => find(arr(st.get("pads")), id).cloned().map(|d| pad(cv, ui, tk, &d)).is_some(),
+        Some(Sel::Pad(id)) => find(arr(st.get("pads")), id).cloned().map(|d| pad(cv, ui, tk, &d, acts)).is_some(),
         Some(Sel::Structure(id)) => {
             let ss = st.get("network").map(|n| arr(n.get("structures")).to_vec()).unwrap_or_default();
-            find(&ss, id).cloned().map(|x| structure(cv, ui, tk, &x)).is_some()
+            find(&ss, id).cloned().map(|x| structure(cv, ui, tk, &x, acts)).is_some()
         }
         Some(Sel::Pipe(id)) => {
             let ps = st.get("network").map(|n| arr(n.get("pipes")).to_vec()).unwrap_or_default();
-            find(&ps, id).cloned().map(|x| pipe(cv, ui, tk, &x)).is_some()
+            find(&ps, id).cloned().map(|x| pipe(cv, ui, tk, &x, acts)).is_some()
         }
-        Some(Sel::Feature(id)) => find(arr(st.get("features")), id).cloned().map(|f| feature(cv, ui, tk, &f)).is_some(),
-        Some(Sel::Parcel(id)) => find(arr(st.get("parcels")), id).cloned().map(|f| parcel(cv, ui, tk, &f)).is_some(),
-        Some(Sel::Point(n)) => cv.project.points.iter().find(|p| p.n == *n).cloned().map(|p| point(cv, ui, tk, &p)).is_some(),
+        Some(Sel::Feature(id)) => find(arr(st.get("features")), id).cloned().map(|f| feature(cv, ui, tk, &f, acts)).is_some(),
+        Some(Sel::Parcel(id)) => find(arr(st.get("parcels")), id).cloned().map(|f| parcel(cv, ui, tk, &f, acts)).is_some(),
+        Some(Sel::Point(n)) => cv.project.points.iter().find(|p| p.n == *n).cloned().map(|p| point(cv, ui, tk, &p, acts)).is_some(),
         None => false,
     };
     if !shown {
@@ -526,19 +545,29 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     let Some(n) = cv.project.state.get("network").cloned() else { return };
     let u = cc_civil::units::unit_of(cv.project.units()).short.to_string();
     head(ui, tk, &t0("cv.net.head"));
-    let r = n.get("rules");
-    let ty = if n.get("type").and_then(Value::as_str) == Some("sanitary") { "cv.net.sanitary" } else { "cv.net.storm" };
-    rows(
-        ui,
-        tk,
-        "cv_net",
-        &[
-            (t0("cv.net.type"), t0(ty)),
-            (t0("cv.net.minslope"), format!("{} %", fixed(numf(r.and_then(|r| r.get("minSlope"))) * 100.0, 2))),
-            (t0("cv.net.mincover"), format!("{} {u}", fixed(numf(r.and_then(|r| r.get("minCover"))), 2))),
-            (t0("cv.net.mindrop"), format!("{} {u}", fixed(numf(r.and_then(|r| r.get("minDrop"))), 2))),
-        ],
-    );
+    let r = n.get("rules").cloned().unwrap_or(Value::Null);
+    let sanitary = n.get("type").and_then(Value::as_str) == Some("sanitary");
+    egui::Grid::new("cv_net").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        ui.label(RichText::new(t0("cv.net.type")).color(tk.text_dim));
+        egui::ComboBox::new("cv_net_type", "")
+            .selected_text(t0(if sanitary { "cv.net.sanitary" } else { "cv.net.storm" }))
+            .show_ui(ui, |ui| {
+                for (k, key) in [("storm", "cv.net.storm"), ("sanitary", "cv.net.sanitary")] {
+                    if ui.selectable_label((k == "sanitary") == sanitary, t0(key)).clicked() {
+                        acts.push(Act::Run("civil.prop", format!("net.type={k}")));
+                    }
+                }
+            })
+            .response
+            .on_hover_text(t0("cv.net.type"));
+        ui.label("");
+        ui.end_row();
+        let rule = |k: &str, scale: f64| fixed(numf(r.get(k)) * scale, 2);
+        prop_row(cv, ui, tk, "net:minSlope", &t0("cv.net.minslope"), &rule("minSlope", 100.0), "%", "net.minSlope", acts);
+        prop_row(cv, ui, tk, "net:minCover", &t0("cv.net.mincover"), &rule("minCover", 1.0), &u, "net.minCover", acts);
+        prop_row(cv, ui, tk, "net:minDrop", &t0("cv.net.mindrop"), &rule("minDrop", 1.0), &u, "net.minDrop", acts);
+    });
+    note(ui, tk, &t0("cv.net.note"));
     note(
         ui,
         tk,
@@ -554,6 +583,9 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
         .as_ref()
         .map(|c| c.problems.iter().map(|p| (p.id.clone(), p.kind.to_string(), p.msg.clone())).collect())
         .unwrap_or_default();
+    if ui.button(t0("cv.net.auto")).clicked() {
+        acts.push(Act::Run("civil.prop", "net.auto=".into()));
+    }
     if probs.is_empty() {
         note(ui, tk, &t0("cv.net.ok"));
     } else {
@@ -577,15 +609,25 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
     let u = cc_civil::units::unit_of(&units).short.to_string();
     let al = cv.project.alignment(a);
     head(ui, tk, &t0("sec.alignment"));
-    let mut r = vec![
-        (t0("fl.props.name"), string_or_empty(a.get("name"))),
-        (t0("cv.al.start"), format_station(numf(a.get("start")), &units, None)),
-    ];
-    if al.ok() {
-        r.push((t0("fl.props.length"), format!("{} {u}", fixed(al.length, 2))));
-        r.push((t0("cv.al.end"), format_station(al.end, &units, None)));
-    }
-    rows(ui, tk, "cv_al", &r);
+    let aid1 = string_of(a.get("id"));
+    egui::Grid::new("cv_al").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("al:{aid1}:name"), &t0("fl.props.name"), &string_or_empty(a.get("name")), "", "name", acts);
+        prop_row(
+            cv,
+            ui,
+            tk,
+            &format!("al:{aid1}:start"),
+            &t0("cv.al.start"),
+            &format_station(numf(a.get("start")), &units, None),
+            "",
+            "start",
+            acts,
+        );
+        if al.ok() {
+            prop_fact(ui, tk, &t0("fl.props.length"), &format!("{} {u}", fixed(al.length, 2)));
+            prop_fact(ui, tk, &t0("cv.al.end"), &format_station(al.end, &units, None));
+        }
+    });
     // 0.5 WL.23: the design minimum radius (empty = none), then why the curves have no solution, with fixes
     let aid0 = string_of(a.get("id"));
     ui.horizontal(|ui| {
@@ -770,11 +812,91 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
             acts.push(Act::Run("civil.profile.al", aid.clone()));
             acts.push(Act::Run("civil.profile", "on".into()));
         }
+        corridor(cv, ui, tk, a, acts);
         sample_lines(cv, ui, tk, a, acts);
     }
     for (id, k) in wacts {
         acts.push(Act::Run(id, k));
     }
+}
+
+/// civilcraft.js `corridorProps` and super-ui.js `superProps`: on / off, the assembly's fields, superelevation's Δ and
+/// rate table; each typed field → `civil.prop`.
+fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts: &mut Vec<Act>) {
+    let units = cv.project.units().to_string();
+    let u = cc_civil::units::unit_of(&units).short.to_string();
+    let aid = string_of(a.get("id"));
+    head(ui, tk, &t0("cv.co.head"));
+    let co = a.get("corridor").cloned().unwrap_or(Value::Null);
+    let on = co.get("on") == Some(&Value::Bool(true));
+    prop_check(ui, &t0("cv.co.on"), on, "corridor", acts);
+    if !on {
+        note(ui, tk, &t0("cv.co.off.note"));
+        return;
+    }
+    let d = cc_civil::corridor::default_assembly(&units);
+    let val = |k: &str, def: f64, scale: f64| fixed(co.get(k).and_then(Value::as_f64).unwrap_or(def) * scale, 2);
+    egui::Grid::new("cv_co").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        let rows: [(&str, &str, f64, f64, &str); 7] = [
+            ("lane", "cv.co.lane", d.lane, 1.0, u.as_str()),
+            ("laneSlope", "cv.co.ls", d.lane_slope, 100.0, "%"),
+            ("shoulder", "cv.co.sh", d.shoulder, 1.0, u.as_str()),
+            ("shoulderSlope", "cv.co.ss", d.shoulder_slope, 100.0, "%"),
+            ("cut", "fl.props.cut", d.cut, 1.0, ": 1"),
+            ("fill", "fl.props.fill", d.fill, 1.0, ": 1"),
+            ("step", "cv.co.step", d.step, 1.0, u.as_str()),
+        ];
+        for (k, label, def, scale, unit) in rows {
+            prop_row(cv, ui, tk, &format!("co:{aid}:{k}"), &t0(label), &val(k, def, scale), unit, k, acts);
+        }
+    });
+    note(ui, tk, &t0("co.note"));
+    head(ui, tk, &t0("se.head"));
+    let sp = co.get("super").cloned().unwrap_or(Value::Null);
+    let se_on = sp.get("on") == Some(&Value::Bool(true));
+    prop_check(ui, &t0("se.on"), se_on, "se", acts);
+    if !se_on {
+        note(ui, tk, &t0("se.off.note"));
+        return;
+    }
+    egui::Grid::new("cv_se").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(
+            cv,
+            ui,
+            tk,
+            &format!("se:{aid}:delta"),
+            &t0("se.delta"),
+            &cc_civil::js::to_fixed(numf(sp.get("delta")) * 100.0, 2),
+            "%",
+            "se.delta",
+            acts,
+        );
+    });
+    let rate = arr(sp.get("rate")).to_vec();
+    egui::Grid::new("cv_se_rate").num_columns(3).spacing([6.0, 2.0]).show(ui, |ui| {
+        ui.label(RichText::new(tr!("se.rate.r", u = if units == "m" { "m" } else { "ft" })).small().color(tk.text_dim));
+        ui.label(RichText::new(t0("se.rate.e")).small().color(tk.text_dim));
+        ui.label("");
+        ui.end_row();
+        for (i, row) in rate.iter().enumerate() {
+            let r = cc_civil::js::num_to_string(numf(row.get(0)));
+            if let Some(v) = cell_a(cv, ui, &format!("se:{aid}:r{i}"), &r, 70.0, &tr!("se.rate.r.of", n = i + 1)) {
+                acts.push(Act::Run("civil.prop", format!("se.r={i}:{v}")));
+            }
+            let e = row.get(1).and_then(Value::as_f64).map_or(String::new(), |e| cc_civil::js::to_fixed(e * 100.0, 1));
+            if let Some(v) = cell_a(cv, ui, &format!("se:{aid}:e{i}"), &e, 56.0, &tr!("se.rate.e.of", n = i + 1)) {
+                acts.push(Act::Run("civil.prop", format!("se.e={i}:{v}")));
+            }
+            if rate.len() > 1 && ui.small_button("×").on_hover_text(tr!("se.rate.remove", n = i + 1)).clicked() {
+                acts.push(Act::Run("civil.prop", format!("se.remove={i}")));
+            }
+            ui.end_row();
+        }
+    });
+    if link(ui, tk, &t0("se.rate.add"), false) {
+        acts.push(Act::Run("civil.prop", "se.add=".into()));
+    }
+    note(ui, tk, &t0("se.rate.note"));
 }
 
 /// sections-ui.js `props(a)`: the alignment's sample lines — add, spacing and widths typed, extra stations, facts, the
@@ -857,6 +979,11 @@ fn cell(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: 
     cell_x(cv, ui, key, current, width, None, None)
 }
 
+/// `cell` tied to its label (its accessible name).
+fn cell_l(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32, label: Option<egui::Id>) -> Option<String> {
+    cell_x(cv, ui, key, current, width, label, None)
+}
+
 /// `cell` with 0.5's aria-label as its accessible name (shown on hover).
 fn cell_a(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32, aria: &str) -> Option<String> {
     cell_x(cv, ui, key, current, width, None, Some(aria))
@@ -894,24 +1021,58 @@ fn cell_x(
     None
 }
 
-fn pad(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, d: &Value) {
+/// One typed Properties field in a 3-column grid: label, the text field, the unit; a commit → `civil.prop=<field>=<text>`.
+#[allow(clippy::too_many_arguments)]
+fn prop_row(
+    cv: &mut CivilView,
+    ui: &mut egui::Ui,
+    tk: &Tokens,
+    key: &str,
+    label: &str,
+    shown: &str,
+    unit: &str,
+    field: &str,
+    acts: &mut Vec<Act>,
+) {
+    let l = ui.label(RichText::new(label).color(tk.text_dim));
+    if let Some(v) = cell_l(cv, ui, key, shown, 110.0, Some(l.id)) {
+        acts.push(Act::Run("civil.prop", format!("{field}={v}")));
+    }
+    ui.label(RichText::new(unit).color(tk.text_dim));
+    ui.end_row();
+}
+
+/// A read-only line in the same grid.
+fn prop_fact(ui: &mut egui::Ui, tk: &Tokens, label: &str, value: &str) {
+    ui.label(RichText::new(label).color(tk.text_dim));
+    ui.label(RichText::new(value).color(tk.text));
+    ui.label("");
+    ui.end_row();
+}
+
+/// A checkbox → `civil.prop=<field>=on|off`.
+fn prop_check(ui: &mut egui::Ui, label: &str, on: bool, field: &str, acts: &mut Vec<Act>) {
+    let mut v = on;
+    if ui.checkbox(&mut v, label).changed() {
+        acts.push(Act::Run("civil.prop", format!("{field}={}", if v { "on" } else { "off" })));
+    }
+}
+
+fn pad(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, d: &Value, acts: &mut Vec<Act>) {
     let units = cv.project.units().to_string();
     let u = cc_civil::units::unit_of(&units).short.to_string();
+    let id = string_of(d.get("id"));
     head(ui, tk, &t0("cv.pad"));
     let pts = cc_civil::geo::read_p2s(d.get("pts"));
-    rows(
-        ui,
-        tk,
-        "cv_pad",
-        &[
-            (t0("fl.props.name"), string_or_empty(d.get("name"))),
-            (t0("pt.props.elev"), format!("{} {u}", fixed(numf(d.get("z")), 2))),
-            (t0("fl.props.cut"), format!("{} : 1 (H:V)", cc_civil::js::num_to_string(numf(d.get("cut"))))),
-            (t0("fl.props.fill"), format!("{} : 1 (H:V)", cc_civil::js::num_to_string(numf(d.get("fill"))))),
-            (t0("cv.pad.area"), area_text(cc_civil::tin::poly_area(&pts).abs(), &units, 2)),
-            (t0("dr.c.corners"), pts.len().to_string()),
-        ],
-    );
+    egui::Grid::new("cv_pad").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("pad:{id}:name"), &t0("fl.props.name"), &string_or_empty(d.get("name")), "", "name", acts);
+        prop_row(cv, ui, tk, &format!("pad:{id}:z"), &t0("pt.props.elev"), &fixed(numf(d.get("z")), 2), &u, "z", acts);
+        let n = |k: &str| cc_civil::js::num_to_string(numf(d.get(k)));
+        prop_row(cv, ui, tk, &format!("pad:{id}:cut"), &t0("fl.props.cut"), &n("cut"), ": 1 (H:V)", "cut", acts);
+        prop_row(cv, ui, tk, &format!("pad:{id}:fill"), &t0("fl.props.fill"), &n("fill"), ": 1 (H:V)", "fill", acts);
+        prop_fact(ui, tk, &t0("cv.pad.area"), &area_text(cc_civil::tin::poly_area(&pts).abs(), &units, 2));
+        prop_fact(ui, tk, &t0("dr.c.corners"), &pts.len().to_string());
+    });
     let g = cv.project.graded();
     if let Some(it) = g.items.iter().find(|x| x.kind == "pad" && x.id == d.get("id").cloned().unwrap_or(Value::Null)) {
         if it.problems.is_empty() {
@@ -926,29 +1087,38 @@ fn pad(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, d: &Value) {
     volumes(cv, ui, tk);
 }
 
-fn structure(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, x: &Value) {
+fn structure(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, x: &Value, acts: &mut Vec<Act>) {
     let u = cc_civil::units::unit_of(cv.project.units()).short.to_string();
+    let dia_u = if cv.project.units() == "m" { "mm" } else { "in" };
     let id = string_of(x.get("id"));
     head(ui, tk, &t0("cv.st"));
     let info = cv.facts.network.as_ref().and_then(|c| c.structs.iter().find(|(k, _)| *k == id).map(|(_, v)| v.clone()));
     let rim_used = info.as_ref().and_then(|i| i.rim).map_or("—".to_string(), |r| {
         if info.as_ref().is_some_and(|i| i.rim_from == Some("surface")) { tr!("cv.st.rim.from", z = fixed(r, 2)) } else { fixed(r, 2) }
     });
-    rows(
-        ui,
-        tk,
-        "cv_st",
-        &[
-            (t0("fl.props.name"), string_or_empty(x.get("name"))),
-            (t0("cv.st.rim"), x.get("rim").and_then(Value::as_f64).map_or("—".into(), |r| format!("{} {u}", fixed(r, 2)))),
-            (t0("cv.st.sump"), format!("{} {u}", fixed(numf(x.get("sumpDepth")), 2))),
-            (t0("cv.diameter"), cc_civil::js::num_to_string(numf(x.get("dia")))),
-            (t0("cv.st.rim.used"), rim_used),
-            (t0("cv.st.sump.z"), info.as_ref().and_then(|i| i.sump).map_or("—".into(), |s| fixed(s, 2))),
-            (t0("pt.props.easting"), fixed(numf(x.get("x")), 2)),
-            (t0("pt.props.northing"), fixed(numf(x.get("y")), 2)),
-        ],
-    );
+    egui::Grid::new("cv_st").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("st:{id}:name"), &t0("fl.props.name"), &string_or_empty(x.get("name")), "", "name", acts);
+        let rim = x.get("rim").and_then(Value::as_f64).map_or(String::new(), |r| fixed(r, 2));
+        prop_row(cv, ui, tk, &format!("st:{id}:rim"), &t0("cv.st.rim"), &rim, &u, "rim", acts);
+        let sump = cc_civil::js::num_to_string(numf(x.get("sumpDepth")));
+        prop_row(cv, ui, tk, &format!("st:{id}:sump"), &t0("cv.st.sump"), &sump, &u, "sump", acts);
+        prop_row(
+            cv,
+            ui,
+            tk,
+            &format!("st:{id}:dia"),
+            &t0("cv.diameter"),
+            &cc_civil::js::num_to_string(numf(x.get("dia"))),
+            dia_u,
+            "dia",
+            acts,
+        );
+        prop_fact(ui, tk, &t0("cv.st.rim.used"), &rim_used);
+        prop_fact(ui, tk, &t0("cv.st.sump.z"), &info.as_ref().and_then(|i| i.sump).map_or("—".into(), |s| fixed(s, 2)));
+        prop_fact(ui, tk, &t0("pt.props.easting"), &fixed(numf(x.get("x")), 2));
+        prop_fact(ui, tk, &t0("pt.props.northing"), &fixed(numf(x.get("y")), 2));
+    });
+    note(ui, tk, &t0("cv.st.rim.note"));
     let pipes = cv.project.state.get("network").map(|n| arr(n.get("pipes")).to_vec()).unwrap_or_default();
     for p in &pipes {
         let z = |k: &str| p.get(k).and_then(Value::as_f64).map_or("—".into(), |v| fixed(v, 2));
@@ -973,99 +1143,238 @@ fn problems_of(cv: &CivilView, ui: &mut egui::Ui, tk: &Tokens, id: &str) -> bool
     !probs.is_empty()
 }
 
-fn pipe(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &Value) {
+fn pipe(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &Value, acts: &mut Vec<Act>) {
     let u = cc_civil::units::unit_of(cv.project.units()).short.to_string();
+    let dia_u = if cv.project.units() == "m" { "mm" } else { "in" };
     let id = string_of(p.get("id"));
     head(ui, tk, &t0("dr.r.pipe"));
     let ss = cv.project.state.get("network").map(|n| arr(n.get("structures")).to_vec()).unwrap_or_default();
     let nm = |k: &str| ss.iter().find(|s| s.get("id") == p.get(k)).map_or("?".into(), |s| string_or_empty(s.get("name")));
     let info = cv.facts.network.as_ref().and_then(|c| c.pipes.iter().find(|(k, _)| *k == id).map(|(_, v)| v.clone()));
-    let inv = |k: &str| p.get(k).and_then(Value::as_f64).map_or("—".into(), |v| format!("{} {u}", fixed(v, 2)));
-    rows(
-        ui,
-        tk,
-        "cv_pp",
-        &[
-            (t0("fl.props.name"), string_or_empty(p.get("name"))),
-            (t0("cv.pp.fromto"), format!("{} → {}", nm("from"), nm("to"))),
-            (t0("cv.diameter"), cc_civil::js::num_to_string(numf(p.get("dia")))),
-            (t0("cv.pp.up"), inv("invUp")),
-            (t0("cv.pp.dn"), inv("invDn")),
-            (t0("fl.props.length"), info.as_ref().map_or("—".into(), |i| format!("{} {u}", fixed(i.len, 2)))),
-            (t0("cv.pp.slope"), info.as_ref().and_then(|i| i.slope).map_or("—".into(), |s| pct(s, 2))),
-            (t0("cv.net.mincover"), info.as_ref().and_then(|i| i.cover).map_or("—".into(), |c| format!("{} {u}", fixed(c, 2)))),
-        ],
-    );
+    let inv = |k: &str| p.get(k).and_then(Value::as_f64).map_or(String::new(), |v| fixed(v, 2));
+    egui::Grid::new("cv_pp").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("pp:{id}:name"), &t0("fl.props.name"), &string_or_empty(p.get("name")), "", "name", acts);
+        prop_fact(ui, tk, &t0("cv.pp.fromto"), &format!("{} → {}", nm("from"), nm("to")));
+        prop_row(
+            cv,
+            ui,
+            tk,
+            &format!("pp:{id}:dia"),
+            &t0("cv.diameter"),
+            &cc_civil::js::num_to_string(numf(p.get("dia"))),
+            dia_u,
+            "dia",
+            acts,
+        );
+        prop_row(cv, ui, tk, &format!("pp:{id}:up"), &t0("cv.pp.up"), &inv("invUp"), &u, "invUp", acts);
+        prop_row(cv, ui, tk, &format!("pp:{id}:dn"), &t0("cv.pp.dn"), &inv("invDn"), &u, "invDn", acts);
+        prop_fact(ui, tk, &t0("fl.props.length"), &info.as_ref().map_or("—".into(), |i| format!("{} {u}", fixed(i.len, 2))));
+        prop_fact(ui, tk, &t0("cv.pp.slope"), &info.as_ref().and_then(|i| i.slope).map_or("—".into(), |s| pct(s, 2)));
+        prop_fact(
+            ui,
+            tk,
+            &t0("cv.net.mincover"),
+            &info.as_ref().and_then(|i| i.cover).map_or("—".into(), |c| format!("{} {u}", fixed(c, 2))),
+        );
+    });
     if !problems_of(cv, ui, tk, &id) {
         note(ui, tk, &t0("cv.pp.ok"));
     }
+    if ui.button(t0("cv.pp.auto")).clicked() {
+        acts.push(Act::Run("civil.prop", "auto=".into()));
+    }
 }
 
-fn point(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &cc_civil::points::Pt) {
+fn point(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &cc_civil::points::Pt, acts: &mut Vec<Act>) {
     head(ui, tk, &tr!("cv.pt.head", n = p.n.as_str()));
     let keys = cv.project.state_keys();
     let key_of = cc_civil::desckeys::grouper(&keys);
-    rows(
-        ui,
-        tk,
-        "cv_pt",
-        &[
-            (t0("pt.props.number"), p.n.clone()),
-            (t0("pt.props.easting"), fixed(p.x, 3)),
-            (t0("pt.props.northing"), fixed(p.y, 3)),
-            (t0("pt.props.elev"), p.z.map_or_else(|| t0("pt.props.elev.none"), |z| fixed(z, 3))),
-            (t0("pt.props.desc"), p.d.clone()),
-            (t0("pt.props.group"), key_of(p)),
-        ],
-    );
+    let n = p.n.clone();
+    // civilcraft.js pointProps: every field typed (point-edit.js), one undo step each
+    egui::Grid::new("cv_pt").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        let f3 = |v: f64| fixed(v, 3).replace(',', "");
+        prop_row(cv, ui, tk, &format!("pt:{n}:n"), &t0("pt.props.number"), &p.n, "", "n", acts);
+        prop_row(cv, ui, tk, &format!("pt:{n}:x"), &t0("pt.props.easting"), &f3(p.x), "", "x", acts);
+        prop_row(cv, ui, tk, &format!("pt:{n}:y"), &t0("pt.props.northing"), &f3(p.y), "", "y", acts);
+        prop_row(cv, ui, tk, &format!("pt:{n}:z"), &t0("pt.props.elev"), &p.z.map_or(String::new(), f3), "", "z", acts);
+        prop_row(cv, ui, tk, &format!("pt:{n}:d"), &t0("pt.props.desc"), &p.d, "", "d", acts);
+        prop_fact(ui, tk, &t0("pt.props.group"), &key_of(p));
+    });
+    note(ui, tk, &t0("pt.props.note"));
     if let Some(z) = cv.project.eg().surface.as_ref().and_then(|s| s.z_at(p.x, p.y)) {
         note(ui, tk, &tr!("cv.read.ground", z = fixed(z, 2)));
     }
 }
 
-fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value) {
+fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &mut Vec<Act>) {
     let units = cv.project.units().to_string();
     let u = cc_civil::units::unit_of(&units).short.to_string();
     let fl = cc_civil::featureline::read_feature(f);
+    let id = string_of(f.get("id"));
     head(ui, tk, &t0("fl.props.head"));
     let segs = cc_civil::featureline::segments(&fl);
-    let len: f64 = cc_civil::featureline::stations(&fl).last().copied().unwrap_or(0.0);
-    rows(
-        ui,
-        tk,
-        "cv_fl",
-        &[
-            (t0("fl.props.name"), fl.name.clone()),
-            (t0("fl.props.use"), t0(&format!("fl.use.{}", fl.use_))),
-            (t0("fl.props.length"), format!("{} {u}", fixed(len, 2))),
-        ],
-    );
-    egui::Grid::new("cv_fl_v").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
+    let st = cc_civil::featureline::stations(&fl);
+    let len: f64 = st.last().copied().unwrap_or(0.0);
+    egui::Grid::new("cv_fl").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("fl:{id}:name"), &t0("fl.props.name"), &fl.name, "", "name", acts);
+        ui.label(RichText::new(t0("fl.props.use")).color(tk.text_dim));
+        egui::ComboBox::new(("cv_fl_use", id.as_str()), "")
+            .selected_text(t0(&format!("fl.use.{}", fl.use_)))
+            .show_ui(ui, |ui| {
+                for k in cc_civil::featureline::USES {
+                    if ui.selectable_label(fl.use_ == k, t0(&format!("fl.use.{k}"))).clicked() {
+                        acts.push(Act::Run("civil.prop", format!("use={k}")));
+                    }
+                }
+            })
+            .response
+            .on_hover_text(t0("fl.props.use"));
+        ui.label("");
+        ui.end_row();
+        prop_fact(ui, tk, &t0("fl.props.length"), &format!("{} {u}", fixed(len, 2)));
+    });
+    ui.add_enabled_ui(fl.pts.len() >= 3, |ui| prop_check(ui, &t0("fl.props.closed"), fl.closed, "closed", acts));
+    let note_key = format!("fl.use.note.{}{}", fl.use_, if fl.use_ == "design" && !fl.closed { ".open" } else { "" });
+    note(ui, tk, &t0(&note_key));
+    if fl.use_ == "design" && fl.closed {
+        prop_check(ui, &t0("fl.props.daylight"), fl.daylight, "daylight", acts);
+        if fl.daylight {
+            egui::Grid::new("cv_fl_day").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+                prop_row(cv, ui, tk, &format!("fl:{id}:cut"), &t0("fl.props.cut"), &fixed(fl.cut, 2), ": 1", "cut", acts);
+                prop_row(cv, ui, tk, &format!("fl:{id}:fill"), &t0("fl.props.fill"), &fixed(fl.fill, 2), ": 1", "fill", acts);
+            });
+        }
+    }
+    head(ui, tk, &t0("fl.props.vertices"));
+    egui::Grid::new("cv_fl_v").num_columns(4).spacing([6.0, 2.0]).show(ui, |ui| {
+        for h in ["#".to_string(), t0("fl.props.station"), t0("fl.props.elev"), t0("fl.props.grade")] {
+            ui.label(RichText::new(h).small().color(tk.text_dim));
+        }
+        ui.end_row();
         for (i, q) in fl.pts.iter().enumerate() {
             ui.label(RichText::new((i + 1).to_string()).color(tk.text));
-            ui.label(RichText::new(fixed(q.z, 2)).monospace().color(tk.text));
-            let g = segs.get(i).and_then(|s| s.grade).map_or(String::new(), cc_civil::featureline::grade_label);
-            ui.label(RichText::new(g).color(tk.text_dim));
+            ui.label(RichText::new(fixed(st.get(i).copied().unwrap_or(0.0), 2)).monospace().color(tk.text));
+            if let Some(v) =
+                cell_a(cv, ui, &format!("fl:{id}:z{i}"), &fixed(q.z, 3).replace(',', ""), 80.0, &tr!("fl.props.elev.of", n = i + 1))
+            {
+                acts.push(Act::Run("civil.prop", format!("elev={i}:{v}")));
+            }
+            match segs.get(i) {
+                Some(sg) => {
+                    let g = sg.grade.map_or(String::new(), |g| cc_civil::js::to_fixed(g * 100.0, 2));
+                    if let Some(v) = cell_a(cv, ui, &format!("fl:{id}:g{i}"), &g, 60.0, &tr!("fl.props.grade.of", n = i + 1)) {
+                        acts.push(Act::Run("civil.prop", format!("grade={i}:{v}")));
+                    }
+                }
+                None => {
+                    ui.label(RichText::new("—").color(tk.text_dim));
+                }
+            }
             ui.end_row();
         }
     });
+    note(ui, tk, &t0("fl.props.grade.note"));
+    egui::Grid::new("cv_fl_raise").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("fl:{id}:raise"), &t0("fl.props.raise"), "", &u, "raise", acts);
+    });
+    ui.horizontal_wrapped(|ui| {
+        if ui.button(t0("fl.props.surface")).clicked() {
+            acts.push(Act::Run("civil.prop", "surface=".into()));
+        }
+        if fl.pts.len() > 2 && ui.button(t0("fl.props.even")).clicked() {
+            acts.push(Act::Run("civil.prop", "even=".into()));
+        }
+    });
+    head(ui, tk, &t0("fl.props.offset"));
+    let d0 = if units == "m" { "1" } else { "3" };
+    let (mut dist, mut how, mut amt) = match &cv.profile.offset_form {
+        Some((k, d, h, a)) if *k == id => (d.clone(), h.clone(), a.clone()),
+        _ => (d0.to_string(), "dz".to_string(), "0".to_string()),
+    };
+    egui::Grid::new("cv_fl_off").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
+        let l = ui.label(RichText::new(t0("fl.offset.dist")).color(tk.text_dim));
+        ui.add(egui::TextEdit::singleline(&mut dist).desired_width(70.0)).labelled_by(l.id);
+        ui.end_row();
+        ui.label(RichText::new(t0("fl.offset.how")).color(tk.text_dim));
+        egui::ComboBox::new(("cv_fl_how", id.as_str()), "")
+            .selected_text(t0(if how == "slope" { "fl.offset.by.slope" } else { "fl.offset.by.dz" }))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut how, "dz".to_string(), t0("fl.offset.by.dz"));
+                ui.selectable_value(&mut how, "slope".to_string(), t0("fl.offset.by.slope"));
+            })
+            .response
+            .on_hover_text(t0("fl.offset.how"));
+        ui.end_row();
+        let l = ui.label(RichText::new(t0("fl.offset.amount")).color(tk.text_dim));
+        ui.add(egui::TextEdit::singleline(&mut amt).desired_width(70.0)).labelled_by(l.id);
+        ui.end_row();
+    });
+    cv.profile.offset_form = Some((id.clone(), dist.clone(), how.clone(), amt.clone()));
+    note(ui, tk, &t0("fl.offset.note"));
+    if ui.button(t0("fl.offset.go")).clicked() {
+        acts.push(Act::Run("civil.prop", format!("offset={dist},{how},{amt}")));
+    }
 }
 
-fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value) {
+fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &mut Vec<Act>) {
     let units = cv.project.units().to_string();
     let pc = cc_civil::parcels::read_parcel(f);
+    let id = string_of(f.get("id"));
     head(ui, tk, &t0("pc.props.head"));
     let u = cc_civil::units::unit_of(&units).short.to_string();
-    rows(
-        ui,
-        tk,
-        "cv_pc",
-        &[
-            (t0("fl.props.name"), pc.name.clone()),
-            (t0("cv.pad.area"), cc_civil::parcels::area_words(cc_civil::parcels::parcel_area(&pc.pts), &units)),
-            (t0("pc.perimeter"), format!("{} {u}", fixed(cc_civil::parcels::perimeter(&pc.pts), 2))),
-        ],
-    );
-    ui.add_space(4.0);
-    note(ui, tk, &cc_civil::parcels::legal_description(&pc, &units, None));
+    egui::Grid::new("cv_pc").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
+        prop_row(cv, ui, tk, &format!("pc:{id}:name"), &t0("pc.name"), &pc.name, "", "name", acts);
+        prop_fact(ui, tk, &t0("pc.area"), &cc_civil::parcels::area_words(cc_civil::parcels::parcel_area(&pc.pts), &units));
+        prop_fact(ui, tk, &t0("pc.perimeter"), &format!("{} {u}", fixed(cc_civil::parcels::perimeter(&pc.pts), 2)));
+        prop_row(cv, ui, tk, &format!("pc:{id}:pob"), &t0("pc.pob"), pc.pob.as_deref().unwrap_or(""), "", "pob", acts);
+    });
+    // courses: a radius makes a course a curve (empty = straight), and which way it turns
+    let cs = cc_civil::parcels::courses(&pc.pts);
+    egui::Grid::new("cv_pc_c").num_columns(4).spacing([6.0, 2.0]).show(ui, |ui| {
+        for h in ["#".to_string(), t0("pc.c.course"), tr!("pc.c.radius", u = u.as_str()), t0("pc.c.turn")] {
+            ui.label(RichText::new(h).small().color(tk.text_dim));
+        }
+        ui.end_row();
+        for (i, c) in cs.iter().enumerate() {
+            ui.label(RichText::new((i + 1).to_string()).color(tk.text));
+            let (txt, r, turn) = match c {
+                cc_civil::parcels::Course::Line { dir, dist, .. } => {
+                    (format!("{}, {}", bearing(*dir), fixed(*dist, 2)), String::new(), None)
+                }
+                cc_civil::parcels::Course::Curve { a, .. } => (
+                    format!(
+                        "L {}, Δ {}, {} {} {}",
+                        fixed(a.l, 2),
+                        dms(a.delta.to_degrees()),
+                        t0("pc.chord"),
+                        bearing(a.chord_dir),
+                        fixed(a.chord, 2)
+                    ),
+                    fixed(a.r, 2).replace(',', ""),
+                    Some(a.turn),
+                ),
+            };
+            ui.label(RichText::new(txt).small().color(tk.text));
+            if let Some(v) = cell_a(cv, ui, &format!("pc:{id}:r{i}"), &r, 64.0, &tr!("pc.c.radius.of", n = i + 1)) {
+                acts.push(Act::Run("civil.prop", format!("r={i}:{v}")));
+            }
+            let left = turn == Some(1.0);
+            egui::ComboBox::new(("cv_pc_turn", id.as_str(), i), "")
+                .selected_text(t0(if left { "pc.left" } else { "pc.right" }))
+                .show_ui(ui, |ui| {
+                    if ui.selectable_label(!left, t0("pc.right")).clicked() {
+                        acts.push(Act::Run("civil.prop", format!("turn={i}:-1")));
+                    }
+                    if ui.selectable_label(left, t0("pc.left")).clicked() {
+                        acts.push(Act::Run("civil.prop", format!("turn={i}:1")));
+                    }
+                })
+                .response
+                .on_hover_text(tr!("pc.c.turn.of", n = i + 1));
+            ui.end_row();
+        }
+    });
+    note(ui, tk, &t0("pc.c.note"));
+    head(ui, tk, &t0("pc.legal"));
+    note(ui, tk, &cc_civil::parcels::legal_description(&pc, &units, pc.pob.as_deref()));
 }
