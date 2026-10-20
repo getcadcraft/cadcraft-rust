@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M4.14 and M11.11–M11.14 merged and deployed
+
+- On the Rust repo's build: M4.14 kdiff seed 3 all same, propsdiff 720/720, plotdiff 32/32, mcpdiff 0 different
+  + 2 known (LISP); M11.11–M11.14 cvtooldiff 76/76 projects, 2,084/2,084 status lines, 20/20 files; gate green both
+  times; live at builds/20261019T235801Z. Fork jobs share one 2.5-core cgroup slice (`forkrust.slice`, owner
+  2026-10-19), at most two agents building. Work copies, their target dirs and old deploys deleted after each merge.
+
 ## 2026-10-19 — M11.11–M11.14 CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (agent, work/civilsheets)
 
 - M11.11 (`civilsheets.rs`): the alignment's Sample lines block opens Section sheets (PDF) (paper, scale,
