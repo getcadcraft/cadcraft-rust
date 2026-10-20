@@ -50,6 +50,7 @@ pub mod ifc3d;
 pub mod markupchest;
 pub mod markupcompare;
 pub mod markupedit;
+pub mod markupplus;
 pub mod markupprops;
 pub mod markuptools;
 pub mod mcact;
@@ -1757,7 +1758,7 @@ impl UiApp {
             egui::Panel::left("pdf_sheets").default_size(180.0).size_range(120.0..=320.0).resizable(true).frame(frame).show(ui, |ui| {
                 ui.label(RichText::new("Sheets").strong().color(t.text_strong));
                 ui.separator();
-                pdf.sheets(ui, &t);
+                pdf.sheets_and_spaces(ui, &t);
             });
             if pdf.mode != "takeoff" {
                 egui::Panel::right("mc_props").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
@@ -1777,6 +1778,7 @@ impl UiApp {
                 let rect = ui.max_rect();
                 pdf.show(ui, rect, &t);
             });
+            pdf.take_space();
             pdf.dialogs(ui.ctx(), &t);
             if let Some(what) = pdf.want_pick.take() {
                 // a file for an action: Insert pages from a PDF, a picture for the stamp, a photo, a tool chest

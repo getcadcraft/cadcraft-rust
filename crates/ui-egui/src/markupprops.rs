@@ -237,6 +237,26 @@ impl MarkupTools {
                 patch.insert("comment".into(), json!(v));
                 t0("undo.comment")
             }
+            "link" => {
+                patch.insert("link".into(), json!(v));
+                t0("undo.link")
+            }
+            "title" if m.kind == "legend" => {
+                patch.insert("label".into(), json!(v.trim().chars().take(60).collect::<String>()));
+                t0("undo.legend.edit")
+            }
+            "scope" if m.kind == "legend" => {
+                patch.insert("legend".into(), json!({ "scope": v }));
+                t0("undo.legend.edit")
+            }
+            "label" if m.kind == "space" => {
+                let s: String = v.trim().chars().take(60).collect();
+                if s.is_empty() {
+                    return Ok(());
+                }
+                patch.insert("label".into(), json!(s));
+                t0("undo.space.rename")
+            }
             "label" if m.kind == "count" => {
                 let s: String = v.trim().chars().take(60).collect();
                 patch.insert("label".into(), json!(if s.is_empty() { t0("count.default") } else { s }));
@@ -473,8 +493,9 @@ impl crate::pdfview::PdfView {
             ui.add_space(4.0);
             head(ui, t0("props.style"));
             style_ui(&mut self.edits, ui, &m.style, std::slice::from_ref(&m.kind), &mut style_set);
-            ui.add_space(4.0);
             let mc = m.clone();
+            self.props_extra(ui, tok, &mc);
+            ui.add_space(4.0);
             self.thread_section(ui, tok, &mc);
             if ui.button(t0("chest.save.one")).clicked() {
                 self.dlg = Some(crate::markupedit::Dialog::ChestName { name: self.chest_name_for(&mc), error: String::new() });

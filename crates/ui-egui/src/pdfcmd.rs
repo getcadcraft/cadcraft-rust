@@ -28,6 +28,10 @@
 //!   select-all | select-none.
 //! - `markup.reply` name = the reply's text (the selected markup's thread); `markup.tab` name = the right panel's tab.
 //! - `markup.chest` name = save:NAME (the selected markup's look) | use:I | remove:I | import:PATH | export.
+//! - `markup.cutout` name = start (in the selected area) | remove; `markup.space` name = start | name:NAME (names the
+//!   outline just finished) | cancel; `markup.legend` name = x,y (its top-right corner; else the view's);
+//!   `markup.link` name = follow (the selected markup's link) | back; `markup.punch` name = add | assignee=… | due=… |
+//!   status=… | remove (the selected markup) | export.
 //! - `markup.picture` name = PATH (a PNG or JPEG for the stamp tool); `markup.signature` name = PATH (a PNG used as the
 //!   signature, as the signature pad makes it); `markup.photo` name = `PATH|caption` (a photo on the thread).
 //! - `markup.rename` name = `number|title` of the open sheet (both empty: what the file says).
@@ -210,6 +214,11 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             p.clock = Some(ms);
             Ok(())
         }
+        "markup.down" | "markup.up" | "markup.move" | "markup.dbl"
+            if p.dlg.is_some() && matches!(p.dlg, Some(crate::markupedit::Dialog::SpaceName { .. })) =>
+        {
+            Err(format!("{id}: name the space first (markup.space=name:NAME)"))
+        }
         "markup.down" | "markup.up" | "markup.move" | "markup.dbl" => {
             // name = "x,y" (PDF user space) with ",shift" for Shift held
             let parts: Vec<&str> = name.split(',').collect();
@@ -228,6 +237,7 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             p.tick();
             let key = p.sheet_key();
             p.tools.enter(&mut p.store, &key);
+            p.take_space();
             Ok(())
         }
         "markup.esc" => {
@@ -300,11 +310,72 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
                 "props" => "props",
                 "list" => "list",
                 "chest" => "chest",
+                "punch" => "punch",
                 "compare" => "compare",
-                _ => return Err(format!("markup.tab: unknown tab {name} (props, list, chest, compare)")),
+                _ => return Err(format!("markup.tab: unknown tab {name} (props, list, punch, chest, compare)")),
             };
             Ok(())
         }
+        "markup.cutout" => match name.as_str() {
+            "start" => p.start_cutout(),
+            "remove" => p.remove_cutouts(),
+            _ => Err(format!("markup.cutout: unknown action {name} (start, remove)")),
+        },
+        "markup.space" => {
+            p.take_space();
+            match name.as_str() {
+                "start" => {
+                    p.start_space();
+                    Ok(())
+                }
+                "cancel" => {
+                    p.dlg = None;
+                    Ok(())
+                }
+                n => {
+                    let v =
+                        n.strip_prefix("name:").ok_or_else(|| format!("markup.space: unknown action {n} (start, name:NAME, cancel)"))?;
+                    let Some(crate::markupedit::Dialog::SpaceName { pts, .. }) = p.dlg.clone() else {
+                        return Err("markup.space: no space outline is waiting for its name".into());
+                    };
+                    p.add_space(pts, v)?;
+                    p.dlg = None;
+                    Ok(())
+                }
+            }
+        }
+        "markup.legend" => {
+            let at = if name.is_empty() { None } else { Some(pt(&name, id)?) };
+            p.add_legend(at);
+            Ok(())
+        }
+        "markup.link" => match name.as_str() {
+            "follow" => {
+                let sel = p.tools.selected().map(str::to_string).ok_or("markup.link: select one markup")?;
+                p.follow_link(&sel)
+            }
+            "back" => {
+                p.go_back();
+                Ok(())
+            }
+            _ => Err(format!("markup.link: unknown action {name} (follow, back)")),
+        },
+        "markup.punch" => match name.as_str() {
+            "add" => {
+                let sel = p.tools.sel.clone();
+                p.add_to_punch(&sel);
+                Ok(())
+            }
+            "export" => {
+                p.export_punch();
+                Ok(())
+            }
+            other => {
+                let sel = p.tools.selected().map(str::to_string).ok_or("markup.punch: select one markup")?;
+                let (f, v) = other.split_once('=').unwrap_or((other, ""));
+                p.punch_edit(&sel, f, v)
+            }
+        },
         "markup.chest" => {
             let (k, arg) = name.split_once(':').unwrap_or((name.as_str(), ""));
             let idx = || arg.parse::<usize>().map_err(|_| format!("markup.chest: {k}:I takes a tool number"));

@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.18 MarkupCraft cut-outs, spaces, legends, sheet links, punch list (agent, work/markup2)
+
+- `crates/ui-egui/src/markupplus.rs`: Add a cut-out to the selected area (holes.js checks: inside, not crossing, not
+  overlapping; the area's new value in the status line) and remove them; Spaces (New space: an outline, then its name;
+  markups are in the space holding the middle of their bounds; the Spaces list under the sheets, the list's space
+  filter, the space row in Properties and the CSV / XLSX space column; rename in Properties); the legend (placed at the
+  top right of the view, counting each kind of markup on the sheet or the whole set; title and scope in Properties;
+  drawn with its rows on screen and in the saved PDF); sheet links (Link in Properties by sheet number or title, Go to /
+  Ctrl+click, Alt+← back, an arrow on linked markups; written as a PDF link when the sheet is in the same file); the punch
+  list (add the selection in sheet order, assignee / due / item status, take off; the Punch list tab and its CSV).
+  Commands `markup.cutout | space | legend | link | punch`; `cadcraft-shot mkactbench`.
+- The sheet view now reads each page's title block text when a PDF opens, as 0.5's openPdf does (`read_text`), so sheet
+  numbers and names ("A-101 — Floor plan") match 0.5 everywhere (list, CSV, links, status lines, the sheet list). Open of
+  the 200-sheet set: 46 → 205 ms (JS 2,512 ms).
+- Parity (mkuidiff): holes (71 ops), spaces (57), links (54 ops on the 4-sheet set: links by number, by a loose number,
+  missing and same sheet, back past the start, the punch list with every field and its CSV): saved PDFs (three PDF links),
+  CSVs and XLSX identical, 41/41 status lines; the twelve earlier scenarios unchanged (12/12).
+- Timings (`forks/tools/mkactbench.mjs`, best of 3, 200 markups on page 1, ms, JS = frozen 0.5 modules in Node):
+
+  | action | kitchen sheet JS / Rust | plan-set-200 JS / Rust |
+  |---|---|---|
+  | copy + paste | 3.0 / 2.6 | 3.8 / 2.4 |
+  | duplicate | 3.6 / 2.3 | 3.6 / 2.3 |
+  | list CSV / XLSX / PDF summary | 1.0 / 0.3, 8.2 / 3.3, 81.9 / 4.7 | 1.1 / 0.3, 8.1 / 3.4, 44.3 / 4.5 |
+  | rotate page (bake, rotate, read back) | 195.8 / 28.8 | 1,327 / 259 |
+  | extract page | 97.3 / 15.8 | 190.2 / 22.8 |
+  | punch add / punch CSV | 3.9 / 0.8, 4.5 / 1.3 | 2.5 / 0.9, 2.9 / 1.3 |
+  | legend + Save | 55.4 / 10.3 | 131.3 / 15.4 |
+
 ## 2026-10-20 — M9.17 MarkupCraft picture and signature stamps, tool chest (agent, work/markup2)
 
 - `crates/ui-egui/src/markupchest.rs`: the tool chest (the six stock tools, Save as a tool from a markup, use, remove,

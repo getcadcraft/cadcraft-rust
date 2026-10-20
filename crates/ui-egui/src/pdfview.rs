@@ -49,7 +49,8 @@ impl PdfFile {
             return Err("the PDF has no pages".into());
         }
         // MarkupCraft's reading of the same file (a file it cannot read still shows as a plan set)
-        let opts = cc_io_markup::read::OpenOpts { file_id: id.into(), name: name.to_string(), read_text: false };
+        // the title block's text too (sheet numbers and names, as 0.5's openPdf reads them)
+        let opts = cc_io_markup::read::OpenOpts { file_id: id.into(), name: name.to_string(), read_text: true };
         let (page_keys, annots_drawn, page_views, remove_refs, recs, blank) =
             match cc_io_markup::read::open_pdf(&mut store.env, bytes, &opts) {
                 Ok(r) => {
@@ -113,7 +114,15 @@ impl PdfFile {
 
     /// markupcraft.js `bake(f, lib, {rot})`: the marked-up copy of this file; `rot` (page index, degrees) turns the text
     /// of that page's markups to read upright on a page being rotated.
-    pub(crate) fn bake(&self, store: &cc_markup::model::Store, now: f64, rot: Option<(usize, f64)>) -> Result<(String, Vec<u8>), String> {
+    pub(crate) fn bake(
+        &self,
+        store: &cc_markup::model::Store,
+        now: f64,
+        rot: Option<(usize, f64)>,
+        links: &[(cc_markup::link::LinkSheet, String, usize)],
+    ) -> Result<(String, Vec<u8>), String> {
+        let list: Vec<cc_markup::link::LinkSheet> = links.iter().map(|l| l.0.clone()).collect();
+        let mut link_pages: Vec<(String, f64)> = Vec::new();
         let sheet_name = |k: &str| store.sheet_names.get(k).map(|n| serde_json::json!({ "number": n.number, "title": n.title }));
         let pages = (0..self.pages.len())
             .map(|i| {
@@ -137,10 +146,28 @@ impl PdfFile {
                     cal_json: None,
                     badge: self.badge_of(i),
                     sheet_name: sheet_name(&key),
-                    legends: Vec::new(),
+                    legends: store
+                        .on_sheet(&key)
+                        .into_iter()
+                        .filter(|m| m.kind == "legend")
+                        .map(|m| (m.id.clone(), crate::markupedit::legend_of(store, m)))
+                        .collect(),
                 }
             })
             .collect();
+        // linkPage(link): the page of this file a link names (links to another file's sheets are not written)
+        for i in 0..self.pages.len() {
+            for m in store.on_sheet(&self.key_of(i)) {
+                if m.link.is_empty() || link_pages.iter().any(|(l, _)| *l == m.link) {
+                    continue;
+                }
+                if let Some((_, fid, pi)) = cc_markup::link::link_target(&m.link, &list).and_then(|k| links.get(k))
+                    && *fid == self.id
+                {
+                    link_pages.push((m.link.clone(), *pi as f64));
+                }
+            }
+        }
         let renamed = (0..self.pages.len()).any(|i| store.sheet_names.get(&self.key_of(i)).is_some_and(|n| !n.number.is_empty()));
         let labels = renamed.then(|| {
             (0..self.pages.len())
@@ -165,6 +192,7 @@ impl PdfFile {
             labels,
             layers,
             columns: Some(cc_markup::columns::columns_to_value(&store.columns)),
+            link_pages,
             now_ms: now,
             ..Default::default()
         };
@@ -231,6 +259,8 @@ pub struct PdfView {
     pub want_pick: Option<&'static str>,
     /// pictures on the screen (image markups, the stamp's picture): texture by a hash of the data URL (None = unreadable)
     pub(crate) pics: std::collections::HashMap<u64, Option<egui::TextureHandle>>,
+    /// sheets left by following a link (Alt+← goes back)
+    pub back_stack: Vec<String>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -279,6 +309,7 @@ impl PdfView {
             outbox: Vec::new(),
             want_pick: None,
             pics: std::collections::HashMap::new(),
+            back_stack: Vec::new(),
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -472,8 +503,9 @@ impl PdfView {
                 if several {
                     ui.label(egui::RichText::new(&f.name).small().strong().color(t.text_dim));
                 }
-                for (i, p) in f.pages.iter().enumerate() {
-                    let label = if p.label.is_empty() { format!("Page {}", i + 1) } else { p.label.clone() };
+                for i in 0..f.pages.len() {
+                    // the sheet's title as MarkupCraft names it (title block, typed name, else file and page)
+                    let label = f.title(&self.store, i);
                     let on = f.id == self.cur.id && i == self.page;
                     if ui.selectable_label(on, egui::RichText::new(label).color(t.text)).clicked() {
                         go_to = Some((f.id.clone(), i));
@@ -484,6 +516,14 @@ impl PdfView {
         if let Some((id, i)) = go_to {
             self.go_file(&id, i);
         }
+    }
+
+    /// The sheet list with the Spaces under it.
+    pub fn sheets_and_spaces(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let h = ui.available_height();
+        ui.allocate_ui(egui::vec2(ui.available_width(), (h * 0.62).max(80.0)), |ui| self.sheets(ui, t));
+        ui.separator();
+        egui::ScrollArea::vertical().id_salt("mc-spaces").auto_shrink([false, false]).show(ui, |ui| self.spaces_panel(ui, t));
     }
 
     /// The page in `rect`: drag pans (any button), the wheel zooms about the pointer, Page Up / Down turn pages.
@@ -579,7 +619,20 @@ impl PdfView {
             if let Some(pos) = pos {
                 let s = [f64::from(pos.x - origin.x), f64::from(pos.y - origin.y)];
                 let q = self.to_pdf(origin, pos);
-                if pressed && resp.hovered() {
+                let ctrl = ui.input(|i| i.modifiers.command);
+                let link_hit = (pressed && resp.hovered() && ctrl && self.tools.tool == "select")
+                    .then(|| {
+                        let key = self.sheet_key();
+                        let list: Vec<&cc_markup::model::Markup> =
+                            self.store.on_sheet(&key).into_iter().filter(|m| self.store.open(m)).collect();
+                        cc_markup::geom::pick(&list, q, 5.0 / self.zoom, &|m| self.env_of(m))
+                            .filter(|m| !m.link.is_empty())
+                            .map(|m| m.id.clone())
+                    })
+                    .flatten();
+                if let Some(id) = link_hit {
+                    let _ = self.follow_link(&id);
+                } else if pressed && resp.hovered() {
                     let dbl = self.last_press.is_some_and(|(t0, s0)| time - t0 < 0.4 && (s0[0] - s[0]).hypot(s0[1] - s[1]) < 5.0);
                     self.last_press = Some((time, s));
                     self.gesture_down(q, s, shift, dbl);
@@ -591,6 +644,9 @@ impl PdfView {
             }
         }
         if self.mode != "takeoff" && !ui.ctx().egui_wants_keyboard_input() {
+            if ui.input(|i| i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)) && !self.back_stack.is_empty() {
+                self.go_back();
+            }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.tools.cancel();
             }
@@ -777,8 +833,7 @@ impl PdfView {
             let (vx, vy) = pdfread::to_viewport(&tr, x, y);
             origin + Vec2::new((vx * z) as f32, (vy * z) as f32)
         };
-        // the sheet's scale: dimensions and areas read in real units once it is calibrated
-        let env = ShapeEnv { cal: self.store.calibrations.get(key).cloned(), badge: self.badge_of(self.page), legend: None };
+        let _ = ShapeEnv::default;
         let preview = self.tools.preview(&self.store, key, None);
         let hidden = self.tools.hidden();
         let list: Vec<&cc_markup::model::Markup> = self
@@ -789,11 +844,26 @@ impl PdfView {
             .chain(preview.iter())
             .collect();
         for m in list {
+            // the sheet's scale (dimensions and areas in real units), the count badge, a legend's rows
+            let env = self.env_of(m);
             if self.tools.sel.contains(&m.id)
                 && let Some(b) = cc_markup::shapes::list_bounds(&shapes(m, &env))
             {
                 let r = Rect::from_two_pos(at(b[0], b[1]), at(b[2], b[3])).expand(4.0);
                 painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, Color32::from_rgb(0x1f, 0x6f, 0xeb)), egui::StrokeKind::Outside);
+            }
+            // a sheet link: a small arrow at its top right (screen only)
+            if !m.link.is_empty()
+                && let Some(b) = cc_markup::geom::bounds_of(m, &env)
+            {
+                let p = at(b[2], b[3]);
+                painter.text(
+                    p + Vec2::new(2.0, 2.0),
+                    egui::Align2::LEFT_TOP,
+                    "\u{2197}",
+                    egui::FontId::proportional(11.0),
+                    Color32::from_rgb(0x1f, 0x6f, 0xeb),
+                );
             }
             for item in shapes(m, &env) {
                 match item {
@@ -991,7 +1061,7 @@ impl PdfView {
     /// the file's own annotations MarkupCraft read are rewritten; layers and columns travel. "<name>-marked.pdf".
     pub fn save_marked(&mut self, now_ms: f64) -> Result<(String, Vec<u8>), String> {
         let now = self.clock.unwrap_or(now_ms);
-        self.cur.bake(&self.store, now, None)
+        self.cur.bake(&self.store, now, None, &self.link_sheets())
     }
 
     /// Save as markupcraft.js saveFiles: one file → it; several → the files with changes (or the open one when none
@@ -1004,7 +1074,8 @@ impl PdfView {
         if targets.is_empty() {
             targets.push(&self.cur);
         }
-        let out = targets.iter().map(|f| f.bake(&self.store, now, None)).collect::<Result<Vec<_>, String>>()?;
+        let links = self.link_sheets();
+        let out = targets.iter().map(|f| f.bake(&self.store, now, None, &links)).collect::<Result<Vec<_>, String>>()?;
         let ids: Vec<String> = targets.iter().map(|f| format!("{}:", f.id)).collect();
         self.store.dirty_sheets.retain(|k| !ids.iter().any(|p| k.starts_with(p)));
         Ok(out)

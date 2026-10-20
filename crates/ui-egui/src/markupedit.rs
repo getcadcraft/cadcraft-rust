@@ -54,6 +54,8 @@ pub enum Dialog {
     RemoveTool { index: usize },
     /// the signature pad: the strokes drawn (pad coordinates)
     Signature { strokes: Vec<Vec<[f64; 2]>>, error: String },
+    /// Name the space: its outline and the name being typed
+    SpaceName { pts: Vec<[f64; 2]>, name: String, error: String },
 }
 
 /// One sheet of the plan set (markupcraft.js `sheets[i]`): files in the order they were opened, pages in order.
@@ -112,6 +114,11 @@ impl PdfView {
             }
         }
         out
+    }
+
+    /// The sheets' keys in `sheets` order.
+    pub fn sheet_keys(&self) -> Vec<String> {
+        self.files().into_iter().flat_map(|f| (0..f.pages.len()).map(move |i| f.key_of(i))).collect()
     }
 
     /// The file and page index of a sheet key.
@@ -502,11 +509,12 @@ impl PdfView {
         let labels = self.labels_of(&self.cur);
         let lab = labels.as_deref();
         let now = self.now();
+        let links = self.link_sheets();
         let rot_of = |d: f64| -> f64 { ((self.page_rot() + d) % 360.0 + 360.0) % 360.0 };
         let (out, show, done): (Vec<u8>, usize, String) = match kind {
             "rotate-cw" | "rotate-ccw" => {
                 let d = if kind == "rotate-cw" { 90.0 } else { -90.0 };
-                let (_, baked) = self.cur.bake(&self.store, now, Some((i, rot_of(d))))?;
+                let (_, baked) = self.cur.bake(&self.store, now, Some((i, rot_of(d))), &links)?;
                 let out = cc_io_markup::pages::rotate_pages(&baked, &[i as f64], d)?;
                 let key = if d > 0.0 { "pages.done.rotate_cw" } else { "pages.done.rotate_ccw" };
                 (out, i, t(key, &[("sheet", Fill::S(title))]))
@@ -517,7 +525,7 @@ impl PdfView {
                     self.tools.message = t(if to < 0.0 { "pages.first" } else { "pages.last" }, &[("name", Fill::S(fname))]);
                     return Ok(());
                 }
-                let (_, baked) = self.cur.bake(&self.store, now, None)?;
+                let (_, baked) = self.cur.bake(&self.store, now, None, &links)?;
                 let out = cc_io_markup::pages::move_pages(&baked, &[i as f64], to, lab)?;
                 let to_u = cc_markup::js::f2usize(to);
                 let done = t("pages.done.move", &[("sheet", Fill::S(title)), ("page", Fill::N(to + 1.0)), ("n", Fill::N(n as f64))]);
@@ -525,7 +533,7 @@ impl PdfView {
             }
             "insert-blank" | "add-blank" => {
                 let at = if kind == "insert-blank" { i + 1 } else { n };
-                let (_, baked) = self.cur.bake(&self.store, now, None)?;
+                let (_, baked) = self.cur.bake(&self.store, now, None, &links)?;
                 let grid = self.cur.blank.as_ref().map(|b| {
                     (b.get("grid").and_then(Value::as_str).unwrap_or("none"), b.get("metric").and_then(Value::as_bool).unwrap_or(false))
                 });
@@ -543,7 +551,7 @@ impl PdfView {
                     self.tools.message = t("pages.insert.not_pdf", &[("file", Fill::S(sname.to_string()))]);
                     return Ok(());
                 }
-                let (_, baked) = self.cur.bake(&self.store, now, None)?;
+                let (_, baked) = self.cur.bake(&self.store, now, None, &links)?;
                 let (out, count) = cc_io_markup::pages::insert_pages(&baked, sbytes, (i + 1) as f64, None, lab)?;
                 let done = t(
                     "pages.done.insert",
@@ -556,7 +564,7 @@ impl PdfView {
                 if idx.len() >= n {
                     return Err(t0("pages.err.all"));
                 }
-                let (_, baked) = self.cur.bake(&self.store, now, None)?;
+                let (_, baked) = self.cur.bake(&self.store, now, None, &links)?;
                 let out = cc_io_markup::pages::delete_pages(&baked, &idx, lab)?;
                 let left = cc_markup::pages::order_delete(n as f64, &idx);
                 let show = left.iter().position(|k| *k >= i as f64).unwrap_or(left.len().saturating_sub(1));
@@ -565,7 +573,7 @@ impl PdfView {
             }
             "extract" => {
                 let idx = cc_markup::pages::parse_page_list(arg, n as f64)?;
-                let (_, baked) = self.cur.bake(&self.store, now, None)?;
+                let (_, baked) = self.cur.bake(&self.store, now, None, &links)?;
                 let out = cc_io_markup::pages::extract_pages(&baked, &idx, now)?;
                 let stem =
                     if fname.to_ascii_lowercase().ends_with(".pdf") { fname.get(..fname.len() - 4).unwrap_or(&fname) } else { &fname };
@@ -668,7 +676,7 @@ impl PdfView {
 
     /// The list as shown: filtered, in `listOrder(sort)`.
     pub fn list_rows(&self) -> Vec<&Markup> {
-        let keys: Vec<String> = self.sheet_list().into_iter().map(|s| s.key).collect();
+        let keys: Vec<String> = self.sheet_keys();
         let mut list = self.filtered();
         let base = |a: &&Markup, b: &&Markup| -> f64 {
             let d = Self::sheet_order(&keys, a) - Self::sheet_order(&keys, b);
@@ -775,7 +783,7 @@ impl PdfView {
     /// The exports of the Markups list as filtered (by sheet): `csv` (exportListCsv), `xlsx` / `pdf` (exportSummary).
     /// → the file to save; the status line says what was written.
     pub fn export_list(&mut self, kind: &str) -> Result<Option<(String, Vec<u8>)>, String> {
-        let keys: Vec<String> = self.sheet_list().into_iter().map(|s| s.key).collect();
+        let keys: Vec<String> = self.sheet_keys();
         let mut list = self.filtered();
         cc_m3d::js::sort_by(&mut list, |a, b| Self::sheet_order(&keys, a) - Self::sheet_order(&keys, b));
         if list.is_empty() {
@@ -835,7 +843,7 @@ impl PdfView {
     /// The right panel: Properties, Markups, Tools, Compare (tabs as markupcraft's).
     pub fn right_panel(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
         ui.horizontal_wrapped(|ui| {
-            for k in ["props", "list", "chest", "compare"] {
+            for k in ["props", "list", "punch", "chest", "compare"] {
                 if ui.selectable_label(self.tab == k, t0(&format!("tab.{k}"))).clicked() {
                     self.tab = k;
                 }
@@ -845,6 +853,7 @@ impl PdfView {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
             "list" => self.list_panel(ui, tok),
             "chest" => self.chest_panel(ui, tok),
+            "punch" => self.punch_panel(ui, tok),
             "compare" => self.compare_panel(ui, tok),
             _ => self.props_panel(ui, tok),
         });
@@ -1130,6 +1139,29 @@ impl PdfView {
                 }
                 if !close {
                     self.dlg = Some(Dialog::ChestName { name, error });
+                }
+            }
+            Dialog::SpaceName { pts, mut name, mut error } => {
+                let mut add = false;
+                egui::Window::new(t0("space.name.title")).collapsible(false).resizable(false).show(ctx, |ui| {
+                    let l = ui.label(t0("space.name"));
+                    ui.text_edit_singleline(&mut name).labelled_by(l.id);
+                    if !error.is_empty() {
+                        ui.colored_label(ui.visuals().error_fg_color, &error);
+                    }
+                    ui.horizontal(|ui| {
+                        close = ui.button(t0("dlg.cancel")).clicked();
+                        add = ui.button(t0("space.add")).clicked();
+                    });
+                });
+                if add {
+                    match self.add_space(pts.clone(), &name) {
+                        Ok(()) => close = true,
+                        Err(e) => error = e,
+                    }
+                }
+                if !close {
+                    self.dlg = Some(Dialog::SpaceName { pts, name, error });
                 }
             }
             Dialog::RemoveTool { index } => {

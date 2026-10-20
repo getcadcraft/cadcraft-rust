@@ -153,6 +153,11 @@ pub struct MarkupTools {
     pub signature: Option<String>,
     /// the kept settings changed (the host saves `prefs_json`)
     pub prefs_dirty: bool,
+    /// the area a cut-out is being drawn in (`cutFor`), a space outline being drawn (`spaceDraw`), and a finished space
+    /// outline waiting for its name
+    pub cut_for: Option<String>,
+    pub space_draw: bool,
+    pub space_pts: Option<Vec<P>>,
 }
 
 impl Default for MarkupTools {
@@ -180,6 +185,9 @@ impl Default for MarkupTools {
             picture: None,
             signature: None,
             prefs_dirty: false,
+            cut_for: None,
+            space_draw: false,
+            space_pts: None,
         }
     }
 }
@@ -313,6 +321,8 @@ impl MarkupTools {
     pub fn cancel(&mut self) {
         self.drag = None;
         self.pending = None;
+        self.cut_for = None;
+        self.space_draw = false;
     }
 
     /// `constrain(from, p, e)`.
@@ -756,6 +766,20 @@ impl MarkupTools {
             .collect();
         let tool = self.tool.clone();
         let need = if tool == "polyline" { 2 } else { 3 };
+        if self.cut_for.is_some() {
+            self.finish_cutout(store, sheet, clean);
+            return;
+        }
+        if self.space_draw {
+            // finishSpace: named next (the view asks)
+            self.space_draw = false;
+            if clean.len() < 3 {
+                self.message = t("poly.need", &[("type", Fill::S(tlow("space"))), ("n", Fill::N(3.0))]);
+                return;
+            }
+            self.space_pts = Some(clean);
+            return;
+        }
         if tool == "area" && !store.calibrations.contains_key(sheet) {
             self.message = t0("need.scale");
             return;
@@ -768,6 +792,28 @@ impl MarkupTools {
         g.insert("pts".into(), json!(clean));
         let m = self.new_markup(store, sheet, &tool, g);
         self.commit_new(store, m, None);
+    }
+
+    /// `finishCutout(pts)`: the cut-out inside the area (holes.js checks), one undo step; then Select.
+    fn finish_cutout(&mut self, store: &mut Store, sheet: &str, pts: Vec<P>) {
+        let Some(id) = self.cut_for.take() else { return };
+        let Some(m) = store.get(&id).cloned() else { return };
+        let mut holes = m.holes.clone().unwrap_or_default();
+        if let Some(err) = cc_markup::holes::hole_problem(m.pts(), &holes, &pts) {
+            self.message = t0(err);
+            return;
+        }
+        holes.push(pts);
+        let mut patch = Map::new();
+        patch.insert("holes".into(), json!(holes));
+        if let Err(e) = store.change(&t0("undo.hole.add"), |tx| Ok(tx.update(&id, &patch, true))) {
+            self.message = e.to_string();
+            return;
+        }
+        self.sel = vec![id];
+        let (area, _) = cc_markup::units::measure_area(m.pts(), store.calibrations.get(m.sheet()), &holes);
+        self.message = t("hole.added", &[("area", Fill::S(area))]);
+        self.set_tool(store, sheet, "select");
     }
 
     /// `finishThree(pts)`.

@@ -7,6 +7,7 @@
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
+//!   cadcraft-shot mkactbench <file.pdf> [--runs N] → JSON timings of MarkupCraft's editing actions (M9.16–M9.18)
 //!   cadcraft-shot mcbench <file.modelcraft|.skp> [--runs N] → JSON timings of ModelCraft's open, panel edits, save and
 //!       3D-print check (best of N; forks/tools/mcuidiff.mjs --bench runs the same steps in the 0.5 JS)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
@@ -81,6 +82,7 @@ fn main() -> ExitCode {
         Some("bench") => bench(&args),
         Some("demo3d") => demo3d(&args),
         Some("pdfbench") => pdfbench(&args),
+        Some("mkactbench") => mkactbench(&args),
         Some("mcbench") => mcbench(&args),
         _ => shot(&args),
     };
@@ -328,6 +330,18 @@ fn pdfbench(args: &[String]) -> Result<(), String> {
     let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
     let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     println!("{}", cc_ui_egui::pdfview::bench(&name, &bytes, runs)?);
+    Ok(())
+}
+
+/// `cadcraft-shot mkactbench <file.pdf> [--runs N]`: MarkupCraft's editing actions timed on 200 markups (copy / paste,
+/// duplicate, the list's exports, rotate and extract a page, the punch list, the chest, a legend and Save), best of N,
+/// as one JSON line (forks/tools/mkactbench.mjs).
+fn mkactbench(args: &[String]) -> Result<(), String> {
+    let f = args.get(1).ok_or("usage: cadcraft-shot mkactbench <file.pdf> [--runs N]")?;
+    let runs: usize = arg(args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(3).clamp(1, 50);
+    let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
+    let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    println!("{}", cc_ui_egui::markupplus::bench_actions(&name, &bytes, runs)?);
     Ok(())
 }
 
