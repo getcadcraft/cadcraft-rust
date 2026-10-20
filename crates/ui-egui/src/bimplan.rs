@@ -71,10 +71,25 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: \"type=…\" | \"thickness=…\" | \"length=…\" | \"top=level|fixed\" | \"height=…\" | \"base=…\" | \"outside=flip\" | \"width=…\" | \"sill=…\" | \"fromstart=…\" | \"fromend=…\" | \"hinges=flip\" | \"face=flip\" | \"name=…\" | \"number=…\" | \"kind=…\" | \"offset=…\" | \"pitch=…\" | \"overhang=…\" | \"ends=…\"}",
     ),
+    (
+        "bim.down",
+        "Press on the plan",
+        "",
+        "{name: \"x,y\"} → plan mm: with Select, a press on a grip of the picked wall or on a door / window starts dragging it",
+    ),
+    ("bim.up", "Release on the plan", "", "{name: \"x,y[,cancel]\"} → ends the drag there: the wall or opening moves (one undo step)"),
+    (
+        "bim.drag",
+        "Drag on the plan",
+        "",
+        "{name: \"x0,y0,x1,y1[,shift]\"} → press, move, release: drags a grip of the picked wall (ends, middle) or a door / window along its wall; else pans",
+    ),
+    ("bim.timings", "Plan timings", "", "{} → the status line says what the last drag preview, change, plan and 3D rebuild took"),
+    ("bim.view", "Plan view", "", "{name: \"cx,cy,scale\"} → centre (plan mm) and px per mm of the plan"),
     ("bim.schedule", "Schedule", "", "{name: \"doors\" | \"windows\" | \"walls\" | \"rooms\" [\":csv\"]} → shows it (\":csv\" saves it)"),
 ];
 
-const SNAP_PX: f64 = 12.0;
+pub(crate) const SNAP_PX: f64 = 12.0;
 
 /// The wall tool's settings.
 #[derive(Clone, Debug)]
@@ -197,6 +212,19 @@ pub struct Overlay {
     pub symbols: Vec<Symbol>,
     pub snap: Option<(V2, &'static str)>,
     pub hud: Option<(V2, String)>,
+    /// the picked wall's grips: (point, the middle one)
+    pub grips: Vec<(V2, bool)>,
+}
+
+/// What a door / window preview shows (`openingPreview`'s spec): the opening, without where it goes.
+#[derive(Clone, Debug)]
+pub struct OSpec {
+    pub door: bool,
+    pub type_key: String,
+    pub width: f64,
+    pub height: f64,
+    pub sill: f64,
+    pub hand: String,
 }
 
 /// A plan cut: (the bytes it was cut from, the level) → (cut, below).
@@ -234,6 +262,11 @@ pub struct Draw {
     pub show_sched: bool,
     pub pending_fit: bool,
     pub levels_open: bool,
+    /// a press the plan took: a wall grip or a door / window being slid (bimgrips.rs)
+    pub drag: Option<crate::bimgrips::PDrag>,
+    /// what the last gestures took (ms): "preview" (a drag's move: where it goes and its overlay, the fastest), "change"
+    /// (the edit through the editor), "plan" (the plan's data and scene again); `bim.timings` shows them
+    pub timings: HashMap<&'static str, f64>,
 }
 
 impl Default for Draw {
@@ -278,6 +311,8 @@ impl Default for Draw {
             show_sched: false,
             pending_fit: true,
             levels_open: true,
+            drag: None,
+            timings: HashMap::new(),
         }
     }
 }
@@ -334,6 +369,12 @@ pub fn opened(app: &mut UiApp) {
 
 /// model-ui.js `refresh()`: snapshot, levels, loops, cut, scene.
 pub fn refresh(app: &mut UiApp, fit: bool) {
+    let t0 = web_time::Instant::now();
+    refresh_in(app, fit);
+    app.bimh.draw.timings.insert("plan", t0.elapsed().as_secs_f64() * 1000.0);
+}
+
+fn refresh_in(app: &mut UiApp, fit: bool) {
     let Some(doc) = app.bimh.ed.as_mut() else { return };
     let sn = match snapshot(&mut doc.ed.api) {
         Ok(s) => s,
@@ -401,7 +442,7 @@ fn cut_plan(app: &mut UiApp) {
 }
 
 /// model-ui.js `makeScene()` for the level shown.
-fn build_scene(app: &mut UiApp) {
+pub(crate) fn build_scene(app: &mut UiApp) {
     let (Some(level), Some(sn), Some(loops)) = (app.bimh.draw.level, app.bimh.draw.data.clone(), app.bimh.draw.loops.clone()) else {
         return;
     };
@@ -411,12 +452,16 @@ fn build_scene(app: &mut UiApp) {
     let Some(doc) = app.bimh.ed.as_mut() else { return };
     let api = &mut doc.ed.api;
     let mut other = |st: f64| loops_of(api, st).ok();
-    app.bimh.draw.scene = make_scene(&sn, level, &loops.loops, &cut, &below, &units, dims, 0.0, &mut other);
+    let mut scene = make_scene(&sn, level, &loops.loops, &cut, &below, &units, dims, 0.0, &mut other);
+    if let Some(k) = crate::bimgrips::dragged_symbol(&app.bimh.draw) {
+        scene.symbols.retain(|s| s.key != k);
+    }
+    app.bimh.draw.scene = scene;
 }
 
 // ------------------------------------------------------------------------------------------------------------ helpers
 
-fn walls_here(dr: &Draw) -> Vec<cc_bim::draw::walls::Wall> {
+pub(crate) fn walls_here(dr: &Draw) -> Vec<cc_bim::draw::walls::Wall> {
     match (&dr.data, dr.level) {
         (Some(sn), Some(l)) => sn.walls.iter().filter(|w| w.storey == Some(l)).cloned().collect(),
         _ => Vec::new(),
@@ -428,7 +473,7 @@ fn level_info(dr: &Draw) -> Option<(cc_bim::draw::levels::Level, Option<cc_bim::
     Some((sn.levels.get(i)?.clone(), sn.levels.get(i + 1).cloned()))
 }
 /// Free directions come out in 10 mm or 1/2".
-fn round_step(dr: &Draw) -> f64 {
+pub(crate) fn round_step(dr: &Draw) -> f64 {
     if dr.units == "mm" { 10.0 } else { 12.7 }
 }
 fn snap_walls(dr: &Draw) -> Vec<SnapWall> {
@@ -472,7 +517,7 @@ fn face_ends(dr: &Draw, w: &cc_bim::draw::walls::Wall, face: &str) -> [f64; 2] {
 }
 
 /// `hoverOpening(p, kind, width)`
-fn hover_opening(dr: &Draw, p: V2, kind: &str, width: f64) -> Option<OHover> {
+pub(crate) fn hover_opening(dr: &Draw, p: V2, kind: &str, width: f64) -> Option<OHover> {
     let tol = dr.view.px_to_mm(16.0);
     let walls = walls_here(dr);
     let mut best: Option<(usize, f64, f64, f64)> = None;
@@ -570,6 +615,7 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
             }
             let dr = d(app);
             dr.tool = name;
+            dr.drag = None;
             dr.chain = None;
             dr.ohover = None;
             dr.shover = None;
@@ -600,6 +646,42 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
         "bim.move" => {
             let (pt, shift) = parse_pt(&name).ok_or("bim.move: x,y")?;
             on_move(app, pt, shift);
+        }
+        "bim.down" => {
+            let (pt, _) = parse_pt(&name).ok_or("bim.down: x,y")?;
+            crate::bimgrips::on_down(app, pt);
+        }
+        "bim.up" => {
+            let (pt, _) = parse_pt(&name).ok_or("bim.up: x,y")?;
+            let cancel = name.split(',').any(|t| t.trim() == "cancel");
+            return crate::bimgrips::on_up(app, pt, cancel).and_then(|()| app.error.take().map_or(Ok(()), Err));
+        }
+        "bim.drag" => return drag(app, &name),
+        "bim.timings" => {
+            let tm = &app.bimh.draw.timings;
+            let f = |k: &str| tm.get(k).map_or_else(|| "–".to_string(), |v| format!("{v:.2}"));
+            app.message = format!(
+                "drag preview {} ms · change {} ms · plan {} ms · 3D {:.1} ms",
+                f("preview"),
+                f("change"),
+                f("plan"),
+                app.bimh.rebuild_ms
+            );
+            app.bimh.draw.timings.remove("preview");
+        }
+        "bim.view" => {
+            let v: Vec<f64> = name.split(',').map(|t| cc_bim::js::str_num(t.trim())).collect();
+            match v[..] {
+                [cx, cy, scale] if cx.is_finite() && cy.is_finite() && scale.is_finite() && scale > 0.0 => {
+                    let dr = d(app);
+                    dr.view.cx = cx;
+                    dr.view.cy = cy;
+                    dr.view.scale = scale.clamp(0.0005, 20.0);
+                    dr.view.fitted = true;
+                    dr.pending_fit = false;
+                }
+                _ => return Err("bim.view: cx,cy,px per mm".into()),
+            }
         }
         "bim.point" => {
             let (pt, shift) = parse_pt(&name).ok_or("bim.point: x,y")?;
@@ -649,6 +731,39 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
             }
         }
         other => return Err(format!("unknown command {other}")),
+    }
+    Ok(())
+}
+
+/// `bim.drag=x0,y0,x1,y1[,shift]`: a press at the first point, the pointer to the second, the release there (what
+/// model-planview.js does with them: a press the plan takes drags; any other pans the view; 4 px or less is a click).
+fn drag(app: &mut UiApp, spec: &str) -> Result<(), String> {
+    let t: Vec<&str> = spec.split(',').map(str::trim).collect();
+    let n = |i: usize| t.get(i).map_or(f64::NAN, |s| cc_bim::js::str_num(s));
+    let (p0, p1) = ([n(0), n(1)], [n(2), n(3)]);
+    if !p0.iter().chain(p1.iter()).all(|v| v.is_finite()) {
+        return Err("bim.drag: x0,y0,x1,y1[,shift]".into());
+    }
+    let shift = t.get(4).is_some_and(|s| *s == "shift");
+    let moved = m::hypot(p1[0] - p0[0], p1[1] - p0[1]) * app.bimh.draw.view.scale;
+    on_move(app, p0, shift);
+    app.error = None;
+    if crate::bimgrips::on_down(app, p0) {
+        on_move(app, p1, shift);
+        crate::bimgrips::on_up(app, p1, false)?;
+        if let Some(e) = app.error.take() {
+            return Err(e);
+        }
+    } else if moved > 3.0 && app.bimh.draw.tool == "select" {
+        // a left drag that is not taken pans (Select)
+        let dr = d(app);
+        dr.view.cx -= p1[0] - p0[0];
+        dr.view.cy -= p1[1] - p0[1];
+        return Ok(());
+    }
+    if moved <= 4.0 {
+        on_move(app, p1, shift);
+        on_click(app, p1, shift);
     }
     Ok(())
 }
@@ -729,6 +844,9 @@ fn set_option(app: &mut UiApp, spec: &str) -> Result<(), String> {
 
 /// model-ui.js `onMove(p, e)`: previews.
 fn on_move(app: &mut UiApp, p: V2, shift: bool) {
+    if crate::bimgrips::on_move(app, p, shift) {
+        return;
+    }
     let dr = d(app);
     match dr.tool.as_str() {
         "door" | "window" => {
@@ -855,8 +973,22 @@ fn wall_point(app: &mut UiApp, q: V2) {
 /// model-ui.js `commit` → `apply`: one change through the editor; the plan and 3D follow. `chain`: a wall of the chain
 /// (its point is taken back when the change is refused, its GlobalId kept for closing the room). → it worked.
 fn commit(app: &mut UiApp, op: Op, label: &str, verb: &str, chain: Option<bool>) -> bool {
+    commit_in(app, op, label, verb, chain, None)
+}
+
+/// `commit(run, { label, verb, select })`: the change, then `select` picked again (a dragged wall keeps its grips).
+pub(crate) fn commit_sel(app: &mut UiApp, op: Op, label: &str, verb: &str, select: Option<f64>) -> bool {
+    commit_in(app, op, label, verb, None, select)
+}
+
+fn commit_in(app: &mut UiApp, op: Op, label: &str, verb: &str, chain: Option<bool>, select: Option<f64>) -> bool {
+    // `S.keepSel = meta.select || selectedKeys()`: the pick stays what it was (or what the change asks for)
+    let keep = select.or_else(|| app.picked_product());
     let Some(doc) = app.bimh.ed.as_mut() else { return false };
-    match doc.ed.model_change(op, label, verb) {
+    let t0 = web_time::Instant::now();
+    let res = doc.ed.model_change(op, label, verb);
+    app.bimh.draw.timings.insert("change", t0.elapsed().as_secs_f64() * 1000.0);
+    match res {
         Err(e) => {
             status_err(app, &e.0);
             if chain.is_some()
@@ -876,7 +1008,7 @@ fn commit(app: &mut UiApp, op: Op, label: &str, verb: &str, chain: Option<bool>)
                 }
             }
             app.error = None;
-            crate::bimedit::after_change(app, r.id, true);
+            crate::bimedit::after_change(app, keep, true);
             true
         }
     }
@@ -1371,8 +1503,43 @@ pub fn bounds(scene: &Scene) -> Option<[f64; 4]> {
     b[0].is_finite().then_some(b)
 }
 
+/// `openingPreview(h, spec, o)`: the symbol where it would go and its distances to both ends of that face.
+pub(crate) fn opening_preview(dr: &Draw, h: &OHover, os: &OSpec, o: &mut Overlay) {
+    let units = &dr.units;
+    let walls = walls_here(dr);
+    let Some(w) = walls.get(h.wall) else { return };
+    let spec = OpSpec {
+        door: os.door,
+        type_key: os.type_key.clone(),
+        width: os.width,
+        height: os.height,
+        sill: os.sill,
+        hand: os.hand.clone(),
+        face: h.face.clone(),
+        offset: h.offset,
+    };
+    o.symbols.push(opening_symbol(&spec, w.a, w.b, w.t));
+    let u = [(w.b[0] - w.a[0]) / w.len, (w.b[1] - w.a[1]) / w.len];
+    let n = [-u[1], u[0]];
+    let sg = if h.face == "right" { -1.0 } else { 1.0 };
+    let pp = |x: f64| [w.a[0] + u[0] * x + n[0] * sg * w.t / 2.0, w.a[1] + u[1] * x + n[1] * sg * w.t / 2.0];
+    let off = sg * dr.view.px_to_mm(22.0);
+    let [e0, e1] = h.ends;
+    let dim = |a: V2, b: V2, text: String| Dim { a, b, text, off_px: None, off_mm: None, off: Some(off), key: None };
+    if h.offset - e0 > 0.5 {
+        o.dims.push(dim(pp(e0), pp(h.offset), fmt_len(h.offset - e0, units)));
+    }
+    if e1 - h.offset - os.width > 0.5 {
+        o.dims.push(dim(pp(h.offset + os.width), pp(e1), fmt_len(e1 - h.offset - os.width, units)));
+    }
+    let name = opening_type(&os.type_key).map(|t| opening_type_name(&t)).unwrap_or_default();
+    let text =
+        if h.ok { format!("{name}  {} × {}", fmt_len(os.width, units), fmt_len(os.height, units)) } else { bt("model.err.nofit", &[]) };
+    o.hud = Some((pp(h.offset + os.width / 2.0), text));
+}
+
 /// The overlay of the current tool (`drawOverlay`).
-fn overlay(dr: &Draw) -> Overlay {
+fn overlay(dr: &Draw, sel: Option<f64>) -> Overlay {
     let mut o = Overlay::default();
     let units = &dr.units;
     match dr.tool.as_str() {
@@ -1416,56 +1583,16 @@ fn overlay(dr: &Draw) -> Overlay {
         }
         "door" | "window" => {
             if let Some(h) = &dr.ohover {
-                let walls = walls_here(dr);
-                if let Some(w) = walls.get(h.wall) {
-                    let os = oset(dr, &dr.tool);
-                    let spec = OpSpec {
-                        door: dr.tool == "door",
-                        type_key: os.type_key.clone(),
-                        width: os.width,
-                        height: os.height,
-                        sill: os.sill,
-                        hand: os.hand.clone(),
-                        face: h.face.clone(),
-                        offset: h.offset,
-                    };
-                    o.symbols.push(opening_symbol(&spec, w.a, w.b, w.t));
-                    let u = [(w.b[0] - w.a[0]) / w.len, (w.b[1] - w.a[1]) / w.len];
-                    let n = [-u[1], u[0]];
-                    let sg = if h.face == "right" { -1.0 } else { 1.0 };
-                    let pp = |x: f64| [w.a[0] + u[0] * x + n[0] * sg * w.t / 2.0, w.a[1] + u[1] * x + n[1] * sg * w.t / 2.0];
-                    let off = sg * dr.view.px_to_mm(22.0);
-                    let [e0, e1] = h.ends;
-                    if h.offset - e0 > 0.5 {
-                        o.dims.push(Dim {
-                            a: pp(e0),
-                            b: pp(h.offset),
-                            text: fmt_len(h.offset - e0, units),
-                            off_px: None,
-                            off_mm: None,
-                            off: Some(off),
-                            key: None,
-                        });
-                    }
-                    if e1 - h.offset - os.width > 0.5 {
-                        o.dims.push(Dim {
-                            a: pp(h.offset + os.width),
-                            b: pp(e1),
-                            text: fmt_len(e1 - h.offset - os.width, units),
-                            off_px: None,
-                            off_mm: None,
-                            off: Some(off),
-                            key: None,
-                        });
-                    }
-                    let name = opening_type(&os.type_key).map(|t| opening_type_name(&t)).unwrap_or_default();
-                    let text = if h.ok {
-                        format!("{name}  {} × {}", fmt_len(os.width, units), fmt_len(os.height, units))
-                    } else {
-                        bt("model.err.nofit", &[])
-                    };
-                    o.hud = Some((pp(h.offset + os.width / 2.0), text));
-                }
+                let os = oset(dr, &dr.tool);
+                let spec = OSpec {
+                    door: dr.tool == "door",
+                    type_key: os.type_key.clone(),
+                    width: os.width,
+                    height: os.height,
+                    sill: os.sill,
+                    hand: os.hand.clone(),
+                };
+                opening_preview(dr, h, &spec, &mut o);
             }
         }
         "floor" | "ceiling" | "roof" => {
@@ -1510,6 +1637,7 @@ fn overlay(dr: &Draw) -> Overlay {
         }
         _ => {}
     }
+    crate::bimgrips::overlay(dr, sel, &mut o);
     o
 }
 
@@ -1640,7 +1768,7 @@ fn paint(ui: &egui::Ui, rect: Rect, dr: &Draw, sel: Option<f64>, t: &crate::them
         }
     }
     // overlay
-    let ov = overlay(dr);
+    let ov = overlay(dr, sel);
     for p in &ov.walls {
         let pts = poly_path(p);
         fill_poly(&painter, &pts, alpha(pal.action, 0.18));
@@ -1654,6 +1782,17 @@ fn paint(ui: &egui::Ui, rect: Rect, dr: &Draw, sel: Option<f64>, t: &crate::them
     }
     for q in &ov.points {
         painter.circle_filled(s(*q), 3.0, pal.action);
+    }
+    // grips: filled squares at a wall's ends, a circle at its middle (drag to move)
+    for (p, mid) in &ov.grips {
+        let q = s(*p);
+        let st = Stroke::new(2.0, pal.action);
+        if *mid {
+            painter.circle(q, 5.0, pal.sheet, st);
+        } else {
+            let r = Rect::from_center_size(q, egui::vec2(10.0, 10.0));
+            painter.rect(r, 0.0, pal.sheet, st, egui::StrokeKind::Middle);
+        }
     }
     if let Some((p, kind)) = ov.snap {
         let q = s(p);
@@ -1873,18 +2012,37 @@ pub fn plan_ui(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
         let k = (f64::from(wheel) * 0.0015 * 1.3).exp();
         app.bimh.draw.view.zoom_at(p, o, k);
     }
+    // a press on a grip of the picked wall or on a door / window is taken (bim.down): it drags instead of panning
+    let (pressed, released, origin) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.press_origin()));
+    if pressed
+        && app.bimh.draw.tool == "select"
+        && let Some(p) = origin.filter(|p| rect.contains(*p))
+    {
+        let pt = app.bimh.draw.view.from_screen(p, o);
+        let arg = format!("{},{}", cc_bim::js::num_str(pt[0]), cc_bim::js::num_str(pt[1]));
+        app.run_ui("bim.down", &Params { name: Some(arg), ..Default::default() });
+    }
+    let taken = app.bimh.draw.drag.is_some();
     let pan_drag = resp.dragged_by(egui::PointerButton::Middle)
         || resp.dragged_by(egui::PointerButton::Secondary)
-        || (resp.dragged_by(egui::PointerButton::Primary) && app.bimh.draw.tool == "select");
+        || (resp.dragged_by(egui::PointerButton::Primary) && app.bimh.draw.tool == "select" && !taken);
     if pan_drag {
         let dv = resp.drag_delta();
         let sc = app.bimh.draw.view.scale;
         app.bimh.draw.view.cx -= f64::from(dv.x) / sc;
         app.bimh.draw.view.cy += f64::from(dv.y) / sc;
     }
-    if let Some(p) = resp.hover_pos() {
+    if let Some(p) = resp.hover_pos().or_else(|| if taken { ui.input(|i| i.pointer.latest_pos()) } else { None }) {
         let pt = app.bimh.draw.view.from_screen(p, o);
         on_move(app, pt, shift);
+    }
+    if taken
+        && released
+        && let Some(p) = ui.input(|i| i.pointer.latest_pos())
+    {
+        let pt = app.bimh.draw.view.from_screen(p, o);
+        let arg = format!("{},{}", cc_bim::js::num_str(pt[0]), cc_bim::js::num_str(pt[1]));
+        app.run_ui("bim.up", &Params { name: Some(arg), ..Default::default() });
     }
     if resp.clicked_by(egui::PointerButton::Primary)
         && let Some(p) = resp.interact_pointer_pos()

@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M7.14 BimCraft plan grips (agent, work/bimgrips)
+
+- `bimgrips.rs` (model-ui.js `gripWall` / `onDown` / `gripMove` / `onMove` / `onUp`): with Select and one drawn wall
+  picked, its ends (squares) and middle (a circle) are grips. An end drags with the wall tool's snapping (other walls'
+  ends, middles and face corners; 15° steps from the fixed end; Shift square; free lengths in 10 mm or 1/2"), the
+  middle moves the whole wall (90° steps from where it was taken); the preview is the wall joined to the others, its
+  length and the snap marker. A press on a door or window slides it along its wall or onto another (the middle snaps,
+  the rest in the round step; a door swings to the pointer's side on a new wall), its distances to the face's ends
+  shown, the symbol out of the plan while it moves. 4 px or less is a click; too short a wall and openings that do not
+  fit are refused with 0.5's words. Each drag is one change (one undo step), the dragged element stays picked; after
+  any other plan change the pick stays what it was (0.5's `keepSel`, it used to jump to the new element).
+- Gestures are commands: `bim.down`, `bim.move`, `bim.up`, `bim.drag=x0,y0,x1,y1[,shift]`, `bim.view=cx,cy,scale`
+  (the plan's centre and zoom: the snap and pick tolerances are screen px), `bim.timings`. The mouse goes through the
+  same commands (a press the plan takes no longer pans).
+- Parity (`forks/tools/bmgripdiff.mjs`: model-ui.js's grip / drag / hover / hit code copied, the engine modules
+  imported; 6 scripted scenarios — end grips with Shift and undo / redo, middle grips, feet-inches, too short, openings
+  slid along / past the end / onto other walls / clicks, no-fit — and 8 seeded ones whose gestures are picked on the JS
+  side from the plan of the moment): status lines 248/248, saved IFC and plan PDF byte-identical 28/28.
+- Timings (`bmgripdiff.mjs --bench`, one inner wall end of a grid of rooms dragged in 30 moves and let go; JS / Rust
+  ms): 71 walls — preview 0.40 / 0.11 (3.7×), change 29.1 / 12.3, 3D 48.8 / 4.8, plan 21.8 / 12.8, let go 99.7 / 29.9
+  (3.3×); 262 walls — preview 2.11 / 0.73 (2.9×), let go 495 / 226 (2.2×).
 ## 2026-10-20 — M4.17 UCS and view turns, LWDISPLAY / POLARANG, COUNT (agent, work/cadcmds)
 
 - `cmd/ucscmd.rs`: UCS (origin + X axis, NAmed Restore / Save / Delete / ?, OBject from a line / circle / arc /

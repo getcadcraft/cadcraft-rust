@@ -17,6 +17,7 @@
 
 pub mod autocount;
 pub mod bimedit;
+pub mod bimgrips;
 pub mod bimplan;
 pub mod bimtools;
 pub mod cadprops;
