@@ -655,6 +655,41 @@ impl Run {
                 let edit_save_ms = t4.elapsed().as_secs_f64() * 1000.0;
                 json!({ "save0_ms": save0, "load_ms": load_ms, "view_ms": view_ms, "view_pieces": view, "plan_ms": jn(plan_ms), "plan_items": cut, "edit_save_ms": edit_save_ms, "bytes": saved })
             }
+            // ifc-edit.js placeItem (ifc-place.js place): { item | itemFile, level, x, y, rot, itemNumber, quantity, notes,
+            // library, sha256, sourceFile, standInHeight }
+            "placeItem" => {
+                let item = match (o.get("item"), s(o.get("itemFile"))) {
+                    (Some(i), _) => i.clone(),
+                    (None, Some(f)) => match std::fs::read(&f).ok().and_then(|b| serde_json::from_slice::<J>(&b).ok()) {
+                        Some(v) => v,
+                        None => return err("no item"),
+                    },
+                    _ => return err("no item"),
+                };
+                let storey =
+                    o.get("level").and_then(J::as_u64).and_then(|i| usize::try_from(i).ok()).and_then(|i| sn.levels.get(i)).map(|l| l.id);
+                let opts = crate::draw::place::PlaceOpts {
+                    storey: storey.unwrap_or(-1.0),
+                    x: num(o.get("x")).unwrap_or(0.0),
+                    y: num(o.get("y")).unwrap_or(0.0),
+                    rot: num(o.get("rot")).unwrap_or(0.0),
+                    item_number: s(o.get("itemNumber")).unwrap_or_default(),
+                    quantity: num(o.get("quantity")).unwrap_or(1.0),
+                    notes: s(o.get("notes")).unwrap_or_default(),
+                    library: s(o.get("library")).unwrap_or_default(),
+                    sha256: s(o.get("sha256")).unwrap_or_default(),
+                    source_file: s(o.get("sourceFile")).unwrap_or_default(),
+                    stand_in_height: num(o.get("standInHeight")).unwrap_or(0.0),
+                };
+                match ed.place_item(Arc::new(item), opts) {
+                    Ok(r) => json!({ "ok": true, "typeCreated": r.type_created }),
+                    Err(e) => err(&e.0),
+                }
+            }
+            "nextItemNumber" => match crate::draw::place::next_item_number(&mut ed.api) {
+                Ok(n) => J::String(n),
+                Err(e) => err(&e.0),
+            },
             "changes" => J::Array(
                 ed.changes
                     .iter()
@@ -662,6 +697,7 @@ impl Run {
                         Change::Model { label, verb, .. } => json!({ "kind": "model", "label": label, "verb": verb }),
                         Change::Attr { attr, .. } => json!({ "kind": "attr", "attr": attr }),
                         Change::Prop { r, .. } => json!({ "kind": "prop", "prop": r.prop_name }),
+                        Change::Place { label, .. } => json!({ "kind": "place", "label": label }),
                     })
                     .collect(),
             ),

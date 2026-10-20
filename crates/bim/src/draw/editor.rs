@@ -1,7 +1,7 @@
 //! ifc-edit.js — edits an open IFC model and saves it as a new IFC file: attributes (Name, Description, ObjectType,
 //! Tag), single property values (copy-on-write where exporters share sets and values), and building-tool changes
-//! (model-ops.js), each one change with undo and redo. Library placements, pastes and deletes of other elements are
-//! not ported yet (their parity lives with the library work).
+//! (model-ops.js), and library placements (ifc-place.js `place`), each one change with undo and redo. Swaps, pastes and
+//! deletes of other elements are not ported yet.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,6 +10,7 @@ use cc_io_ifc::model::{Id, id_key};
 
 use crate::api::{JsErr, R};
 use crate::draw::ops::{Op, OpResult};
+use crate::draw::place::{PlaceOpts, Placed, Placer};
 use crate::draw::tr::t0;
 use crate::draw::writer::{Journal, undo_journal};
 use crate::wapi::{Api, JV, P, TV};
@@ -38,20 +39,48 @@ pub struct PropRef {
 /// One change in the list.
 #[derive(Clone, Debug)]
 pub enum Change {
-    Attr { id: Id, attr: String, old: Option<P>, value: Option<String>, label: String },
-    Prop { id: Id, r: PropRef, old: P, value: P, label: String },
-    Model { id: Option<Id>, ids: Vec<Id>, made: Vec<(String, Id)>, label: String, verb: String, journal: Box<Journal>, op: Box<Op> },
+    Attr {
+        id: Id,
+        attr: String,
+        old: Option<P>,
+        value: Option<String>,
+        label: String,
+    },
+    Prop {
+        id: Id,
+        r: PropRef,
+        old: P,
+        value: P,
+        label: String,
+    },
+    Model {
+        id: Option<Id>,
+        ids: Vec<Id>,
+        made: Vec<(String, Id)>,
+        label: String,
+        verb: String,
+        journal: Box<Journal>,
+        op: Box<Op>,
+    },
+    /// a library item placed (redo places it again: same item, same place, a new element id)
+    Place {
+        id: Id,
+        label: String,
+        journal: Box<Journal>,
+        item: Arc<serde_json::Value>,
+        opts: Box<PlaceOpts>,
+    },
 }
 
 impl Change {
     pub fn label(&self) -> &str {
         match self {
-            Change::Attr { label, .. } | Change::Prop { label, .. } | Change::Model { label, .. } => label,
+            Change::Attr { label, .. } | Change::Prop { label, .. } | Change::Model { label, .. } | Change::Place { label, .. } => label,
         }
     }
     pub fn id(&self) -> Option<Id> {
         match self {
-            Change::Attr { id, .. } | Change::Prop { id, .. } => Some(*id),
+            Change::Attr { id, .. } | Change::Prop { id, .. } | Change::Place { id, .. } => Some(*id),
             Change::Model { id, .. } => *id,
         }
     }
@@ -106,7 +135,10 @@ impl Editor {
     pub fn tag_last(&mut self, label: &str) {
         if let Some(c) = self.changes.last_mut() {
             match c {
-                Change::Attr { label: l, .. } | Change::Prop { label: l, .. } | Change::Model { label: l, .. } => *l = label.to_string(),
+                Change::Attr { label: l, .. }
+                | Change::Prop { label: l, .. }
+                | Change::Model { label: l, .. }
+                | Change::Place { label: l, .. } => *l = label.to_string(),
             }
         }
     }
@@ -345,6 +377,20 @@ impl Editor {
         Ok(r)
     }
 
+    /// `placeItem(item, opts)`: a library item placed, one change ("Hand sink (item 3)").
+    pub fn place_item(&mut self, item: Arc<serde_json::Value>, opts: PlaceOpts) -> R<Placed> {
+        let r = Placer::new(&mut self.api)?.place(&item, &opts)?;
+        self.reindex();
+        let name = item.get("name").map_or_else(|| "undefined".to_string(), |v| v.as_str().map_or_else(|| v.to_string(), str::to_string));
+        let label = if opts.item_number.is_empty() {
+            name
+        } else {
+            crate::draw::tr::t("ifcedit.change.item", &[("label", &name), ("item", &opts.item_number)])
+        };
+        self.record(Change::Place { id: r.id, label, journal: Box::new(r.journal.clone()), item, opts: Box::new(opts) });
+        Ok(r)
+    }
+
     pub fn reindex(&mut self) {
         self.prop_refs = None;
         self.rels_by_pset = None;
@@ -354,7 +400,7 @@ impl Editor {
     pub fn undo(&mut self) -> R<Option<&Change>> {
         let Some(c) = self.changes.pop() else { return Ok(None) };
         match &c {
-            Change::Model { journal, .. } => {
+            Change::Model { journal, .. } | Change::Place { journal, .. } => {
                 undo_journal(&mut self.api, journal)?;
                 self.reindex();
             }
@@ -416,6 +462,11 @@ impl Editor {
                     journal: Box::new(r.journal),
                     op,
                 })
+            }
+            Change::Place { id, label, item, opts, .. } => {
+                let r = Placer::new(&mut self.api)?.place(&item, &opts)?;
+                self.moved.insert(id_key(id), r.id);
+                Ok(Change::Place { id: r.id, label, journal: Box::new(r.journal), item, opts })
             }
         })();
         match res {

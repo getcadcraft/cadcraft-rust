@@ -267,6 +267,10 @@ pub struct Draw {
     /// what the last gestures took (ms): "preview" (a drag's move: where it goes and its overlay, the fastest), "change"
     /// (the edit through the editor), "plan" (the plan's data and scene again); `bim.timings` shows them
     pub timings: HashMap<&'static str, f64>,
+    /// a library item being placed, its dialog, the typed X, Y (bimplace.rs)
+    pub placing: Option<crate::bimplace::Placing>,
+    pub ask: Option<crate::bimplace::Ask>,
+    pub place_xy: String,
 }
 
 impl Default for Draw {
@@ -313,6 +317,9 @@ impl Default for Draw {
             levels_open: true,
             drag: None,
             timings: HashMap::new(),
+            placing: None,
+            ask: None,
+            place_xy: String::new(),
         }
     }
 }
@@ -608,6 +615,7 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
             app.bimh.draw.chain = None;
             app.bimh.draw.cut = None;
             refresh(app, true);
+            crate::bimplace::level_changed(app);
         }
         "bim.tool" => {
             if !["select", "wall", "door", "window", "floor", "ceiling", "roof"].contains(&name.as_str()) {
@@ -844,7 +852,7 @@ fn set_option(app: &mut UiApp, spec: &str) -> Result<(), String> {
 
 /// model-ui.js `onMove(p, e)`: previews.
 fn on_move(app: &mut UiApp, p: V2, shift: bool) {
-    if crate::bimgrips::on_move(app, p, shift) {
+    if crate::bimplace::on_move(app, p) || crate::bimgrips::on_move(app, p, shift) {
         return;
     }
     let dr = d(app);
@@ -871,6 +879,9 @@ fn on_move(app: &mut UiApp, p: V2, shift: bool) {
 
 /// model-ui.js `onClick(p, e)`.
 fn on_click(app: &mut UiApp, p: V2, shift: bool) {
+    if crate::bimplace::on_click(app, p) {
+        return;
+    }
     let tool = app.bimh.draw.tool.clone();
     match tool.as_str() {
         "select" => {
@@ -1638,6 +1649,7 @@ fn overlay(dr: &Draw, sel: Option<f64>) -> Overlay {
         _ => {}
     }
     crate::bimgrips::overlay(dr, sel, &mut o);
+    crate::bimplace::overlay(dr, &mut o);
     o
 }
 
@@ -2502,7 +2514,7 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
 
 /// Keys while Draw is on (model-ui.js keydown capture): Esc, Enter, W / V / D / N / H / F, Delete.
 pub fn keys(app: &mut UiApp, ctx: &egui::Context) {
-    if !app.bimh.draw.on || ctx.egui_wants_keyboard_input() {
+    if !app.bimh.draw.on || crate::bimplace::keys(app, ctx) || ctx.egui_wants_keyboard_input() {
         return;
     }
     let (esc, enter, del, w, v, dk, n, h, f) = ctx.input(|i| {

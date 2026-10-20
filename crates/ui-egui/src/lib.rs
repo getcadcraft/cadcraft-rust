@@ -18,6 +18,7 @@
 pub mod autocount;
 pub mod bimedit;
 pub mod bimgrips;
+pub mod bimplace;
 pub mod bimplan;
 pub mod bimtools;
 pub mod cadprops;
@@ -344,6 +345,10 @@ impl UiApp {
 
     /// Open a file; linked drawings are looked for in its folder (desktop) through `Services::read_xref`.
     pub fn open_file(&mut self, f: &ImportedFile) {
+        // a library item onto the model being edited: placing starts (the model stays)
+        if self.bimh.ed.is_some() && bimplace::open_item(self, f) {
+            return;
+        }
         self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
         bimedit::opened(self);
         if detailview::open_file(self, f) {
@@ -1349,6 +1354,7 @@ impl UiApp {
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
+            id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
                 self.error = None;
@@ -1618,6 +1624,7 @@ impl UiApp {
         self.app_bar(ui);
         self.status_bar(ui);
         bimedit::new_dialog(self, &ctx);
+        bimplace::dialog(self, &ctx);
         if self.editor.is_some() {
             self.command_line(ui);
         }

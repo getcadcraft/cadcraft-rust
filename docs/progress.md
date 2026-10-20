@@ -2,6 +2,32 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M7.15 BimCraft library items placed from the plan (agent, work/bimgrips)
+
+- `cc-bim draw::place` (ifc-place.js `IfcPlacer.place`, `nextItemNumber`, `snapToWall`, `wallFaces`' minimum
+  rectangle, `planPolylines`, `boxMesh`, `isClosed`; libitem.js `planBounds`, `boxFromPlan`, `canonicalJson`): a
+  library item (format 1 JSON) placed into the open IFC model — one type per uuid@version or sha256 holding the Body
+  (IFC4 IfcTriangulatedFaceSet; IFC2X3 IfcFacetedBrep / IfcShellBasedSurfaceModel; CC-RENDER-PARTS colours as styled
+  parts), FootPrint and Clearance maps, each placement an occurrence relative to its storey with mapped items, the
+  type / storey relations and the CadCraft_Placement / LibraryItem / Equipment / SourceAttributes psets; a failed
+  placement leaves nothing behind. `Editor::place_item` is one change (`Change::Place`, "Desk (item 4)"), undo and
+  redo (placed again, a new id) as ifc-edit.js. Job steps `placeItem`, `nextItemNumber` for `cadcraft-cli bimdraw`.
+- `bimplace.rs` (bimcraft.js `startPlacing` / `moveGhost` / `commitPlace` / `askPlacement` / `typedPlace` /
+  `toggleSnap` / `stopPlacing`): an item file opened or dropped on the edited model (or "Place in the model" in the
+  edit bar) starts placing on the plan's level; the pointer carries the footprint and box, R turns 90°, Tab snaps the
+  back to the nearest wall face (from the model's wall meshes, float32 like web-ifc), a click or typed X, Y asks for
+  item number / quantity / notes (/ stand-in height) and places; Esc stops. The place bar under the model bar.
+  Commands `bim.place.pick`, `.turn`, `.snap`, `.at`, `.ok`, `.cancel`, `.stop`.
+- Parity (`forks/tools/bmlibdiff.mjs`): engine — the six LibraryCraft seed items and eight synthetic ones (meshes
+  closed / open, parts, no body, every plan entity, every class mapping, shared types) on new buildings and the
+  certification Building-Architecture model in IFC2X3, IFC4 and IFC4X3: 188/188 steps, 16/16 saved IFC
+  byte-identical; app — four sessions (new building with a room; the IFC4 and IFC2X3 models), 20 placements (6
+  snapped to walls), turns, typed points, a refused point, cancel, undo / redo: status lines 73/73, saved IFC and plan
+  PDF 8/8 byte-identical to the frozen 0.5.
+- Timings (`bmlibdiff.mjs --bench`, 20 ranges on the IFC4 model, after the last one; JS / Rust ms): the placement
+  0.97 / 1.28 (JS median 2.64), 3D again 13.8 / 3.8 (3.6×), plan again 14.0 / 4.3 (3.2×); letting go 28.7 / 9.4 (3.1×).
+- Next: the Library panel and its sources, swap / update, copy / paste of placements; M7.16 residential sync.
+
 ## 2026-10-20 — M7.14 BimCraft plan grips (agent, work/bimgrips)
 
 - `bimgrips.rs` (model-ui.js `gripWall` / `onDown` / `gripMove` / `onMove` / `onUp`): with Select and one drawn wall

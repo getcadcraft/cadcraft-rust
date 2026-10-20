@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-19 · Change: BimCraft plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-19 · Change: BimCraft library items placed from the plan (M7.15), plan grips (M7.14); BimCraft plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -51,8 +51,11 @@ Last updated 2026-10-19 · Change: BimCraft plan grips (M7.14); UCS and view tur
    stretch dialog), the scenes' Play and WebM recording, copy / paste and duplicate, flip, solids tools, terrain,
    text, storeys, drawing axes, the starter library, Blender key style.
 6. **BimCraft** (M7.13: IFC edit + save, storey plan + PDF, Draw tools, schedules at parity; M7.14: plan grips — wall
-   ends and middles, doors / windows slid along or onto walls — at parity): no residential sync (res-follow.js), no
-   Library items placed from the plan.
+   ends and middles, doors / windows slid along or onto walls — at parity; M7.15: library items (`*.item.json`) placed
+   from the plan with turn, wall snap, typed X, Y and the item-number dialog, ifc-place.js at parity): no residential
+   sync (res-follow.js: foundations, countertops, stairs, electrical, framing follow the walls; terrain only once the
+   ground is loaded); no Library panel (LibraryCraft / feeds search, the open drawing's blocks, the Files… adapters for
+   DWG / DXF / IFC / glTF / OBJ / RFA / CSV), swap / update of placed items, copy / paste of placements.
 7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): every 0.5 MarkupCraft drawing tool (M9.14) with select /
    move / grips / window, the text editor and the Properties panel, save marked-up PDF at parity; takeoff count / linear
    / area, exports, Auto count. Missing in MarkupCraft: picture and signature stamps, tool chest presets, cut-outs in

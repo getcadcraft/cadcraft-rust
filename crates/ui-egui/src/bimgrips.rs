@@ -64,7 +64,7 @@ pub fn grips_of(w: &Wall) -> [(V2, End); 3] {
 
 /// `onDown(p, e)`: a press on a grip of the picked wall, or on a door / window, starts a drag → taken (no pan).
 pub fn on_down(app: &mut UiApp, p: V2) -> bool {
-    if app.bimh.draw.tool != "select" {
+    if app.bimh.draw.tool != "select" || app.bimh.draw.placing.is_some() {
         return false;
     }
     let sel = app.picked_product();

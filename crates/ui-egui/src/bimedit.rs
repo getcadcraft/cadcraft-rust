@@ -247,6 +247,7 @@ fn undo(app: &mut UiApp) -> Result<(), String> {
         Change::Model { label, .. } => bt("edit.undid.step", &[("what", if label.is_empty() { "model" } else { label })]),
         Change::Attr { attr, .. } => bt("edit.undid", &[("what", attr)]),
         Change::Prop { r, .. } => bt("edit.undid", &[("what", &r.prop_name)]),
+        Change::Place { label, .. } => bt("edit.undid.step", &[("what", if label.is_empty() { "place" } else { label })]),
     };
     after_change(app, None, true);
     app.message = msg;
@@ -264,6 +265,7 @@ fn redo(app: &mut UiApp) -> Result<(), String> {
         Change::Model { label, id, .. } => (bt("edit.redid.step", &[("what", if label.is_empty() { "model" } else { label })]), *id),
         Change::Attr { attr, id, .. } => (bt("edit.redid", &[("what", attr)]), Some(*id)),
         Change::Prop { r, id, .. } => (bt("edit.redid", &[("what", &r.prop_name)]), Some(*id)),
+        Change::Place { label, id, .. } => (bt("edit.redid.step", &[("what", if label.is_empty() { "place" } else { label })]), Some(*id)),
     };
     after_change(app, sel, true);
     app.message = msg;
@@ -677,10 +679,19 @@ pub fn ifc_branch(app: &mut UiApp, ui: &mut egui::Ui) {
             if ui.button(bt("new.button", &[])).on_hover_text(bt("new.title", &[])).clicked() {
                 app.bimh.new_dlg = Some(NewDlg::default());
             }
+            if app.bimh.ed.is_some()
+                && ui.button(bt("lib.place", &[])).on_hover_text("Pick a library item file (.item.json) to place on the plan").clicked()
+            {
+                app.run_ui("bim.place.pick", &Params::default());
+            }
         });
         if app.bimh.draw.on {
             ui.separator();
             crate::bimplan::bar(app, ui);
+            if app.bimh.draw.placing.is_some() {
+                ui.separator();
+                crate::bimplace::bar(app, ui);
+            }
         }
     });
     if app.bimh.draw.on {

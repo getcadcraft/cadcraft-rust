@@ -11,6 +11,7 @@ pub mod newmodel;
 pub mod openings;
 pub mod ops;
 pub mod pdf;
+pub mod place;
 pub mod plan;
 pub mod roof;
 pub mod rooms;
