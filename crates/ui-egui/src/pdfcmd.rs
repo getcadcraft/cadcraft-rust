@@ -14,6 +14,9 @@
 //! - `takeoff.arc` name = on | off (no name: toggles): arc mode (R).
 //! - `takeoff.drag` name = `x1,y1:x2,y2`: a press, the pointer moved, the release (Select drags a corner of the
 //!   selected mark or the middle of one of its arcs).
+//! - `takeoff.compare` name = `<file>:<page>` (the older sheet, e.g. "f1:0", over the open one) | align (the next four
+//!   clicks: old, new, old, new) | find (Find changes) | move (Move takeoff here; a scales-differ question is answered
+//!   "Move them anyway") | close. `takeoff.flag` name = next (the next flagged mark); `takeoff.mark=flag.checked`.
 //! - `takeoff.edit` name = copy | cut | paste | paste-in-place | duplicate | select-all | select-none | delete | escape.
 //! - `takeoff.deduct` name = on | off (no name: toggles).
 //! - `takeoff.click` name = `x,y[,shift]` (PDF user space of the open sheet): a click with the tool.
@@ -202,6 +205,8 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
         }
         "takeoff.note" => tk.note_edit(&name),
         "takeoff.group" => tk.group_edit(&name),
+        "takeoff.compare" => p.takeoff_compare(&name),
+        "takeoff.flag" => p.takeoff_flag(&name),
         "takeoff.edit" => {
             let key = tk.cur_sheet.clone();
             tk.edit(&key, &name)

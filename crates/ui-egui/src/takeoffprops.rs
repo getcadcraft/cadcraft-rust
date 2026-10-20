@@ -380,6 +380,7 @@ impl TakeoffMode {
                     None => self.fail(t("spots.err")),
                 }
             }
+            "flag.checked" => self.tk.clear_flags(std::slice::from_ref(&id)).map(|_| ()).or_else(|e| self.fail(e)),
             "cutout.remove" => {
                 let mut holes = m.get("holes").and_then(Value::as_array).cloned().unwrap_or_default();
                 if kind != "area" || holes.is_empty() {
@@ -1158,6 +1159,12 @@ impl TakeoffMode {
             }
         }
         let mut act: Option<&str> = None;
+        if m.get("flag").is_some_and(|f| !f.is_null() && f.as_bool() != Some(false)) {
+            ui.label(RichText::new(t("flag.note")).color(Color32::from_rgb(0xff, 0x7f, 0x0e)));
+            if ui.small_button(t("flag.checked")).clicked() {
+                act = Some("flag.checked");
+            }
+        }
         ui.horizontal_wrapped(|ui| {
             if kind == "area" {
                 if ui.small_button(t("mark.cutout.add")).clicked() {

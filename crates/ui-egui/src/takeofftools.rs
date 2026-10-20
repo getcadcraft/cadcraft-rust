@@ -937,7 +937,7 @@ impl TakeoffMode {
             // marks in another bid area than the current one are dimmed, as 0.5 does
             let dim = self.cur_area.as_deref().is_some_and(|a| m0.get("area").and_then(Value::as_str) != Some(a));
             let c = if dim { color_of(item).gamma_multiply(0.22) } else { color_of(item) };
-            if m0.get("flag").is_some_and(|f| f.as_bool() == Some(true)) {
+            if m0.get("flag").is_some_and(|f| !f.is_null() && f.as_bool() != Some(false)) {
                 // T13: the drawing changed under it in the revision — an orange halo until checked
                 let fc = Color32::from_rgb(0xff, 0x7f, 0x0e).gamma_multiply(0.9);
                 if kind == "count" {

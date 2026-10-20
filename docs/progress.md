@@ -2,6 +2,23 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.22 TakeoffCraft revisions: compare sheets, move the takeoff, flagged marks (agent, work/takeoff2)
+
+- `crates/ui-egui/src/takeoffrev.rs`, the revision overlay (T13) of takeoffcraft.js: Compare picks the older sheet (any
+  other sheet of the plan set; "open the older PDF too" with one sheet, "pick another sheet" for the same one), draws its
+  ink red and see-through over the sheet on screen through the alignment (a textured quad, so turned / scaled sheets line
+  up), Align by two points (four clicks old / new / old / new, the old ones taken back through the current alignment;
+  "on one spot" refused; "size × n"), Find changes (both sheets rendered as ink in this sheet's display space at
+  ≤ 12 Mpx, overlay.js's warp / changeMask / markChange in cc-takeoff, removed red and added blue on the sheet, the old
+  sheet's marks the changes touch), Move takeoff here (one undo step: the marks moved through the alignment, the touched
+  ones flagged, the old scale carried as a calibrated one when the alignment scales, the scales-differ question), the
+  orange halo on flagged marks, "N to check" with next flag (going to its sheet), the flag note and Checked in the mark
+  panel, the bar's summary line. Commands `takeoff.compare`, `takeoff.flag`, `takeoff.mark=flag.checked`.
+- Parity (tkopsdiff `revs`, 54 ops on rev-a / rev-b: compare with one sheet, a refused and a good alignment, find,
+  move, flags next / checked, undo, moving back, nothing left to move): project (the same marks flagged), CSV, XLSX,
+  marked PDF identical, 27/27 status lines — Find changes' pixel counts excepted: the sheets are rasterized by hayro
+  where 0.5 uses pdf.js (72,099 / 69,661 vs 71,915 / 69,658 on these sheets); the marks it flags are the same.
+
 ## 2026-10-20 — M9.21 TakeoffCraft typical groups, notes, clouds and highlights (agent, work/takeoff2)
 
 - `crates/ui-egui/src/takeoffnotes.rs`, ports of takeoffcraft.js: typical groups (T16) — the group field of the selected

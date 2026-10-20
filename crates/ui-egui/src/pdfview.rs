@@ -261,6 +261,11 @@ pub struct PdfView {
     pub(crate) pics: std::collections::HashMap<u64, Option<egui::TextureHandle>>,
     /// sheets left by following a link (Alt+← goes back)
     pub back_stack: Vec<String>,
+    /// TakeoffCraft's revision overlay: the old sheet's red ink (its key, the texture, its pixels per unit, its display
+    /// transform), the changes found, the scales-differ question of Move takeoff here (old, new)
+    pub(crate) tk_tint: Option<(String, egui::TextureHandle, f64, cc_takeoff::geom::M6)>,
+    pub(crate) tk_mask: Option<egui::TextureHandle>,
+    pub(crate) tk_scale_ask: Option<(String, String)>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -311,6 +316,9 @@ impl PdfView {
             want_pick: None,
             pics: std::collections::HashMap::new(),
             back_stack: Vec::new(),
+            tk_tint: None,
+            tk_mask: None,
+            tk_scale_ask: None,
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -833,6 +841,9 @@ impl PdfView {
         } else if let Some((tex, _, _)) = &self.tex {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
+        if self.mode == "takeoff" {
+            self.draw_takeoff_compare(ui.ctx(), &painter, page_rect.min);
+        }
         if self.show_markups || crate::markuptools::draws(&self.tools.tool) {
             // picture stamps: their textures first (decoded once, under limits)
             let key = self.sheet_key();
@@ -1044,6 +1055,8 @@ impl PdfView {
         let key = self.takeoff.sheet(self.page);
         let uu = self.cur.pages.get(self.page).map_or(1.0, |p| p.user_unit);
         self.takeoff.panel(ui, t, &key, uu);
+        ui.separator();
+        self.takeoff_compare_panel(ui, t);
     }
 
     /// Auto count on the open sheet for the symbol boxed from `a` to `b` (PDF user space). The search runs here
