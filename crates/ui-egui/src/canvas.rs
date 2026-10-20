@@ -192,9 +192,10 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     let n_draws = draws.len();
     let cb = CanvasCallback { id: f.id, geometry: Arc::clone(f.geometry), draws, visible: Arc::new(visible) };
     painter.add(egui_wgpu::Callback::new_paint_callback(rect, cb));
-    // raster images: their frame (the picture files are not loaded yet — as the JS viewer shows a missing one)
+    // raster images whose file is not loaded: their frame (as the JS viewer shows a missing one); a drawing being
+    // edited has the frame as an object of its own
     for im in &space.images {
-        if f.hidden.contains(&im.layer) {
+        if f.hidden.contains(&im.layer) || im.clip.is_some() {
             continue;
         }
         let m = im.m;

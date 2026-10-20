@@ -887,6 +887,7 @@ fn kind_name(k: &cc_engine::prompt::Kind) -> &'static str {
         Kind::Keyword => "keyword",
         Kind::Select => "select",
         Kind::Entity => "entity",
+        Kind::File => "file",
     }
 }
 

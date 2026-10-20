@@ -157,6 +157,13 @@ pub struct SpaceImage {
     #[serde(rename = "ref")]
     pub file: String,
     pub layer: String,
+    /// the frame to clip to, world [x, y, …] (CadCraft's editable drawings: a picture's frame or IMAGECLIP's clip;
+    /// None = the whole picture). Not serialised: the viewer's JSON stays BimCraft's dwg-compile.js shape.
+    #[serde(skip, default)]
+    pub clip: Option<Vec<f64>>,
+    /// opacity 0–1 (transparency, fade); None = opaque
+    #[serde(skip, default)]
+    pub alpha: Option<f64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

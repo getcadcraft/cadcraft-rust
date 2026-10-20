@@ -95,6 +95,19 @@ pub struct HostState {
     pub polar_inc: f64,
     /// COUNT handed over a file to save (name, bytes)
     pub blob: Option<(String, Vec<u8>)>,
+    /// the window can pick files (Services::pick_files)
+    pub can_pick: bool,
+    /// XATTACH / XREF Reload / IMAGEATTACH / IMAGE asked for files
+    pub pick_req: Option<PickReq>,
+}
+
+/// What a command asked the window's picker for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickReq {
+    /// one DWG / DXF (XATTACH, XREF Reload)
+    Drawing,
+    /// PNG / JPEG files (IMAGEATTACH: one; IMAGE: several)
+    Pictures { multiple: bool },
 }
 
 impl HostState {
@@ -315,6 +328,18 @@ impl Host for UiHost {
     }
     fn save_blob(&mut self, name: &str, data: &[u8], _mime: &str) {
         self.0.borrow_mut().blob = Some((name.to_string(), data.to_vec()));
+    }
+    fn can_pick_files(&self) -> bool {
+        self.0.borrow().can_pick
+    }
+    /// The window's picker answers later: `UiApp::sync_editor` opens it and delivers the file.
+    fn pick_drawing(&mut self) -> cc_engine::Pick<Option<cc_engine::PickedDrawing>> {
+        self.0.borrow_mut().pick_req = Some(PickReq::Drawing);
+        cc_engine::Pick::Later
+    }
+    fn pick_pictures(&mut self, multiple: bool) -> cc_engine::Pick<Vec<cc_engine::PickedFile>> {
+        self.0.borrow_mut().pick_req = Some(PickReq::Pictures { multiple });
+        cc_engine::Pick::Later
     }
 }
 

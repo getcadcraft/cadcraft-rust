@@ -116,6 +116,8 @@ pub fn parse_float(s: &str) -> f64 {
 pub enum Def {
     Num(f64),
     Str(String),
+    /// a point default (`{ default: { x, y } }`): Enter answers it; a point prompt shows none
+    Point(cc_geom::P2),
 }
 
 /// `promptText()` of a question.
@@ -137,13 +139,14 @@ pub fn prompt_text(prompt: &str, kind_angle: bool, kind_point: bool, options: &[
             let s = if kind_angle {
                 match d {
                     Def::Num(a) => fmt(deg(norm_angle(a - ucs_ang))),
-                    Def::Str(_) => fmt(f64::NAN),
+                    Def::Str(_) | Def::Point(_) => fmt(f64::NAN),
                 }
             } else {
                 match (d, d_opt) {
                     (Def::Num(n), _) => fmt(*n),
                     (_, Some(o)) => o.label.clone(),
                     (Def::Str(s), None) => s.clone(),
+                    (Def::Point(_), None) => "[object Object]".into(),
                 }
             };
             format!(" <{s}>")

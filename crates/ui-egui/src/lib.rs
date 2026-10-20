@@ -122,7 +122,15 @@ pub struct Services {
     pub read_dropped: Option<ReadDropped>,
     /// desktop: read a file by its path (the start screen's recent files)
     pub read_path: Option<ReadPath>,
+    /// pick files for a command: ("drawing" | "pictures", several?) → desktop: Some(files) at once (empty = cancelled);
+    /// web: None, the picker is open and the files arrive in `picked`
+    pub pick_files: Option<PickFiles>,
+    /// web: what the last `pick_files` picker read (an empty list = cancelled)
+    pub picked: Option<Arc<Mutex<Option<Vec<ImportedFile>>>>>,
 }
+
+/// Pick files for a command (see `Services::pick_files`).
+pub type PickFiles = Box<dyn FnMut(&str, bool) -> Option<Vec<ImportedFile>>>;
 
 /// Read a file by its path → (name, bytes, folder).
 pub type ReadPath = Box<dyn FnMut(&str) -> Result<ImportedFile, String>>;
@@ -230,6 +238,8 @@ pub struct UiApp {
     clip_cmd: Option<&'static str>,
     /// the sheet whose viewport MSPACE entered (PSPACE goes back to it)
     vp_sheet: cc_cad::SpaceId,
+    /// web: a command waits for the picker `Services::pick_files` opened
+    pick_waiting: Option<edit::PickReq>,
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -298,6 +308,7 @@ impl Default for UiApp {
             clip_keys: false,
             clip_cmd: None,
             vp_sheet: 0,
+            pick_waiting: None,
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -1440,6 +1451,26 @@ impl UiApp {
         {
             v.twist = -ang;
         }
+        // XATTACH / XREF Reload / IMAGEATTACH / IMAGE: the picker (desktop answers at once, web later through `picked`)
+        ed.hs.borrow_mut().can_pick = self.services.pick_files.is_some();
+        let req = ed.hs.borrow_mut().pick_req.take();
+        if let Some(req) = req {
+            let (kind, multiple) = match req {
+                edit::PickReq::Drawing => ("drawing", false),
+                edit::PickReq::Pictures { multiple } => ("pictures", multiple),
+            };
+            match self.services.pick_files.as_mut().map(|f| f(kind, multiple)) {
+                Some(Some(files)) => deliver_pick(ed, req, files),
+                Some(None) => self.pick_waiting = Some(req),
+                None => deliver_pick(ed, req, Vec::new()),
+            }
+        }
+        if let Some(req) = self.pick_waiting
+            && let Some(files) = self.services.picked.as_ref().and_then(|p| p.lock().unwrap_or_else(PoisonError::into_inner).take())
+        {
+            self.pick_waiting = None;
+            deliver_pick(ed, req, files);
+        }
         // COUNT's CSV
         let blob = ed.hs.borrow_mut().blob.take();
         if let Some((name, bytes)) = blob {
@@ -2368,6 +2399,32 @@ pub struct Params {
     pub factor: Option<f64>,
     pub index: Option<usize>,
     pub name: Option<String>,
+}
+
+/// Hand the picked files to the command waiting for them (XATTACH / XREF Reload read the drawing as the page does).
+fn deliver_pick(ed: &mut edit::Editor, req: edit::PickReq, files: Vec<ImportedFile>) {
+    match req {
+        edit::PickReq::Drawing => {
+            let got = files.into_iter().next().and_then(|f| {
+                let ext = f.name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+                if ext != "dwg" && ext != "dxf" {
+                    ed.hs.borrow_mut().push_log(&edit::lang_text("app.insertf.not_dwg", &[("file", f.name.clone())]));
+                    return None;
+                }
+                match cc_io_cad::import_bytes(&f.name, &f.bytes) {
+                    Ok(drawing) => Some(cc_engine::PickedDrawing::from_value(&f.name, &drawing)),
+                    Err(e) => {
+                        ed.hs.borrow_mut().push_log(&edit::lang_text("app.insertf.read_failed", &[("file", f.name.clone()), ("why", e.0)]));
+                        None
+                    }
+                }
+            });
+            ed.eng.deliver_drawing(got);
+        }
+        edit::PickReq::Pictures { .. } => {
+            ed.eng.deliver_files(files.into_iter().map(|f| cc_engine::PickedFile { name: f.name, bytes: f.bytes }).collect());
+        }
+    }
 }
 
 #[cfg(test)]

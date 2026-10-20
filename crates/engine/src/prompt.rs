@@ -22,6 +22,8 @@ pub enum Kind {
     Keyword,
     Select,
     Entity,
+    /// a file the window's picker is fetching (XATTACH, IMAGEATTACH … when the host's picker answers later: the web)
+    File,
 }
 
 /// One question.

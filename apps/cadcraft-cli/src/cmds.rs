@@ -53,6 +53,83 @@ struct Stub {
     spaces: Sheets,
     lwt: bool,
     polar_inc: f64,
+    /// the script's `files`: what the pickers hand over, in order (kdiff.mjs's stub pickDrawing / pickPictures)
+    drawings: std::collections::VecDeque<Option<cc_engine::PickedDrawing>>,
+    pictures: std::collections::VecDeque<Vec<cc_engine::PickedFile>>,
+}
+
+/// Standard base64 (the script's picture bytes) → bytes; None on anything else.
+fn b64(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() / 4 * 3);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            b'=' | b'\n' | b'\r' => continue,
+            _ => return None,
+        };
+        acc = ((acc << 6) | u32::from(v)) & 0xffff;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(u8::try_from((acc >> bits) & 0xff).unwrap_or(0));
+        }
+    }
+    Some(out)
+}
+
+/// `files` of a script → the pickers' queues. A drawing is `{ fileName, drawing }` (doc.load input) or `{ fileName,
+/// path }` (a DWG / DXF read as the window reads it); `null` = the picker cancelled. Pictures are lists of
+/// `{ name, b64 | path }`.
+fn files_of(
+    script: &Value,
+) -> (std::collections::VecDeque<Option<cc_engine::PickedDrawing>>, std::collections::VecDeque<Vec<cc_engine::PickedFile>>) {
+    let f = script.get("files");
+    let drawings = f
+        .and_then(|f| f.get("drawings"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|d| {
+                    let file_name = d.get("fileName")?.as_str()?.to_string();
+                    let drawing = match (d.get("drawing"), d.get("path").and_then(Value::as_str)) {
+                        (Some(v), _) => v.clone(),
+                        (None, Some(p)) => cc_io_cad::import_bytes(&file_name, &std::fs::read(p).ok()?).ok()?,
+                        _ => return None,
+                    };
+                    Some(cc_engine::PickedDrawing::from_value(&file_name, &drawing))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let pictures = f
+        .and_then(|f| f.get("pictures"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|list| {
+                    list.as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|p| {
+                            let name = p.get("name")?.as_str()?.to_string();
+                            let bytes = match (p.get("b64").and_then(Value::as_str), p.get("path").and_then(Value::as_str)) {
+                                (Some(b), _) => b64(b)?,
+                                (None, Some(path)) => std::fs::read(path).ok()?,
+                                _ => return None,
+                            };
+                            Some(cc_engine::PickedFile { name, bytes })
+                        })
+                        .collect()
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    (drawings, pictures)
 }
 
 fn pt_v(p: P2) -> Value {
@@ -192,6 +269,17 @@ impl Host for Stub {
         }
         self.log.borrow_mut().events.push(json!(["saveBlob", name, String::from_utf8_lossy(data)]));
     }
+    fn can_pick_files(&self) -> bool {
+        true
+    }
+    fn pick_drawing(&mut self) -> cc_engine::Pick<Option<cc_engine::PickedDrawing>> {
+        self.log.borrow_mut().events.push(json!(["pickDrawing"]));
+        cc_engine::Pick::Now(self.drawings.pop_front().flatten())
+    }
+    fn pick_pictures(&mut self, multiple: bool) -> cc_engine::Pick<Vec<cc_engine::PickedFile>> {
+        self.log.borrow_mut().events.push(json!(["pickPictures", multiple]));
+        cc_engine::Pick::Now(self.pictures.pop_front().unwrap_or_default())
+    }
 }
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
@@ -209,6 +297,7 @@ fn kind_name(k: &Kind) -> &'static str {
         Kind::Keyword => "keyword",
         Kind::Select => "select",
         Kind::Entity => "entity",
+        Kind::File => "file",
     }
 }
 
@@ -226,7 +315,17 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
     let lang = Lang::new(script.get("strings").unwrap_or(&Value::Null));
     let log = Rc::new(RefCell::new(Log { cursor: Some(P2::new(0.0, 0.0)), ..Log::default() }));
     let spaces: Sheets = Rc::default();
-    let stub = Stub { selection: Vec::new(), log: Rc::clone(&log), entered: None, spaces: Rc::clone(&spaces), lwt: false, polar_inc: 90.0 };
+    let (drawings, pictures) = files_of(script);
+    let stub = Stub {
+        selection: Vec::new(),
+        log: Rc::clone(&log),
+        entered: None,
+        spaces: Rc::clone(&spaces),
+        lwt: false,
+        polar_inc: 90.0,
+        drawings,
+        pictures,
+    };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();
     let inputs = script.get("inputs").and_then(Value::as_array).unwrap_or(&empty);

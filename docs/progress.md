@@ -2,6 +2,31 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M4.18 Linked drawings and clipped references: XATTACH, XREF, XCLIP (agent, work/xrefs)
+
+- `cmd/xref.rs`: xref.js (`attachXref` with VISRETAIN-style kept layer settings and the "Name (2)" free names, `detachXref`
+  keepRefs / keepRoot, `bindXref` → "Name$0$Layer", `xrefs`), layertools.js's XATTACH (one undo step, Esc at the
+  insertion point keeps the link as 0.5 does) and XREF (? / Attach / Reload / Bind with WL.17's "clipped part only" /
+  Detach; a link by name or by picking a reference), xclip.js's XCLIP (Rectangular / Polygonal / Delete, the clip in
+  block coordinates). `cc-cad-geom` `xclip`: `insidePoly`, `clipLine`, `clipArc`, `clipRing`, `clipEntities`, and
+  `ClipOut`, the walk output walk.js wraps a clipped reference's contents in — so the window, plots and extents clip.
+- Files: the other drawing comes through `Host::pick_drawing` (`can_pick_files`, `Pick::{Now, Later}`, a new
+  `Kind::File` while a picker that answers later is open, `Engine::deliver_drawing` / `deliver_files`). The host reads
+  it into typed objects (`XSource`, as the JS reader hands over objects), so attaching moves them instead of parsing.
+  Window: `Services::pick_files` (desktop: a file dialog filtered to DWG / DXF or pictures; web: the browser's picker,
+  the files arriving in `Services::picked` — the web has no folders, as 0.5 in the browser); cadcraft-shot `--pick`.
+  CLI: the `cmds` script's `files` (drawings as doc.load JSON or a path read with cc-io-cad; pictures as base64 or a path).
+- Parity: kdiff (two new scenarios: XATTACH / XREF ? Reload Bind Detach / XCLIP on a link; XCLIP on turned and scaled
+  block references) 135/135 records identical; idiff `--xrefs` (new: link the kit's base-plan and mleaders, XCLIP the
+  first with a rectangle, bind the second, link base-plan again, clip it with a polygon, bind the clipped part; both
+  sides save) byte-identical in DWG 2000 and 2018, DXF 2000 and DXF R12 on base-plan and the kitchen sample (the full kit sweep is in the M4.20 entry).
+- Timings (drafttime, JS / Rust ms, best of 3, the drawing linked into itself): Carey (21,491 objects) XATTACH 16 / 21
+  (0.8×: each object is copied once more for its undo step; JS keeps references), + XCLIP 23 / 31, + XREF Bind 35 / 21,
+  + XCLIP + Bind clipped part 43 / 21, + Detach 53 / 21, XCLIP ALL references 17 / 19; ar1all (9,021) 83 / 23,
+  20 / 22, 184 / 103, 277 / 196, 94 / 32, 14 / 13. The first cut parsed the picked drawing inside XATTACH (800 ms on
+  Carey, 0.1×); the host now reads it into typed objects and attach moves them.
+- Screenshot checked: base-plan linked into a new drawing, clipped to a polygon (columns cut at the boundary).
+
 ## 2026-10-20 — M7.15 BimCraft library items placed from the plan (agent, work/bimgrips)
 
 - `cc-bim draw::place` (ifc-place.js `IfcPlacer.place`, `nextItemNumber`, `snapToWall`, `wallFaces`' minimum

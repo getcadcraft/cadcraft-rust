@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-20 · Change: BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-20 · Change: linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -17,15 +17,16 @@ Last updated 2026-10-20 · Change: BimCraft library items placed from the plan (
    DXF R12 (M4.16; in the window MSPACE shows the model through the viewport's window, and VPORTS in the model says split
    panes are the browser's). UCS PLAN TURNLEFT TURNRIGHT TURNWORLD, LWDISPLAY POLARANG, COUNT (M4.17; the window turns
    its view to the UCS and has polar tracking on F10; LWDISPLAY says lineweights on screen are the browser's: the window
-   draws one width). **Next, by everyday use:** PUBLISH; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
+   draws one width). XATTACH XREF XCLIP (M4.18; clipped references clip on screen, in plots and in extents; a linked
+   drawing comes through the window's file picker). **Next, by everyday use:** PUBLISH; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
    dynamic block without its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
    SAVEAS DXFOUT HELP are the window's own buttons. The Properties panel (M4.11) has General, Geometry, Text, Pattern,
    the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
    sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks pictures, Open / print and
-   PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, linked drawings in edit mode (the viewer
-   shows them); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
+   PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, a DWG's own linked drawings found next to it
+   when it is opened for editing (the viewer finds them; in the editor XREF Reload takes the file); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
    slower than the JS (0.7×). Whole-drawing edits (M4.14, extra data shared copy-on-write) now run 1.2–7.4× the JS on
    the ar1all floor plan and the Carey Foodservice drawing; the slimmest margins are EXPLODE ALL (1.2×) and ERASE ALL +
    UNDO (1.2×) on Carey, where each object still gets one geometry copy per change (its undo op and the map share the

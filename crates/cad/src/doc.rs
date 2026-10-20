@@ -460,6 +460,11 @@ pub struct Doc {
     /// what a view label shows for a viewport with no view name (commands.js `field.vpview.none`; the engine sets
     /// it from its catalog)
     pub unnamed_view: String,
+    /// the picture files the drawing's pictures use while it is open (pictures.js `doc.pictures`; not undoable, not
+    /// saved: a DWG names the files)
+    pub pictures: crate::pictures::Pictures,
+    /// bumps when a picture file comes or goes (`doc.pictureVersion`: renderers redraw)
+    pub picture_version: u64,
 }
 
 impl Default for Doc {
@@ -518,6 +523,8 @@ impl Doc {
             faces3d: Vec::new(),
             dyn_src: None,
             unnamed_view: "Unnamed view".into(),
+            pictures: crate::pictures::Pictures::new(),
+            picture_version: 0,
         };
         d.add_layer(&serde_json::json!({ "name": "0", "color": 7 }));
         d
@@ -934,6 +941,23 @@ impl Doc {
         self.blocks.insert(b.name.clone(), after.clone());
         self.push(Op::Block { name: b.name.clone(), before, after: Some(after.clone()) })?;
         Ok(after)
+    }
+    /// [`Doc::define_block`] taking the definition (one copy fewer: big linked drawings).
+    pub fn define_block_owned(&mut self, mut b: Block) -> Result<(), DocError> {
+        self.must_be_in_change()?;
+        let before = self.blocks.get(&b.name).cloned();
+        b.base = P2::new(js::or(Some(b.base.x), 0.0), js::or(Some(b.base.y), 0.0));
+        for e in &mut b.entities {
+            e.id = None;
+            e.extra.remove("id");
+        }
+        b.attdefs = b.attdefs.filter(|a| !a.is_empty());
+        b.xref = b.xref.filter(Value::is_object);
+        b.dyn_ = b.dyn_.filter(Value::is_object);
+        let name = b.name.clone();
+        self.push(Op::Block { name: name.clone(), before, after: Some(b.clone()) })?;
+        self.blocks.insert(name, b);
+        Ok(())
     }
     pub fn remove_block(&mut self, name: &str) -> Result<(), DocError> {
         self.must_be_in_change()?;

@@ -113,6 +113,18 @@ fn read_path(path: &std::path::Path) -> Result<ImportedFile, String> {
     std::fs::read(path).map(|bytes| ImportedFile { name, bytes, dir }).map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// A command's files (XATTACH: a DWG / DXF; IMAGEATTACH / IMAGE: PNG / JPEG pictures, several for IMAGE): a file dialog,
+/// then the reads. Cancelled = an empty list.
+fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
+    let d = if kind == "pictures" {
+        rfd::FileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"])
+    } else {
+        rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"])
+    };
+    let paths = if multiple { d.pick_files().unwrap_or_default() } else { d.pick_file().into_iter().collect() };
+    Some(paths.iter().filter_map(|p| read_path(p).ok()).collect())
+}
+
 /// Save: a save dialog with the suggested name, then the write (None = cancelled).
 fn save_file(name: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
     let ext = name.rsplit_once('.').map_or("dwg", |(_, e)| e).to_string();
@@ -207,6 +219,7 @@ fn main() -> eframe::Result {
             }
             let services = Services {
                 pick_open: Some(Box::new(pick_open)),
+                pick_files: Some(Box::new(pick_files)),
                 read_xref: Some(Box::new(read_xref)),
                 save: Some(Box::new(save_file)),
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),

@@ -102,7 +102,36 @@ mod web {
                         let open_ctx = ctx.clone();
                         let drop_inbox = Arc::clone(&inbox);
                         let drop_ctx = ctx.clone();
+                        // a command's files (XATTACH, IMAGEATTACH, IMAGE): the browser's picker, read into `picked`
+                        let picked: Arc<Mutex<Option<Vec<ImportedFile>>>> = Arc::new(Mutex::new(None));
+                        let pick_slot = Arc::clone(&picked);
+                        let pick_ctx = ctx.clone();
                         let services = Services {
+                            pick_files: Some(Box::new(move |kind: &str, multiple: bool| {
+                                let slot = Arc::clone(&pick_slot);
+                                let ctx = pick_ctx.clone();
+                                let pictures = kind == "pictures";
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let d = if pictures {
+                                        rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
+                                    } else {
+                                        rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
+                                    };
+                                    let handles = if multiple {
+                                        d.pick_files().await.unwrap_or_default()
+                                    } else {
+                                        d.pick_file().await.into_iter().collect()
+                                    };
+                                    let mut out = Vec::new();
+                                    for h in handles {
+                                        out.push(ImportedFile { name: h.file_name(), bytes: h.read().await, dir: None });
+                                    }
+                                    *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(out);
+                                    ctx.request_repaint();
+                                });
+                                None
+                            })),
+                            picked: Some(picked),
                             open_async: Some(Box::new(move || {
                                 let inbox = Arc::clone(&open_inbox);
                                 let ctx = open_ctx.clone();

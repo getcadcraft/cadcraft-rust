@@ -1134,7 +1134,7 @@ impl<'e> Compiler<'e> {
                 // pixel (x right, y down) → world: the position is the image's lower-left corner
                 let pm = mul(&m, &[ux, uy, -vx, -vy, px + h * vx, py + h * vy]);
                 let file = if def.truthy("fileName") { def.get("fileName").map(js_string).unwrap_or_default() } else { String::new() };
-                sp.pics.push(SpaceImage { m: pm, w, h, file: file.clone(), layer: layer.to_string() });
+                sp.pics.push(SpaceImage { m: pm, w, h, file: file.clone(), layer: layer.to_string(), clip: None, alpha: None });
                 sp.bounds.grow(&tx(&pm, &[0.0, 0.0, w, 0.0, w, h, 0.0, h]));
                 match self.image_index.get(&file) {
                     Some(&i) => {

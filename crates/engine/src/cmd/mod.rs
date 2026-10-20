@@ -17,6 +17,7 @@ pub mod trim;
 pub mod ucscmd;
 pub mod units;
 pub mod view;
+pub mod xref;
 
 use crate::engine::Ctx;
 use crate::prompt::CmdFuture;
@@ -191,6 +192,9 @@ pub static COMMANDS: &[CmdDef] = &[
     quiet(def("LWDISPLAY", &["LWT"], |c| Box::pin(ucscmd::lwdisplay(c)))),
     quiet(def("POLARANG", &[], |c| Box::pin(ucscmd::polarang(c)))),
     CmdDef { keep_selection: true, ..def("COUNT", &["BCOUNT"], |c| Box::pin(ucscmd::count(c))) },
+    def("XATTACH", &["XA"], |c| Box::pin(xref::xattach(c))),
+    def("XREF", &["XR", "-XREF"], |c| Box::pin(xref::xref(c))),
+    def("XCLIP", &["XC"], |c| Box::pin(xref::xclip(c))),
     // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),

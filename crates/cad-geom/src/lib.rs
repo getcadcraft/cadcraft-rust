@@ -8,7 +8,7 @@
 //! Units: drawing units, Y up, angles in radians. Primitives ([`geom::Prim`]): `L` segments and `A` arcs (CCW a0 →
 //! a1); every entity breaks down into them ([`geom::prims`]).
 //!
-//! hatch.js `boundaryAt` (HATCH pick-inside) is [`hatch::boundary_at`] since M4.10. Not ported: XCLIP clipping and pictures in walk, add-on grip
+//! hatch.js `boundaryAt` (HATCH pick-inside) is [`hatch::boundary_at`] since M4.10. walk clips XCLIP'd references and reports pictures (M4.18–M4.19). Not ported: add-on grip
 //! and name hooks, the per-entity caches (textLayout / dimGeometry / hatchLines are recomputed: pure functions).
 //! Where the JS throws on a malformed object (a dimension without its points, a multileader without points), the
 //! Rust returns an empty result instead.
@@ -45,3 +45,4 @@ pub mod pick;
 pub mod tx;
 pub mod units;
 pub mod walk;
+pub mod xclip;

@@ -38,5 +38,5 @@ pub mod props;
 pub mod tancircle;
 pub mod ucs;
 
-pub use engine::{Ctx, Engine, Host, IdSet, Opts, Reply, Sel, Tan};
+pub use engine::{Ctx, Engine, Host, IdSet, Opts, Pick, PickedDrawing, PickedFile, Reply, Sel, Tan};
 pub use lang::Lang;

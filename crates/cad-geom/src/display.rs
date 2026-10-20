@@ -11,10 +11,10 @@ use std::collections::HashMap;
 use cc_cad::entity::{Entity, Geo};
 use cc_cad::omap::OMap;
 use cc_cad::{Doc, SpaceId, js};
-use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, Layer, Space, SpaceKind, Stats, Text, Viewport};
+use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, ImageRef, Layer, Space, SpaceImage, SpaceKind, Stats, Text, Viewport};
 
 use crate::geom::{K, Prim, TAU, text_layout};
-use crate::walk::{Opts, WalkOpts, WalkOut, walk};
+use crate::walk::{Opts, PicOut, WalkOpts, WalkOut, walk};
 
 /// Linetype dashes per object on the canvas: past this the object draws continuous. A dense pattern on a long run
 /// (a 1/32" dot line along a wall) otherwise makes thousands of pieces per object, millions per drawing, and every
@@ -59,9 +59,14 @@ struct Collect {
     batches: Vec<Batch>,
     bounds: Bounds,
     viewports: Vec<Viewport>,
+    /// pictures (walk's `out.picture`)
+    images: Vec<SpaceImage>,
 }
 
 impl Collect {
+    fn new(layer: &str) -> Self {
+        Collect { layer: layer.to_string(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new(), images: Vec::new() }
+    }
     fn batch(&mut self, color: &str, lw: f64) -> Option<&mut Batch> {
         let c = color_of(color);
         let lw = if lw.is_finite() && lw >= 0.0 { lw } else { 0.0 };
@@ -84,6 +89,23 @@ impl Collect {
 }
 
 impl WalkOut for Collect {
+    /// A picture: pixel (x right, y down) → world, as the viewer's DWG images (dwg-compile.js) — its frame clips it.
+    fn picture(&mut self, p: &PicOut) {
+        let m = [p.ux, p.uy, -p.vx, -p.vy, p.x + p.h * p.vx, p.y + p.h * p.vy];
+        if !(m.iter().all(|v| v.is_finite()) && p.w > 0.0 && p.h > 0.0) {
+            return;
+        }
+        let alpha = (p.alpha < 1.0).then_some(p.alpha.max(0.0));
+        self.images.push(SpaceImage {
+            m,
+            w: p.w,
+            h: p.h,
+            file: p.file.clone(),
+            layer: self.layer.clone(),
+            clip: Some(p.clip.clone()),
+            alpha,
+        });
+    }
     fn stroke(&mut self, color: &str, prims: Vec<Prim>, lw: f64, _o: Option<Opts>) {
         let mut runs: Vec<Vec<f64>> = Vec::new();
         let mut cur: Vec<f64> = Vec::new();
@@ -187,7 +209,7 @@ impl WalkOut for Collect {
 
 /// Any entities of a document (previews, a selection) walked into batches, in world coordinates.
 pub fn walk_batches<E: std::borrow::Borrow<Entity>>(doc: &Doc, ents: &[E]) -> Vec<Batch> {
-    let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
+    let mut out = Collect::new("");
     walk(doc, ents, &mut out, &display_opts());
     out.batches
 }
@@ -206,7 +228,7 @@ fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKin
             g.push(e);
         }
     }
-    let mut out = Collect { layer: String::new(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() };
+    let mut out = Collect::new("");
     let opts = display_opts();
     for (l, ents) in &groups {
         out.layer.clone_from(l);
@@ -214,7 +236,7 @@ fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKin
     }
     out.batches.retain(|b| !(b.lines.is_empty() && b.fills.is_empty() && b.texts.is_empty()));
     let paper_unit = paper.map(|_| "mm".to_string());
-    Space { key, name, kind, batches: out.batches, bounds: out.bounds, paper, paper_unit, viewports: out.viewports, images: Vec::new() }
+    Space { key, name, kind, batches: out.batches, bounds: out.bounds, paper, paper_unit, viewports: out.viewports, images: out.images }
 }
 
 fn paper_bounds(p: &cc_cad::Obj) -> Option<Bounds> {
@@ -238,6 +260,7 @@ struct Piece {
     batches: Vec<Batch>,
     bounds: Bounds,
     viewports: Vec<Viewport>,
+    images: Vec<SpaceImage>,
 }
 
 /// Collects a walk's output per top-level entity (`WalkOut::begin`).
@@ -249,11 +272,8 @@ struct PieceCollect {
 
 impl PieceCollect {
     fn flush(&mut self) {
-        let c = std::mem::replace(
-            &mut self.cur,
-            Collect { layer: self.layer.clone(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() },
-        );
-        self.pieces.push(Piece { batches: c.batches, bounds: c.bounds, viewports: c.viewports });
+        let c = std::mem::replace(&mut self.cur, Collect::new(&self.layer));
+        self.pieces.push(Piece { batches: c.batches, bounds: c.bounds, viewports: c.viewports, images: c.images });
     }
 }
 
@@ -278,6 +298,9 @@ impl WalkOut for PieceCollect {
     fn viewport(&mut self, e: &Entity) {
         self.cur.viewport(e);
     }
+    fn picture(&mut self, p: &PicOut) {
+        self.cur.picture(p);
+    }
 }
 
 fn same_map<K: PartialEq + Eq + std::hash::Hash + Clone, V: PartialEq>(a: &OMap<K, V>, b: &OMap<K, V>) -> bool {
@@ -294,6 +317,8 @@ struct Ctx {
     dim_styles: OMap<String, cc_cad::Obj>,
     blocks: OMap<String, cc_cad::Block>,
     meta: cc_cad::Obj,
+    /// a picture file came: its name text goes (walk leaves it out once the file is loaded)
+    pictures: u64,
 }
 
 impl Ctx {
@@ -305,6 +330,7 @@ impl Ctx {
             dim_styles: doc.dim_styles.clone(),
             blocks: doc.blocks.clone(),
             meta: doc.meta.clone(),
+            pictures: doc.picture_version,
         }
     }
     fn matches(&self, doc: &Doc) -> bool {
@@ -314,6 +340,7 @@ impl Ctx {
             && same_map(&self.dim_styles, &doc.dim_styles)
             && same_map(&self.blocks, &doc.blocks)
             && self.meta == doc.meta
+            && self.pictures == doc.picture_version
     }
 }
 
@@ -400,6 +427,7 @@ impl DisplayCache {
         let mut batches: Vec<Batch> = Vec::new();
         let mut bounds = Bounds::default();
         let mut viewports: Vec<Viewport> = Vec::new();
+        let mut images: Vec<SpaceImage> = Vec::new();
         for (layer, ents) in &groups {
             // walk the entities that are new or changed (an entity without an id is walked every time)
             let stale: Vec<&Entity> = ents
@@ -413,11 +441,7 @@ impl DisplayCache {
             let mut fresh: Vec<Piece> = Vec::new();
             if !stale.is_empty() {
                 let list: Vec<Entity> = stale.iter().map(|e| (*e).clone()).collect();
-                let mut pc = PieceCollect {
-                    layer: (*layer).to_string(),
-                    pieces: Vec::with_capacity(list.len()),
-                    cur: Collect { layer: (*layer).to_string(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new() },
-                };
+                let mut pc = PieceCollect { layer: (*layer).to_string(), pieces: Vec::with_capacity(list.len()), cur: Collect::new(layer) };
                 walk(doc, &list, &mut pc, &opts);
                 pc.flush();
                 fresh = pc.pieces;
@@ -456,11 +480,12 @@ impl DisplayCache {
                     bounds.grow(&[piece.bounds.min_x, piece.bounds.min_y, piece.bounds.max_x, piece.bounds.max_y]);
                 }
                 viewports.extend(piece.viewports);
+                images.extend(piece.images);
             }
         }
         batches.retain(|b| !(b.lines.is_empty() && b.fills.is_empty() && b.texts.is_empty()));
         let paper_unit = paper.map(|_| "mm".to_string());
-        Space { key, name, kind, batches, bounds, paper, paper_unit, viewports, images: Vec::new() }
+        Space { key, name, kind, batches, bounds, paper, paper_unit, viewports, images }
     }
 }
 
@@ -478,12 +503,20 @@ fn drawing_of(doc: &Doc, spaces: Vec<Space>) -> Drawing {
         })
         .collect();
     let entities = doc.every_entity().count() as u64;
+    // the picture files the drawing shows, with their uses (the viewer's `images`)
+    let mut images: Vec<ImageRef> = Vec::new();
+    for im in spaces.iter().flat_map(|s| s.images.iter()) {
+        match images.iter_mut().find(|r| r.file == im.file) {
+            Some(r) => r.uses = r.uses.saturating_add(1),
+            None => images.push(ImageRef { name: cc_cad::pictures::base_name(&im.file).to_string(), file: im.file.clone(), uses: 1 }),
+        }
+    }
     Drawing {
         version: String::new(),
         release: String::new(),
         units: String::new(),
         xrefs: Vec::new(),
-        images: Vec::new(),
+        images,
         layers,
         spaces,
         stats: Stats { entities, ..Stats::default() },

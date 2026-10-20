@@ -3,8 +3,8 @@
 //! dashes, and everything put through an optional transform `m`. The output gets strokes (primitives), fills (flat
 //! loops), texts (transformed text entities), points, viewports, text masks and construction lines ([`WalkOut`]).
 //!
-//! Not ported in M4: XCLIP (clipped references draw whole) and pictures (`pic` / `picName`: a picture's frame and
-//! name draw as plain linework and text).
+//! A clipped reference (XCLIP) draws its contents through [`crate::xclip::ClipOut`]; a picture's frame reports the
+//! picture to [`WalkOut::picture`] and its name text is left out once the drawing has the picture's file (M4.18–M4.19).
 
 use crate::jsmath::JsMath;
 use std::borrow::Cow;
@@ -62,6 +62,78 @@ pub trait WalkOut {
         false
     }
     fn infinite(&mut self, _color: &str, _e: &Entity, _lw: f64, _o: Option<Opts>) {}
+    /// A picture (`out.picture`, pictures.js): its placement and frame after the transform. The frame also comes as a
+    /// stroke, and the file's name as text while the file is not loaded.
+    fn picture(&mut self, _p: &PicOut) {}
+}
+
+/// What `out.picture` gets: `{ file, place: {x, y, ux, uy, vx, vy, w, h}, clip: [x, y, …] (its frame), alpha }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PicOut {
+    pub file: String,
+    /// the lower-left corner
+    pub x: f64,
+    pub y: f64,
+    /// one pixel along the width, one pixel up
+    pub ux: f64,
+    pub uy: f64,
+    pub vx: f64,
+    pub vy: f64,
+    /// pixels
+    pub w: f64,
+    pub h: f64,
+    pub clip: Vec<f64>,
+    pub alpha: f64,
+}
+
+/// A poly: its picture first (`out.picture`, when the frame carries one), then `polyBands(e)`.
+fn poly_bands_after_picture(out: &mut dyn WalkOut, e: &Entity, mm: Option<&M>, o: Option<Opts>) -> Option<(Vec<Vec<f64>>, Vec<Prim>)> {
+    if let Some(pic) = e.get("pic").and_then(Value::as_object) {
+        out.picture(&picture_out(e, pic, mm, o));
+    }
+    poly_bands(e)
+}
+
+/// `pictureOut(e, mm, o)`: a picture's frame → what out.picture gets.
+fn picture_out(e: &Entity, pic: &Obj, mm: Option<&M>, o: Option<Opts>) -> PicOut {
+    let n = |k: &str| pic.get(k).map_or(f64::NAN, js::to_number);
+    let (px, py) = (n("x"), n("y"));
+    let at = match mm {
+        Some(m) => m_apply(m, p(px, py)),
+        None => p(px, py),
+    };
+    let vec = |x: f64, y: f64| match mm {
+        Some(m) => p(m[0] * x + m[2] * y, m[1] * x + m[3] * y),
+        None => p(x, y),
+    };
+    let u = vec(n("ux"), n("uy"));
+    let v = vec(n("vx"), n("vy"));
+    let mut clip = Vec::new();
+    if let Geo::Poly(pl) = &e.geo {
+        for q in &pl.pts {
+            let r = match mm {
+                Some(m) => m_apply(m, q.p()),
+                None => q.p(),
+            };
+            clip.push(r.x);
+            clip.push(r.y);
+        }
+    }
+    let fade = js::finite(pic.get("fade")).map_or(0.0, |f| js::max(0.0, js::min(100.0, f)) / 100.0);
+    let file = pic.get("file").map(js::to_js_string).unwrap_or_else(|| "undefined".into());
+    PicOut {
+        file,
+        x: at.x,
+        y: at.y,
+        ux: u.x,
+        uy: u.y,
+        vx: v.x,
+        vy: v.y,
+        w: n("w"),
+        h: n("h"),
+        clip,
+        alpha: o.and_then(|o| o.alpha).unwrap_or(1.0) * (1.0 - fade),
+    }
 }
 
 /// A viewport's layer view (VP.1, VP.3): upper-case names of layers frozen in it, and per-layer overrides
@@ -354,6 +426,16 @@ impl Walker<'_> {
                     BlkCtx { lt: Some("Continuous".into()), lw: Some(lw), tr }
                 };
                 let col = Color::Str(color.clone());
+                // a clipped reference (XCLIP, 0.5 WL.16): its contents pass through an output that keeps what is inside
+                let cp = if matches!(e.geo, Geo::Insert(_)) { crate::xclip::clip_poly(e) } else { None };
+                let mut clipped;
+                let out: &mut dyn WalkOut = match (cp, m2.as_ref()) {
+                    (Some(cp), Some(m)) => {
+                        clipped = crate::xclip::ClipOut { out, poly: cp.iter().map(|q| m_apply(m, *q)).collect() };
+                        &mut clipped
+                    }
+                    _ => out,
+                };
                 for c in &parts {
                     let ln = if c.layer.as_deref() == Some("0") { layer.as_deref() } else { c.layer.as_deref() };
                     if !self.shown(ln) {
@@ -362,7 +444,11 @@ impl Walker<'_> {
                     self.emit(out, c, Some(&col), layer.as_deref(), m2.as_ref(), depth + 1, &inner);
                 }
             }
-            Geo::Text(_) => {
+            Geo::Text(t) => {
+                // a picture's name stands in for it only until its file is loaded
+                if js::truthy(e.get("picName")) && cc_cad::pictures::find_picture(&self.doc.pictures, &t.s).is_some() {
+                    return;
+                }
                 let te = match mm {
                     Some(m) => crate::tx::tx_entity(e, m),
                     None => e.clone(),
@@ -427,7 +513,7 @@ impl Walker<'_> {
                 let ps: Vec<Prim> = pts.iter().zip(pts.iter().skip(1)).map(|(a, b)| Prim::l(a.x, a.y, b.x, b.y)).collect();
                 self.stroke_of(out, e, ps, &color, lw, mm, blk, parent, o);
             }
-            Geo::Poly(_) => match poly_bands(e) {
+            Geo::Poly(_) => match poly_bands_after_picture(out, e, mm, o) {
                 None => {
                     let ps = prims(e, None);
                     self.stroke_of(out, e, ps, &color, lw, mm, blk, parent, o);

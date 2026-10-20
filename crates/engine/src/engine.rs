@@ -139,6 +139,53 @@ pub trait Host {
         false
     }
     fn save_blob(&mut self, _name: &str, _data: &[u8], _mime: &str) {}
+    /// Can this host open files (the JS host has `pickDrawing` / `pickPictures`)?
+    fn can_pick_files(&self) -> bool {
+        false
+    }
+    /// `host.pickDrawing()` (XATTACH, XREF Reload): a DWG / DXF the person picks, read as doc.load's input. The window
+    /// answers [`Pick::Later`] and hands the file over through [`Engine::deliver_drawing`].
+    fn pick_drawing(&mut self) -> Pick<Option<PickedDrawing>> {
+        Pick::Unsupported
+    }
+    /// `host.pickPictures({ multiple })` (IMAGEATTACH, IMAGE): PNG / JPEG files (name and bytes); later through
+    /// [`Engine::deliver_files`].
+    fn pick_pictures(&mut self, _multiple: bool) -> Pick<Vec<PickedFile>> {
+        Pick::Unsupported
+    }
+}
+
+/// How a host answers a request for a file.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pick<T> {
+    /// it cannot open files (the JS host has no such method)
+    Unsupported,
+    /// here it is (or nothing was picked)
+    Now(T),
+    /// a picker is open: the answer comes through the engine's `deliver_*`
+    Later,
+}
+
+/// A drawing the host picked and read: `{ drawing, fileName }`. The read turns doc.load's input (readDxf /
+/// importDwg) into typed objects ([`crate::cmd::xref::XSource::from_value`]), as the JS reader hands over objects.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickedDrawing {
+    pub file_name: String,
+    pub drawing: crate::cmd::xref::XSource,
+}
+
+impl PickedDrawing {
+    /// A drawing as doc.load takes it, read into typed objects.
+    pub fn from_value(file_name: &str, v: &serde_json::Value) -> Self {
+        PickedDrawing { file_name: file_name.to_string(), drawing: crate::cmd::xref::XSource::from_value(v) }
+    }
+}
+
+/// A file the host picked: `{ name, bytes }`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickedFile {
+    pub name: String,
+    pub bytes: Vec<u8>,
 }
 
 /// A set of ids that keeps insertion order (a JS `Set`). The order is the Vec (read it as `.0`); the hash index
@@ -226,6 +273,10 @@ pub enum Reply {
         pts: Vec<P2>,
         shift: bool,
     },
+    /// the drawing a picker that answered later delivered (None = nothing picked)
+    Drawing(Option<PickedDrawing>),
+    /// the files a picker that answered later delivered
+    Files(Vec<PickedFile>),
 }
 impl Reply {
     pub fn point(&self) -> Option<P2> {
@@ -347,6 +398,7 @@ fn def_reply(d: &Option<Def>) -> Reply {
         None => Reply::Null,
         Some(Def::Num(n)) => Reply::Num(*n),
         Some(Def::Str(s)) => Reply::Str(s.clone()),
+        Some(Def::Point(p)) => Reply::Point(*p, None),
     }
 }
 
@@ -606,7 +658,7 @@ impl Engine {
             Kind::Keyword => "cmd.invalid.keyword",
             Kind::Select => "cmd.invalid.select",
             Kind::Entity => "cmd.invalid.entity",
-            Kind::Text => "cmd.invalid_input",
+            Kind::Text | Kind::File => "cmd.invalid_input",
         };
         let msg = self.sh.t(key);
         self.sh.print(&msg);
@@ -627,6 +679,19 @@ impl Engine {
                 w.set.clone()
             }
             None => IdSet::default(),
+        }
+    }
+
+    /// The drawing a picker that answered [`Pick::Later`] has read (None = cancelled).
+    pub fn deliver_drawing(&mut self, d: Option<PickedDrawing>) {
+        if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
+            self.resolve(Reply::Drawing(d));
+        }
+    }
+    /// The files a picker that answered [`Pick::Later`] has read (empty = cancelled).
+    pub fn deliver_files(&mut self, f: Vec<PickedFile>) {
+        if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
+            self.resolve(Reply::Files(f));
         }
     }
 
@@ -818,6 +883,37 @@ impl Ctx {
     pub async fn must_point(&self, prompt: String, opts: Opts) -> R<P2> {
         let r = self.point(prompt, opts).await?;
         r.point().ok_or_else(|| CmdError::Msg("a point was expected".into()))
+    }
+
+    /// `await c.host.pickDrawing()`: None when the host cannot open files, Some(None) when nothing was picked.
+    pub async fn pick_drawing(&self, prompt: String) -> R<Option<Option<PickedDrawing>>> {
+        if !self.sh.host.borrow().can_pick_files() {
+            return Ok(None);
+        }
+        let p = self.sh.host.borrow_mut().pick_drawing();
+        match p {
+            Pick::Unsupported => Ok(None),
+            Pick::Now(d) => Ok(Some(d)),
+            Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
+                Reply::Drawing(d) => Ok(Some(d)),
+                _ => Ok(Some(None)),
+            },
+        }
+    }
+    /// `await c.host.pickPictures({ multiple })`: None when the host cannot open files.
+    pub async fn pick_pictures(&self, prompt: String, multiple: bool) -> R<Option<Vec<PickedFile>>> {
+        if !self.sh.host.borrow().can_pick_files() {
+            return Ok(None);
+        }
+        let p = self.sh.host.borrow_mut().pick_pictures(multiple);
+        match p {
+            Pick::Unsupported => Ok(None),
+            Pick::Now(f) => Ok(Some(f)),
+            Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
+                Reply::Files(f) => Ok(Some(f)),
+                _ => Ok(Some(Vec::new())),
+            },
+        }
     }
 
     /// Set the rubber band (None clears it); drawn at once for the cursor.

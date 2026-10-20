@@ -34,6 +34,7 @@ pub mod entity;
 pub mod i18n;
 pub mod js;
 pub mod omap;
+pub mod pictures;
 pub mod script;
 
 pub use color::{aci_hex, nearest_aci, type_name};

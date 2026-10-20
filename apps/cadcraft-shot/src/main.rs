@@ -3,7 +3,7 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --hub: CadCraft Studio's start screen (nothing open), --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
@@ -122,6 +122,25 @@ fn shot(args: &[String]) -> Result<(), String> {
             let path = std::path::Path::new(&dir).join(file);
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(Some(path.display().to_string()))
+        }));
+    }
+    // --pick FILE (repeatable): what the window's picker hands a command (XATTACH, IMAGEATTACH, IMAGE), in order;
+    // several files for one IMAGE pick: --pick "a.png|b.jpg"
+    let picks: Vec<String> =
+        args.windows(2).filter(|w| w.first().map(String::as_str) == Some("--pick")).filter_map(|w| w.get(1).cloned()).collect();
+    if !picks.is_empty() {
+        let mut queue: std::collections::VecDeque<String> = picks.into();
+        app.services.pick_files = Some(Box::new(move |_kind, _multiple| {
+            let spec = queue.pop_front().unwrap_or_default();
+            Some(
+                spec.split('|')
+                    .filter(|p| !p.is_empty())
+                    .filter_map(|p| {
+                        let name = std::path::Path::new(p).file_name()?.to_string_lossy().into_owned();
+                        std::fs::read(p).ok().map(|bytes| cc_ui_egui::ImportedFile { name, bytes, dir: None })
+                    })
+                    .collect(),
+            )
         }));
     }
     if let Some(i) = arg(args, "--space").and_then(|s| s.parse().ok()) {
