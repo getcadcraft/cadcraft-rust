@@ -18,8 +18,7 @@ Last updated 2026-10-19 · Change: UCS and view turns, POLARANG, COUNT (M4.17); 
    panes are the browser's). UCS PLAN TURNLEFT TURNRIGHT TURNWORLD, LWDISPLAY POLARANG, COUNT (M4.17; the window turns
    its view to the UCS and has polar tracking on F10; LWDISPLAY says lineweights on screen are the browser's: the window
    draws one width). **Next, by everyday use:** PUBLISH; XATTACH XREF XCLIP; IMAGEATTACH IMAGE IMAGECLIP; BVSTATE BVHIDE BVSHOW (BEDIT opens a
-   dynamic block without
-   its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
+   dynamic block without its visibility states); LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
    SAVEAS DXFOUT HELP are the window's own buttons. The Properties panel (M4.11) has General, Geometry, Text, Pattern,
