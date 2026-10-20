@@ -314,7 +314,7 @@ impl TakeoffMode {
         }
     }
 
-    /// One field of the selected mark (renderMarkProps' handlers): item, area, `ded:<i>` (on/off), `sl:<i>` (flat,
+    /// One field of the selected mark (renderMarkProps' handlers): item, area and group (of every selected mark), `ded:<i>` (on/off), `sl:<i>` (flat,
     /// rake, hip or empty for the item's), pitch, z, cutout.remove, delete.
     pub fn mark_field(&mut self, field: &str, text: &str) -> Result<(), String> {
         let Some(id) = self.sel.clone() else { return Err("takeoff.mark: no mark is selected".into()) };
@@ -329,6 +329,10 @@ impl TakeoffMode {
                 up(self, o(vec![("item", json!(text))]), "undo.mark.item")?;
                 self.item = Some(text.to_string());
                 Ok(())
+            }
+            "group" => {
+                let ids = self.sel_ids();
+                self.set_marks_group(&ids, text)
             }
             "area" => {
                 let area = (!text.is_empty()).then_some(text);

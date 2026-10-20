@@ -6,7 +6,11 @@
 //! - `takeoff.set` name = `field=text`: a field of the current item's settings (see `TakeoffMode::item_field`).
 //! - `takeoff.comp` name = `add` | `remove:<id>` | `<id>:<field>=<text>`: the item's assembly.
 //! - `takeoff.itemact` name = up | down | delete | dup.
-//! - `takeoff.tool` name = select | draw | cutout | circle | cutcircle.
+//! - `takeoff.tool` name = select | draw | cutout | circle | cutcircle | note | cloud | highlight.
+//! - `takeoff.note` name = add:TEXT (the asked text of a new markup; `\n` = a new line) | cancel | select:<id> |
+//!   text:TEXT | status:open|answered|closed | remove | open-only:on|off.
+//! - `takeoff.group` name = new:NAME|REPEAT (a typical group of the selected marks) | cancel | rename:<id>:NAME |
+//!   repeat:<id>:N | select:<id> | delete:<id>.
 //! - `takeoff.arc` name = on | off (no name: toggles): arc mode (R).
 //! - `takeoff.drag` name = `x1,y1:x2,y2`: a press, the pointer moved, the release (Select drags a corner of the
 //!   selected mark or the middle of one of its arcs).
@@ -168,7 +172,14 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
                 "cutout" => "cutout",
                 "circle" => "circle",
                 "cutcircle" => "cutcircle",
-                _ => return Err(format!("takeoff.tool: unknown tool {name} (select, draw, cutout, circle, cutcircle)")),
+                "note" => "note",
+                "cloud" => "cloud",
+                "highlight" => "highlight",
+                _ => {
+                    return Err(format!(
+                        "takeoff.tool: unknown tool {name} (select, draw, cutout, circle, cutcircle, note, cloud, highlight)"
+                    ));
+                }
             };
             tk.set_tool(tool);
             Ok(())
@@ -189,6 +200,8 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             tk.press_drag(&key, a, b);
             Ok(())
         }
+        "takeoff.note" => tk.note_edit(&name),
+        "takeoff.group" => tk.group_edit(&name),
         "takeoff.edit" => {
             let key = tk.cur_sheet.clone();
             tk.edit(&key, &name)

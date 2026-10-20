@@ -2,6 +2,24 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.21 TakeoffCraft typical groups, notes, clouds and highlights (agent, work/takeoff2)
+
+- `crates/ui-egui/src/takeoffnotes.rs`, ports of takeoffcraft.js: typical groups (T16) — the group field of the selected
+  marks (one or several: "—" when they differ; Not typical; each group "Name (×n)"; New typical group… opens the window
+  with "Typical n" and ×2, readRepeat's "x3" / "×3", the name and repeat checks staying in the window), the groups list
+  (rename, repeats, how many marks, select its marks — on this sheet if it has some, else the first sheet that has —
+  delete: its marks count once), the dashed box and "Name ×n" tag round a group's marks; quantities, estimate and exports
+  count the repeats (cc-takeoff, already at parity). Markups (T22): the Markup tools note / cloud / highlight (a note at
+  a click, a cloud or highlight between two corners at least 4 screen px apart), the asked text (a note needs some, a
+  cloud or highlight may be blank), select (on top of the marks, not with Shift), the Markup panel (kind, sheet, status,
+  text, Delete), Delete key ("Deleted the cloud."), the Markups list with Open only, drawn as 0.5 draws them (pin with
+  the first line, scalloped cloud, see-through highlight) and in the marked PDF (cc-io-takeoff). Commands
+  `takeoff.note`, `takeoff.group`, `takeoff.mark=group=…`, `takeoff.tool=note|cloud|highlight`.
+- Parity (tkopsdiff): new scenarios groups (52 ops: made from a selection, refused names and repeats, moved in and out,
+  renamed, repeats, selected, deleted and undone, a group pasted) and notes (46 ops: every kind, empty text, too small,
+  cancel, status and text, delete and undo, Esc): project, CSV, XLSX and marked PDF identical, 52/52 status lines; the
+  seven earlier scenarios unchanged (205/205 status lines in all).
+
 ## 2026-10-20 — M9.20 TakeoffCraft arcs and circles, dragging corners, several marks selected, the clipboard (agent, work/takeoff2)
 
 - `crates/ui-egui/src/takeoffedit.rs` (new) and `takeofftools.rs`, ports of takeoffcraft.js: arc mode (R: after a point,

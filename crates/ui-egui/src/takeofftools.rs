@@ -631,6 +631,20 @@ impl TakeoffMode {
                     self.set_tool(tool);
                 }
             }
+            ui.menu_button(cc_takeoff::i18n::t("note.menu"), |ui| {
+                for k in ["note", "cloud", "highlight"] {
+                    if ui.selectable_label(self.tool == k, cc_takeoff::i18n::t(&format!("tool.{k}"))).clicked() {
+                        self.set_tool(match k {
+                            "note" => "note",
+                            "cloud" => "cloud",
+                            _ => "highlight",
+                        });
+                        ui.close();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(cc_takeoff::i18n::t("note.menu.title"));
             let mut a = self.arc;
             if ui.checkbox(&mut a, cc_takeoff::i18n::t("tool.arc")).on_hover_text(cc_takeoff::i18n::t("tool.arc.title")).changed() {
                 self.toggle_arc(a);
@@ -719,6 +733,20 @@ impl TakeoffMode {
             ui.separator();
             self.mark_props(ui, t);
         }
+        if self.sel_note.is_some() {
+            ui.separator();
+            self.note_props(ui, t);
+        }
+        if self.tk.state.get("groups").and_then(Value::as_array).is_some_and(|g| !g.is_empty()) {
+            ui.separator();
+            self.groups_list(ui, t);
+        }
+        if self.tk.state.get("notes").and_then(Value::as_array).is_some_and(|g| !g.is_empty()) {
+            ui.separator();
+            self.notes_list(ui, t);
+        }
+        self.note_window(ui.ctx());
+        self.group_window(ui.ctx());
         ui.separator();
         let e = cc_takeoff::model::base_estimate(&self.tk.state);
         ui.label(format!("{} marks · estimate ${:.2}", self.tk.marks().len(), e.total / 100.0));
