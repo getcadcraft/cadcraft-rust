@@ -284,6 +284,7 @@ impl PdfView {
         let cur = PdfFile::read("f1", name, bytes, &mut store)?;
         let mut takeoff = crate::takeofftools::TakeoffMode::new(cur.hash());
         takeoff.add_file(cur.hash(), name, bytes.len(), cur.pages.len());
+        page_infos(&mut takeoff, &cur);
         Ok(PdfView {
             store,
             tools: crate::markuptools::MarkupTools::default(),
@@ -328,10 +329,25 @@ impl PdfView {
         let f = PdfFile::read(&id, name, bytes, &mut self.store)?;
         self.file_seq = self.file_seq.saturating_add(1);
         self.takeoff.add_file(f.hash(), name, bytes.len(), f.pages.len());
+        page_infos(&mut self.takeoff, &f);
         self.others.push(f);
         self.switch(self.others.len() - 1);
         self.go(0);
         Ok(())
+    }
+
+    /// TakeoffCraft's view of the sheet on screen (its key, the pick distances), and a sheet it asked to go to.
+    pub fn sync_takeoff(&mut self) {
+        if let Some(to) = self.takeoff.goto.take()
+            && let Some((hash, idx)) = to.split_once(':')
+        {
+            let target = self.files().into_iter().find(|f| f.hash() == hash).map(|f| f.id.clone());
+            if let (Some(id), Ok(i)) = (target, idx.parse::<usize>()) {
+                self.go_file(&id, i);
+            }
+        }
+        self.takeoff.cur_sheet = self.takeoff.sheet(self.page);
+        self.takeoff.px = 1.0 / self.zoom;
     }
 
     /// Make one of the other files the open one (its first sheet).
@@ -584,27 +600,66 @@ impl PdfView {
                 self.takeoff.ac = None;
             }
         } else if self.mode == "takeoff" {
-            let key = self.takeoff.sheet(self.page);
-            if resp.dragged() {
+            self.sync_takeoff();
+            let key = self.takeoff.cur_sheet.clone();
+            let shift = ui.input(|i| i.modifiers.shift);
+            self.takeoff.cursor = resp.hover_pos().map(|p| self.to_pdf(origin, p));
+            if resp.drag_started_by(egui::PointerButton::Primary) {
+                // a corner (or an arc's middle) of the selected mark is grabbed where the press began
+                let at = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos());
+                self.takeoff.drag = match at {
+                    Some(o) if self.takeoff.tool == "select" && self.takeoff.paste.is_none() => {
+                        self.takeoff.handle_at(&key, self.to_pdf(origin, o))
+                    }
+                    _ => None,
+                };
+            }
+            if self.takeoff.drag.is_some() && resp.dragged_by(egui::PointerButton::Primary) {
+                if let Some(p) = resp.interact_pointer_pos() {
+                    let q = self.to_pdf(origin, p);
+                    self.takeoff.drag_to(q);
+                }
+            } else if resp.dragged() {
                 self.pan += resp.drag_delta();
+            }
+            if resp.drag_stopped() && self.takeoff.drag.is_some() {
+                self.takeoff.commit_drag();
             } else if resp.double_clicked() {
-                self.takeoff.finish(&key);
+                if self.takeoff.mid.is_none() {
+                    self.takeoff.finish(&key);
+                }
             } else if resp.clicked()
                 && let Some(p) = resp.interact_pointer_pos()
             {
                 let q = self.to_pdf(origin, p);
-                self.takeoff.click(&key, q);
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                self.takeoff.click_mod(&key, q, shift);
+            } else if resp.secondary_clicked() {
                 self.takeoff.finish(&key);
             }
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                self.takeoff.pts.clear();
-                self.takeoff.ded.clear();
-            }
-            if ui.input(|i| i.key_pressed(egui::Key::E)) && !ui.ctx().egui_wants_keyboard_input() {
-                let d = !self.takeoff.deduct;
-                self.takeoff.toggle_deduct(d);
+            if !ui.ctx().egui_wants_keyboard_input() {
+                let (enter, esc, e, r) = ui.input(|i| {
+                    let plain = !i.modifiers.command && !i.modifiers.alt;
+                    (
+                        i.key_pressed(egui::Key::Enter),
+                        i.key_pressed(egui::Key::Escape),
+                        plain && i.key_pressed(egui::Key::E),
+                        plain && i.key_pressed(egui::Key::R),
+                    )
+                });
+                if enter && !self.takeoff.pts.is_empty() {
+                    self.takeoff.finish(&key);
+                }
+                if esc {
+                    self.takeoff.escape();
+                }
+                if e {
+                    let d = !self.takeoff.deduct;
+                    self.takeoff.toggle_deduct(d);
+                }
+                if r {
+                    let a = !self.takeoff.arc;
+                    self.takeoff.toggle_arc(a);
+                }
             }
         }
         let pan_drag = self.mode != "takeoff"
@@ -666,7 +721,11 @@ impl PdfView {
         let typing = ui.ctx().egui_wants_keyboard_input();
         if !typing && ui.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
             if self.mode == "takeoff" {
-                let _ = self.takeoff.mark_field("delete", "");
+                if self.takeoff.mid.is_some() || !self.takeoff.pts.is_empty() {
+                    self.takeoff.drop_last_point();
+                } else {
+                    let _ = self.takeoff.edit(&self.takeoff.cur_sheet.clone(), "delete");
+                }
             } else {
                 self.tools.delete_selected(&mut self.store);
             }
@@ -674,10 +733,36 @@ impl PdfView {
         if !typing && ui.input(|i| i.modifiers.command && (i.key_pressed(egui::Key::Z) || i.key_pressed(egui::Key::Y))) {
             let redo = ui.input(|i| i.modifiers.shift || i.key_pressed(egui::Key::Y));
             if self.mode == "takeoff" {
-                let r = if redo { self.takeoff.tk.redo() } else { self.takeoff.tk.undo() };
-                self.takeoff.message = r.unwrap_or_default();
+                self.takeoff.history(redo);
             } else {
                 self.history(redo);
+            }
+        }
+        if !typing && self.mode == "takeoff" {
+            // Ctrl+C / X / V (Ctrl+Shift+V in place), Ctrl+D, Ctrl+A, as takeoffcraft.js's keydown
+            let (copy, cut, paste, shift, dup, all) = ui.input(|i| {
+                let ev = |f: &dyn Fn(&egui::Event) -> bool| i.events.iter().any(f);
+                (
+                    ev(&|e| matches!(e, egui::Event::Copy)),
+                    ev(&|e| matches!(e, egui::Event::Cut)),
+                    ev(&|e| matches!(e, egui::Event::Paste(_))),
+                    i.modifiers.shift,
+                    i.modifiers.command && i.key_pressed(egui::Key::D),
+                    i.modifiers.command && i.key_pressed(egui::Key::A),
+                )
+            });
+            let key = self.takeoff.cur_sheet.clone();
+            for (on, what) in [
+                (copy, "copy"),
+                (cut, "cut"),
+                (paste && shift, "paste-in-place"),
+                (paste && !shift, "paste"),
+                (dup, "duplicate"),
+                (all, "select-all"),
+            ] {
+                if on {
+                    let _ = self.takeoff.edit(&key, what);
+                }
             }
         }
         if !typing && self.mode != "takeoff" {
@@ -1232,6 +1317,13 @@ impl PdfView {
             self.zoom * 100.0,
             self.render_ms
         )
+    }
+}
+
+/// Each page's view box and UserUnit, for TakeoffCraft's clipboard.
+fn page_infos(tk: &mut crate::takeofftools::TakeoffMode, f: &PdfFile) {
+    for (i, p) in f.pages.iter().enumerate() {
+        tk.page_info.insert(cc_takeoff::model::sheet_key(f.hash(), i as f64), (p.view, p.user_unit));
     }
 }
 

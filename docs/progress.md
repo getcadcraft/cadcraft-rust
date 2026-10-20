@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.20 TakeoffCraft arcs and circles, dragging corners, several marks selected, the clipboard (agent, work/takeoff2)
+
+- `crates/ui-egui/src/takeoffedit.rs` (new) and `takeofftools.rs`, ports of takeoffcraft.js: arc mode (R: after a point,
+  a point on the curve, then the arc's end; closing an outline on an arc; Backspace drops the pending curve point, then
+  the last point and the arc that led to it; Esc the curve point first), the Circle tool and round cut-outs (two
+  half-circle arcs, "too small" under 3 screen px), arcs in runs, outlines and cut-outs (a run's last point starts no
+  arc; an outline's closing check keeps an arc's end). Dragging a corner of the selected mark (runs, outlines, cut-outs,
+  counts) or the round handle in the middle of an arc to bend it (a straight line drops the arc); an outline that would
+  cross itself or a cut-out that would leave it is put back with 0.5's message. Several marks selected: Shift+click adds
+  or takes out (the main mark moves on), Select all / none, corner squares on each, the Selected marks panel (how many of
+  each item, their bid area, copy / duplicate / cut / delete), Delete. The clipboard on clipboard.js: copy, cut (one
+  step), paste on the pointer (a dashed preview, the click puts it down), paste in place (checked against the sheet's
+  size), duplicate, the scale check between sheets, the current bid area on pasted marks. setTool's checks and help
+  lines, Undo / Redo say "Undid: …". The draft keeps bulges (`P`); the selected mark shows its segment lengths and area.
+  Commands `takeoff.arc`, `takeoff.drag`, `takeoff.edit`, `takeoff.click=x,y,shift`, `takeoff.tool=circle|cutcircle`.
+- 0.5 TakeoffCraft has no window or lasso selection (a drag on an empty spot pans; lasso-core.js is not imported by
+  takeoffcraft.js), so none was added: multi-select is Shift+click, Select all and a typical group's marks, as in 0.5.
+- Parity (`forks/tools/tkopsdiff.mjs`, now with status lines: the app's `--trace` line after each command against what
+  the 0.5 handler says): new scenarios arcs (81 ops), drags (55), multi (68 ops, two PDFs): project, CSV, XLSX and
+  marked PDFs identical, 110/110 status lines; the four M9.13 scenarios unchanged and their 43/43 status lines too.
+
 ## 2026-10-20 — M9.19 MarkupCraft BCF export / import, compare picture overlay, line-up, whole-set compare (agent, work/markup2)
 
 - `crates/ui-egui/src/markupbcf.rs`: BCF 2.1 export of the Markups list as filtered (cc-markup `build_bcf`; one topic per

@@ -6,9 +6,13 @@
 //! - `takeoff.set` name = `field=text`: a field of the current item's settings (see `TakeoffMode::item_field`).
 //! - `takeoff.comp` name = `add` | `remove:<id>` | `<id>:<field>=<text>`: the item's assembly.
 //! - `takeoff.itemact` name = up | down | delete | dup.
-//! - `takeoff.tool` name = select | draw | cutout.
+//! - `takeoff.tool` name = select | draw | cutout | circle | cutcircle.
+//! - `takeoff.arc` name = on | off (no name: toggles): arc mode (R).
+//! - `takeoff.drag` name = `x1,y1:x2,y2`: a press, the pointer moved, the release (Select drags a corner of the
+//!   selected mark or the middle of one of its arcs).
+//! - `takeoff.edit` name = copy | cut | paste | paste-in-place | duplicate | select-all | select-none | delete | escape.
 //! - `takeoff.deduct` name = on | off (no name: toggles).
-//! - `takeoff.click` name = `x,y` (PDF user space of the open sheet): a click with the tool.
+//! - `takeoff.click` name = `x,y[,shift]` (PDF user space of the open sheet): a click with the tool.
 //! - `takeoff.mark` name = `select:<id>` | `field=text` (see `TakeoffMode::mark_field`).
 //! - `takeoff.area` name = see `TakeoffMode::area_edit`.
 //! - `takeoff.undo`, `takeoff.redo`.
@@ -107,6 +111,9 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         return Ok(());
     }
     let r = run_pdf(app, id, params, &name);
+    if let Some(p) = app.pdf.as_mut() {
+        p.sync_takeoff();
+    }
     if let Some(p) = app.pdf.as_mut()
         && p.tools.prefs_dirty
     {
@@ -129,7 +136,12 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
 fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(), String> {
     let name = name.to_string();
     let p = app.pdf.as_mut().ok_or_else(|| format!("{id}: open a PDF first"))?;
+    p.sync_takeoff();
     let tk = &mut p.takeoff;
+    if id.starts_with("takeoff.") {
+        // each command says its own status line (or none)
+        tk.message.clear();
+    }
     match id {
         "takeoff.select" => {
             if tk.tk.item(&name).is_none() {
@@ -154,10 +166,32 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
                 "select" => "select",
                 "draw" => "draw",
                 "cutout" => "cutout",
-                _ => return Err(format!("takeoff.tool: unknown tool {name} (select, draw, cutout)")),
+                "circle" => "circle",
+                "cutcircle" => "cutcircle",
+                _ => return Err(format!("takeoff.tool: unknown tool {name} (select, draw, cutout, circle, cutcircle)")),
             };
             tk.set_tool(tool);
             Ok(())
+        }
+        "takeoff.arc" => {
+            let on = match name.as_str() {
+                "on" => true,
+                "off" => false,
+                _ => !tk.arc,
+            };
+            tk.toggle_arc(on);
+            Ok(())
+        }
+        "takeoff.drag" => {
+            let (a, b) = name.split_once(':').ok_or("takeoff.drag: name = x1,y1:x2,y2 (PDF user space)")?;
+            let (a, b) = (pt(a, id)?, pt(b, id)?);
+            let key = tk.cur_sheet.clone();
+            tk.press_drag(&key, a, b);
+            Ok(())
+        }
+        "takeoff.edit" => {
+            let key = tk.cur_sheet.clone();
+            tk.edit(&key, &name)
         }
         "takeoff.deduct" => {
             let on = match name.as_str() {
@@ -169,9 +203,11 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             Ok(())
         }
         "takeoff.click" => {
-            let q = pt(&name, id)?;
-            let key = tk.sheet(p.page);
-            tk.click(&key, q);
+            // name = "x,y" with ",shift" for Shift held
+            let shift = name.ends_with(",shift");
+            let q = pt(name.trim_end_matches(",shift"), id)?;
+            let key = tk.cur_sheet.clone();
+            tk.click_mod(&key, q, shift);
             Ok(())
         }
         "takeoff.mark" => {
@@ -183,12 +219,8 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             tk.mark_field(f, v)
         }
         "takeoff.area" => tk.area_edit(&name),
-        "takeoff.undo" => {
-            tk.message = tk.tk.undo().unwrap_or_default();
-            Ok(())
-        }
-        "takeoff.redo" => {
-            tk.message = tk.tk.redo().unwrap_or_default();
+        "takeoff.undo" | "takeoff.redo" => {
+            tk.history(id == "takeoff.redo");
             Ok(())
         }
         "markup.compare" => match name.as_str() {

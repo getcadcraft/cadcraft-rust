@@ -70,7 +70,10 @@ pub mod pdfview;
 pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
+pub mod takeoffedit;
+pub mod takeoffnotes;
 pub mod takeoffprops;
+pub mod takeoffrev;
 pub mod takeofftools;
 pub mod theme;
 pub mod view3d;
@@ -1825,8 +1828,9 @@ impl UiApp {
                 }
             }
             self.message = pdf.status();
-            if !pdf.tools.message.is_empty() {
-                self.message = format!("{}   · {}", self.message, pdf.tools.message);
+            let said = if pdf.mode == "takeoff" { &pdf.takeoff.message } else { &pdf.tools.message };
+            if !said.is_empty() {
+                self.message = format!("{}   · {}", self.message, said);
             }
             let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
             if let Some(kind) = pdf.takeoff.export.take() {

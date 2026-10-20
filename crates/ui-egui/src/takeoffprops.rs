@@ -241,9 +241,7 @@ impl TakeoffMode {
             "delete" => {
                 self.tk.remove_item(&id).or_else(|e| self.fail(e).map(|()| false))?;
                 self.item = self.tk.items().first().and_then(|i| i.get("id")).and_then(Value::as_str).map(str::to_string);
-                if self.sel.as_deref().is_some_and(|m| self.tk.mark(m).is_none()) {
-                    self.sel = None;
-                }
+                self.prune_sel();
                 Ok(())
             }
             "dup" => {
@@ -301,14 +299,13 @@ impl TakeoffMode {
 
     /// selectAt: select the mark under `p` (or nothing); its item becomes the current one.
     pub fn select_at(&mut self, sheet: &str, p: [f64; 2]) {
-        let hit = 7.0 * self.px;
-        self.select(self.mark_at(sheet, p, hit));
+        self.select_at_mod(sheet, p, false);
     }
 
     /// Select a mark by id (None clears).
     pub fn select(&mut self, id: Option<String>) {
         let m = id.as_deref().and_then(|i| self.tk.mark(i)).cloned();
-        self.sel = m.as_ref().map(|m| s(m.get("id")));
+        self.set_sel(m.as_ref().map(|m| s(m.get("id"))));
         if let Some(m) = m {
             let item = s(m.get("item"));
             let name = self.tk.item(&item).map(|i| s(i.get("name"))).unwrap_or_default();
@@ -335,10 +332,13 @@ impl TakeoffMode {
             }
             "area" => {
                 let area = (!text.is_empty()).then_some(text);
-                match self.tk.set_marks_area(std::slice::from_ref(&id), area, None) {
+                let ids = self.sel_ids();
+                match self.tk.set_marks_area(&ids, area, None) {
                     Ok(true) => {
                         let name = area.and_then(|a| self.tk.area(a)).map_or_else(|| t("area.none"), |a| s(a.get("name")));
-                        self.message = cc_takeoff::i18n::tf("area.moved", &[("n", F::N(1.0)), ("area", F::S(name))]);
+                        #[allow(clippy::cast_precision_loss)]
+                        let n = ids.len() as f64;
+                        self.message = cc_takeoff::i18n::tf("area.moved", &[("n", F::N(n)), ("area", F::S(name))]);
                         Ok(())
                     }
                     Ok(false) => Ok(()),
@@ -385,8 +385,7 @@ impl TakeoffMode {
                 up(self, o(vec![("holes", Value::Array(holes))]), "undo.cutout.remove")
             }
             "delete" => {
-                self.tk.remove_marks(std::slice::from_ref(&id)).or_else(|e| self.fail(e).map(|()| false))?;
-                self.sel = None;
+                self.delete_selected();
                 Ok(())
             }
             _ => {
@@ -998,9 +997,14 @@ impl TakeoffMode {
     pub fn mark_props(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
         let Some(id) = self.sel.clone() else { return };
         let Some(m) = self.tk.mark(&id).cloned() else {
-            self.sel = None;
+            self.prune_sel();
             return;
         };
+        if !self.sel_more.is_empty() {
+            let sheet = self.cur_sheet.clone();
+            self.multi_props(ui, tok, &sheet);
+            return;
+        }
         let kind = s(m.get("kind"));
         let item = s(m.get("item"));
         let it = self.tk.item(&item).cloned().unwrap_or(Value::Null);
@@ -1029,27 +1033,7 @@ impl TakeoffMode {
             });
         };
         kv(ui, t("mark.f.sheet"), self.sheet_label(&s(m.get("sheet"))));
-        let areas: Vec<Value> = self.tk.state.get("areas").and_then(Value::as_array).cloned().unwrap_or_default();
-        if !areas.is_empty() {
-            let cur = s(m.get("area"));
-            let shown = areas.iter().find(|a| s(a.get("id")) == cur).map_or_else(|| t("area.none"), |a| s(a.get("name")));
-            let l = ui.label(RichText::new(t("props.area")).small());
-            egui::ComboBox::new("tk_m_area", "")
-                .selected_text(shown)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(cur.is_empty(), t("area.none")).clicked() && !cur.is_empty() {
-                        set.push(("area".into(), String::new()));
-                    }
-                    for a in &areas {
-                        let aid = s(a.get("id"));
-                        if ui.selectable_label(aid == cur, s(a.get("name"))).clicked() && aid != cur {
-                            set.push(("area".into(), aid));
-                        }
-                    }
-                })
-                .response
-                .labelled_by(l.id);
-        }
+        self.area_group_fields(ui, std::slice::from_ref(&id), &mut set);
         let ft_in = |v: f64| U::format_ft_in(v, 16.0);
         let pitch_field = |me: &mut Self, ui: &mut egui::Ui, set: &mut Vec<(String, String)>| {
             let own_slopes = m
@@ -1175,6 +1159,9 @@ impl TakeoffMode {
                 if ui.small_button(t("mark.cutout.add")).clicked() {
                     act = Some("cutout");
                 }
+                if ui.small_button(t("mark.cutout.round")).clicked() {
+                    act = Some("cutcircle");
+                }
                 if m.get("holes").and_then(Value::as_array).is_some_and(|h| !h.is_empty())
                     && ui.small_button(t("mark.cutout.remove")).clicked()
                 {
@@ -1189,7 +1176,12 @@ impl TakeoffMode {
             let _ = self.mark_field(&k, &v);
         }
         match act {
-            Some("cutout") => self.set_tool("cutout"),
+            Some("cutout") => {
+                self.set_tool("cutout");
+            }
+            Some("cutcircle") => {
+                self.set_tool("cutcircle");
+            }
             Some(a) => {
                 let _ = self.mark_field(a, "");
             }
@@ -1197,13 +1189,64 @@ impl TakeoffMode {
         }
     }
 
-    /// The tool (select, draw with the item, cut-out of the selected area).
-    pub fn set_tool(&mut self, tool: &'static str) {
+    /// setTool: select, draw (with the current item: its type is the tool), circle (an area item), cutout / cutcircle
+    /// (in the selected area), note, cloud, highlight — with 0.5's checks; the status line says what the tool wants.
+    /// False when the tool cannot be used now (the status says why).
+    pub fn set_tool(&mut self, tool: &'static str) -> bool {
+        self.end_paste(true);
+        let sheet = self.cur_sheet.clone();
+        let kind = if tool == "draw" { self.item_type() } else { Some(tool.to_string()) };
+        let Some(kind) = kind else {
+            self.message = t("tool.err.item");
+            return false;
+        };
+        if matches!(kind.as_str(), "linear" | "area" | "circle") && self.ft_per_unit(&sheet).is_none() {
+            self.message = t("tool.err.noscale");
+            return false;
+        }
+        if tool == "circle" && !self.ensure_kind("area") {
+            return false;
+        }
+        if matches!(tool, "note" | "cloud" | "highlight") {
+            self.sel_note = None;
+        }
+        if matches!(tool, "cutout" | "cutcircle") {
+            let m = self.sel.as_deref().and_then(|i| self.tk.mark(i)).cloned();
+            let Some(m) = m.filter(|m| s(m.get("kind")) == "area") else {
+                self.message = t("tool.err.cutout");
+                return false;
+            };
+            if self.tk.item(&s(m.get("item"))).is_some_and(|it| it.get("backout") == Some(&Value::Bool(true))) {
+                self.message = t("backout.noholes");
+                return false;
+            }
+            if self.ft_per_unit(&sheet).is_none() {
+                self.message = t("tool.err.noscale.short");
+                return false;
+            }
+        }
+        self.cancel_draft();
         self.tool = tool;
-        self.pts.clear();
-        self.ded.clear();
-        if tool == "cutout" {
-            self.message = t("tool.cutout.title");
+        self.message = t(&format!("help.{kind}"));
+        true
+    }
+
+    /// ensureItem(type): the current item if it takes `ty` marks, else the last item of that type, else ask for one.
+    pub fn ensure_kind(&mut self, ty: &str) -> bool {
+        if self.item.as_deref().and_then(|i| self.tk.item(i)).is_some_and(|it| kinds_of(Some(it)).iter().any(|k| k == ty)) {
+            return true;
+        }
+        let last = self.tk.items().iter().rev().find(|i| s(i.get("type")) == ty).cloned();
+        match last {
+            Some(it) => {
+                self.item = Some(s(it.get("id")));
+                self.message = tf("tool.taking", &[("item", F::S(s(it.get("name"))))]);
+                true
+            }
+            None => {
+                self.message = t(&format!("tool.make.{ty}"));
+                false
+            }
         }
     }
 
@@ -1289,6 +1332,7 @@ mod tests {
         let mut m = TakeoffMode::new("abc");
         m.add_file("abc", "Plan.pdf", 10, 1);
         let sheet = m.sheet(0);
+        m.cur_sheet = sheet.clone();
         m.set_preset(&sheet, "a1/4", 1.0);
         (m, sheet)
     }
