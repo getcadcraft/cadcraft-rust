@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-20 M4.17: UCS PLAN TURNLEFT TURNRIGHT TURNWORLD, LWDISPLAY POLARANG, COUNT at kdiff parity (2002/2002 scenario records; random seeds 3/4/7 2800/2800 each); the window turns its view to the UCS and has polar tracking (F10); every new command faster than 0.5.
 - 2026-10-19 M4.16: LAYOUT MVIEW VPORTS MSPACE PSPACE VPLAYER VIEWLABEL NAMEDVIEW at kdiff parity; sheets made by them save byte-identically in DWG 2000–2018, DXF 2000 and DXF R12 (idiff --sheets 624/624); LAYOUT 2.1–3.6× faster than 0.5.
 - 2026-10-19 M4.15: clipboard (COPYCLIP CUTCLIP COPYBASE PASTECLIP PASTEORIG), QSELECT SELECTSIMILAR FIND with the Quick select and Find dialogs, UNITS; kdiff scenarios 1928/1928; every new command 1.6–9.7× faster than 0.5 on Carey and the floor plan.
 - 2026-10-19 M4.14: objects' extra data (xdata, unknown codes) shared copy-on-write in cc-cad; SELECT ALL + MOVE on the 9k floor plan 219 → 15 ms (JS 42), ARRAY 211 → 26, MATCHPROP 110 → 22, ERASE + UNDO 29 → 8; every drafttime row now faster than 0.5; kdiff / propsdiff / plotdiff / mcpdiff / idiff --save unchanged.

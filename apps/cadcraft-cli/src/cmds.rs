@@ -51,6 +51,8 @@ struct Stub {
     entered: Option<u64>,
     /// the doc's sheets' spaces, refreshed by the runner after each input (viewport_entered looks the id up there)
     spaces: Sheets,
+    lwt: bool,
+    polar_inc: f64,
 }
 
 fn pt_v(p: P2) -> Value {
@@ -159,6 +161,37 @@ impl Host for Stub {
         self.entered = None;
         self.log.borrow_mut().events.push(json!(["leaveViewport"]));
     }
+    // settings { polarInc: 90, lwt: false }, setToggle, turnView and saveBlob, as kdiff.mjs's stub has them
+    fn has_turn_view(&self) -> bool {
+        true
+    }
+    fn turn_view(&mut self, ang: f64) {
+        self.log.borrow_mut().events.push(json!(["turnView", num(ang)]));
+    }
+    fn lwt(&self) -> Option<bool> {
+        Some(self.lwt)
+    }
+    fn set_toggle(&mut self, name: &str, on: bool) {
+        if name == "lwt" {
+            self.lwt = on;
+        }
+        self.log.borrow_mut().events.push(json!(["setToggle", name, on]));
+    }
+    fn polar_inc(&self) -> Option<f64> {
+        Some(self.polar_inc)
+    }
+    fn set_polar_inc(&mut self, v: f64) {
+        self.polar_inc = v;
+    }
+    fn can_save_blob(&self) -> bool {
+        true
+    }
+    fn save_blob(&mut self, name: &str, data: &[u8], _mime: &str) {
+        if self.log.borrow().timing {
+            return;
+        }
+        self.log.borrow_mut().events.push(json!(["saveBlob", name, String::from_utf8_lossy(data)]));
+    }
 }
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
@@ -193,7 +226,7 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
     let lang = Lang::new(script.get("strings").unwrap_or(&Value::Null));
     let log = Rc::new(RefCell::new(Log { cursor: Some(P2::new(0.0, 0.0)), ..Log::default() }));
     let spaces: Sheets = Rc::default();
-    let stub = Stub { selection: Vec::new(), log: Rc::clone(&log), entered: None, spaces: Rc::clone(&spaces) };
+    let stub = Stub { selection: Vec::new(), log: Rc::clone(&log), entered: None, spaces: Rc::clone(&spaces), lwt: false, polar_inc: 90.0 };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();
     let inputs = script.get("inputs").and_then(Value::as_array).unwrap_or(&empty);

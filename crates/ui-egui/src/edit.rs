@@ -89,6 +89,12 @@ pub struct HostState {
     pub entered: Option<(cc_cad::SpaceId, u64)>,
     /// MSPACE / PSPACE asked the window to go into a viewport (Some) or back to its sheet (None)
     pub enter_req: Option<Option<(cc_cad::SpaceId, u64)>>,
+    /// UCS / PLAN asked the view to turn so an X axis at this angle is level
+    pub turn_req: Option<f64>,
+    /// polar tracking's step in degrees (POLARANG; cadcraft.js settings.polarInc)
+    pub polar_inc: f64,
+    /// COUNT handed over a file to save (name, bytes)
+    pub blob: Option<(String, Vec<u8>)>,
 }
 
 impl HostState {
@@ -292,6 +298,24 @@ impl Host for UiHost {
         h.entered = None;
         h.enter_req = Some(None);
     }
+    fn has_turn_view(&self) -> bool {
+        true
+    }
+    fn turn_view(&mut self, ang: f64) {
+        self.0.borrow_mut().turn_req = Some(ang);
+    }
+    fn polar_inc(&self) -> Option<f64> {
+        Some(self.0.borrow().polar_inc)
+    }
+    fn set_polar_inc(&mut self, v: f64) {
+        self.0.borrow_mut().polar_inc = v;
+    }
+    fn can_save_blob(&self) -> bool {
+        true
+    }
+    fn save_blob(&mut self, name: &str, data: &[u8], _mime: &str) {
+        self.0.borrow_mut().blob = Some((name.to_string(), data.to_vec()));
+    }
 }
 
 /// The viewport (turned on) of the open sheet under a point.
@@ -321,6 +345,8 @@ pub struct Editor {
     pub name: String,
     pub osnap: bool,
     pub ortho: bool,
+    /// polar tracking (F10): points line up on multiples of the POLARANG step from the base point
+    pub polar: bool,
     /// the snap marker under the cursor
     pub snap: Option<Snap>,
     /// a selection window being drawn: its first corner (world)
@@ -335,7 +361,7 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(doc: Doc, name: &str) -> Self {
-        let hs = Rc::new(RefCell::new(HostState { pick_tol: 1.0, ..HostState::default() }));
+        let hs = Rc::new(RefCell::new(HostState { pick_tol: 1.0, polar_inc: 90.0, ..HostState::default() }));
         let eng = Engine::new(doc, Box::new(UiHost(Rc::clone(&hs))), lang_en());
         let mut ed = Editor {
             eng,
@@ -344,6 +370,7 @@ impl Editor {
             name: name.to_string(),
             osnap: true,
             ortho: false,
+            polar: false,
             snap: None,
             pending_box: None,
             seen: None,
@@ -408,6 +435,22 @@ impl Editor {
         {
             let (dx, dy) = (raw.x - b.x, raw.y - b.y);
             return if dx.abs() >= dy.abs() { P2::new(raw.x, b.y) } else { P2::new(b.x, raw.y) };
+        }
+        if self.polar
+            && let Some(b) = base
+        {
+            let step = self.hs.borrow().polar_inc.to_radians();
+            let (dx, dy) = (raw.x - b.x, raw.y - b.y);
+            let d = dx.hypot(dy);
+            if step > 0.0 && d > 0.0 {
+                let ang = dy.atan2(dx);
+                let snapped = (ang / step).round() * step;
+                // within 5° of a step: the point slides onto that direction
+                if (ang - snapped).abs() <= 5f64.to_radians() {
+                    let along = dx * snapped.cos() + dy * snapped.sin();
+                    return P2::new(b.x + along * snapped.cos(), b.y + along * snapped.sin());
+                }
+            }
         }
         raw
     }

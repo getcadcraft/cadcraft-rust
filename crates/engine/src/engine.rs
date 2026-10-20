@@ -119,6 +119,26 @@ pub trait Host {
     }
     fn enter_viewport(&mut self, _space: cc_cad::SpaceId, _id: u64) {}
     fn leave_viewport(&mut self) {}
+    /// `host.turnView`: turn the view so a UCS X axis at `ang` is level (UCS, PLAN) → false when the host has none.
+    fn has_turn_view(&self) -> bool {
+        false
+    }
+    fn turn_view(&mut self, _ang: f64) {}
+    /// `host.settings.lwt` with `host.setToggle` (LWDISPLAY): None when the host has no such setting.
+    fn lwt(&self) -> Option<bool> {
+        None
+    }
+    fn set_toggle(&mut self, _name: &str, _on: bool) {}
+    /// `host.settings.polarInc` (POLARANG): None when the host has no settings.
+    fn polar_inc(&self) -> Option<f64> {
+        None
+    }
+    fn set_polar_inc(&mut self, _v: f64) {}
+    /// `host.saveBlob`: hand a file to the person (COUNT's CSV) → false when the host cannot.
+    fn can_save_blob(&self) -> bool {
+        false
+    }
+    fn save_blob(&mut self, _name: &str, _data: &[u8], _mime: &str) {}
 }
 
 /// A set of ids that keeps insertion order (a JS `Set`). The order is the Vec (read it as `.0`); the hash index

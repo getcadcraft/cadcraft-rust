@@ -147,6 +147,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("edit.redo", "Redo", "Ctrl+Y", "{}"),
     ("edit.osnap", "Object snap on / off", "F3", "{}"),
     ("edit.ortho", "Ortho on / off", "F8", "{}"),
+    ("edit.polar", "Polar tracking on / off", "F10", "{} → points line up on multiples of the POLARANG step"),
     ("file.edit", "Edit this drawing", "", "{} → imports the open DWG / DXF into an editable drawing (CadCraft's importer)"),
     (
         "file.save",
@@ -1283,6 +1284,12 @@ impl UiApp {
                 };
                 self.message = format!("{} {}", if id == "edit.osnap" { "Object snap" } else { "Ortho" }, if on { "on" } else { "off" });
             }
+            "edit.polar" => {
+                let ed = self.editor.as_mut().ok_or("edit.polar: no drawing is open for editing")?;
+                ed.polar = !ed.polar;
+                let inc = ed.hs.borrow().polar_inc;
+                self.message = format!("Polar tracking {} (every {}°)", if ed.polar { "on" } else { "off" }, cc_engine::input::fmt(inc));
+            }
             "view.zoom" => {
                 let f = params.factor.filter(|f| f.is_finite() && *f > 0.0).ok_or("view.zoom: factor must be a number > 0")?;
                 let (w, h) = self.canvas_px;
@@ -1420,6 +1427,23 @@ impl UiApp {
                 self.space = 0;
             }
         }
+        // UCS / PLAN: the view turns so the X axis is level
+        if let Some(ang) = ed.hs.borrow_mut().turn_req.take()
+            && let Some(Some(v)) = self.views.get_mut(self.space)
+        {
+            v.twist = -ang;
+        }
+        // COUNT's CSV
+        let blob = ed.hs.borrow_mut().blob.take();
+        if let Some((name, bytes)) = blob {
+            match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                Some(Ok(None)) => {}
+                Some(Err(e)) => self.error = Some(e),
+                None => self.error = Some("Saving is not available here".into()),
+            }
+        }
+        let Some(ed) = self.editor.as_mut() else { return };
         if let Some((x0, y0, x1, y1)) = fit_to
             && let Some(slot) = self.views.get_mut(self.space)
         {
@@ -2297,6 +2321,11 @@ impl UiApp {
                 i.key_pressed(egui::Key::F8),
             )
         });
+        if ctx.input(|i| i.key_pressed(egui::Key::F10)) {
+            self.run_ui("edit.polar", &Params::default());
+            return;
+        }
+        let Some(ed) = self.editor.as_mut() else { return };
         if submit {
             ed.submit();
         }

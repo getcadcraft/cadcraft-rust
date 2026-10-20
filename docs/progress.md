@@ -2,6 +2,28 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M4.17 UCS and view turns, LWDISPLAY / POLARANG, COUNT (agent, work/cadcmds)
+
+- `cmd/ucscmd.rs`: UCS (origin + X axis, NAmed Restore / Save / Delete / ?, OBject from a line / circle / arc /
+  polyline / text / block reference / point / construction line / dimension, Previous (10, this session), World, Z,
+  3point), TURNLEFT / TURNRIGHT / TURNWORLD, PLAN (Current ucs / a saved Ucs / World) — ucs.js `fromObject`,
+  `threePoint`, `setUcs`; the Doc keeps `{ current, named }` as the savers write them, not an edit. LWDISPLAY and
+  POLARANG ask the host's settings; COUNT (pick → select and count, list, export counts / attributes as CSV through
+  `Host::save_blob`; count.js's CSV with formula-injection quoting).
+- Window: UCS / PLAN / TURN* turn the view (`View2D.twist`) so the UCS X axis is level; POLARANG sets the step of
+  polar tracking, now on F10 (`edit.polar`); COUNT's CSV goes through the Save service. LWDISPLAY says lineweights on
+  screen are the browser's: the window draws one width (gaps item 3).
+- Parity: kdiff scenarios 2002/2002 records identical with 3 new scenarios (UCS options / PLAN / turns, LWDISPLAY /
+  POLARANG, COUNT with both exports compared byte for byte); the stubs on both sides now carry the page's settings,
+  turnView and saveBlob. Final sweep on this commit: 20 random scripts each at seeds 3, 4 and 7, 2800/2800 each (seed 1
+  with 40 scripts ran the JS harness out of Node heap, as noted for M4.14).
+- Timings (JS / Rust ms, best of 3–5): Carey UCS Z 30 + TURNWORLD 3.6 / 0.2, PLAN + POLARANG + LWDISPLAY 5.9 / 0.1,
+  COUNT list 4.8 / 1.1, export counts 6.1 / 1.8; ar1all 3.8 / 0.2, 6.3 / 0.1, 17 / 2.5, 66 / 4.2. COUNT export
+  attributes was 0.8× on ar1all (11.6 ms against 9.3: `toFixed(6)` through the exact decimal expansion for 6,000
+  numbers); a rounding path that is exact away from ties brings it to 3.5 ms (Carey 17 ms, JS 40–170 under load).
+  The JS column is noisy on this server (the second run's JS times were 2–3× the first's).
+- Screenshot checked: the kitchen sample turned 30° by UCS Z with COUNT's list.
+
 ## 2026-10-19 — M4.16 Sheets and viewports, named views (agent, work/cadcmds)
 
 - `cmd/layout.rs`: LAYOUT (sheets.js `sheetContents`: border, title block on layer "Title block", one viewport onto

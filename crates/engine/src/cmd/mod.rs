@@ -14,6 +14,7 @@ pub mod layout;
 pub mod modify;
 pub mod qselect;
 pub mod trim;
+pub mod ucscmd;
 pub mod units;
 pub mod view;
 
@@ -59,6 +60,8 @@ pub struct Memo {
     pub lay_iso: Option<layers::LayIso>,
     /// SELECTSIMILAR's switches (`E.similarOn`: layer, color, name, pattern, height)
     pub similar_on: Option<[bool; 5]>,
+    /// UCS Previous (doc.js `ucsPrev`, this session; None = the world)
+    pub ucs_prev: Vec<Option<crate::ucs::Ucs>>,
 }
 
 /// One command.
@@ -180,6 +183,14 @@ pub static COMMANDS: &[CmdDef] = &[
     def("VPLAYER", &[], |c| Box::pin(layout::vplayer(c))),
     def("VIEWLABEL", &["VL"], |c| Box::pin(layout::viewlabel(c))),
     quiet(def("NAMEDVIEW", &["NV", "VIEWS"], |c| Box::pin(layout::namedview(c)))),
+    quiet(def("UCS", &[], |c| Box::pin(ucscmd::ucs(c)))),
+    quiet(def("TURNLEFT", &[], |c| Box::pin(ucscmd::quarter_turn(c, -1.0)))),
+    quiet(def("TURNRIGHT", &[], |c| Box::pin(ucscmd::quarter_turn(c, 1.0)))),
+    quiet(def("TURNWORLD", &[], |c| Box::pin(ucscmd::quarter_turn(c, 0.0)))),
+    quiet(def("PLAN", &[], |c| Box::pin(ucscmd::plan(c)))),
+    quiet(def("LWDISPLAY", &["LWT"], |c| Box::pin(ucscmd::lwdisplay(c)))),
+    quiet(def("POLARANG", &[], |c| Box::pin(ucscmd::polarang(c)))),
+    CmdDef { keep_selection: true, ..def("COUNT", &["BCOUNT"], |c| Box::pin(ucscmd::count(c))) },
     // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),
