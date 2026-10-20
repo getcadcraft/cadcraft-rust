@@ -47,6 +47,7 @@ pub mod document;
 pub mod edit;
 pub mod hub;
 pub mod ifc3d;
+pub mod markupbcf;
 pub mod markupchest;
 pub mod markupcompare;
 pub mod markupedit;
@@ -1796,6 +1797,10 @@ impl UiApp {
                             }
                             "chest-import" => {
                                 pdf.import_chest(&f.name, &f.bytes);
+                                Ok(())
+                            }
+                            "bcf-import" => {
+                                pdf.import_bcf(&f.name, &f.bytes);
                                 Ok(())
                             }
                             _ => Ok(()),

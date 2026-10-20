@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-20 M9.19: MarkupCraft BCF export / import, compare picture overlay, nudge / align line-up and whole-set compare; mkuidiff full sweep 17/17 scenarios and 194/194 status lines identical to 0.5.
 - 2026-10-20 M9.18: MarkupCraft cut-outs, spaces, legends, sheet links (PDF links on save) and the punch list; title blocks read at open as 0.5 does; mkuidiff 15/15 scenarios identical; editing actions 1.2–17× faster than 0.5.
 - 2026-10-20 M9.17: MarkupCraft picture and signature stamps, the signature pad, reply photos and the tool chest (presets, import / export); pictures read under `image::Limits` (fuzzed); mkuidiff chest + pictures identical to 0.5, 28/28 status lines.
 - 2026-10-20 M9.16: MarkupCraft copy / paste, the Markups list (filters, order, jump, CSV / XLSX / PDF summary), replies, sheet rename and the Pages menu; mkuidiff 10/10 scenarios with 104/104 status lines identical to 0.5.

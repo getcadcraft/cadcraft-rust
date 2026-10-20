@@ -413,6 +413,11 @@ impl PdfView {
 
     /// A press with the markup tool at `q` (screen `s`).
     pub fn gesture_down(&mut self, q: [f64; 2], s: [f64; 2], shift: bool, dbl: bool) {
+        if self.cmp.aligning.is_some() {
+            // Compare › Align by two points takes the clicks
+            self.align_click(q);
+            return;
+        }
         self.tick();
         let key = self.sheet_key();
         let badge = self.badge_of(self.page);
@@ -649,6 +654,9 @@ impl PdfView {
             }
             if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                 self.tools.cancel();
+                if self.cmp.aligning.take().is_some() {
+                    self.cmp.pic = None;
+                }
             }
             if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let key = self.sheet_key();
@@ -734,7 +742,10 @@ impl PdfView {
         let page_rect = Rect::from_min_size(rect.min + self.pan, Vec2::new((w * self.zoom) as f32, (h * self.zoom) as f32));
         let painter = ui.painter_at(rect);
         painter.rect_filled(page_rect.expand(1.0), 0.0, Color32::from_gray(90));
-        if let Some((tex, _, _)) = &self.tex {
+        if let Some(tex) = self.compare_picture(ui.ctx(), want) {
+            // Compare's picture overlay in place of the page
+            painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+        } else if let Some((tex, _, _)) = &self.tex {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
         if self.show_markups || crate::markuptools::draws(&self.tools.tool) {
@@ -1336,6 +1347,7 @@ mod tests {
         assert_eq!(out.iter().map(|o| o.0.as_str()).collect::<Vec<_>>(), ["b-marked.pdf"]);
         // the grid sheet against the plain one: only removed lines, clouded in one step
         v.compare_start("f1:0").unwrap();
+        v.compare_mode("lines").unwrap();
         let d = v.cmp.vec.clone().unwrap();
         assert!(!d.removed.is_empty() && d.added.is_empty());
         let n0 = v.store.on_sheet("f2:0").len();

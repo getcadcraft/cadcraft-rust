@@ -943,14 +943,19 @@ impl PdfView {
         self.list = f;
         let mut export: Option<&str> = None;
         ui.horizontal_wrapped(|ui| {
-            for (k, label) in [("csv", "list.csv"), ("xlsx", "list.xlsx"), ("pdf", "list.pdf")] {
+            for (k, label) in [("csv", "list.csv"), ("xlsx", "list.xlsx"), ("pdf", "list.pdf"), ("bcf", "list.bcf")] {
                 if ui.button(t0(label)).clicked() {
                     export = Some(k);
                 }
             }
+            if ui.button(t0("bcfin.button")).on_hover_text(t0("bcfin.title")).clicked() {
+                self.want_pick = Some("bcf-import");
+            }
         });
-        if let Some(k) = export {
-            self.export_to_outbox(k);
+        match export {
+            Some("bcf") => self.export_bcf(),
+            Some(k) => self.export_to_outbox(k),
+            None => {}
         }
         let rows: Vec<Markup> = self.list_rows().into_iter().cloned().collect();
         let count = if rows.len() == all.len() {

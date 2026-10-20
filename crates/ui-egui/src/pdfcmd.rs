@@ -22,7 +22,10 @@
 //!   selection, or the tool's next markups; `markup.prop` name = `field=value` (status, subject, layer, text,
 //!   comment, label, stamp).
 //! - `pdf.file` name = a file id ("f2"): open that file of the plan set (another PDF joins by opening it).
-//! - `markup.compare` name = the old sheet's key ("f1:0") against the open sheet, `cloud`, `stop`.
+//! - `markup.compare` name = the old sheet's key ("f1:0") against the open sheet, `cloud`, `stop`, `mode:picture|lines`,
+//!   `nudge:x,y` (steps), `step:N` (pt), `align` (the next four clicks), `reset`, `balance:0–100`, `set:f1>f2` (compare
+//!   two sets), `set-cloud`.
+//! - `markup.export=bcf` (the listed markups as BCF 2.1); `markup.bcf` name = PATH (import a BCF file).
 //! - `markup.cal` name = the calibrate line's real distance; `markup.delete`, `markup.redo`, `markup.save`.
 //! - `markup.edit` name = copy | cut | paste | paste-in-place | paste-at:x,y (the pointer's place) | duplicate |
 //!   select-all | select-none.
@@ -67,7 +70,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     }
     // commands that read a file by its path, through the host
     let file_arg = match id {
-        "markup.picture" | "markup.signature" => Some(name.as_str()),
+        "markup.picture" | "markup.signature" | "markup.bcf" => Some(name.as_str()),
         "markup.photo" => Some(name.split_once('|').map_or(name.as_str(), |(a, _)| a)),
         "markup.chest" => name.strip_prefix("import:"),
         _ => None,
@@ -84,6 +87,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 p.set_signature(&src)?;
             }
             "markup.photo" => p.photo_reply(&f.name, &f.bytes, name.split_once('|').map_or("", |(_, c)| c))?,
+            "markup.bcf" => p.import_bcf(&f.name, &f.bytes),
             _ => p.import_chest(&f.name, &f.bytes),
         }
         if p.tools.prefs_dirty {
@@ -188,11 +192,45 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             Ok(())
         }
         "markup.compare" => match name.as_str() {
-            // name = the old sheet's key ("f1:0"), cloud (Cloud the changes) or stop
+            // name = the old sheet's key ("f1:0"), cloud (Cloud the changes) or stop, and the line-up
             "cloud" => p.compare_cloud(),
             "stop" => {
                 p.compare_stop();
                 Ok(())
+            }
+            "align" => {
+                p.compare_align();
+                Ok(())
+            }
+            "reset" => p.compare_reset(),
+            "set-cloud" => p.cloud_set(),
+            n if n.starts_with("mode:") => p.compare_mode(n.trim_start_matches("mode:")),
+            n if n.starts_with("step:") => {
+                p.cmp.step = n
+                    .trim_start_matches("step:")
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|x| x.is_finite() && *x > 0.0)
+                    .ok_or("markup.compare: step:N (pt)")?;
+                Ok(())
+            }
+            n if n.starts_with("balance:") => {
+                let b = n
+                    .trim_start_matches("balance:")
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|x| x.is_finite())
+                    .ok_or("markup.compare: balance:0–100")?;
+                p.cmp.balance = (b / 100.0).clamp(0.0, 1.0);
+                Ok(())
+            }
+            n if n.starts_with("nudge:") => {
+                let q = pt(n.trim_start_matches("nudge:"), id)?;
+                p.compare_nudge(q[0], q[1])
+            }
+            n if n.starts_with("set:") => {
+                let (o, nw) = n.trim_start_matches("set:").split_once('>').ok_or("markup.compare: set:OLD>NEW (file ids)")?;
+                p.compare_sets(o, nw)
             }
             old => p.compare_start(old),
         },
@@ -411,6 +449,10 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             p.jump_to(&target)
         }
         "markup.export" => {
+            if name == "bcf" {
+                p.export_bcf();
+                return Ok(());
+            }
             if let Some(f) = p.export_list(&name)? {
                 p.outbox.push(f);
             }

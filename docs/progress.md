@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.19 MarkupCraft BCF export / import, compare picture overlay, line-up, whole-set compare (agent, work/markup2)
+
+- `crates/ui-egui/src/markupbcf.rs`: BCF 2.1 export of the Markups list as filtered (cc-markup `build_bcf`; one topic per
+  markup with a snapshot: the markup flattened into its page by the PDF writer, the page drawn by hayro and cropped as
+  view.js `snapshot` crops, PNG) and import (`read_bcf` + `plan_import`: replies and statuses back onto exported
+  markups, other topics as notes, one undo step), with 0.5's status lines. Commands `markup.export=bcf`, `markup.bcf`.
+- `markupcompare.rs` rewritten around 0.5's compare state: picture overlay (both sheets rendered at the view's scale,
+  capped at 2400 px, the old one resampled through the alignment, mixed by compare.js `combine`; the balance slider
+  mixes again without rendering) or changed lines; nudge by a step (0.25 / 1 / 5 / 20 pt), align by two points
+  (four clicks, `similarity`), Reset; clouds use the alignment; Compare two sets (`matchSheets` by number, ranked, Cloud
+  all changes in one step). `markup.compare` takes mode / nudge / step / align / reset / balance / set / set-cloud.
+- Parity (mkuidiff): compare2 (rev-a / rev-b: nudged and aligned clouds, a failed alignment, the set compare and its
+  clouds) and bcf (three exports, the own file re-imported after a status change, an outside BCF twice, a non-BCF):
+  saved PDFs and BCF entries identical (snapshot pictures and the size in the status line excepted), 17/17 status lines.
+  Full sweep at the end: 17/17 scenarios identical, 194/194 status lines.
+
 ## 2026-10-20 — M9.18 MarkupCraft cut-outs, spaces, legends, sheet links, punch list (agent, work/markup2)
 
 - `crates/ui-egui/src/markupplus.rs`: Add a cut-out to the selected area (holes.js checks: inside, not crossing, not
