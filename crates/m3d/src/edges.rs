@@ -102,6 +102,7 @@ pub fn add_edge(def: &mut Def, p: P3, q: P3, opts: EdgeOpts) -> Vec<f64> {
         }
     }
     let snapshot: Vec<(f64, f64, f64)> = def.edges.iter().map(|(id, e)| (id, e.a, e.b)).collect();
+    let capped = nan_edges_capped(def);
     for (eid, ea, eb) in snapshot {
         if ea == a || ea == b || eb == a || eb == b {
             continue;
@@ -111,6 +112,11 @@ pub fn add_edge(def: &mut Def, p: P3, q: P3, opts: EdgeOpts) -> Vec<f64> {
         }
         let c = def.v(ea);
         let d = def.v(eb);
+        // M6.18 (fuzz find, m3d_tools timeout): past MAX_NAN_EDGES, an edge with a NaN end is no longer crossed (see
+        // nan_edges_capped)
+        if capped && !(c.iter().all(|x| x.is_finite()) && d.iter().all(|x| x.is_finite())) {
+            continue;
+        }
         let w = sub(d, c);
         // Spec gap (as the JS does it): segSeg lets a zero-length edge through with NaNs (0/0 passes its `<=` tests)
         // and the edge is split at a NaN point; the box test only skips what segSeg would refuse
@@ -142,6 +148,20 @@ pub fn add_edge(def: &mut Def, p: P3, q: P3, opts: EdgeOpts) -> Vec<f64> {
         }
     }
     ids
+}
+
+/// Most edges with a NaN end a definition may hold before addEdge stops splitting them (M6.18).
+pub const MAX_NAN_EDGES: usize = 1024;
+
+/// Whether addEdge leaves NaN-ended edges alone: more than [`MAX_NAN_EDGES`] of them. A zero-length edge (two
+/// corners at one point) is split at a NaN point by the next edge drawn, as the JS does (the spec gap in add_edge),
+/// and the JS splits every edge with a NaN end again at another NaN point on each addEdge, so they double with every
+/// edge drawn (a rectangle 16×) until the page hangs (the m3d_tools fuzz timeout: 9.5 s for one step, then hours).
+/// Up to the cap the port does the same, so the results stay the JS's where the JS finishes; past it, those edges
+/// are not crossed any more.
+fn nan_edges_capped(def: &Def) -> bool {
+    let finite = |p: P3| p.iter().all(|x| x.is_finite());
+    def.edges.values().filter(|e| !(finite(def.v(e.a)) && finite(def.v(e.b)))).take(MAX_NAN_EDGES + 1).count() > MAX_NAN_EDGES
 }
 
 /// Proper crossing of segments A + s·u and C + t·w (both strictly inside), coplanar within EPS → (s, t, point).

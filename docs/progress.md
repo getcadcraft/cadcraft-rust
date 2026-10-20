@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M6.18 ModelCraft kernel: the m3d_tools fuzz timeout in add_edge (agent, work/m3dfix)
+
+- Cause: a zero-length edge (two corners at one point) is split at a NaN point by the next edge drawn — segSeg lets
+  it through with 0/0, as the JS does (the kernel's spec gap, kept). The two halves then have a NaN end, and every
+  later addEdge splits each NaN edge again at another NaN point, so each edge drawn doubles them: on the fuzz input one
+  step took 9.5 s (40 → 254 → 17,758 vertices) and the next would have run for hours.
+- Fix (`crates/m3d/src/edges.rs`): addEdge does what the JS does until a definition holds more than
+  `MAX_NAN_EDGES` (1,024) edges with a NaN end; past that it no longer crosses them. Ordinary modelling does make such
+  edges for a moment (mdiff seeds 4, 5, 6 and 9 do: a first version that never crossed them changed those results),
+  so the cap keeps every result the JS reaches in reasonable time: mdiff `--exact` seeds 1–10 640/640 records +
+  1,247/1,247 cases each, tdiff `--exact` the 19 sections and seeds 1–10 identical, mfdiff seeds 1–20 identical.
+- The frozen 0.5 JS has the same behaviour (noted only; the JS stays frozen): a zero-length edge, then three
+  rectangles drawn: 27 → 2,184 → 176,871 NaN corners, the third rectangle 12.4 s, the fourth never finishes.
+- Regression tests: `crates/m3d/tests/hostile.rs` `nan_split_edges_do_not_multiply` (hung before the fix, now 2 s in
+  a debug build) and `fuzzdrive::tests::add_edge_timeout` (the fuzz input); the input is in
+  `fuzz/seeds/m3d_tools/timeout-add-edge.bin`.
 ## 2026-10-20 — M9.23 TakeoffCraft's 3D view; timings of M9.20–M9.23 (agent, work/takeoff2)
 
 - `crates/ui-egui/src/takeoff3d.rs`: the 3D check view of takeoffcraft.js in place of the sheet (3D button): the sheet

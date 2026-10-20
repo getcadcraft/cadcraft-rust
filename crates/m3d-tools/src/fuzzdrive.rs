@@ -331,4 +331,11 @@ mod tests {
         let rev: Vec<u8> = (0..=255).rev().collect();
         super::run(&rev);
     }
+
+    /// M6.18: a libFuzzer timeout in cc_m3d::edges::add_edge (rectangles drawn over a NaN corner made the NaN-split
+    /// edges double with every edge; 9.5 s for one step, then hours). Now capped (edges::MAX_NAN_EDGES).
+    #[test]
+    fn add_edge_timeout() {
+        super::run(include_bytes!("../../../fuzz/seeds/m3d_tools/timeout-add-edge.bin"));
+    }
 }

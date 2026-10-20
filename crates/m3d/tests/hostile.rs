@@ -91,3 +91,28 @@ fn junk_fields() {
     assert_eq!(a, b);
     assert_eq!(r.verts.len(), 1);
 }
+
+/// M6.18 (fuzz find, m3d_tools timeout in add_edge): a zero-length edge (two corners at one point) is split at a NaN
+/// point by the next edge drawn, as the JS does. The halves, with their NaN end, are split again by every later edge,
+/// doubling each time, as in the JS: twelve squares made millions of edges. Past MAX_NAN_EDGES they are left alone.
+#[test]
+fn nan_split_edges_do_not_multiply() {
+    use cc_m3d::def::{Def, e_add0, v_add};
+    use cc_m3d::edges::{EdgeOpts, add_edge};
+    let mut d = Def::new("root", "group", "");
+    let a = v_add(&mut d, [5.0, 5.0, 0.0]);
+    let b = v_add(&mut d, [5.0, 5.0, 0.0]);
+    e_add0(&mut d, a, b);
+    let t = std::time::Instant::now();
+    for k in 0..12 {
+        let x = f64::from(k) * 0.1;
+        let sq = [[x, 0.0, 0.0], [x + 1.0, 0.0, 0.0], [x + 1.0, 1.0, 0.0], [x, 1.0, 0.0]];
+        for i in 0..4 {
+            add_edge(&mut d, sq[i], sq[(i + 1) % 4], EdgeOpts::default());
+        }
+    }
+    let nan = d.verts.values().filter(|p| p.iter().any(|x| !x.is_finite())).count();
+    assert!(nan > 1 && nan < 4 * cc_m3d::edges::MAX_NAN_EDGES, "the NaN corners double up to the cap: {nan}");
+    assert!(d.edges.len() < 8 * cc_m3d::edges::MAX_NAN_EDGES, "{} edges", d.edges.len());
+    assert!(t.elapsed().as_secs() < 10);
+}
