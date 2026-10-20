@@ -228,7 +228,7 @@ impl MarkupTools {
 }
 
 /// A reply as the JS object (the key order write_reply uses).
-fn reply_value(r: &cc_markup::model::Reply) -> Value {
+pub(crate) fn reply_value(r: &cc_markup::model::Reply) -> Value {
     let mut o = Map::new();
     o.insert("id".into(), json!(r.id));
     o.insert("author".into(), json!(r.author));
@@ -374,6 +374,8 @@ impl crate::pdfview::PdfView {
                 kv(ui, t0("props.subject"), m.subject.clone());
                 kv(ui, t0("props.comment"), m.comment.clone());
                 ui.label(RichText::new(t0("props.locked.note")).color(tok.text_dim));
+                let m = m.clone();
+                self.thread_section(ui, tok, &m);
                 return;
             }
             let l = ui.label(RichText::new(t0("props.status")).small());
@@ -443,6 +445,9 @@ impl crate::pdfview::PdfView {
             ui.add_space(4.0);
             head(ui, t0("props.style"));
             style_ui(&mut self.edits, ui, &m.style, std::slice::from_ref(&m.kind), &mut style_set);
+            ui.add_space(4.0);
+            let mc = m.clone();
+            self.thread_section(ui, tok, &mc);
             if ui.button(t0("menu.delete")).clicked() {
                 self.tools.delete_selected(&mut self.store);
             }
@@ -510,7 +515,9 @@ impl crate::pdfview::PdfView {
         } else {
             head(ui, t0("props.h.sheet"));
             let p = self.cur.pages.get(self.page).cloned();
-            kv(ui, t0("props.sheet"), p.as_ref().map(|p| p.label.clone()).unwrap_or_default());
+            let info = self.cur.info(&self.store, self.page);
+            kv(ui, t0("props.sheet"), if info.name.is_empty() { info.title.clone() } else { info.name.clone() });
+            kv(ui, t0("props.sheet_number"), info.sheet_no.clone());
             kv(ui, t0("props.file"), self.cur.name.clone());
             kv(
                 ui,
@@ -527,9 +534,11 @@ impl crate::pdfview::PdfView {
             }
             kv(ui, t0("props.scale"), self.store.calibrations.get(&key).map_or_else(|| t0("status.scale.none"), |c| c.label.clone()));
             kv(ui, t0("tab.list"), self.store.on_sheet(&key).len().to_string());
+            if ui.button(t0("props.rename")).clicked() {
+                let (number, title) = self.rename_start();
+                self.dlg = Some(crate::markupedit::Dialog::Rename { number, title });
+            }
         }
-        ui.separator();
-        self.compare_panel(ui, tok);
         for (k, v) in style_set {
             let _ = self.tools.style_edit(&mut self.store, k, &v);
         }
@@ -544,39 +553,5 @@ impl crate::pdfview::PdfView {
     pub fn prop(&mut self, k: &str, v: &str) -> Result<(), String> {
         self.tick();
         self.tools.prop_edit(&mut self.store, k, v)
-    }
-
-    /// valueRows(m): the measured values of a markup.
-    fn value_rows(&self, m: &cc_markup::model::Markup) -> Vec<(String, String)> {
-        let cal = self.store.calibrations.get(m.sheet());
-        let p = m.pts();
-        let none = || t0("value.no_scale");
-        match m.kind.as_str() {
-            "measure" => {
-                let d = match p {
-                    [a, b, ..] => (b[0] - a[0]).hypot(b[1] - a[1]),
-                    _ => 0.0,
-                };
-                vec![(t0("value.length"), if cal.is_some() { cc_markup::units::measure(d, cal) } else { none() })]
-            }
-            "area" => {
-                if cal.is_none() {
-                    return vec![(t0("value.area"), none())];
-                }
-                let holes = m.holes.clone().unwrap_or_default();
-                let (a, per) = cc_markup::units::measure_area(p, cal, &holes);
-                let mut v = vec![(t0("value.area"), a), (t0("value.perimeter"), per)];
-                if !holes.is_empty() {
-                    v.push((t0("value.cutouts"), holes.len().to_string()));
-                }
-                v
-            }
-            "count" => vec![(t0("value.count"), p.len().to_string())],
-            "angle" if p.len() == 3 => match p {
-                [a, b, c] => vec![(t0("value.angle"), cc_markup::arcs::format_angle(cc_markup::arcs::angle_at(*a, *b, *c), 1))],
-                _ => Vec::new(),
-            },
-            _ => Vec::new(),
-        }
     }
 }

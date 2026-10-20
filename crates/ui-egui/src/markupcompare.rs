@@ -33,7 +33,7 @@ impl PdfView {
     pub fn sheet_title(&self, key: &str) -> String {
         for f in self.files() {
             if let Some(i) = f.page_keys.iter().position(|k| k == key) {
-                return f.titles.get(i).cloned().unwrap_or_default();
+                return f.title(&self.store, i);
             }
         }
         key.to_string()
@@ -136,7 +136,7 @@ impl PdfView {
         let several = !self.others.is_empty();
         for f in self.files() {
             for (i, k) in f.page_keys.iter().enumerate() {
-                let l = f.titles.get(i).cloned().unwrap_or_default();
+                let l = f.title(&self.store, i);
                 let label =
                     if several { t("compare.sheet_in_file", &[("sheet", Fill::S(l)), ("file", Fill::S(f.name.clone()))]) } else { l };
                 sheets.push((k.clone(), label));

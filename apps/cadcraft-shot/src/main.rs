@@ -115,6 +115,12 @@ fn shot(args: &[String]) -> Result<(), String> {
             Ok(Some(path.clone()))
         }));
     }
+    // commands that read a file by its path (Insert pages from a PDF, a picture, a tool chest) read it here
+    app.services.read_path = Some(Box::new(|p: &str| {
+        let path = std::path::Path::new(p);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        std::fs::read(path).map(|bytes| cc_ui_egui::ImportedFile { name, bytes, dir: None }).map_err(|e| format!("{p}: {e}"))
+    }));
     if let Some(dir) = arg(args, "--save-dir") {
         // whatever the UI saves (exports, marked PDFs) lands in DIR under the name the app gives it
         app.services.save = Some(Box::new(move |name, bytes| {

@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.16 MarkupCraft clipboard, Markups list, replies, sheet names, Pages menu (agent, work/markup2)
+
+- `crates/ui-egui/src/markupedit.rs`, ports of markupcraft.js: Copy / Cut / Paste (beside the copy, a step further each
+  time; in place; at the pointer with Ctrl+V; the middle of the view when "beside" is off screen) / Duplicate / Select
+  all on clip.js, each one undo step with the 0.5 labels and status lines; Undo / Redo say "Undid …" (afterHistory).
+  Replies on the selected markup's thread (Properties: the thread, Reply; a reply does not touch the markup's date).
+  Rename sheet (number and title typed by hand, undoable; page titles follow `sheetInfo` everywhere; the number becomes
+  the page label on save). The Pages menu: rotate, move earlier / later, insert a blank page, insert pages from a PDF,
+  delete pages, extract pages (a new PDF), add a blank page to a blank set — the markups baked in, the pages changed with
+  cc-io-markup `pages`, the file read back (its sheets unsaved, undo history starts again, as 0.5 says). The Markups tab:
+  filters (sheet, author, status, type, space, layer, column), order (sheet, author, status, type, created, modified,
+  columns), the count line, a row per markup (a click jumps to it), CSV / XLSX / PDF summary of the listed markups.
+  Commands `markup.edit | reply | rename | pages | filter | jump | export | tab`; the tool bar has Copy, Paste, More
+  (cut, paste in place, duplicate, delete, select all / none) and Pages. Plain English: none new.
+- Parity (`forks/tools/mkuidiff.mjs`, now with status lines: every command whose 0.5 handler says something is compared
+  with the app's `--trace` line; zips compared entry by entry): new scenarios clip (91 ops, two PDFs), replies (22),
+  sheets (30 ops on a 4-sheet set: rename, every page action, extract, insert a PDF), list (77 ops: every export three
+  times over filters and orders): saved PDFs, extracted PDF, CSV, XLSX and PDF summary identical, 104/104 status lines;
+  the six M9.14–M9.15 scenarios unchanged (10/10 checks).
 ## 2026-10-20 — M4.20 Visibility states in the block editor: BVSTATE, BVHIDE, BVSHOW; final sweep (agent, work/xrefs)
 
 - `cmd/visedit.rs`: visedit.js — BEDIT opens a block that has visibility states (`dyn.vis`, from a DWG) on the state

@@ -33,14 +33,16 @@ pub struct PdfFile {
     pub(crate) page_views: Vec<([f64; 4], f64)>,
     /// annotations of the file that MarkupCraft rewrites on save (`f.removeRefs`)
     pub(crate) remove_refs: indexmap::IndexSet<String>,
-    /// each page's title as MarkupCraft names it (sheetInfo: number and name, else the label)
-    pub(crate) titles: Vec<String>,
+    /// each page as MarkupCraft read it (its label and title block: the sheet's number and title, `sheetInfo`)
+    pub(crate) recs: Vec<cc_io_markup::read::PageRec>,
+    /// a blank set's paper and grid (blank.js), so an added blank page matches
+    pub(crate) blank: Option<serde_json::Value>,
 }
 
 impl PdfFile {
     /// Read a PDF as file `id` into the project: its markups, scales, sheet names, layers and columns join `store`
     /// (`store.load`), with the store's id sequence.
-    fn read(id: &str, name: &str, bytes: &[u8], store: &mut cc_markup::model::Store) -> Result<PdfFile, String> {
+    pub(crate) fn read(id: &str, name: &str, bytes: &[u8], store: &mut cc_markup::model::Store) -> Result<PdfFile, String> {
         let doc = pdfread::open(bytes)?;
         let pages = pdfread::pages(&doc);
         if pages.is_empty() {
@@ -48,24 +50,26 @@ impl PdfFile {
         }
         // MarkupCraft's reading of the same file (a file it cannot read still shows as a plan set)
         let opts = cc_io_markup::read::OpenOpts { file_id: id.into(), name: name.to_string(), read_text: false };
-        let (page_keys, annots_drawn, page_views, remove_refs, titles) = match cc_io_markup::read::open_pdf(&mut store.env, bytes, &opts) {
-            Ok(r) => {
-                let names = r
-                    .sheet_names
-                    .iter()
-                    .map(|(k, (n, t))| (k.clone(), cc_markup::model::SheetName { number: n.clone(), title: t.clone() }))
-                    .collect();
-                store.load(r.markups.clone(), r.calibrations.clone(), names, Some(&r.layers), Some(&r.columns));
-                (
-                    r.pages.iter().map(|p| p.key.clone()).collect(),
-                    r.pages.iter().map(|p| p.annot_mode == "disable").collect(),
-                    r.pages.iter().map(|p| (p.view, p.rotate)).collect(),
-                    r.remove_refs.clone(),
-                    r.pages.iter().map(|p| p.info.title.clone()).collect(),
-                )
-            }
-            Err(_) => (Vec::new(), Vec::new(), Vec::new(), indexmap::IndexSet::new(), Vec::new()),
-        };
+        let (page_keys, annots_drawn, page_views, remove_refs, recs, blank) =
+            match cc_io_markup::read::open_pdf(&mut store.env, bytes, &opts) {
+                Ok(r) => {
+                    let names = r
+                        .sheet_names
+                        .iter()
+                        .map(|(k, (n, t))| (k.clone(), cc_markup::model::SheetName { number: n.clone(), title: t.clone() }))
+                        .collect();
+                    store.load(r.markups.clone(), r.calibrations.clone(), names, Some(&r.layers), Some(&r.columns));
+                    (
+                        r.pages.iter().map(|p| p.key.clone()).collect(),
+                        r.pages.iter().map(|p| p.annot_mode == "disable").collect(),
+                        r.pages.iter().map(|p| (p.view, p.rotate)).collect(),
+                        r.remove_refs.clone(),
+                        r.pages.clone(),
+                        r.blank.clone(),
+                    )
+                }
+                Err(_) => (Vec::new(), Vec::new(), Vec::new(), indexmap::IndexSet::new(), Vec::new(), None),
+            };
         Ok(PdfFile {
             id: id.to_string(),
             name: name.to_string(),
@@ -76,8 +80,22 @@ impl PdfFile {
             annots_drawn,
             page_views,
             remove_refs,
-            titles,
+            recs,
+            blank,
         })
+    }
+
+    /// markupcraft.js `applySheetNames` for page `i`: `sheetInfo` of its label and title block with the number and
+    /// title typed by hand (undoable, in the store).
+    pub fn info(&self, store: &cc_markup::model::Store, i: usize) -> cc_io_markup::read::SheetInfo {
+        let rec = self.recs.get(i);
+        let manual = store.sheet_names.get(&self.key_of(i)).map(|n| (n.number.clone(), n.title.clone()));
+        cc_io_markup::read::sheet_info(rec.map(|r| r.info.label.as_str()), &self.name, i, rec.and_then(|r| r.tb.as_ref()), manual.as_ref())
+    }
+
+    /// Page `i`'s title (`s.page.title`).
+    pub fn title(&self, store: &cc_markup::model::Store, i: usize) -> String {
+        self.info(store, i).title
     }
 
     /// The file's SHA-256 (TakeoffCraft knows a sheet as "<hash>:<page>").
@@ -85,16 +103,17 @@ impl PdfFile {
         &self.doc.hash
     }
 
-    fn key_of(&self, i: usize) -> String {
+    pub(crate) fn key_of(&self, i: usize) -> String {
         self.page_keys.get(i).cloned().unwrap_or_else(|| format!("{}:{i}", self.id))
     }
 
-    fn badge_of(&self, i: usize) -> f64 {
+    pub(crate) fn badge_of(&self, i: usize) -> f64 {
         self.page_views.get(i).map_or(9.0, |(v, _)| ((v[2] - v[0]).hypot(v[3] - v[1]) / 160.0).clamp(7.0, 18.0))
     }
 
-    /// markupcraft.js `bake(f)`: the marked-up copy of this file.
-    fn bake(&self, store: &cc_markup::model::Store, now: f64) -> Result<(String, Vec<u8>), String> {
+    /// markupcraft.js `bake(f, lib, {rot})`: the marked-up copy of this file; `rot` (page index, degrees) turns the text
+    /// of that page's markups to read upright on a page being rotated.
+    pub(crate) fn bake(&self, store: &cc_markup::model::Store, now: f64, rot: Option<(usize, f64)>) -> Result<(String, Vec<u8>), String> {
         let sheet_name = |k: &str| store.sheet_names.get(k).map(|n| serde_json::json!({ "number": n.number, "title": n.title }));
         let pages = (0..self.pages.len())
             .map(|i| {
@@ -102,7 +121,17 @@ impl PdfFile {
                 let cal = store.calibrations.get(&key).cloned();
                 cc_io_markup::write::WritePage {
                     index: i,
-                    markups: store.on_sheet(&key).into_iter().cloned().collect(),
+                    markups: store
+                        .on_sheet(&key)
+                        .into_iter()
+                        .map(|m| {
+                            let mut m = m.clone();
+                            if let Some((_, r)) = rot.filter(|(p, _)| *p == i && !m.locked) {
+                                m.rot = r;
+                            }
+                            m
+                        })
+                        .collect(),
                     cal_cleared: cal.is_none(),
                     cal,
                     cal_json: None,
@@ -153,12 +182,12 @@ pub struct PdfView {
     file_seq: usize,
     pub page: usize,
     /// screen pixels (points of the UI) per PDF point
-    zoom: f64,
+    pub(crate) zoom: f64,
     /// the page's top-left corner, from the view's top-left
-    pan: Vec2,
-    fitted: bool,
+    pub(crate) pan: Vec2,
+    pub(crate) fitted: bool,
     /// the texture, the page it shows and the scale it was rendered at
-    tex: Option<(egui::TextureHandle, usize, f64)>,
+    pub(crate) tex: Option<(egui::TextureHandle, usize, f64)>,
     /// how long the last render took (ms)
     pub render_ms: f64,
     pub error: Option<String>,
@@ -181,6 +210,25 @@ pub struct PdfView {
     /// Compare sheets by changed lines, and the old sheet picked for it
     pub cmp: crate::markupcompare::Compare,
     pub cmp_pick: String,
+    /// the clipboard (clip.js: this window's copy) and the run of "beside the copy" pastes on one sheet
+    pub clip: Option<cc_markup::clip::Clip>,
+    pub(crate) paste_run: (String, u32),
+    /// where the pointer is over the sheet (PDF user space), None when it is elsewhere (Ctrl+V pastes there)
+    pub pointer: Option<[f64; 2]>,
+    /// the view's size (points) the last time it was drawn (None before that)
+    pub(crate) view_size: Option<Vec2>,
+    /// the right panel's tab: props, list, punch, chest, compare
+    pub tab: &'static str,
+    /// the Markups list's filters and order
+    pub list: crate::markupedit::ListState,
+    /// replies being typed, by markup id
+    pub(crate) reply_drafts: std::collections::HashMap<String, String>,
+    /// the dialog open over the sheet (sheet name, pages)
+    pub dlg: Option<crate::markupedit::Dialog>,
+    /// files an action made (exports, extracted pages), waiting for the host's save
+    pub outbox: Vec<(String, Vec<u8>)>,
+    /// a file the person is to pick for an action (`insert-pdf`), handled by the host
+    pub want_pick: Option<&'static str>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -218,6 +266,16 @@ impl PdfView {
             edits: std::collections::HashMap::new(),
             cmp: crate::markupcompare::Compare::default(),
             cmp_pick: String::new(),
+            clip: None,
+            paste_run: (String::new(), 0),
+            pointer: None,
+            view_size: None,
+            tab: "props",
+            list: crate::markupedit::ListState::default(),
+            reply_drafts: std::collections::HashMap::new(),
+            dlg: None,
+            outbox: Vec::new(),
+            want_pick: None,
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -433,6 +491,8 @@ impl PdfView {
             self.fit_to(rect.size());
         }
         let origin = rect.min + self.pan;
+        self.view_size = Some(rect.size());
+        self.pointer = resp.hover_pos().map(|p| self.to_pdf(origin, p));
         self.poll_autocount(ui.ctx());
         if self.mode == "takeoff" && self.autocount_busy() {
             if resp.dragged() {
@@ -544,14 +604,47 @@ impl PdfView {
                 self.tools.delete_selected(&mut self.store);
             }
         }
-        if !typing && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Z)) {
-            let redo = ui.input(|i| i.modifiers.shift);
+        if !typing && ui.input(|i| i.modifiers.command && (i.key_pressed(egui::Key::Z) || i.key_pressed(egui::Key::Y))) {
+            let redo = ui.input(|i| i.modifiers.shift || i.key_pressed(egui::Key::Y));
             if self.mode == "takeoff" {
                 let r = if redo { self.takeoff.tk.redo() } else { self.takeoff.tk.undo() };
                 self.takeoff.message = r.unwrap_or_default();
             } else {
-                let r = if redo { self.store.redo() } else { self.store.undo() };
-                self.tools.message = r.unwrap_or_default();
+                self.history(redo);
+            }
+        }
+        if !typing && self.mode != "takeoff" {
+            // Ctrl+C / X / V (egui hands them over as events), Ctrl+Shift+V pastes in place, Ctrl+D duplicates, Ctrl+A
+            let (copy, cut, paste, shift, dup, all) = ui.input(|i| {
+                let ev = |f: &dyn Fn(&egui::Event) -> bool| i.events.iter().any(f);
+                (
+                    ev(&|e| matches!(e, egui::Event::Copy)),
+                    ev(&|e| matches!(e, egui::Event::Cut)),
+                    ev(&|e| matches!(e, egui::Event::Paste(_))),
+                    i.modifiers.shift,
+                    i.modifiers.command && i.key_pressed(egui::Key::D),
+                    i.modifiers.command && i.key_pressed(egui::Key::A),
+                )
+            });
+            if copy && !self.tools.sel.is_empty() {
+                self.copy("copy");
+            }
+            if cut && !self.tools.sel.is_empty() {
+                self.cut();
+            }
+            if paste {
+                let at = self.pointer;
+                if shift {
+                    self.paste("place", None);
+                } else {
+                    self.paste(if at.is_some() { "pointer" } else { "offset" }, at);
+                }
+            }
+            if dup {
+                self.duplicate();
+            }
+            if all {
+                self.select_all();
             }
         }
         if let Some(p) = resp.hover_pos() {
@@ -853,7 +946,7 @@ impl PdfView {
     }
 
     /// A screen point → PDF user space of the open page.
-    fn to_pdf(&self, origin: Pos2, p: Pos2) -> [f64; 2] {
+    pub(crate) fn to_pdf(&self, origin: Pos2, p: Pos2) -> [f64; 2] {
         let tr = self.cur.pages.get(self.page).map_or([1.0, 0.0, 0.0, -1.0, 0.0, 0.0], |i| i.transform);
         let (x, y) = pdfread::to_pdf(&tr, f64::from(p.x - origin.x) / self.zoom, f64::from(p.y - origin.y) / self.zoom);
         [x, y]
@@ -864,7 +957,7 @@ impl PdfView {
     /// the file's own annotations MarkupCraft read are rewritten; layers and columns travel. "<name>-marked.pdf".
     pub fn save_marked(&mut self, now_ms: f64) -> Result<(String, Vec<u8>), String> {
         let now = self.clock.unwrap_or(now_ms);
-        self.cur.bake(&self.store, now)
+        self.cur.bake(&self.store, now, None)
     }
 
     /// Save as markupcraft.js saveFiles: one file → it; several → the files with changes (or the open one when none
@@ -877,7 +970,7 @@ impl PdfView {
         if targets.is_empty() {
             targets.push(&self.cur);
         }
-        let out = targets.iter().map(|f| f.bake(&self.store, now)).collect::<Result<Vec<_>, String>>()?;
+        let out = targets.iter().map(|f| f.bake(&self.store, now, None)).collect::<Result<Vec<_>, String>>()?;
         let ids: Vec<String> = targets.iter().map(|f| format!("{}:", f.id)).collect();
         self.store.dirty_sheets.retain(|k| !ids.iter().any(|p| k.starts_with(p)));
         Ok(out)
@@ -921,14 +1014,45 @@ impl PdfView {
             ui.separator();
             self.scale_row(ui);
             if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new(t0("tool.undo"))).clicked() {
-                self.tools.message = self.store.undo().map(|l| format!("Undo {l}")).unwrap_or_default();
+                self.history(false);
             }
             if ui.add_enabled(!self.store.redo_stack.is_empty(), egui::Button::new(t0("tool.redo"))).clicked() {
-                self.tools.message = self.store.redo().map(|l| format!("Redo {l}")).unwrap_or_default();
+                self.history(true);
             }
-            if ui.add_enabled(!self.tools.sel.is_empty(), egui::Button::new(t0("menu.delete"))).clicked() {
-                self.tools.delete_selected(&mut self.store);
+            if ui.add_enabled(!self.tools.sel.is_empty(), egui::Button::new(t0("menu.copy"))).clicked() {
+                self.copy("copy");
             }
+            if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste"))).clicked() {
+                self.paste("offset", None);
+            }
+            ui.menu_button(t0("menu.more"), |ui| {
+                let sel = !self.tools.sel.is_empty();
+                if ui.add_enabled(sel, egui::Button::new(t0("menu.cut"))).clicked() {
+                    self.cut();
+                    ui.close();
+                }
+                if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste_in_place"))).clicked() {
+                    self.paste("place", None);
+                    ui.close();
+                }
+                if ui.add_enabled(sel, egui::Button::new(t0("menu.duplicate"))).clicked() {
+                    self.duplicate();
+                    ui.close();
+                }
+                if ui.add_enabled(sel, egui::Button::new(t0("menu.delete"))).clicked() {
+                    self.tools.delete_selected(&mut self.store);
+                    ui.close();
+                }
+                if ui.button(t0("menu.select_all")).clicked() {
+                    self.select_all();
+                    ui.close();
+                }
+                if ui.add_enabled(sel, egui::Button::new(t0("menu.select_none"))).clicked() {
+                    self.tools.sel.clear();
+                    ui.close();
+                }
+            });
+            self.pages_menu(ui);
             if ui.button(t0("tool.save")).on_hover_text(t0("tool.save.title")).clicked() {
                 save = true;
             }

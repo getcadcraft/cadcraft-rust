@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-20 M9.16: MarkupCraft copy / paste, the Markups list (filters, order, jump, CSV / XLSX / PDF summary), replies, sheet rename and the Pages menu; mkuidiff 10/10 scenarios with 104/104 status lines identical to 0.5.
 - 2026-10-20 M4.20: BVSTATE BVHIDE BVSHOW (visibility states of a dynamic block in BEDIT; references follow) at kdiff parity (78/78); final sweep kdiff 5073/5073, idiff --xrefs 624/624 byte-identical.
 - 2026-10-20 M4.19: IMAGEATTACH IMAGE IMAGECLIP at kdiff parity (58/58); pictures (PNG / JPEG, image crate with limits, fuzz target cad_raster) drawn in the window and the viewer; placed pictures save byte-identically.
 - 2026-10-20 M4.18: XATTACH XREF (? Attach Reload Bind Detach, Bind clipped part) XCLIP at kdiff parity (135/135 scenario records); the linked and clipped drawings save byte-identically (idiff --xrefs); walk clips XCLIP'd references (screen, plots, extents); files come through Host::pick_drawing / the window's picker.

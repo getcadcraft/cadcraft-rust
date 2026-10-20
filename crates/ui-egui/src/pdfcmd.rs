@@ -24,6 +24,14 @@
 //! - `pdf.file` name = a file id ("f2"): open that file of the plan set (another PDF joins by opening it).
 //! - `markup.compare` name = the old sheet's key ("f1:0") against the open sheet, `cloud`, `stop`.
 //! - `markup.cal` name = the calibrate line's real distance; `markup.delete`, `markup.redo`, `markup.save`.
+//! - `markup.edit` name = copy | cut | paste | paste-in-place | paste-at:x,y (the pointer's place) | duplicate |
+//!   select-all | select-none.
+//! - `markup.reply` name = the reply's text (the selected markup's thread); `markup.tab` name = the right panel's tab.
+//! - `markup.rename` name = `number|title` of the open sheet (both empty: what the file says).
+//! - `markup.pages` name = rotate-cw | rotate-ccw | move-up | move-down | insert-blank | add-blank | delete:PAGES |
+//!   extract:PAGES (saved) | insert-pdf:PATH (PAGES as "1-3, 5").
+//! - `markup.filter` name = `key=value` (sheet: "" | current | a sheet key; author, status, type, layer, space, field,
+//!   sort); `markup.jump` name = a row of the list (0-based) or a markup id; `markup.export` name = csv | xlsx | pdf.
 
 use crate::{Params, UiApp};
 
@@ -50,6 +58,32 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         return Ok(());
     }
+    if id == "markup.pages"
+        && let Some(path) = name.strip_prefix("insert-pdf:")
+    {
+        // the picked PDF, read through the host
+        let read = app.services.read_path.as_mut().ok_or("markup.pages: reading files is not available here")?;
+        let f = read(path)?;
+        let p = app.pdf.as_mut().ok_or("markup.pages: open a PDF first")?;
+        p.pages_op("insert-pdf", "", Some((&f.name, &f.bytes)))?;
+        return Ok(());
+    }
+    let r = run_pdf(app, id, params, &name);
+    // files the command made (exports, extracted pages) go to the host's save
+    if let Some(p) = app.pdf.as_mut() {
+        let outs = std::mem::take(&mut p.outbox);
+        if !outs.is_empty() {
+            let save = app.services.save.as_mut().ok_or_else(|| format!("{id}: saving is not available here"))?;
+            for (file, bytes) in outs {
+                save(&file, bytes)?;
+            }
+        }
+    }
+    r
+}
+
+fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(), String> {
+    let name = name.to_string();
     let p = app.pdf.as_mut().ok_or_else(|| format!("{id}: open a PDF first"))?;
     let tk = &mut p.takeoff;
     match id {
@@ -201,7 +235,63 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             Ok(())
         }
         "markup.redo" => {
-            p.tools.message = p.store.redo().unwrap_or_default();
+            p.history(true);
+            Ok(())
+        }
+        "markup.edit" => {
+            match name.as_str() {
+                "copy" => {
+                    p.copy("copy");
+                }
+                "cut" => p.cut(),
+                "paste" => p.paste("offset", None),
+                "paste-in-place" => p.paste("place", None),
+                "duplicate" => p.duplicate(),
+                "select-all" => p.select_all(),
+                "select-none" => p.tools.sel.clear(),
+                other => {
+                    let at = other.strip_prefix("paste-at:").ok_or_else(|| format!("markup.edit: unknown action {other}"))?;
+                    let q = pt(at, id)?;
+                    p.paste("pointer", Some(q));
+                }
+            }
+            Ok(())
+        }
+        "markup.reply" => p.reply(&name),
+        "markup.tab" => {
+            // the right panel's tab
+            p.tab = match name.as_str() {
+                "props" => "props",
+                "list" => "list",
+                "compare" => "compare",
+                _ => return Err(format!("markup.tab: unknown tab {name} (props, list, compare)")),
+            };
+            Ok(())
+        }
+        "markup.rename" => {
+            let (n, t) = name.split_once('|').unwrap_or((name.as_str(), ""));
+            p.rename_sheet(n, t);
+            Ok(())
+        }
+        "markup.pages" => {
+            let (k, arg) = name.split_once(':').unwrap_or((name.as_str(), ""));
+            p.pages_op(k, arg, None)
+        }
+        "markup.filter" => {
+            let (k, v) = name.split_once('=').ok_or("markup.filter: name = key=value")?;
+            p.set_filter(k, v)
+        }
+        "markup.jump" => {
+            let target = match name.parse::<usize>() {
+                Ok(i) => p.list_rows().get(i).map(|m| m.id.clone()).ok_or_else(|| format!("markup.jump: the list has no row {i}"))?,
+                Err(_) => name.clone(),
+            };
+            p.jump_to(&target)
+        }
+        "markup.export" => {
+            if let Some(f) = p.export_list(&name)? {
+                p.outbox.push(f);
+            }
             Ok(())
         }
         _ => Err(format!("unknown command {id}")),

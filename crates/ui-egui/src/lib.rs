@@ -48,6 +48,7 @@ pub mod edit;
 pub mod hub;
 pub mod ifc3d;
 pub mod markupcompare;
+pub mod markupedit;
 pub mod markupprops;
 pub mod markuptools;
 pub mod mcact;
@@ -1264,7 +1265,7 @@ impl UiApp {
             }
             "markup.undo" => {
                 let p = self.pdf.as_mut().ok_or("markup.undo: open a PDF first")?;
-                p.tools.message = p.store.undo().unwrap_or_default();
+                p.history(false);
             }
             "pdf.page" => {
                 // go to a sheet of the open PDF (1-based)
@@ -1754,7 +1755,7 @@ impl UiApp {
             });
             if pdf.mode != "takeoff" {
                 egui::Panel::right("mc_props").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.props_panel(ui, &t));
+                    pdf.right_panel(ui, &t);
                 });
             }
             if pdf.mode == "takeoff" {
@@ -1770,6 +1771,26 @@ impl UiApp {
                 let rect = ui.max_rect();
                 pdf.show(ui, rect, &t);
             });
+            pdf.dialogs(ui.ctx());
+            if pdf.want_pick.take() == Some("insert-pdf") {
+                // Pages › Insert pages from a PDF: the host's picker, then the pages go in after the open sheet
+                match self.services.pick_open.as_mut().and_then(|f| f()) {
+                    Some(Ok(f)) => {
+                        if let Err(e) = pdf.pages_op("insert-pdf", "", Some((&f.name, &f.bytes))) {
+                            pdf.tools.message = e;
+                        }
+                    }
+                    Some(Err(e)) => pdf.tools.message = e,
+                    None => {}
+                }
+            }
+            for (name, bytes) in std::mem::take(&mut pdf.outbox) {
+                match self.services.save.as_mut().map(|f| f(&name, bytes)) {
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => self.error = Some(e),
+                    None => self.error = Some("Saving is not available here".into()),
+                }
+            }
             self.message = pdf.status();
             if !pdf.tools.message.is_empty() {
                 self.message = format!("{}   · {}", self.message, pdf.tools.message);
