@@ -63,6 +63,7 @@ pub mod partsketchui;
 pub mod partview;
 pub mod pdfcmd;
 pub mod pdfview;
+pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
 pub mod takeoffprops;
@@ -70,7 +71,7 @@ pub mod takeofftools;
 pub mod theme;
 pub mod view3d;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cc_drawing::SpaceKind;
@@ -240,6 +241,12 @@ pub struct UiApp {
     vp_sheet: cc_cad::SpaceId,
     /// web: a command waits for the picker `Services::pick_files` opened
     pick_waiting: Option<edit::PickReq>,
+    /// picture files found next to the drawing the viewer shows (desktop: `Services::read_path` in its folder)
+    pub viewer_pictures: cc_cad::pictures::Pictures,
+    /// decoded pictures as textures, by the name the drawing gives the file (None = could not be decoded), and what
+    /// they were made for (drawing id, picture store version)
+    pic_tex: HashMap<String, Option<egui::TextureHandle>>,
+    pic_for: (u64, u64),
     /// views before each ZOOM (ZOOM Previous)
     prev_views: Vec<View2D>,
     /// primary-button drag start (world) while drafting: a selection window
@@ -309,6 +316,9 @@ impl Default for UiApp {
             clip_cmd: None,
             vp_sheet: 0,
             pick_waiting: None,
+            viewer_pictures: cc_cad::pictures::Pictures::new(),
+            pic_tex: HashMap::new(),
+            pic_for: (u64::MAX, 0),
             prev_views: Vec::new(),
             drag_from: None,
             source: None,
@@ -430,6 +440,7 @@ impl UiApp {
         self.loaded(res);
         if ok {
             self.source = Some(f.clone());
+            self.find_pictures(f.dir.as_deref());
         }
     }
 
@@ -877,6 +888,10 @@ impl UiApp {
         let mut doc = cc_cad::Doc::new();
         doc.load(&input);
         drop(input);
+        // the picture files found next to the drawing come along (IMAGE lists them as shown)
+        for (k, rec) in self.viewer_pictures.iter() {
+            doc.pictures.insert(k.clone(), std::sync::Arc::clone(rec));
+        }
         let t2 = web_time::Instant::now();
         let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(a, _)| a).to_string();
         let keep_space = self.space;
@@ -918,6 +933,63 @@ impl UiApp {
             }
         }
         Ok(())
+    }
+
+    /// The picture files the open drawing names, looked for in its folder (desktop: `Services::read_path`; the web
+    /// has no folders: IMAGE in the editor takes the files, as 0.5 does in the browser).
+    fn find_pictures(&mut self, dir: Option<&str>) {
+        self.viewer_pictures = cc_cad::pictures::Pictures::new();
+        let (Some(dir), Some(read)) = (dir, self.services.read_path.as_mut()) else { return };
+        let files: Vec<String> = self.doc.as_ref().map(|d| d.drawing.images.iter().map(|i| i.file.clone()).collect()).unwrap_or_default();
+        for file in files {
+            let base = cc_cad::pictures::base_name(&file);
+            if base.is_empty() || base.contains("..") {
+                continue;
+            }
+            if let Ok(got) = read(&format!("{dir}/{base}")) {
+                let _ = cc_cad::pictures::add_picture(&mut self.viewer_pictures, &got.name, &got.bytes);
+            }
+        }
+    }
+
+    /// Decode the pictures the shown drawing uses into textures (once each; again when the picture files change).
+    fn picture_textures(&mut self, ctx: &egui::Context) -> HashMap<String, egui::TextureId> {
+        let Some(doc) = &self.doc else { return HashMap::new() };
+        let version = self.editor.as_ref().map_or(self.viewer_pictures.len() as u64, |ed| ed.eng.doc().picture_version);
+        if self.pic_for != (doc.id, version) {
+            self.pic_tex.clear();
+            self.pic_for = (doc.id, version);
+        }
+        let max_side = u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(4096).clamp(256, 8192);
+        let mut out = HashMap::new();
+        for im in doc.drawing.spaces.iter().flat_map(|s| s.images.iter()) {
+            if out.contains_key(&im.file) {
+                continue;
+            }
+            if !self.pic_tex.contains_key(&im.file) {
+                let rec = match self.editor.as_ref() {
+                    Some(ed) => cc_cad::pictures::find_picture(&ed.eng.doc().pictures, &im.file).cloned(),
+                    None => cc_cad::pictures::find_picture(&self.viewer_pictures, &im.file).cloned(),
+                };
+                let Some(rec) = rec else { continue };
+                let tex = match cc_io_cad::raster::decode(&rec.bytes, max_side) {
+                    Ok(px) => {
+                        let size = [usize::try_from(px.w).unwrap_or(0), usize::try_from(px.h).unwrap_or(0)];
+                        let img = egui::ColorImage::from_rgba_unmultiplied(size, &px.px);
+                        Some(ctx.load_texture(format!("picture:{}", rec.name), img, egui::TextureOptions::LINEAR))
+                    }
+                    Err(e) => {
+                        self.message = format!("{}: {e}", rec.name);
+                        None
+                    }
+                };
+                self.pic_tex.insert(im.file.clone(), tex);
+            }
+            if let Some(Some(t)) = self.pic_tex.get(&im.file) {
+                out.insert(im.file.clone(), t.id());
+            }
+        }
+        out
     }
 
     fn loaded(&mut self, res: Result<Loaded, String>) {
@@ -2139,7 +2211,10 @@ impl UiApp {
         if let Some(slot) = self.views.get_mut(self.space) {
             *slot = Some(view);
         }
+        let pictures = self.picture_textures(ui.ctx());
+        let Some(doc) = &self.doc else { return };
         let frame = canvas::Frame {
+            pictures: &pictures,
             drawing: &doc.drawing,
             geometry: &doc.geometry,
             id: doc.id,

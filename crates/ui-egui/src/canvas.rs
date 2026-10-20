@@ -103,6 +103,8 @@ pub struct Frame<'a> {
     pub hidden: &'a std::collections::HashSet<String>,
     pub tokens: &'a Tokens,
     pub line_px: f32,
+    /// the picture files loaded as textures, by the name a drawing gives them (`SpaceImage::file`)
+    pub pictures: &'a HashMap<String, egui::TextureId>,
 }
 
 fn rgba(c: Color32) -> [f32; 4] {
@@ -187,6 +189,37 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
             slot += 1;
         }
     }
+    // pictures under the linework (pictures.js draws them after the fills): the model's inside each viewport, then the
+    // space's own
+    if paper && let Some(mi) = model {
+        for (mv, x0, y0, x1, y1) in &vp_views {
+            let clip = Rect::from_min_max(
+                Pos2::new(rect.min.x + (*x0 as f32) / ppp, rect.min.y + (*y0 as f32) / ppp),
+                Pos2::new(rect.min.x + (*x1 as f32) / ppp, rect.min.y + (*y1 as f32) / ppp),
+            );
+            let vpp = painter.with_clip_rect(clip.intersect(rect));
+            for im in f.drawing.spaces.get(mi).map(|s| s.images.as_slice()).unwrap_or(&[]) {
+                if f.hidden.contains(&im.layer) {
+                    continue;
+                }
+                if let Some(tex) = f.pictures.get(&im.file)
+                    && let Some(mesh) = crate::picmesh::picture_mesh(im, *tex, &|x, y| to_pt(mv, x, y))
+                {
+                    vpp.add(egui::Shape::mesh(mesh));
+                }
+            }
+        }
+    }
+    for im in &space.images {
+        if f.hidden.contains(&im.layer) {
+            continue;
+        }
+        if let Some(tex) = f.pictures.get(&im.file)
+            && let Some(mesh) = crate::picmesh::picture_mesh(im, *tex, &|x, y| to_pt(&view, x, y))
+        {
+            painter.add(egui::Shape::mesh(mesh));
+        }
+    }
     let origin = f.geometry.get(f.space).map(|g| g.origin).unwrap_or((0.0, 0.0));
     draws.push(DrawItem { space: f.space, slot, uniform: ViewUniform::new(&view, origin, rgba(ink), f.line_px), scissor: None });
     let n_draws = draws.len();
@@ -195,7 +228,7 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     // raster images whose file is not loaded: their frame (as the JS viewer shows a missing one); a drawing being
     // edited has the frame as an object of its own
     for im in &space.images {
-        if f.hidden.contains(&im.layer) || im.clip.is_some() {
+        if f.hidden.contains(&im.layer) || im.clip.is_some() || f.pictures.contains_key(&im.file) {
             continue;
         }
         let m = im.m;

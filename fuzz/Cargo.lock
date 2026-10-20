@@ -275,6 +275,7 @@ dependencies = [
  "cc-cad-geom",
  "cc-geom",
  "cc-io-dwg",
+ "image",
  "miniz_oxide 0.8.9",
  "serde_json",
 ]
@@ -995,6 +996,8 @@ dependencies = [
  "moxcms",
  "num-traits",
  "png",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]

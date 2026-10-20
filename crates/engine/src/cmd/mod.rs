@@ -12,6 +12,7 @@ pub mod inquiry;
 pub mod layers;
 pub mod layout;
 pub mod modify;
+pub mod pictures;
 pub mod qselect;
 pub mod trim;
 pub mod ucscmd;
@@ -195,6 +196,9 @@ pub static COMMANDS: &[CmdDef] = &[
     def("XATTACH", &["XA"], |c| Box::pin(xref::xattach(c))),
     def("XREF", &["XR", "-XREF"], |c| Box::pin(xref::xref(c))),
     def("XCLIP", &["XC"], |c| Box::pin(xref::xclip(c))),
+    def("IMAGEATTACH", &["IAT", "IMAGEATT"], |c| Box::pin(pictures::imageattach(c))),
+    CmdDef { no_repeat: true, ..def("IMAGE", &["IM"], |c| Box::pin(pictures::image(c))) },
+    def("IMAGECLIP", &["ICL"], |c| Box::pin(pictures::imageclip(c))),
     // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),

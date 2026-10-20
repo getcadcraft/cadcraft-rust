@@ -143,6 +143,16 @@ pub fn pic_corners(pic: &Obj) -> [(f64, f64); 4] {
     [(x, y), (x + wx, y + wy), (x + wx + hx, y + wy + hy), (x + hx, y + hy)]
 }
 
+/// [`picture_block`] on JSON values (the engine's IMAGEATTACH / IMAGECLIP): `pic` an object, `clip` points `{x, y}`.
+pub fn picture_block_json(name: &str, pic: &serde_json::Value, clip: Option<&[serde_json::Value]>) -> serde_json::Value {
+    let pv = match jsv::from_json(pic) {
+        V::Obj(o) => o,
+        _ => Obj::new(),
+    };
+    let cl: Option<Vec<V>> = clip.map(|c| c.iter().map(jsv::from_json).collect());
+    jsv::to_json(&V::Obj(picture_block(name, pv, cl.as_deref())))
+}
+
 /// `pictureBlock(name, pic, clip)`: the block for a picture — frame + the file's name.
 pub fn picture_block(name: &str, pic: Obj, clip: Option<&[V]>) -> Obj {
     let c = pic_corners(&pic);

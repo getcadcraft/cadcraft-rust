@@ -2,6 +2,28 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M4.19 Pictures: IMAGEATTACH, IMAGE, IMAGECLIP, raster images drawn (agent, work/xrefs)
+
+- `cmd/pictures.rs`: pictures-cmd.js — IMAGEATTACH (corner, width, angle; a "*I<n>" block through cc-io-cad's
+  `picture_block`), IMAGE (the files the drawing's pictures use, shown / not found, then the picked files matched by name
+  or by a name containing it, as eTransmit prefixes them), IMAGECLIP (Rectangular / Polygonal / Delete; a picture block
+  other references share gets a copy of its own first). `cc-cad` `pictures`: the files kept with the drawing while it is
+  open (`Doc::pictures`, `picture_version`; not undoable, not saved), `sniffPicture` / `jpegInfo` / `addPicture` /
+  `findPicture` with pictures.js's caps (64 MB, 100 million pixels).
+- Drawing: walk reports each picture frame (`WalkOut::picture`, pictures.js `pictureOut`) and leaves out a picture's name
+  text once its file is loaded; the editor's display collects them per space. `cc-io-cad` `raster::decode`: PNG / JPEG
+  through the `image` crate (png + jpeg only) with `image::Limits` (30 000 px a side, 512 MB of allocations, the 100 MP
+  cap), sampled down to the GPU's texture side; a new fuzz target `cad_raster` with three generated seeds. The window
+  (`picmesh.rs`) draws each picture under the linework as a textured mesh over its frame cut to the picture's rectangle
+  (ear clipping), also inside sheet viewports; the viewer finds the files a DWG names in its folder through
+  `Services::read_path` (desktop) and hands them to the editor; on the web IMAGE takes them, as 0.5 in the browser.
+- Parity: kdiff (two new scenarios: IMAGEATTACH / IMAGE / IMAGECLIP with a shared picture block, a not-a-picture file,
+  prefixed names; IMAGE with no pictures) 58/58 records identical; idiff `--xrefs` now also places two pictures (a PNG and
+  a JPEG named by a Windows path) before saving: byte-identical in DWG 2000 and 2018, DXF 2000 and DXF R12 (the full kit sweep is in the M4.20 entry).
+- Timings (drafttime, JS / Rust ms): IMAGEATTACH (a 4 × 4 PNG) + IMAGE 6.4 / 0.4 on Carey, 6.0 / 0.4 on ar1all,
+  5.2 / 0.3 on the kitchen sample. Decoding for the screen has no JS counterpart (the browser's createImageBitmap).
+- Screenshot checked: two pictures placed in a new drawing, one turned 20° and clipped to a polygon, a line drawn over them.
+
 ## 2026-10-20 — M4.18 Linked drawings and clipped references: XATTACH, XREF, XCLIP (agent, work/xrefs)
 
 - `cmd/xref.rs`: xref.js (`attachXref` with VISRETAIN-style kept layer settings and the "Name (2)" free names, `detachXref`

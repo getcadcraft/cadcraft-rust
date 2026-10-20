@@ -60,6 +60,13 @@ debug = 1
 overflow-checks = true
 
 [[bin]]
+name = "cad_raster"
+path = "fuzz_targets/cad_raster.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cad_load"
 path = "fuzz_targets/cad_load.rs"
 test = false

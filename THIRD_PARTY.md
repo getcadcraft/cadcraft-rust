@@ -26,6 +26,7 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | regex | io-civil | crs.js / crs-pick.js / raster.js / las.js patterns (.prj matching, lat/long text, GDAL metadata, vertical units) | MIT OR Apache-2.0 |
 | robust | civil | Shewchuk's adaptive exact `incircle` for the TIN's Delaunay flips (tin.js reads only its sign) | MIT OR Apache-2.0 |
 | fancy-regex | civil | JS regular expressions with lookaround and backtracking, for the deed-call, traverse and offset parsers that copy the 0.5 patterns as written | MIT |
+| image (0.25; png, jpeg) | io-cad (also cadcraft-shot: png) | pictures in drawings (IMAGE, M4.19): PNG and JPEG decoded for the screen with `image::Limits`; jpeg pulls zune-jpeg + zune-core, png pulls png / fdeflate / crc32fast; default features off (no rayon, no other codecs) | MIT OR Apache-2.0 (zune-*: MIT OR Apache-2.0 OR Zlib) |
 
 ## Ported source code (no crate dependency)
 

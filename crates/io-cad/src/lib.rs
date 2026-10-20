@@ -7,6 +7,7 @@
 //! - [`dwg_save::save_dwg`]: a `Doc` → DWG 2000 … 2018 through cc-io-dwg's writer (byte-identical to the JS `saveDwg`
 //!   with the same creation time and GUID source) and its report.
 //! - [`dxf2000::write_dxf2000`]: a `Doc` → DXF R2000 text (byte-identical to the JS `writeDxf2000`) and its report.
+//! - [`raster`]: a picture file (PNG / JPEG, hostile bytes) → RGBA pixels for the screen, under size caps.
 //! - [`plot`]: plot.js — a layout or the model on a paper → a vector PDF (and agents.js `plotPdf`).
 //!
 //! Values are the dynamic [`cc_io_dwg::V`] while importing (JS semantics: [`jsv`]); the result converts to
@@ -43,6 +44,7 @@ pub mod m3d_file;
 pub mod model3d;
 pub mod plot;
 pub mod props;
+pub mod raster;
 pub mod small;
 pub mod text;
 pub mod vports;
