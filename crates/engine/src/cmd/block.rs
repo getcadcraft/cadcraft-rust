@@ -1,7 +1,7 @@
 //! Blocks (commands.js): BLOCK ATTDEF INSERT BEDIT BCLOSE. The block editor opens the block's objects (and its
 //! attribute definitions as texts) in a space of their own; BCLOSE saves them back as one undo step or throws the
-//! edits away. Not ported: visibility states of dynamic blocks in the editor (BVSTATE / BVHIDE / BVSHOW), INSERT's
-//! File and Library options (they need the browser's file picker and library panel; the command line says so).
+//! edits away. A block with visibility states opens on one of them (visedit.js, [`crate::cmd::visedit`]: BVSTATE
+//! BVHIDE BVSHOW); BCLOSE keeps it dynamic with its states as edited. Not ported: INSERT's File and Library options (they need the browser's file picker and library panel; the command line says so).
 
 use std::cmp::Ordering;
 use std::rc::Rc;
@@ -27,6 +27,10 @@ pub struct BlockEdit {
     pub mark: usize,
     /// the layout it was opened from (None = the model)
     pub from: Option<String>,
+    /// a block with visibility states: the editor's view of them (`be.vis`)
+    pub vis: Option<crate::cmd::visedit::VisEdit>,
+    /// what BCLOSE adds after saving (`be.note`)
+    pub note: Option<&'static str>,
 }
 
 const BAD_CHARS: &[char] = &['<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', '=', '`'];
@@ -512,6 +516,7 @@ pub async fn bedit(c: Ctx) -> R {
     }
     let Some(blk) = c.doc().blocks.get(&name).cloned() else { return Ok(()) };
     let mut ents: Vec<Entity> = Vec::new();
+    let mut vis: Option<(crate::cmd::visedit::VisEdit, Vec<Entity>)>;
     {
         let mut d = c.sh().doc.borrow_mut();
         let fresh = |mut e: Entity, d: &mut cc_cad::Doc| {
@@ -523,8 +528,12 @@ pub async fn bedit(c: Ctx) -> R {
             d.next_id = d.next_id.saturating_add(1);
             e
         };
-        for e in &blk.entities {
-            ents.push(if e.id.is_some_and(|i| i != 0) { e.clone() } else { fresh(e.clone(), &mut d) });
+        // DB.9: a block with visibility states opens on one of them, the others kept aside
+        vis = crate::cmd::visedit::open_vis(&mut d, &blk);
+        let from_vis: Option<Vec<Entity>> = vis.as_mut().map(|(_, e)| std::mem::take(e));
+        let list = from_vis.unwrap_or_else(|| blk.entities.clone());
+        for e in list {
+            ents.push(if e.id.is_some_and(|i| i != 0) { e } else { fresh(e, &mut d) });
         }
         for a in blk.attdefs.as_deref().unwrap_or(&[]) {
             ents.push(fresh(attdef_text(a), &mut d));
@@ -539,7 +548,11 @@ pub async fn bedit(c: Ctx) -> R {
         d.set_space_id(s);
         s
     };
-    c.st().memo.block_edit = Some(BlockEdit { name: name.clone(), space, base: blk.base, mark, from });
+    let vis = vis.map(|(v, _)| v);
+    if let Some(v) = &vis {
+        c.print(&c.tv("cmd.bvstate.open", &[("state", v.cur.clone()), ("n", v.states.len().to_string())]));
+    }
+    c.st().memo.block_edit = Some(BlockEdit { name: name.clone(), space, base: blk.base, mark, from, vis, note: None });
     c.sh().host.borrow_mut().zoom_extents();
     c.print(&c.tv("cmd.bedit.open", &[("name", name)]));
     Ok(())
@@ -547,15 +560,25 @@ pub async fn bedit(c: Ctx) -> R {
 
 /// `closeBlockEdit(doc, save)`: save the block (one undo step with everything done in it) or throw the edits away.
 pub fn close_block_edit(c: &Ctx, save: bool) -> Option<BlockEdit> {
-    let be = c.st().memo.block_edit.take()?;
+    let mut be = c.st().memo.block_edit.take()?;
     let list: Vec<Entity> = c.doc().space_entities(be.space).cloned().collect();
     let (entities, attdefs) = split_attdefs(&list);
     let mut d = c.sh().doc.borrow_mut();
     d.set_space(be.from.as_deref());
     if save {
-        let mut b = Block::new(&be.name, be.base, entities);
-        b.attdefs = Some(attdefs);
-        let _ = d.change("BEDIT", |d| d.define_block(&b));
+        // DB.9: still dynamic, with its states as edited (references follow renamed / deleted states)
+        let kept = match be.vis.as_mut() {
+            Some(v) => crate::cmd::visedit::save_with_states(&mut d, v, be.space, be.base, &entities, &attdefs, &be.name).unwrap_or(false),
+            None => false,
+        };
+        if !kept {
+            let mut b = Block::new(&be.name, be.base, entities);
+            b.attdefs = Some(attdefs);
+            let _ = d.change("BEDIT", |d| d.define_block(&b));
+            if be.vis.is_some() {
+                be.note = Some("cmd.bvstate.plain");
+            }
+        }
         d.squash(be.mark, "BEDIT");
     } else {
         while d.undo_stack.len() > be.mark {
@@ -580,8 +603,11 @@ pub async fn bclose(c: Ctx) -> R {
         )
         .await?;
     let save = !matches!(&k, Reply::Opt(x) | Reply::Str(x) if x == "D");
-    close_block_edit(&c, save);
+    let closed = close_block_edit(&c, save);
     let n = c.doc().block_uses(&be.name);
-    c.print(&c.tv(if save { "cmd.bclose.saved" } else { "cmd.bclose.discarded" }, &[("name", be.name), ("n", n.to_string())]));
+    c.print(&c.tv(if save { "cmd.bclose.saved" } else { "cmd.bclose.discarded" }, &[("name", be.name.clone()), ("n", n.to_string())]));
+    if let Some(note) = closed.and_then(|b| b.note) {
+        c.print(&c.tv(note, &[("name", be.name)]));
+    }
     Ok(())
 }

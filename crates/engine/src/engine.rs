@@ -139,6 +139,10 @@ pub trait Host {
         false
     }
     fn save_blob(&mut self, _name: &str, _data: &[u8], _mime: &str) {}
+    /// The pick tolerance in drawing units (`host.pickRadius`, BVSHOW); None = 1.
+    fn pick_radius(&self) -> Option<f64> {
+        None
+    }
     /// Can this host open files (the JS host has `pickDrawing` / `pickPictures`)?
     fn can_pick_files(&self) -> bool {
         false

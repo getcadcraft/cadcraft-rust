@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M4.20 Visibility states in the block editor: BVSTATE, BVHIDE, BVSHOW; final sweep (agent, work/xrefs)
+
+- `cmd/visedit.rs`: visedit.js — BEDIT opens a block that has visibility states (`dyn.vis`, from a DWG) on the state
+  its objects show, the other states' objects kept aside; BVSTATE (list, Set current, New with Hide all / Show all /
+  Keep current, Rename, Delete, with 0.5's refusals), BVHIDE (selected objects out of the current state), BVSHOW (the
+  hidden objects shown faded, picked within the host's pick radius). BCLOSE rebuilds the definition with its states
+  (`visEdited` for the DWG writer's dynblock rewrite) and references follow (dyn-blocks.js `followStates` /
+  `setVisibility`: renamed states, a deleted state → the first, a reference moves to a "*B<n>" copy showing its state);
+  objects added or erased in the editor save it plain, with 0.5's note. `Host::pick_radius` (the window: its pick
+  tolerance). Making new visibility parameters stays out, as in 0.5.
+- Parity: kdiff (a new scenario: states switched, made, renamed, deleted, objects hidden and shown, UNDO inside the
+  editor, BCLOSE with references following, the plain fallback) 78/78 records identical.
+- Final sweep on this commit: kdiff seed 3, all 39 scenarios + 20 random scripts, 5073/5073 records identical; idiff
+  `--set kit --save --xrefs` (every kit drawing gets two linked drawings, two clips, two binds and two pictures, then
+  saves) byte-identical 78/78 in DWG 2000, 2004, 2007, 2010, 2013, 2018, DXF 2000 and DXF R12 (624/624), reports equal.
+- Not timed against the JS (commands on a block's handful of objects; the kdiff scenario runs in under a millisecond a
+  step). No screenshot: no drawing in the corpus has a dynamic block with visibility states (the editor shows the
+  state's objects as ordinary objects).
+- Gate note: `fuzz m3d_tools` hit a 30-minute timeout in `cc_m3d::edges::add_edge` (ModelCraft's kernel, not touched
+  here) on the M4.19 tree; artifact kept outside the repo; every other fuzz target passed.
+
 ## 2026-10-20 — M4.19 Pictures: IMAGEATTACH, IMAGE, IMAGECLIP, raster images drawn (agent, work/xrefs)
 
 - `cmd/pictures.rs`: pictures-cmd.js — IMAGEATTACH (corner, width, angle; a "*I<n>" block through cc-io-cad's

@@ -332,6 +332,9 @@ impl Host for UiHost {
     fn can_pick_files(&self) -> bool {
         self.0.borrow().can_pick
     }
+    fn pick_radius(&self) -> Option<f64> {
+        Some(self.0.borrow().pick_tol)
+    }
     /// The window's picker answers later: `UiApp::sync_editor` opens it and delivers the file.
     fn pick_drawing(&mut self) -> cc_engine::Pick<Option<cc_engine::PickedDrawing>> {
         self.0.borrow_mut().pick_req = Some(PickReq::Drawing);

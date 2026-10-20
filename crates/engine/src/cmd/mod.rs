@@ -18,6 +18,7 @@ pub mod trim;
 pub mod ucscmd;
 pub mod units;
 pub mod view;
+pub mod visedit;
 pub mod xref;
 
 use crate::engine::Ctx;
@@ -162,6 +163,9 @@ pub static COMMANDS: &[CmdDef] = &[
     def("ATTDEF", &["ATT", "DDATTDEF", "-ATTDEF"], |c| Box::pin(block::attdef(c))),
     CmdDef { no_repeat: true, ..def("BEDIT", &["BE"], |c| Box::pin(block::bedit(c))) },
     CmdDef { no_repeat: true, ..def("BCLOSE", &[], |c| Box::pin(block::bclose(c))) },
+    CmdDef { no_repeat: true, ..def("BVSTATE", &["BVS"], |c| Box::pin(visedit::bvstate(c))) },
+    def("BVHIDE", &["BVH"], |c| Box::pin(visedit::bvhide(c))),
+    def("BVSHOW", &["BVSH"], |c| Box::pin(visedit::bvshow(c))),
     def("INSERT", &["I", "DDINSERT"], |c| Box::pin(block::insert(c))),
     def("LAYISO", &[], |c| Box::pin(layers::layiso(c))),
     quiet(def("LAYUNISO", &[], |c| Box::pin(layers::layuniso(c)))),
