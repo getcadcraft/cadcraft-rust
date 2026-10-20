@@ -17,6 +17,8 @@
 //! - `takeoff.compare` name = `<file>:<page>` (the older sheet, e.g. "f1:0", over the open one) | align (the next four
 //!   clicks: old, new, old, new) | find (Find changes) | move (Move takeoff here; a scales-differ question is answered
 //!   "Move them anyway") | close. `takeoff.flag` name = next (the next flagged mark); `takeoff.mark=flag.checked`.
+//! - `takeoff.view3d` name = on | off (no name: toggles) | pick:<mark id>[,shift] (a click on its object) | glb |
+//!   stack:on|off | levels:<file>:<page>=<length>;… (a blank length takes the sheet out of the stack).
 //! - `takeoff.edit` name = copy | cut | paste | paste-in-place | duplicate | select-all | select-none | delete | escape.
 //! - `takeoff.deduct` name = on | off (no name: toggles).
 //! - `takeoff.click` name = `x,y[,shift]` (PDF user space of the open sheet): a click with the tool.
@@ -120,6 +122,10 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     let r = run_pdf(app, id, params, &name);
     if let Some(p) = app.pdf.as_mut() {
         p.sync_takeoff();
+        // the 3D view follows every change, as 0.5's model listener rebuilds it
+        if p.d3.is_some() && id.starts_with("takeoff.") && id != "takeoff.view3d" {
+            p.update3d();
+        }
     }
     if let Some(p) = app.pdf.as_mut()
         && p.tools.prefs_dirty
@@ -206,6 +212,7 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
         "takeoff.note" => tk.note_edit(&name),
         "takeoff.group" => tk.group_edit(&name),
         "takeoff.compare" => p.takeoff_compare(&name),
+        "takeoff.view3d" => p.takeoff_3d(&name),
         "takeoff.flag" => p.takeoff_flag(&name),
         "takeoff.edit" => {
             let key = tk.cur_sheet.clone();

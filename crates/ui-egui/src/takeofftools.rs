@@ -34,7 +34,8 @@ pub struct TakeoffMode {
     pub sel_more: Vec<String>,
     /// a corner (or an arc's middle) of the selected mark being dragged
     pub drag: Option<crate::takeoffedit::Drag>,
-    /// this window's clipboard (the wire format clipboard.js writes) and the marks on the pointer waiting for a click
+    /// this window's clipboard (the clip clipboard.js reads back from what it wrote) and the marks on the pointer
+    /// waiting for a click
     pub clip: Option<Value>,
     pub paste: Option<(Value, &'static str)>,
     /// each sheet's view box and UserUnit (what a copy records and a paste in place checks)
@@ -52,6 +53,8 @@ pub struct TakeoffMode {
     /// the sheet on screen (the view sets it) and a sheet the view should go to (a markup or a group elsewhere)
     pub cur_sheet: String,
     pub goto: Option<String>,
+    /// the 3D button was pressed (the view opens it: it owns the sheets)
+    pub want_3d: bool,
     pub message: String,
     /// the name and type the "Add item" row uses
     new_name: String,
@@ -118,7 +121,7 @@ fn qty(x: f64) -> String {
 }
 
 /// ui-util.js `safeName`: path and control characters become spaces, runs of space one, at most 120 characters.
-fn safe_name(s: &str) -> String {
+pub(crate) fn safe_name(s: &str) -> String {
     let mapped: String =
         s.chars().map(|c| if matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c < ' ' { ' ' } else { c }).collect();
     let joined = mapped.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -173,6 +176,7 @@ impl TakeoffMode {
             cmp: None,
             cur_sheet: String::new(),
             goto: None,
+            want_3d: false,
             message: String::new(),
             new_name: String::new(),
             new_type: "count".into(),
@@ -645,6 +649,9 @@ impl TakeoffMode {
             })
             .response
             .on_hover_text(cc_takeoff::i18n::t("note.menu.title"));
+            if ui.button(cc_takeoff::i18n::t("d3.button")).on_hover_text(cc_takeoff::i18n::t("d3.button.title")).clicked() {
+                self.want_3d = true;
+            }
             let mut a = self.arc;
             if ui.checkbox(&mut a, cc_takeoff::i18n::t("tool.arc")).on_hover_text(cc_takeoff::i18n::t("tool.arc.title")).changed() {
                 self.toggle_arc(a);

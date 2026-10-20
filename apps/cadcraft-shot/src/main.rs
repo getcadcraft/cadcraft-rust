@@ -8,6 +8,7 @@
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
 //!   cadcraft-shot mkactbench <file.pdf> [--runs N] → JSON timings of MarkupCraft's editing actions (M9.16–M9.18)
+//!   cadcraft-shot tkactbench <old.pdf> <new.pdf> [--runs N] → JSON timings of TakeoffCraft's actions (M9.20–M9.23)
 //!   cadcraft-shot mcbench <file.modelcraft|.skp> [--runs N] → JSON timings of ModelCraft's open, panel edits, save and
 //!       3D-print check (best of N; forks/tools/mcuidiff.mjs --bench runs the same steps in the 0.5 JS)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
@@ -83,6 +84,7 @@ fn main() -> ExitCode {
         Some("demo3d") => demo3d(&args),
         Some("pdfbench") => pdfbench(&args),
         Some("mkactbench") => mkactbench(&args),
+        Some("tkactbench") => tkactbench(&args),
         Some("mcbench") => mcbench(&args),
         _ => shot(&args),
     };
@@ -342,6 +344,21 @@ fn mkactbench(args: &[String]) -> Result<(), String> {
     let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
     let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     println!("{}", cc_ui_egui::markupplus::bench_actions(&name, &bytes, runs)?);
+    Ok(())
+}
+
+/// `cadcraft-shot tkactbench <old.pdf> <new.pdf> [--runs N]`: TakeoffCraft's M9.20–M9.23 actions timed (copy / paste,
+/// a corner drag, a typical group, notes, Find changes, Move takeoff here, the marked PDF, 3D + GLB, delete), best of N,
+/// as one JSON line (forks/tools/tkactbench.mjs).
+fn tkactbench(args: &[String]) -> Result<(), String> {
+    let (Some(a), Some(b)) = (args.get(1), args.get(2)) else {
+        return Err("usage: cadcraft-shot tkactbench <old.pdf> <new.pdf> [--runs N]".into());
+    };
+    let runs: usize = arg(args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(3).clamp(1, 50);
+    let ba = std::fs::read(a).map_err(|e| format!("{a}: {e}"))?;
+    let bb = std::fs::read(b).map_err(|e| format!("{b}: {e}"))?;
+    let name = |f: &str| std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    println!("{}", cc_ui_egui::tkbench::bench((&name(a), &ba), (&name(b), &bb), runs)?);
     Ok(())
 }
 

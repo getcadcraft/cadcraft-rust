@@ -2,6 +2,41 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.23 TakeoffCraft's 3D view; timings of M9.20–M9.23 (agent, work/takeoff2)
+
+- `crates/ui-egui/src/takeoff3d.rs`: the 3D check view of takeoffcraft.js in place of the sheet (3D button): the sheet
+  on screen's takeoff (cc-takeoff `build_scene`: walls from runs with a height, slabs / plates, flat runs, count posts)
+  or the sheets that have a level stacked (`build_stack`, Stack), drawn by the shared 3D viewport (orbit / pan / zoom,
+  Zoom extents) on a plain ground (0.5 lays the sheet's picture there: not done), rebuilt after every change, the
+  selection painted; the note of what it shows (d3.note / d3.note.stacked and the scene's notes); a click selects the
+  object's mark (Shift adds or takes out) with 0.5's line of its measures (d3.pick.*); GLB (cc-io-takeoff `scene_to_glb`,
+  named "<takeoff> - <sheet>.glb", or "<takeoff>.glb" stacked); Levels (`takeoff.view3d=levels:…`). Opening it needs
+  a scale (d3.err.noscale) and switches to Select. Command `takeoff.view3d`.
+- `crates/ui-egui/src/tkbench.rs` + `cadcraft-shot tkactbench`, and `forks/tools/tkactbench.mjs` (the frozen 0.5 modules
+  in Node, pdf.js + @napi-rs/canvas for the rasters). Copy keeps the clip as read back (no second read on paste).
+- Parity (tkopsdiff `view3d`, 67 ops: opened without a scale, walls / runs / slab with a cut-out / plate / posts, every
+  kind of pick and Shift-picks, GLB, Stack with one sheet, a second PDF with a level, Stack and its GLB, back, toggle,
+  GLB with the view closed): project, CSV, XLSX, both marked PDFs and the three GLBs identical, 30/30 status lines.
+- Full sweep at the end (tkopsdiff, 11 scenarios, 663 ops on blank-grid, kitchen-plan-sheet, rev-a / rev-b): 61/61
+  files identical, 262/262 status lines (Find changes' pixel counts normalized: hayro vs pdf.js rasters). MarkupCraft
+  (shares the sheet view) unchanged: mkuidiff 17/17.
+- Timings (`forks/tools/tkactbench.mjs`, best of 7, rev-a at 1/8", 200 counts + 50 arc runs + an area, ms; the VPS is
+  shared and capped, so small numbers are noisy):
+
+  | action | JS 0.5 | Rust | JS/Rust |
+  |---|---|---|---|
+  | copy + paste in place (251 marks) | 4.7 | 5.3 | 0.9× |
+  | drag a corner (outline + cut-out checks) | 0.5 | 0.3 | 1.8× |
+  | typical group of every mark + estimate | 0.4 | 0.3 | 1.3× |
+  | 100 notes / clouds | 99.1 | 26.1 | 3.8× |
+  | Find changes (both sheets rasterized, compared, marks flagged) | 1,694 | 819 | 2.1× |
+  | Move takeoff here (251 marks) | 0.8 | 0.5 | 1.4× |
+  | marked PDF (cc-io-takeoff `pdf_with_marks`) | 15.4 | 96.9 | 0.2× |
+  | 3D scene + GLB | 18.7 | 29.6 | 0.6× |
+  | delete every mark | 0.5 | 0.3 | 1.5× |
+
+  The marked PDF and the 3D scene / GLB are engine code (cc-io-takeoff, cc-takeoff) and slower than the JS: next to look at.
+
 ## 2026-10-20 — M9.22 TakeoffCraft revisions: compare sheets, move the takeoff, flagged marks (agent, work/takeoff2)
 
 - `crates/ui-egui/src/takeoffrev.rs`, the revision overlay (T13) of takeoffcraft.js: Compare picks the older sheet (any

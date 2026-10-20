@@ -361,10 +361,14 @@ impl TakeoffMode {
         };
         let ctx = self.copy_ctx(&s(first.get("sheet")));
         let Some(wire) = copy_marks(&self.tk.state, &ids, &ctx) else { return false };
-        if let Err(e) = read_clip(&wire) {
-            self.message = e;
-            return false;
-        }
+        // storeClip: the clip as read back (what a paste uses, as clipMem.clip)
+        let clip = match read_clip(&wire) {
+            Ok(r) => r.clip,
+            Err(e) => {
+                self.message = e;
+                return false;
+            }
+        };
         if !quiet {
             let n = wire.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
             let names = item_list(wire.get("items"));
@@ -372,7 +376,7 @@ impl TakeoffMode {
             let fills = [("n", F::N(n as f64)), ("items", F::S(names)), ("mod", F::S(MOD.into()))];
             self.message = tf("copy.done", &fills);
         }
-        self.clip = Some(wire);
+        self.clip = Some(clip);
         true
     }
 
@@ -401,9 +405,9 @@ impl TakeoffMode {
         self.message = tf("cut.done", &[("n", F::N(n)), ("mod", F::S(MOD.into()))]);
     }
 
-    /// The clip, read again (what a paste checks), or why not.
+    /// The clip this window copied (currentClip).
     fn current_clip(&self) -> Option<Value> {
-        self.clip.as_ref().and_then(|w| read_clip(w).ok()).map(|r| r.clip)
+        self.clip.clone()
     }
 
     /// pasteRefused: can these marks go on the sheet?

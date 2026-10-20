@@ -70,12 +70,14 @@ pub mod pdfview;
 pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
+pub mod takeoff3d;
 pub mod takeoffedit;
 pub mod takeoffnotes;
 pub mod takeoffprops;
 pub mod takeoffrev;
 pub mod takeofftools;
 pub mod theme;
+pub mod tkbench;
 pub mod view3d;
 
 use std::collections::{HashMap, HashSet};

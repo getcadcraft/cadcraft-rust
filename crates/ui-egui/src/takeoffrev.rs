@@ -127,8 +127,8 @@ impl TakeoffMode {
         });
         let a = c.a;
         let mv = move |pts: &[Value]| -> Vec<Value> {
-            let ps: Vec<P> =
-                pts.iter().map(|p| cc_takeoff::model::pts_of(Some(&json!([p]))).first().copied().unwrap_or_default()).collect();
+            let num = |p: &Value, k: &str| p.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            let ps: Vec<P> = pts.iter().map(|p| P::arc(num(p, "x"), num(p, "y"), num(p, "b"))).collect();
             O::move_pts(&ps, &a).iter().map(crate::takeofftools::pt_json).collect()
         };
         let flagged: HashSet<String> = chg.flagged.iter().cloned().collect();

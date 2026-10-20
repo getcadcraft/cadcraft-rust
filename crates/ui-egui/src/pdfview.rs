@@ -266,6 +266,8 @@ pub struct PdfView {
     pub(crate) tk_tint: Option<(String, egui::TextureHandle, f64, cc_takeoff::geom::M6)>,
     pub(crate) tk_mask: Option<egui::TextureHandle>,
     pub(crate) tk_scale_ask: Option<(String, String)>,
+    /// TakeoffCraft's 3D check view (in place of the sheet while open)
+    pub d3: Option<crate::takeoff3d::D3>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -319,6 +321,7 @@ impl PdfView {
             tk_tint: None,
             tk_mask: None,
             tk_scale_ask: None,
+            d3: None,
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -557,6 +560,11 @@ impl PdfView {
 
     /// The page in `rect`: drag pans (any button), the wheel zooms about the pointer, Page Up / Down turn pages.
     pub fn show(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens) {
+        if self.mode == "takeoff" && self.d3.is_some() {
+            self.sync_takeoff();
+            self.show3d(ui, rect, t);
+            return;
+        }
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         ui.painter().rect_filled(rect, 0.0, t.canvas_bg);
         if !self.fitted {
@@ -1057,6 +1065,10 @@ impl PdfView {
         self.takeoff.panel(ui, t, &key, uu);
         ui.separator();
         self.takeoff_compare_panel(ui, t);
+        if std::mem::take(&mut self.takeoff.want_3d) {
+            let on = self.d3.is_none();
+            self.toggle3d(on);
+        }
     }
 
     /// Auto count on the open sheet for the symbol boxed from `a` to `b` (PDF user space). The search runs here
