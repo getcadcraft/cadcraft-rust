@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M9.17 MarkupCraft picture and signature stamps, tool chest (agent, work/markup2)
+
+- `crates/ui-egui/src/markupchest.rs`: the tool chest (the six stock tools, Save as a tool from a markup, use, remove,
+  import / export the chest file — chest.js), a chest tool in use as the drawing tool's preset (its style, subject,
+  stamp or count label and starting text on every markup it draws; its style, label and stamp edited in Properties; a
+  toolbar tool drops it), the stamp list's Picture… and My signature… (placed at 3 in / 2 in on a click, fitted in a
+  dragged box, turned with the page), the signature pad (strokes → a trimmed transparent PNG), a photo on a markup's
+  thread. Pictures are drawn on the sheet from their textures. What the JS keeps in localStorage (chest, picture,
+  signature, stamp, count group, tool styles) is `UiApp::mc_prefs`, kept by the desktop app in `markupcraft.json`.
+  Commands `markup.chest | picture | signature | photo`; the Tools tab.
+- `cc-io-markup::picture` (new): a picked file is hostile — PNG / JPEG only by magic bytes, the header read first and
+  the decode bounded by `image::Limits` (16 384 px a side, 512 MB); a picture ≤ 1600 px and ≤ 3 MB is kept byte for byte
+  (the JS re-encodes through a canvas, which nothing else can reproduce), a bigger one scaled to 1600 px and written
+  again (JPEG at 90, else PNG). New dependency `image` (png + jpeg). Fuzz target `markup_picture` with seeds.
+- Parity (mkuidiff): chest (71 ops: every stock tool drawn, preset style / label edits, save, remove, import with bad
+  tools and two non-chest files, export) and pictures (36 ops: picture and signature by click, box and short drag, a
+  JPEG, a non-picture, photos, copy / paste of pictures): saved PDFs and the chest file identical, 28/28 status lines;
+  the ten earlier scenarios unchanged.
+
 ## 2026-10-20 — M9.16 MarkupCraft clipboard, Markups list, replies, sheet names, Pages menu (agent, work/markup2)
 
 - `crates/ui-egui/src/markupedit.rs`, ports of markupcraft.js: Copy / Cut / Paste (beside the copy, a step further each

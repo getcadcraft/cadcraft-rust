@@ -355,6 +355,7 @@ dependencies = [
  "cc-m3d",
  "cc-markup",
  "hayro-syntax",
+ "image",
  "indexmap",
  "miniz_oxide 0.8.9",
  "serde_json",

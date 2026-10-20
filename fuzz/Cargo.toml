@@ -327,3 +327,10 @@ bench = false
 # same patched hayro-syntax as the main workspace (vendor/hayro-syntax/CADCRAFT-PATCH.md)
 [patch.crates-io]
 hayro-syntax = { path = "../vendor/hayro-syntax" }
+
+[[bin]]
+name = "markup_picture"
+path = "fuzz_targets/markup_picture.rs"
+test = false
+doc = false
+bench = false

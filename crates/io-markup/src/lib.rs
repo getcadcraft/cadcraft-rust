@@ -34,6 +34,7 @@ pub mod libdoc;
 pub mod obj;
 pub mod ops;
 pub mod pages;
+pub mod picture;
 pub mod read;
 pub mod summary;
 pub mod text;

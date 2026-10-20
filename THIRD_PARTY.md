@@ -20,6 +20,7 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | crc32fast | io-skp | CRC-32 check of unpacked ZIP entries (SIMD at run time) | MIT OR Apache-2.0 |
 | memchr | io-skp | substring search for record markers in classic SketchUp files | Unlicense OR MIT (used under MIT) |
 | hayro-syntax | io-markup | PDF object syntax for MarkupCraft's pdf.js-side reading (xref tables and streams, object streams, repair, decryption); `std` feature only, no rendering; **vendored with one panic removed** (`vendor/hayro-syntax/CADCRAFT-PATCH.md`) | Apache-2.0 OR MIT |
+| image (0.25, `png` + `jpeg` features: png, zune-jpeg) | io-markup | MarkupCraft's picture stamps and reply photos: PNG / JPEG decoded under `image::Limits` (header first), scaled to 1600 px and written again when bigger; BCF snapshots as PNG | MIT OR Apache-2.0 |
 | indexmap | markup, io-markup | insertion-ordered maps (the JS Map / object order of markups, fields and refs) | Apache-2.0 OR MIT |
 | url | io-civil | WHATWG URL parsing / serialising for the base-map service URLs (the JS uses `new URL` and `URLSearchParams`) | MIT OR Apache-2.0 (idna / ICU data crates: Unicode-3.0) |
 | laz (laz-rs) | io-civil | LAZ (LASzip) point decompression for CivilCraft's LiDAR import (the JS uses laz-perf); deps byteorder, num-traits; no build.rs, no default features | Apache-2.0 |

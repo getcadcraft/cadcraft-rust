@@ -145,6 +145,14 @@ pub struct MarkupTools {
     pub cal_unit: String,
     /// the tool to go back to once the sheet is calibrated (`afterCalibrate`)
     after_calibrate: Option<String>,
+    /// the tool chest (chest.js tools, as their JSON), and the chest tool the drawing tool is using (`toolPreset`)
+    pub chest: Vec<Value>,
+    pub preset: Option<Value>,
+    /// the stamp tool's picture (data URL, name) and signature (data URL)
+    pub picture: Option<(String, String)>,
+    pub signature: Option<String>,
+    /// the kept settings changed (the host saves `prefs_json`)
+    pub prefs_dirty: bool,
 }
 
 impl Default for MarkupTools {
@@ -167,6 +175,11 @@ impl Default for MarkupTools {
             cal_text: String::new(),
             cal_unit: "ft-in".into(),
             after_calibrate: None,
+            chest: cc_markup::chest::default_chest(),
+            preset: None,
+            picture: None,
+            signature: None,
+            prefs_dirty: false,
         }
     }
 }
@@ -200,16 +213,40 @@ impl MarkupTools {
         if let Some(own) = self.styles.get(kind) {
             st.merge(own);
         }
+        if let Some(ps) = self
+            .preset
+            .as_ref()
+            .filter(|p| p.get("type").and_then(Value::as_str) == Some(kind))
+            .and_then(|p| p.get("style"))
+            .and_then(Value::as_object)
+        {
+            st.merge(ps);
+        }
         st
+    }
+
+    /// A field of the chest tool in use ('' when none).
+    pub fn preset_str(&self, k: &str) -> String {
+        self.preset.as_ref().and_then(|p| p.get(k)).and_then(Value::as_str).unwrap_or("").to_string()
     }
 
     /// `newMarkup(type, geom)`.
     pub fn new_markup(&self, store: &mut Store, sheet: &str, kind: &str, geom: Map<String, Value>) -> Markup {
         let mut style = self.style_for(kind);
-        let label = if kind == "stamp" { cc_markup::model::stamp_label(&self.stamp) } else { String::new() };
-        if kind == "stamp" && !self.styles.get("stamp").is_some_and(|s| s.contains_key("color")) {
+        let plabel = self.preset_str("label");
+        let label = if kind != "stamp" {
+            String::new()
+        } else if plabel.is_empty() {
+            cc_markup::model::stamp_label(&self.stamp)
+        } else {
+            plabel
+        };
+        let preset_colour = self.preset.as_ref().and_then(|p| p.get("style")).and_then(|s| s.get("color")).is_some_and(|c| !c.is_null());
+        if kind == "stamp" && !preset_colour && !self.styles.get("stamp").is_some_and(|s| s.contains_key("color")) {
             style.color = cc_markup::model::stamp_color(&label).to_string();
         }
+        let psubject = self.preset_str("subject");
+        let ptext = self.preset_str("text");
         let layer =
             if !self.cur_layer.is_empty() && !store.layer_state(&self.cur_layer).locked { self.cur_layer.clone() } else { String::new() };
         let mut f = Map::new();
@@ -219,8 +256,11 @@ impl MarkupTools {
         f.insert("author".into(), json!(self.author));
         f.insert("label".into(), json!(label));
         f.insert("layer".into(), json!(layer));
-        f.insert("subject".into(), json!(cc_markup::model::type_subject(kind)));
-        f.insert("text".into(), json!(""));
+        f.insert("subject".into(), json!(if psubject.is_empty() { cc_markup::model::type_subject(kind) } else { psubject }));
+        f.insert("text".into(), json!(if text_type(kind) { ptext } else { String::new() }));
+        if let Some(xd) = self.preset.as_ref().filter(|p| p.get("type").and_then(Value::as_str) == Some(kind)).and_then(|p| p.get("xd")) {
+            f.insert("xd".into(), xd.clone());
+        }
         for (k, v) in geom {
             f.insert(k, v);
         }
@@ -253,6 +293,7 @@ impl MarkupTools {
     pub fn set_tool(&mut self, store: &mut Store, sheet: &str, name: &str) {
         self.commit_edit(store, sheet);
         self.cancel();
+        self.preset = None;
         let mut name = name.to_string();
         if matches!(name.as_str(), "measure" | "area") && !store.calibrations.contains_key(sheet) {
             self.message = t0("hint.calibrate_first");
@@ -600,8 +641,16 @@ impl MarkupTools {
         let z = self.z();
         let tool = self.tool.clone();
         let mut g = Map::new();
+        if tool == "stamp"
+            && self.preset.is_none()
+            && let Some(pic) = self.current_picture()
+        {
+            self.place_picture(store, sheet, &pic, a, b);
+            return;
+        }
         if tool == "stamp" {
-            let label = cc_markup::model::stamp_label(&self.stamp);
+            let plabel = self.preset_str("label");
+            let label = if plabel.is_empty() { cc_markup::model::stamp_label(&self.stamp) } else { plabel };
             let rect = match b {
                 Some(b) => {
                     if (b[0] - a[0]).abs() < 8.0 / z || (b[1] - a[1]).abs() < 8.0 / z {
@@ -636,6 +685,32 @@ impl MarkupTools {
         }
         g.insert("rect".into(), json!([a[0], a[1], b[0], b[1]]));
         let m = self.new_markup(store, sheet, &tool, g);
+        self.commit_new(store, m, None);
+    }
+
+    /// `placePicture(pic, a, b)`: a click centres the picture at its usual size (3 in, a signature 2 in), a dragged box
+    /// fits it inside (proportions kept), turned with the page.
+    fn place_picture(&mut self, store: &mut Store, sheet: &str, pic: &(String, String), a: P, b: Option<P>) {
+        use cc_markup::imagestamp::{fit_box, image_info, place_rect};
+        let Some(info) = image_info(&pic.0) else { return };
+        let (iw, ih) = (f64::from(info.width), f64::from(info.height));
+        let sig = self.stamp == crate::markupchest::SIG;
+        let wide = if sig { 144.0 } else { 216.0 };
+        let z = self.z();
+        let (wh, center) = match b {
+            Some(b) if (b[0] - a[0]).abs() > 8.0 / z && (b[1] - a[1]).abs() > 8.0 / z => {
+                let rot = self.rot % 180.0 != 0.0;
+                let (bw, bh) = ((b[0] - a[0]).abs(), (b[1] - a[1]).abs());
+                (fit_box(iw, ih, if rot { bh } else { bw }, if rot { bw } else { bh }), [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0])
+            }
+            _ => (fit_box(iw, ih, wide, wide * 4.0), a),
+        };
+        let mut g = Map::new();
+        g.insert("rect".into(), json!(place_rect(center, wh[0], wh[1], self.rot)));
+        g.insert("img".into(), json!(pic.0));
+        g.insert("label".into(), json!(pic.1));
+        g.insert("subject".into(), json!(if sig { t0("image.signature.label") } else { cc_markup::model::type_subject("image") }));
+        let m = self.new_markup(store, sheet, "image", g);
         self.commit_new(store, m, None);
     }
 
@@ -770,7 +845,17 @@ impl MarkupTools {
             }
             return;
         }
-        let label: String = if self.count_label.is_empty() { default } else { self.count_label.clone() }.chars().take(60).collect();
+        let plabel = self.preset_str("label");
+        let label: String = if !plabel.is_empty() {
+            plabel
+        } else if self.count_label.is_empty() {
+            default
+        } else {
+            self.count_label.clone()
+        }
+        .chars()
+        .take(60)
+        .collect();
         let mut g = Map::new();
         g.insert("pts".into(), json!([p]));
         g.insert("label".into(), json!(label));

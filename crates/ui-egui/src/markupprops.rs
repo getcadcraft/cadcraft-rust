@@ -123,10 +123,21 @@ impl MarkupTools {
             }
             let st = self.style_for(&self.tool);
             let Some(p) = style_value(&st, key, v) else { return Ok(()) };
+            // a chest tool in use keeps its own style; else the tool's settings (kept between runs)
+            if let Some(ps) = self.preset.as_mut().and_then(Value::as_object_mut) {
+                let style = ps.entry("style").or_insert_with(|| Value::Object(Map::new()));
+                if let Some(o) = style.as_object_mut() {
+                    for (k, x) in p {
+                        o.insert(k, x);
+                    }
+                }
+                return Ok(());
+            }
             let own = self.styles.entry(self.tool.clone()).or_default();
             for (k, x) in p {
                 own.insert(k, x);
             }
+            self.prefs_dirty = true;
             return Ok(());
         }
         let first = ids.first().and_then(|i| store.get(i)).map(|m| m.style.clone()).ok_or("markup.style: nothing selected")?;
@@ -150,11 +161,28 @@ impl MarkupTools {
         if ids.is_empty() {
             if field == "label" && self.tool == "count" {
                 let s: String = v.trim().chars().take(60).collect();
-                self.count_label = if s.is_empty() { t0("count.default") } else { s };
+                let s = if s.is_empty() { t0("count.default") } else { s };
+                match self.preset.as_mut().and_then(Value::as_object_mut) {
+                    Some(p) => {
+                        p.insert("label".into(), json!(s));
+                    }
+                    None => {
+                        self.count_label = s;
+                        self.prefs_dirty = true;
+                    }
+                }
                 return Ok(());
             }
             if field == "stamp" && self.tool == "stamp" {
-                self.stamp = v.to_string();
+                match self.preset.as_mut().and_then(Value::as_object_mut) {
+                    Some(p) => {
+                        p.insert("label".into(), json!(v));
+                    }
+                    None => {
+                        self.stamp = v.to_string();
+                        self.prefs_dirty = true;
+                    }
+                }
                 self.message = t("stamp.picked", &[("stamp", Fill::S(v.to_string()))]);
                 return Ok(());
             }
@@ -448,6 +476,9 @@ impl crate::pdfview::PdfView {
             ui.add_space(4.0);
             let mc = m.clone();
             self.thread_section(ui, tok, &mc);
+            if ui.button(t0("chest.save.one")).clicked() {
+                self.dlg = Some(crate::markupedit::Dialog::ChestName { name: self.chest_name_for(&mc), error: String::new() });
+            }
             if ui.button(t0("menu.delete")).clicked() {
                 self.tools.delete_selected(&mut self.store);
             }
@@ -488,30 +519,83 @@ impl crate::pdfview::PdfView {
             }
         } else if draws(&self.tools.tool) {
             let tool = self.tools.tool.clone();
-            head(ui, t("props.h.tool", &[("tool", Fill::S(t0(&format!("type.{tool}"))))]));
+            let pname = self.tools.preset_str("name");
+            head(ui, t("props.h.tool", &[("tool", Fill::S(if pname.is_empty() { t0(&format!("type.{tool}")) } else { pname.clone() }))]));
             if tool == "count" {
-                let cur = if self.tools.count_label.is_empty() { t0("count.default") } else { self.tools.count_label.clone() };
+                let pl = self.tools.preset_str("label");
+                let cur = if !pl.is_empty() {
+                    pl
+                } else if self.tools.count_label.is_empty() {
+                    t0("count.default")
+                } else {
+                    self.tools.count_label.clone()
+                };
                 if let Some(v) = field(&mut self.edits, ui, "tool:count", &cur, &t0("props.group"), false) {
                     prop_set.push(("label", v));
                 }
             }
+            let mut pic_act: Option<&str> = None;
             if tool == "stamp" {
+                let preset = self.tools.preset.is_some();
+                let pl = self.tools.preset_str("label");
+                let cur = match self.tools.stamp.as_str() {
+                    _ if preset => pl,
+                    crate::markupchest::PIC => t0("stamp.picture"),
+                    crate::markupchest::SIG => t0("stamp.signature"),
+                    s => cc_markup::model::stamp_label(s),
+                };
                 let l = ui.label(RichText::new(t0("stamp.label")).small());
                 egui::ComboBox::new("mc-t-stamp", "")
-                    .selected_text(cc_markup::model::stamp_label(&self.tools.stamp))
+                    .selected_text(cur.clone())
                     .show_ui(ui, |ui| {
                         for s in cc_markup::model::stamps() {
-                            if ui.selectable_label(cc_markup::model::stamp_label(&self.tools.stamp) == s, &s).clicked() {
+                            if ui.selectable_label(cur == s, &s).clicked() {
                                 prop_set.push(("stamp", s));
+                            }
+                        }
+                        if !preset {
+                            if ui.selectable_label(false, t0("stamp.picture")).clicked() {
+                                pic_act = Some("picture");
+                            }
+                            if ui.selectable_label(false, t0("stamp.signature")).clicked() {
+                                pic_act = Some("signature");
                             }
                         }
                     })
                     .response
                     .labelled_by(l.id);
+                if !preset && let Some((src, label)) = self.tools.current_picture() {
+                    ui.label(RichText::new(t0("image.preview")).small());
+                    if let Some(tex) = self.picture_texture(ui.ctx(), &src) {
+                        let sz = tex.size_vec2();
+                        let k = (200.0 / sz.x.max(1.0)).min(100.0 / sz.y.max(1.0)).min(1.0);
+                        ui.image((tex.id(), sz * k)).on_hover_text(label);
+                    }
+                    let again = if self.tools.stamp == crate::markupchest::SIG { "image.signature.again" } else { "image.pick.again" };
+                    if ui.button(t0(again)).clicked() {
+                        pic_act = Some(if self.tools.stamp == crate::markupchest::SIG { "sign-again" } else { "picture" });
+                    }
+                }
             }
             let st = self.tools.style_for(&tool);
             style_ui(&mut self.edits, ui, &st, std::slice::from_ref(&tool), &mut style_set);
-            ui.label(RichText::new(t("props.tool.note", &[("type", Fill::S(t0(&format!("type.{tool}.lower"))))])).color(tok.text_dim));
+            let note = if pname.is_empty() {
+                t("props.tool.note", &[("type", Fill::S(t0(&format!("type.{tool}.lower"))))])
+            } else {
+                t("props.tool.preset", &[("tool", Fill::S(pname))])
+            };
+            ui.label(RichText::new(note).color(tok.text_dim));
+            match pic_act {
+                Some("picture") => self.want_pick = Some("picture"),
+                Some("signature") => match self.tools.signature.clone() {
+                    Some(src) => {
+                        let _ = self.set_signature(&src);
+                    }
+                    None => self.dlg = Some(crate::markupedit::Dialog::Signature { strokes: Vec::new(), error: String::new() }),
+                },
+                Some("sign-again") => self.dlg = Some(crate::markupedit::Dialog::Signature { strokes: Vec::new(), error: String::new() }),
+                _ => {}
+            }
         } else {
             head(ui, t0("props.h.sheet"));
             let p = self.cur.pages.get(self.page).cloned();

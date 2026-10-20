@@ -47,6 +47,7 @@ pub mod document;
 pub mod edit;
 pub mod hub;
 pub mod ifc3d;
+pub mod markupchest;
 pub mod markupcompare;
 pub mod markupedit;
 pub mod markupprops;
@@ -201,6 +202,9 @@ pub struct UiApp {
     ifc_name: String,
     /// an open PDF plan set
     pub pdf: Option<pdfview::PdfView>,
+    /// what MarkupCraft keeps between runs (the tool chest, the picture and signature, tool settings): the desktop
+    /// app reads and writes it as `markupcraft.json`
+    pub mc_prefs: serde_json::Value,
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -288,6 +292,7 @@ impl Default for UiApp {
             bim: bimtools::BimTools::default(),
             ifc_name: String::new(),
             pdf: None,
+            mc_prefs: serde_json::Value::Null,
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),
@@ -398,7 +403,8 @@ impl UiApp {
         }
         if lower.ends_with(".pdf") {
             match pdfview::PdfView::open(&f.name, &f.bytes) {
-                Ok(v) => {
+                Ok(mut v) => {
+                    v.tools.load_prefs(&self.mc_prefs);
                     self.doc = None;
                     self.editor = None;
                     self.source = None;
@@ -1771,18 +1777,38 @@ impl UiApp {
                 let rect = ui.max_rect();
                 pdf.show(ui, rect, &t);
             });
-            pdf.dialogs(ui.ctx());
-            if pdf.want_pick.take() == Some("insert-pdf") {
-                // Pages › Insert pages from a PDF: the host's picker, then the pages go in after the open sheet
+            pdf.dialogs(ui.ctx(), &t);
+            if let Some(what) = pdf.want_pick.take() {
+                // a file for an action: Insert pages from a PDF, a picture for the stamp, a photo, a tool chest
                 match self.services.pick_open.as_mut().and_then(|f| f()) {
                     Some(Ok(f)) => {
-                        if let Err(e) = pdf.pages_op("insert-pdf", "", Some((&f.name, &f.bytes))) {
+                        let r = match what {
+                            "insert-pdf" => pdf.pages_op("insert-pdf", "", Some((&f.name, &f.bytes))),
+                            "picture" => {
+                                pdf.set_picture(&f.name, &f.bytes);
+                                Ok(())
+                            }
+                            "photo" => {
+                                let caption = pdf.tools.selected().and_then(|id| pdf.reply_drafts.get(id)).cloned().unwrap_or_default();
+                                pdf.photo_reply(&f.name, &f.bytes, &caption)
+                            }
+                            "chest-import" => {
+                                pdf.import_chest(&f.name, &f.bytes);
+                                Ok(())
+                            }
+                            _ => Ok(()),
+                        };
+                        if let Err(e) = r {
                             pdf.tools.message = e;
                         }
                     }
                     Some(Err(e)) => pdf.tools.message = e,
                     None => {}
                 }
+            }
+            if pdf.tools.prefs_dirty {
+                pdf.tools.prefs_dirty = false;
+                self.mc_prefs = pdf.tools.prefs_json();
             }
             for (name, bytes) in std::mem::take(&mut pdf.outbox) {
                 match self.services.save.as_mut().map(|f| f(&name, bytes)) {

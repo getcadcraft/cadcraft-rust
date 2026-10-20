@@ -55,9 +55,39 @@ fn save_recent(app: &UiApp) {
     let _ = cc_mcp::confine::write_file_atomic(&p, serde_json::Value::Array(list).to_string().as_bytes());
 }
 
+/// What MarkupCraft keeps between runs (tool chest, picture, signature, tool settings): `markupcraft.json` in the config
+/// folder (the JS keeps them in the browser's localStorage).
+fn mc_prefs_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("markupcraft.json"))
+}
+
+fn load_mc_prefs(app: &mut UiApp) {
+    let Some(p) = mc_prefs_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    // a damaged file is ignored (and replaced on the next save); at most 16 MB is read (pictures travel as data URLs)
+    if text.len() > 16 << 20 {
+        return;
+    }
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&text) {
+        app.mc_prefs = v;
+    }
+}
+
+fn save_mc_prefs(app: &UiApp) {
+    let Some(p) = mc_prefs_path() else { return };
+    if app.mc_prefs.is_null() {
+        return;
+    }
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, app.mc_prefs.to_string().as_bytes());
+}
+
 impl eframe::App for App {
     fn on_exit(&mut self) {
         save_recent(&self.app);
+        save_mc_prefs(&self.app);
     }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
@@ -229,6 +259,7 @@ fn main() -> eframe::Result {
             cc_ui_egui::partview::BACKGROUND_REBUILDS.store(true, std::sync::atomic::Ordering::Relaxed);
             let mut app = UiApp::new(services);
             load_recent(&mut app);
+            load_mc_prefs(&mut app);
             if let Some(l) = control_line {
                 app.message = l;
             }

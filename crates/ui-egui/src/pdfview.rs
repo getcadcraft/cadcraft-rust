@@ -227,8 +227,10 @@ pub struct PdfView {
     pub dlg: Option<crate::markupedit::Dialog>,
     /// files an action made (exports, extracted pages), waiting for the host's save
     pub outbox: Vec<(String, Vec<u8>)>,
-    /// a file the person is to pick for an action (`insert-pdf`), handled by the host
+    /// a file the person is to pick for an action (`insert-pdf`, `picture`, `photo`, `chest-import`), handled by the host
     pub want_pick: Option<&'static str>,
+    /// pictures on the screen (image markups, the stamp's picture): texture by a hash of the data URL (None = unreadable)
+    pub(crate) pics: std::collections::HashMap<u64, Option<egui::TextureHandle>>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -276,6 +278,7 @@ impl PdfView {
             dlg: None,
             outbox: Vec::new(),
             want_pick: None,
+            pics: std::collections::HashMap::new(),
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -679,6 +682,12 @@ impl PdfView {
             painter.image(tex.id(), page_rect, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
         }
         if self.show_markups || crate::markuptools::draws(&self.tools.tool) {
+            // picture stamps: their textures first (decoded once, under limits)
+            let key = self.sheet_key();
+            let srcs: Vec<String> = self.store.on_sheet(&key).iter().filter(|m| m.kind == "image").map(|m| m.img.clone()).collect();
+            for s in srcs {
+                self.picture_texture(ui.ctx(), &s);
+            }
             self.draw_markups(&painter, page_rect.min);
         }
         if self.mode != "takeoff"
@@ -822,16 +831,41 @@ impl PdfView {
                     }
                     Item::Image(im) => {
                         let (a, b) = (at(im.bbox[0], im.bbox[1]), at(im.bbox[2], im.bbox[3]));
-                        painter.rect_stroke(
-                            Rect::from_two_pos(a, b),
-                            0.0,
-                            egui::Stroke::new(1.0, Color32::from_gray(140)),
-                            egui::StrokeKind::Inside,
-                        );
+                        let r = Rect::from_two_pos(a, b);
+                        match self.pics.get(&pic_key(&im.src)).cloned().flatten() {
+                            Some(tex) => {
+                                let alpha = if im.alpha.is_finite() { im.alpha.clamp(0.0, 1.0) } else { 1.0 };
+                                let tint = Color32::from_white_alpha((alpha * 255.0).round() as u8);
+                                painter.image(tex.id(), r, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), tint);
+                            }
+                            None => {
+                                painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, Color32::from_gray(140)), egui::StrokeKind::Inside);
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+
+    /// A picture's texture (a data URL decoded once, under cc-io-markup `picture`'s limits; None when unreadable).
+    pub fn picture_texture(&mut self, ctx: &egui::Context, src: &str) -> Option<egui::TextureHandle> {
+        let k = pic_key(src);
+        if let Some(t) = self.pics.get(&k) {
+            return t.clone();
+        }
+        if self.pics.len() > 256 {
+            self.pics.clear();
+        }
+        let tex = cc_io_markup::picture::decode_rgba(src).and_then(|(w, h, rgba)| {
+            let size = [usize::try_from(w).ok()?, usize::try_from(h).ok()?];
+            (rgba.len() == size[0].checked_mul(size[1])?.checked_mul(4)?).then(|| {
+                let img = egui::ColorImage::from_rgba_unmultiplied(size, &rgba);
+                ctx.load_texture(format!("mc-pic-{k}"), img, egui::TextureOptions::LINEAR)
+            })
+        });
+        self.pics.insert(k, tex.clone());
+        tex
     }
 
     /// How many markups the open page has.
@@ -1173,6 +1207,14 @@ pub fn bench(name: &str, bytes: &[u8], runs: usize) -> Result<String, String> {
         render[0],
         render[1]
     ))
+}
+
+/// The key a picture's texture is kept under.
+fn pic_key(src: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    src.hash(&mut h);
+    h.finish()
 }
 
 /// "#rrggbb" (or "#rgb") with an alpha → a colour; None for anything else (a markup's colours are data from the file).

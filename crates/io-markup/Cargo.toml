@@ -23,3 +23,5 @@ indexmap = "2.14"
 # the cross-reference / object / filter / decryption layer for the reading side (pdf.js's role); pure Rust, Apache-2.0 OR MIT
 hayro-syntax = { version = "0.8", default-features = false, features = ["std"] }
 miniz_oxide = "0.8"
+# pictures picked for stamps and photos (PNG / JPEG, decoded under Limits), BCF snapshots
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

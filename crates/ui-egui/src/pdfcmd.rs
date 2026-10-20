@@ -27,6 +27,9 @@
 //! - `markup.edit` name = copy | cut | paste | paste-in-place | paste-at:x,y (the pointer's place) | duplicate |
 //!   select-all | select-none.
 //! - `markup.reply` name = the reply's text (the selected markup's thread); `markup.tab` name = the right panel's tab.
+//! - `markup.chest` name = save:NAME (the selected markup's look) | use:I | remove:I | import:PATH | export.
+//! - `markup.picture` name = PATH (a PNG or JPEG for the stamp tool); `markup.signature` name = PATH (a PNG used as the
+//!   signature, as the signature pad makes it); `markup.photo` name = `PATH|caption` (a photo on the thread).
 //! - `markup.rename` name = `number|title` of the open sheet (both empty: what the file says).
 //! - `markup.pages` name = rotate-cw | rotate-ccw | move-up | move-down | insert-blank | add-blank | delete:PAGES |
 //!   extract:PAGES (saved) | insert-pdf:PATH (PAGES as "1-3, 5").
@@ -58,6 +61,33 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         return Ok(());
     }
+    // commands that read a file by its path, through the host
+    let file_arg = match id {
+        "markup.picture" | "markup.signature" => Some(name.as_str()),
+        "markup.photo" => Some(name.split_once('|').map_or(name.as_str(), |(a, _)| a)),
+        "markup.chest" => name.strip_prefix("import:"),
+        _ => None,
+    };
+    if let Some(path) = file_arg {
+        let read = app.services.read_path.as_mut().ok_or_else(|| format!("{id}: reading files is not available here"))?;
+        let f = read(path)?;
+        let p = app.pdf.as_mut().ok_or_else(|| format!("{id}: open a PDF first"))?;
+        match id {
+            "markup.picture" => p.set_picture(&f.name, &f.bytes),
+            "markup.signature" => {
+                let src =
+                    cc_markup::imagestamp::clean_image(&format!("data:image/png;base64,{}", cc_markup::imagestamp::b64_encode(&f.bytes)));
+                p.set_signature(&src)?;
+            }
+            "markup.photo" => p.photo_reply(&f.name, &f.bytes, name.split_once('|').map_or("", |(_, c)| c))?,
+            _ => p.import_chest(&f.name, &f.bytes),
+        }
+        if p.tools.prefs_dirty {
+            p.tools.prefs_dirty = false;
+            app.mc_prefs = p.tools.prefs_json();
+        }
+        return Ok(());
+    }
     if id == "markup.pages"
         && let Some(path) = name.strip_prefix("insert-pdf:")
     {
@@ -69,6 +99,12 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         return Ok(());
     }
     let r = run_pdf(app, id, params, &name);
+    if let Some(p) = app.pdf.as_mut()
+        && p.tools.prefs_dirty
+    {
+        p.tools.prefs_dirty = false;
+        app.mc_prefs = p.tools.prefs_json();
+    }
     // files the command made (exports, extracted pages) go to the host's save
     if let Some(p) = app.pdf.as_mut() {
         let outs = std::mem::take(&mut p.outbox);
@@ -263,10 +299,25 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             p.tab = match name.as_str() {
                 "props" => "props",
                 "list" => "list",
+                "chest" => "chest",
                 "compare" => "compare",
-                _ => return Err(format!("markup.tab: unknown tab {name} (props, list, compare)")),
+                _ => return Err(format!("markup.tab: unknown tab {name} (props, list, chest, compare)")),
             };
             Ok(())
+        }
+        "markup.chest" => {
+            let (k, arg) = name.split_once(':').unwrap_or((name.as_str(), ""));
+            let idx = || arg.parse::<usize>().map_err(|_| format!("markup.chest: {k}:I takes a tool number"));
+            match k {
+                "save" => p.save_to_chest(arg),
+                "use" => p.use_tool(idx()?),
+                "remove" => p.remove_tool(idx()?),
+                "export" => {
+                    p.export_chest();
+                    Ok(())
+                }
+                _ => Err(format!("markup.chest: unknown action {k} (save, use, remove, import, export)")),
+            }
         }
         "markup.rename" => {
             let (n, t) = name.split_once('|').unwrap_or((name.as_str(), ""));

@@ -48,6 +48,12 @@ pub enum Dialog {
     Rename { number: String, title: String },
     /// askPages for Delete pages or Extract pages: the page list being typed and the check's error
     Pages { kind: &'static str, text: String, error: String },
+    /// Save as a tool: the tool's name being typed
+    ChestName { name: String, error: String },
+    /// Remove a tool from the chest (confirm)
+    RemoveTool { index: usize },
+    /// the signature pad: the strokes drawn (pad coordinates)
+    Signature { strokes: Vec<Vec<[f64; 2]>>, error: String },
 }
 
 /// One sheet of the plan set (markupcraft.js `sheets[i]`): files in the order they were opened, pages in order.
@@ -826,10 +832,10 @@ impl PdfView {
 
     // ---- panels ----
 
-    /// The right panel: Properties, Markups, Compare (tabs as markupcraft's).
+    /// The right panel: Properties, Markups, Tools, Compare (tabs as markupcraft's).
     pub fn right_panel(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
         ui.horizontal_wrapped(|ui| {
-            for k in ["props", "list", "compare"] {
+            for k in ["props", "list", "chest", "compare"] {
                 if ui.selectable_label(self.tab == k, t0(&format!("tab.{k}"))).clicked() {
                     self.tab = k;
                 }
@@ -838,6 +844,7 @@ impl PdfView {
         ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
             "list" => self.list_panel(ui, tok),
+            "chest" => self.chest_panel(ui, tok),
             "compare" => self.compare_panel(ui, tok),
             _ => self.props_panel(ui, tok),
         });
@@ -1029,7 +1036,14 @@ impl PdfView {
         let l = ui.label(RichText::new(t0("thread.reply")).small());
         let w = ui.available_width();
         ui.add(egui::TextEdit::multiline(draft).desired_rows(2).desired_width(w).hint_text(t0("thread.placeholder"))).labelled_by(l.id);
-        let send = ui.button(t0("thread.reply")).clicked();
+        let (send, photo) = ui
+            .horizontal(|ui| {
+                (ui.button(t0("thread.reply")).clicked(), ui.button(t0("photo.add")).on_hover_text(t0("photo.add.title")).clicked())
+            })
+            .inner;
+        if photo {
+            self.want_pick = Some("photo");
+        }
         if send {
             let text = self.reply_drafts.get(&m.id).cloned().unwrap_or_default();
             if let Err(e) = self.reply(&text) {
@@ -1085,10 +1099,54 @@ impl PdfView {
     }
 
     /// The dialog over the sheet, if one is open.
-    pub fn dialogs(&mut self, ctx: &egui::Context) {
+    pub fn dialogs(&mut self, ctx: &egui::Context, tok: &Tokens) {
         let Some(d) = self.dlg.clone() else { return };
         let mut close = false;
         match d {
+            Dialog::Signature { .. } => {
+                self.signature_dialog(ctx, tok);
+                return;
+            }
+            Dialog::ChestName { mut name, mut error } => {
+                let mut save = false;
+                let kind = self.tools.selected().and_then(|id| self.store.get(id)).map(|m| m.kind.clone()).unwrap_or_default();
+                egui::Window::new(t0("chest.save.one")).collapsible(false).resizable(false).show(ctx, |ui| {
+                    ui.label(t0(if kind == "stamp" { "chest.dlg.text.stamp" } else { "chest.dlg.text" }));
+                    let l = ui.label(t0("chest.dlg.name"));
+                    ui.text_edit_singleline(&mut name).labelled_by(l.id);
+                    if !error.is_empty() {
+                        ui.colored_label(ui.visuals().error_fg_color, &error);
+                    }
+                    ui.horizontal(|ui| {
+                        close = ui.button(t0("dlg.cancel")).clicked();
+                        save = ui.button(t0("chest.dlg.save")).clicked();
+                    });
+                });
+                if save {
+                    match self.save_to_chest(&name) {
+                        Ok(()) => close = true,
+                        Err(e) => error = e,
+                    }
+                }
+                if !close {
+                    self.dlg = Some(Dialog::ChestName { name, error });
+                }
+            }
+            Dialog::RemoveTool { index } => {
+                let name = self.tools.chest.get(index).map(|t| crate::markupchest::tstr(t, "name")).unwrap_or_default();
+                let mut ok = false;
+                egui::Window::new(t0("chest.remove.h")).collapsible(false).resizable(false).show(ctx, |ui| {
+                    ui.label(t("chest.remove.text", &[("tool", Fill::S(name))]));
+                    ui.horizontal(|ui| {
+                        close = ui.button(t0("dlg.cancel")).clicked();
+                        ok = ui.button(t0("chest.remove.ok")).clicked();
+                    });
+                });
+                if ok {
+                    let _ = self.remove_tool(index);
+                    close = true;
+                }
+            }
             Dialog::Rename { mut number, mut title } => {
                 let mut save = false;
                 egui::Window::new(t0("props.rename")).collapsible(false).resizable(false).show(ctx, |ui| {
