@@ -111,6 +111,15 @@ pub struct ModelView {
     mods: egui::Modifiers,
     /// Entity info's heading as last laid out
     pub(crate) info_heading: std::cell::RefCell<String>,
+    /// the clipboard (model.copyClip's JSON), the pointer over the view, the 3D text dialog and the last text placed,
+    /// the time given to scripted clicks (mcedit.rs)
+    pub clip: Option<serde_json::Value>,
+    pub mouse: Option<(f64, f64)>,
+    pub text_dlg: Option<crate::mcedit::Text3dDlg>,
+    pub text_last: crate::mcedit::TextLast,
+    pub(crate) click_clock: f64,
+    /// the camera's size pinned by `view-size` (harnesses), else the view's
+    pub(crate) pinned_size: Option<(f64, f64)>,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -170,6 +179,12 @@ impl ModelView {
             renaming: None,
             mods: egui::Modifiers::NONE,
             info_heading: std::cell::RefCell::new(String::new()),
+            clip: None,
+            mouse: None,
+            text_dlg: None,
+            text_last: crate::mcedit::TextLast::default(),
+            click_clock: 0.0,
+            pinned_size: None,
         };
         v.fit();
         Ok(v)
@@ -224,6 +239,13 @@ impl ModelView {
             alt: m.alt,
             time: Some(self.now()),
             ..Ev::default()
+        }
+    }
+
+    /// An action from a key: its error becomes the status.
+    fn run_act(&mut self, a: &str) {
+        if let Err(e) = self.act(a) {
+            self.message = e;
         }
     }
 
@@ -351,7 +373,8 @@ impl ModelView {
     pub fn show(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens) {
         let ppp = f64::from(ui.ctx().pixels_per_point());
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
-        self.tools.host.cam.set_size(f64::from(rect.width()), f64::from(rect.height()));
+        let (w, h) = self.pinned_size.unwrap_or((f64::from(rect.width()), f64::from(rect.height())));
+        self.tools.host.cam.set_size(w, h);
         self.input(ui, &resp, rect);
         self.sync_ctx();
         self.step_anim(ui);
@@ -369,10 +392,8 @@ impl ModelView {
         };
         view3d::paint(ui, rect, &self.scene, &cam, &self.style);
         self.overlay(ui, rect, t);
-        if let Some(m) = self.tools.host.msgs.pop() {
-            self.message = m;
-            self.tools.host.msgs.clear();
-        }
+        self.take_tool_message();
+        self.dialogs(ui.ctx());
     }
 
     fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, rect: Rect) {
@@ -389,9 +410,13 @@ impl ModelView {
             )
         });
         let inside = pos.is_some_and(|p| rect.contains(p));
+        if inside && let Some(p) = pos {
+            self.mouse = Some((f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y)));
+        }
         // presses that start in the view
         if inside && let Some(p) = pos {
             if pressed[0] {
+                self.place_guard();
                 self.held = Some(egui::PointerButton::Primary);
                 let e = self.ev(p, rect, mods);
                 let _ = self.tools.down(&e);
@@ -446,6 +471,10 @@ impl ModelView {
             match ev {
                 egui::Event::Key { key, pressed: true, modifiers, .. } => self.key(key, modifiers),
                 egui::Event::Key { key: egui::Key::Escape, pressed: false, .. } => {}
+                // Ctrl+C / Ctrl+X / Ctrl+V (Ctrl+Shift+V in place) arrive as clipboard events
+                egui::Event::Copy => self.run_act("copy"),
+                egui::Event::Cut => self.run_act("cut"),
+                egui::Event::Paste(_) => self.run_act(if mods.shift { "paste-in-place" } else { "paste" }),
                 egui::Event::Text(s) => {
                     for ch in s.chars() {
                         if ch.is_ascii_digit() || ".,-+/*<>@[]'\"xXs ".contains(ch) || (!self.vcb.is_empty() && ch.is_ascii_alphabetic()) {
@@ -480,6 +509,10 @@ impl ModelView {
         }
         if m.command && key == Key::A {
             self.select_all();
+            return;
+        }
+        if m.command && key == Key::D {
+            self.run_act("duplicate");
             return;
         }
         if m.command && m.shift && key == Key::G {

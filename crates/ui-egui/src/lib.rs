@@ -55,6 +55,7 @@ pub mod markupplus;
 pub mod markupprops;
 pub mod markuptools;
 pub mod mcact;
+pub mod mcedit;
 pub mod mcmats;
 pub mod mcpanels;
 pub mod mcprint;
@@ -704,6 +705,7 @@ impl UiApp {
         let mut pick: Option<&str> = None;
         let mut undo = false;
         let mut redo = false;
+        let mut edit: Option<String> = None;
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
         egui::Panel::left("mc_tools").exact_size(116.0).frame(frame).show(ui, |ui| {
             ui.label(RichText::new("Tools").strong().color(t.text_strong));
@@ -719,8 +721,15 @@ impl UiApp {
                 undo = ui.button("Undo").clicked();
                 redo = ui.button("Redo").clicked();
             });
+            ui.separator();
+            edit = mcedit::palette_menus(ui);
         });
         if let Some(mc) = self.mc.as_mut() {
+            if let Some(a) = edit
+                && let Err(e) = mc.act(&a)
+            {
+                mc.message = e;
+            }
             if let Some(n) = pick {
                 mc.set_tool(n);
             }

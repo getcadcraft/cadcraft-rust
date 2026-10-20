@@ -129,6 +129,8 @@ impl ModelView {
 
     /// modelcraft.js afterHistory: the open context and the selection still exist.
     pub fn after_history(&mut self) {
+        // the page's host.units reads model.units: an undo that restores another unit changes what typed values mean
+        self.tools.host.units.clone_from(&self.tools.host.model.units);
         let model = &self.tools.host.model;
         if model.context(&self.tools.host.path).is_none() {
             self.tools.host.path.clear();
@@ -392,7 +394,10 @@ impl ModelView {
                 let i = num(arg)?;
                 self.go_scene(i as usize);
             }
-            other => return Err(format!("model.edit: unknown action {other}")),
+            other => match self.edit_act(other, arg) {
+                Some(r) => r?,
+                None => return Err(format!("model.edit: unknown action {other}")),
+            },
         }
         Ok(())
     }

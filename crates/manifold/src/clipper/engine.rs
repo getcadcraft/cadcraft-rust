@@ -1,7 +1,7 @@
 // Clipper2 clipper.engine.cpp (commit 46f6391), Copyright Angus Johnson 2010-2026, Boost Software License 1.0
 // (https://www.boost.org/LICENSE_1_0.txt; the full text is at the top of clipper/mod.rs). Rust port 2026 CadCraft.
 //
-//! The Vatti clipper (`ClipperBase` + `ClipperD`'s path output), closed paths only, no polytree.
+//! The Vatti clipper (`ClipperBase` + `ClipperD`'s path and polytree output), closed paths only.
 //!
 //! The C++ links vertices, active edges, output points and output records with raw pointers; here each lives in an
 //! arena (`Vec`) and links are indices (`NIL` = null). Nothing is freed while a clipper runs, so a pointer the C++
@@ -73,7 +73,204 @@ struct OutRec {
     front_edge: usize,
     back_edge: usize,
     pts: usize,
+    /// polytree output: the node made for this record, the records split off it, the record CheckSplitOwner last
+    /// visited it for, its bounds and path (CheckBounds)
+    polypath: usize,
+    splits: Option<Vec<usize>>,
+    recursive_split: usize,
+    bounds: Rect64,
+    path: Path64,
     is_open: bool,
+}
+
+/// `Rect64` (left, top, right, bottom); the default is empty.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Rect64 {
+    left: i64,
+    top: i64,
+    right: i64,
+    bottom: i64,
+}
+impl Rect64 {
+    fn is_empty(&self) -> bool {
+        self.bottom <= self.top || self.right <= self.left
+    }
+    fn contains(&self, r: &Rect64) -> bool {
+        r.left >= self.left && r.right <= self.right && r.top >= self.top && r.bottom <= self.bottom
+    }
+}
+/// `GetBounds(path)`.
+fn get_bounds(path: &[P64]) -> Rect64 {
+    let mut r = Rect64 { left: i64::MAX, top: i64::MAX, right: i64::MIN, bottom: i64::MIN };
+    for p in path {
+        if p.x < r.left {
+            r.left = p.x;
+        }
+        if p.x > r.right {
+            r.right = p.x;
+        }
+        if p.y < r.top {
+            r.top = p.y;
+        }
+        if p.y > r.bottom {
+            r.bottom = p.y;
+        }
+    }
+    r
+}
+
+/// `PolyPathD` as an arena: node 0 is the tree (no polygon); each node's polygon is in the caller's units.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PolyTreeD {
+    pub(crate) nodes: Vec<PolyNodeD>,
+}
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PolyNodeD {
+    pub(crate) children: Vec<usize>,
+    pub(crate) polygon: PathD,
+}
+impl PolyTreeD {
+    fn new() -> PolyTreeD {
+        PolyTreeD { nodes: vec![PolyNodeD::default()] }
+    }
+    /// `AddChild(path)`: the path scaled by `scale` (ScalePath<double, int64_t>).
+    fn add_child(&mut self, parent: usize, path: &[P64], scale: f64) -> R<usize> {
+        let i = self.nodes.len();
+        let polygon = path.iter().map(|p| PD { x: p.x as f64 * scale, y: p.y as f64 * scale }).collect();
+        self.nodes.get_mut(parent).ok_or(Fault::Index)?.children.push(i);
+        self.nodes.push(PolyNodeD { children: Vec::new(), polygon });
+        Ok(i)
+    }
+    pub(crate) fn children(&self, n: usize) -> &[usize] {
+        self.nodes.get(n).map_or(&[][..], |x| x.children.as_slice())
+    }
+    pub(crate) fn polygon(&self, n: usize) -> &[PD] {
+        self.nodes.get(n).map_or(&[][..], |x| x.polygon.as_slice())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Pip {
+    Inside,
+    Outside,
+    On,
+}
+
+/// `PointInPolygon(pt, polygon)` (clipper.core.h).
+fn point_in_polygon(pt: P64, polygon: &[P64]) -> Pip {
+    let n = polygon.len();
+    if n < 3 {
+        return Pip::Outside;
+    }
+    let at = |i: usize| polygon.get(i).copied().unwrap_or_default();
+    let mut val = 0;
+    let cbegin = 0usize;
+    let mut first = 0usize;
+    let mut cend = n;
+    while first != cend && at(first).y == pt.y {
+        first += 1;
+    }
+    if first == cend {
+        return Pip::Outside;
+    }
+    let mut is_above = at(first).y < pt.y;
+    let starting_above = is_above;
+    let mut curr = first + 1;
+    loop {
+        if curr == cend {
+            if cend == first || first == cbegin {
+                break;
+            }
+            cend = first;
+            curr = cbegin;
+        }
+        if is_above {
+            while curr != cend && at(curr).y < pt.y {
+                curr += 1;
+            }
+            if curr == cend {
+                continue;
+            }
+        } else {
+            while curr != cend && at(curr).y > pt.y {
+                curr += 1;
+            }
+            if curr == cend {
+                continue;
+            }
+        }
+        let prev = if curr == cbegin { n - 1 } else { curr - 1 };
+        let (c, p) = (at(curr), at(prev));
+        if c.y == pt.y {
+            if c.x == pt.x || (c.y == p.y && ((pt.x < p.x) != (pt.x < c.x))) {
+                return Pip::On;
+            }
+            curr += 1;
+            if curr == first {
+                break;
+            }
+            continue;
+        }
+        if pt.x < c.x && pt.x < p.x {
+            // only edges crossing on the left
+        } else if pt.x > p.x && pt.x > c.x {
+            val = 1 - val;
+        } else {
+            let d = cross_product_sign(p, c, pt);
+            if d == 0 {
+                return Pip::On;
+            }
+            if (d < 0) == is_above {
+                val = 1 - val;
+            }
+        }
+        is_above = !is_above;
+        curr += 1;
+    }
+    if is_above != starting_above {
+        cend = n;
+        if curr == cend {
+            curr = cbegin;
+        }
+        let prev = if curr == cbegin { cend - 1 } else { curr - 1 };
+        let d = cross_product_sign(at(prev), at(curr), pt);
+        if d == 0 {
+            return Pip::On;
+        }
+        if (d < 0) == is_above {
+            val = 1 - val;
+        }
+    }
+    if val == 0 { Pip::Outside } else { Pip::Inside }
+}
+
+/// `Path2ContainsPath1(path1, path2)` on paths (clipper.h).
+fn path2_contains_path1_paths(path1: &[P64], path2: &[P64]) -> bool {
+    let mut pip = Pip::On;
+    for &pt in path1 {
+        match point_in_polygon(pt, path2) {
+            Pip::Outside => {
+                if pip == Pip::Outside {
+                    return false;
+                }
+                pip = Pip::Outside;
+            }
+            Pip::Inside => {
+                if pip == Pip::Inside {
+                    return true;
+                }
+                pip = Pip::Inside;
+            }
+            Pip::On => {}
+        }
+    }
+    if pip != Pip::Inside {
+        return false;
+    }
+    let b = get_bounds(path1);
+    // Rect::MidPoint: integer halves (truncating, as C++ int64 division)
+    let mp = P64 { x: (b.left.wrapping_add(b.right)) / 2, y: (b.top.wrapping_add(b.bottom)) / 2 };
+    point_in_polygon(mp, path2) == Pip::Inside
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -186,6 +383,7 @@ pub(crate) struct Clipper {
     preserve_collinear: bool,
     reverse_solution: bool,
     succeeded: bool,
+    using_polytree: bool,
 }
 
 macro_rules! getter {
@@ -224,6 +422,7 @@ impl Clipper {
             preserve_collinear: true,
             reverse_solution: false,
             succeeded: true,
+            using_polytree: false,
         }
     }
 
@@ -391,7 +590,19 @@ impl Clipper {
 
     fn new_outrec(&mut self) -> usize {
         let i = self.outrecs.len();
-        self.outrecs.push(OutRec { idx: i, owner: NIL, front_edge: NIL, back_edge: NIL, pts: NIL, is_open: false });
+        self.outrecs.push(OutRec {
+            idx: i,
+            owner: NIL,
+            front_edge: NIL,
+            back_edge: NIL,
+            pts: NIL,
+            polypath: NIL,
+            splits: None,
+            recursive_split: NIL,
+            bounds: Rect64::default(),
+            path: Vec::new(),
+            is_open: false,
+        });
         i
     }
 
@@ -977,8 +1188,10 @@ impl Clipper {
         } else {
             let prev_hot = self.get_prev_hot_edge(e1)?;
             if prev_hot != NIL {
-                // using_polytree_ is false: no SetOwner here
                 let por = self.a(prev_hot)?.outrec;
+                if self.using_polytree {
+                    self.set_owner(outrec, por)?;
+                }
                 let ascending = prev_hot == self.or(por)?.front_edge;
                 if ascending == is_new {
                     self.set_sides(outrec, e2, e1)?;
@@ -1023,6 +1236,16 @@ impl Clipper {
         let or2 = self.a(e2)?.outrec;
         if or1 == or2 {
             self.or_mut(or1)?.pts = result;
+            if self.using_polytree {
+                let e = self.get_prev_hot_edge(e1)?;
+                if e == NIL {
+                    self.or_mut(or1)?.owner = NIL;
+                } else {
+                    let eo = self.a(e)?.outrec;
+                    self.set_owner(or1, eo)?;
+                }
+                // nb: likely NOT the real owner: RecursiveCheckOwners checks it
+            }
             self.uncouple_outrec(e1)?;
             result = self.or(or1)?.pts;
             let owner = self.or(or1)?.owner;
@@ -1200,6 +1423,13 @@ impl Clipper {
             self.or_mut(new_or)?.pts = new_op;
             self.op_mut(split_op)?.prev = new_op;
             self.op_mut(snext)?.next = new_op;
+            if self.using_polytree {
+                if self.path2_contains_path1(prev_op, new_op)? {
+                    self.or_mut(new_or)?.splits = Some(vec![outrec]);
+                } else {
+                    self.or_mut(outrec)?.splits.get_or_insert_with(Vec::new).push(new_or);
+                }
+            }
         }
         // else: the two points are deleted in the C++ (unreachable from the result)
         Ok(())
@@ -1669,10 +1899,35 @@ impl Clipper {
                     self.or_mut(or1)?.pts = j.op1;
                     self.op_mut(j.op1)?.outrec = or1;
                 }
-                self.or_mut(or2)?.owner = or1;
+                if self.using_polytree {
+                    let (p1, p2) = (self.or(or1)?.pts, self.or(or2)?.pts);
+                    if self.path2_contains_path1(p1, p2)? {
+                        // swap or1's and or2's points: or2 is now inside or1
+                        self.or_mut(or1)?.pts = p2;
+                        self.or_mut(or2)?.pts = p1;
+                        self.fix_outrec_pts(or1)?;
+                        self.fix_outrec_pts(or2)?;
+                        self.or_mut(or2)?.owner = or1;
+                    } else if self.path2_contains_path1(p2, p1)? {
+                        self.or_mut(or2)?.owner = or1;
+                    } else {
+                        let o = self.or(or1)?.owner;
+                        self.or_mut(or2)?.owner = o;
+                    }
+                    self.or_mut(or1)?.splits.get_or_insert_with(Vec::new).push(or2);
+                } else {
+                    self.or_mut(or2)?.owner = or1;
+                }
             } else {
                 self.or_mut(or2)?.pts = NIL;
-                self.or_mut(or2)?.owner = or1;
+                if self.using_polytree {
+                    self.set_owner(or2, or1)?;
+                    if self.or(or2)?.splits.is_some() {
+                        self.move_splits(or2, or1)?;
+                    }
+                } else {
+                    self.or_mut(or2)?.owner = or1;
+                }
             }
         }
         self.horz_joins = joins;
@@ -2161,6 +2416,363 @@ impl Clipper {
         self.a_mut(e)?.join_with = JoinWith::Right;
         self.a_mut(next)?.join_with = JoinWith::Left;
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ polytree output
+
+    /// `PointInOpPolygon(pt, op)`.
+    fn point_in_op_polygon(&self, pt: P64, op0: usize) -> R<Pip> {
+        let mut op = op0;
+        {
+            let o = *self.op(op)?;
+            if op == o.next || o.prev == o.next {
+                return Ok(Pip::Outside);
+            }
+        }
+        let op_start = op;
+        let mut g = self.guard_ops();
+        loop {
+            g.tick()?;
+            if self.op(op)?.pt.y != pt.y {
+                break;
+            }
+            op = self.op(op)?.next;
+            if op == op_start {
+                break;
+            }
+        }
+        if self.op(op)?.pt.y == pt.y {
+            return Ok(Pip::Outside);
+        }
+        let mut is_above = self.op(op)?.pt.y < pt.y;
+        let starting_above = is_above;
+        let mut val = 0;
+        let mut op2 = self.op(op)?.next;
+        let mut g = self.guard_ops();
+        while op2 != op {
+            g.tick()?;
+            if is_above {
+                while op2 != op && self.op(op2)?.pt.y < pt.y {
+                    g.tick()?;
+                    op2 = self.op(op2)?.next;
+                }
+            } else {
+                while op2 != op && self.op(op2)?.pt.y > pt.y {
+                    g.tick()?;
+                    op2 = self.op(op2)?.next;
+                }
+            }
+            if op2 == op {
+                break;
+            }
+            let o2 = *self.op(op2)?;
+            let pv = self.op(o2.prev)?.pt;
+            if o2.pt.y == pt.y {
+                if o2.pt.x == pt.x || (o2.pt.y == pv.y && ((pt.x < pv.x) != (pt.x < o2.pt.x))) {
+                    return Ok(Pip::On);
+                }
+                op2 = o2.next;
+                if op2 == op {
+                    break;
+                }
+                continue;
+            }
+            if pt.x < pv.x && pt.x < o2.pt.x {
+                // only edges crossing on the left
+            } else if pt.x > pv.x && pt.x > o2.pt.x {
+                val = 1 - val;
+            } else {
+                let i = cross_product_sign(pv, o2.pt, pt);
+                if i == 0 {
+                    return Ok(Pip::On);
+                }
+                if (i < 0) == is_above {
+                    val = 1 - val;
+                }
+            }
+            is_above = !is_above;
+            op2 = o2.next;
+        }
+        if is_above != starting_above {
+            let o2 = *self.op(op2)?;
+            let pv = self.op(o2.prev)?.pt;
+            let i = cross_product_sign(pv, o2.pt, pt);
+            if i == 0 {
+                return Ok(Pip::On);
+            }
+            if (i < 0) == is_above {
+                val = 1 - val;
+            }
+        }
+        Ok(if val == 0 { Pip::Outside } else { Pip::Inside })
+    }
+
+    /// `GetCleanPath(op)`.
+    fn get_clean_path(&self, op: usize) -> R<Path64> {
+        let mut result = Vec::new();
+        let mut op2 = op;
+        let mut g = self.guard_ops();
+        loop {
+            let o = *self.op(op2)?;
+            if o.next == op {
+                break;
+            }
+            let (n, p) = (self.op(o.next)?.pt, self.op(o.prev)?.pt);
+            if !((o.pt.x == n.x && o.pt.x == p.x) || (o.pt.y == n.y && o.pt.y == p.y)) {
+                break;
+            }
+            g.tick()?;
+            op2 = o.next;
+        }
+        result.push(self.op(op2)?.pt);
+        let mut prev_op = op2;
+        op2 = self.op(op2)?.next;
+        let mut g = self.guard_ops();
+        while op2 != op {
+            g.tick()?;
+            let o = *self.op(op2)?;
+            let n = self.op(o.next)?.pt;
+            let p = self.op(prev_op)?.pt;
+            if (o.pt.x != n.x || o.pt.x != p.x) && (o.pt.y != n.y || o.pt.y != p.y) {
+                result.push(o.pt);
+                prev_op = op2;
+            }
+            op2 = o.next;
+        }
+        Ok(result)
+    }
+
+    /// `Path2ContainsPath1(op1, op2)` on output points.
+    fn path2_contains_path1(&self, op1: usize, op2: usize) -> R<bool> {
+        let mut pip = Pip::On;
+        let mut op = op1;
+        let mut g = self.guard_ops();
+        loop {
+            g.tick()?;
+            match self.point_in_op_polygon(self.op(op)?.pt, op2)? {
+                Pip::Outside => {
+                    if pip == Pip::Outside {
+                        return Ok(false);
+                    }
+                    pip = Pip::Outside;
+                }
+                Pip::Inside => {
+                    if pip == Pip::Inside {
+                        return Ok(true);
+                    }
+                    pip = Pip::Inside;
+                }
+                Pip::On => {}
+            }
+            op = self.op(op)?.next;
+            if op == op1 {
+                break;
+            }
+        }
+        // unclear: again on cleaned paths (#973)
+        Ok(path2_contains_path1_paths(&self.get_clean_path(op1)?, &self.get_clean_path(op2)?))
+    }
+
+    /// `MoveSplits(fromOr, toOr)`.
+    fn move_splits(&mut self, from: usize, to: usize) -> R<()> {
+        let list = self.or(from)?.splits.clone().unwrap_or_default();
+        let dst = self.or_mut(to)?.splits.get_or_insert_with(Vec::new);
+        for x in list {
+            if x != to {
+                dst.push(x);
+            }
+        }
+        if let Some(l) = self.or_mut(from)?.splits.as_mut() {
+            l.clear();
+        }
+        Ok(())
+    }
+
+    /// `BuildPath64(op, reverse, isOpen = false)`.
+    fn build_path64(&self, op0: usize, reverse: bool) -> R<Option<Path64>> {
+        if op0 == NIL {
+            return Ok(None);
+        }
+        let o = *self.op(op0)?;
+        if o.next == op0 || o.next == o.prev {
+            return Ok(None);
+        }
+        let mut path = Vec::new();
+        let (op, mut last_pt, mut op2) = if reverse {
+            (op0, o.pt, o.prev)
+        } else {
+            let op = o.next;
+            let oo = *self.op(op)?;
+            (op, oo.pt, oo.next)
+        };
+        path.push(last_pt);
+        let mut g = self.guard_ops();
+        while op2 != op {
+            g.tick()?;
+            let p = *self.op(op2)?;
+            if p.pt != last_pt {
+                last_pt = p.pt;
+                path.push(last_pt);
+            }
+            op2 = if reverse { p.prev } else { p.next };
+        }
+        if path.len() == 3 && self.is_very_small_triangle(op2)? {
+            return Ok(None);
+        }
+        Ok(Some(path))
+    }
+
+    /// `CheckBounds(outrec)`.
+    fn check_bounds(&mut self, outrec: usize) -> R<bool> {
+        if self.or(outrec)?.pts == NIL {
+            return Ok(false);
+        }
+        if !self.or(outrec)?.bounds.is_empty() {
+            return Ok(true);
+        }
+        self.clean_collinear(outrec)?;
+        let pts = self.or(outrec)?.pts;
+        if pts == NIL {
+            return Ok(false);
+        }
+        let Some(path) = self.build_path64(pts, self.reverse_solution)? else { return Ok(false) };
+        let o = self.or_mut(outrec)?;
+        o.bounds = get_bounds(&path);
+        o.path = path;
+        Ok(true)
+    }
+
+    /// `CheckSplitOwner(outrec, holder->splits)`: the list is read again at every step (it may grow meanwhile).
+    fn check_split_owner(&mut self, outrec: usize, holder: usize, depth: u32) -> R<bool> {
+        if depth > 4096 {
+            return Err(Fault::Index);
+        }
+        let mut idx = 0usize;
+        while let Some(mut split) = self.or(holder)?.splits.as_ref().and_then(|l| l.get(idx).copied()) {
+            idx += 1;
+            {
+                let sp = self.or(split)?;
+                if sp.pts == NIL && sp.splits.is_some() && self.check_split_owner(outrec, split, depth + 1)? {
+                    return Ok(true);
+                }
+            }
+            split = self.get_real_outrec(split)?;
+            if split == NIL || split == outrec || self.or(split)?.recursive_split == outrec {
+                continue;
+            }
+            self.or_mut(split)?.recursive_split = outrec;
+            if self.or(split)?.splits.is_some() && self.check_split_owner(outrec, split, depth + 1)? {
+                return Ok(true);
+            }
+            if !self.check_bounds(split)? {
+                continue;
+            }
+            let (sb, ob) = (self.or(split)?.bounds, self.or(outrec)?.bounds);
+            if !sb.contains(&ob) {
+                continue;
+            }
+            let (op, sp) = (self.or(outrec)?.pts, self.or(split)?.pts);
+            if !self.path2_contains_path1(op, sp)? {
+                continue;
+            }
+            if !self.is_valid_owner(outrec, split)? {
+                let o = self.or(outrec)?.owner;
+                self.or_mut(split)?.owner = o;
+            }
+            self.or_mut(outrec)?.owner = split;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// `IsValidOwner(outrec, testOwner)`: testOwner is not owned by outrec, directly or not.
+    fn is_valid_owner(&self, outrec: usize, mut test: usize) -> R<bool> {
+        let mut g = self.guard_or();
+        while test != NIL && test != outrec {
+            g.tick()?;
+            test = self.or(test)?.owner;
+        }
+        Ok(test == NIL)
+    }
+
+    /// `RecursiveCheckOwners(outrec, polytree)`, with an explicit stack in place of the recursion along the owners.
+    fn recursive_check_owners(&mut self, outrec: usize, tree: &mut PolyTreeD, scale: f64) -> R<()> {
+        let mut resolved: Vec<usize> = Vec::new();
+        let mut stack = vec![outrec];
+        let mut g = Guard::new(self.outrecs.len().saturating_mul(4).saturating_add(4));
+        while let Some(&o) = stack.last() {
+            g.tick()?;
+            if !resolved.contains(&o) {
+                if self.or(o)?.polypath != NIL || self.or(o)?.bounds.is_empty() {
+                    stack.pop();
+                    continue;
+                }
+                let mut go = self.guard_or();
+                loop {
+                    let ow = self.or(o)?.owner;
+                    if ow == NIL {
+                        break;
+                    }
+                    go.tick()?;
+                    if self.or(ow)?.splits.is_some() && self.check_split_owner(o, ow, 0)? {
+                        break;
+                    }
+                    if self.or(ow)?.pts != NIL && self.check_bounds(ow)? {
+                        let (wb, ob) = (self.or(ow)?.bounds, self.or(o)?.bounds);
+                        if wb.contains(&ob) {
+                            let (op, wp) = (self.or(o)?.pts, self.or(ow)?.pts);
+                            if self.path2_contains_path1(op, wp)? {
+                                break;
+                            }
+                        }
+                    }
+                    let next = self.or(ow)?.owner;
+                    self.or_mut(o)?.owner = next;
+                }
+                resolved.push(o);
+                let ow = self.or(o)?.owner;
+                if ow != NIL && self.or(ow)?.polypath == NIL {
+                    stack.push(ow);
+                    continue;
+                }
+            }
+            let ow = self.or(o)?.owner;
+            let parent = if ow != NIL {
+                let pp = self.or(ow)?.polypath;
+                if pp == NIL {
+                    // the C++ follows a null pointer here
+                    return Err(Fault::Index);
+                }
+                pp
+            } else {
+                0
+            };
+            let path = core::mem::take(&mut self.or_mut(o)?.path);
+            let node = tree.add_child(parent, &path, scale)?;
+            let rec = self.or_mut(o)?;
+            rec.path = path;
+            rec.polypath = node;
+            stack.pop();
+        }
+        Ok(())
+    }
+
+    /// `ClipperD::Execute(clip_type, fill_rule, polytree)`.
+    pub(crate) fn execute_tree_d(&mut self, ct: ClipType, fr: FillRule, inv_scale: f64) -> R<PolyTreeD> {
+        let mut tree = PolyTreeD::new();
+        self.using_polytree = true;
+        if self.execute_internal(ct, fr)? {
+            // the list grows while it is walked (#607)
+            let mut i = 0;
+            while i < self.outrecs.len() {
+                let o = self.or(i)?;
+                if o.pts != NIL && !o.is_open && self.check_bounds(i)? {
+                    self.recursive_check_owners(i, &mut tree, inv_scale)?;
+                }
+                i += 1;
+            }
+        }
+        Ok(tree)
     }
 
     /// `BuildPathD`.

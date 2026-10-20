@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-20 · Change: TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-20 · Change: ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -52,8 +52,8 @@ Last updated 2026-10-20 · Change: TakeoffCraft 3D view (M9.23); TakeoffCraft re
 5. **ModelCraft** (M6.17: panels, components, 3D-print check, inference keys at parity): missing the Render dialog
    (looks, path tracing, lamps' Lights panel and editor), sun shadows drawn in the view (the settings are kept and saved),
    procedural material textures (swatches and faces show the material's colour), components that stretch (partRules,
-   stretch dialog), the scenes' Play and WebM recording, copy / paste and duplicate, flip, solids tools, terrain,
-   text, storeys, drawing axes, the starter library, Blender key style.
+   stretch dialog), the scenes' Play and WebM recording, solids tools, terrain, storeys, drawing axes, the starter
+   library, Blender key style. Copy / paste, duplicate, flip and 3D text: M6.19.
 6. **BimCraft** (M7.13: IFC edit + save, storey plan + PDF, Draw tools, schedules at parity; M7.14: plan grips — wall
    ends and middles, doors / windows slid along or onto walls — at parity; M7.15: library items (`*.item.json`) placed
    from the plan with turn, wall snap, typed X, Y and the item-number dialog, ifc-place.js at parity): no residential

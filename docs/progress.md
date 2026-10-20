@@ -2,6 +2,34 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M6.19 ModelCraft copy / paste, duplicate, flip, 3D text (agent, work/m3dfix)
+
+- `crates/ui-egui/src/mcedit.rs`: modelcraft.js's Edit actions in the app, each one undo step through the cc-m3d
+  functions the page calls, with its undo labels and status words: Copy, Cut, Paste (the Paste tool: the copy follows
+  the pointer, a click puts it down), Paste in place, Duplicate and move (a move of a copy from the pointer at once;
+  click or type a distance), Flip along red / green / blue and Flipped copy (beside the original, mirrored across the
+  far side of the selection's box), and 3D text: the dialog (text, letter height, depth, the page's checks and words),
+  then the text as a component and the Place tool laying it on the face clicked. Ctrl+C / Ctrl+X / Ctrl+V /
+  Ctrl+Shift+V / Ctrl+D; the palette has Copy, Paste, More (the Edit menu) and 3D Text. The clipboard lives in memory
+  while the app runs (0.5 also keeps it in the browser's storage for other tabs).
+- Engines: text3d.js ported (`crates/io-m3d/src/text3d.rs`). It needs `CrossSection::Simplify` and `Decompose`, which
+  need Clipper2's polytree: ported in cc-manifold (`clipper/engine.rs`: owners, splits, CheckBounds,
+  RecursiveCheckOwners, PointInOpPolygon, Path2ContainsPath1; `clipper/mod.rs`: BooleanOp into a PolyTreeD,
+  SimplifyPaths; `cross_section.rs`: Simplify, Decompose). The plain path output is unchanged.
+- Parity: `forks/tools/csdiff.mjs` new generators `simplify` (nested outlines and holes, islands, slivers, near-
+  collinear points, six epsilons) and `text` (text3d.js's discs and pen quads), each seeds 1–50 × 40: 2,000 / 2,000
+  and 2,000 / 2,000 cases identical to the manifold-3d 3.5.4 wasm, every float compared as bits (15,551 + 8,925
+  decomposed pieces); the old generators unchanged (seeds 1–10 × 60, 600 / 600). `cadcraft-cli manifold-cs` gained
+  the `simplify` and `decompose` steps. `forks/tools/mcuidiff.mjs --edit` (the full sweep is in M6.21) replays the
+  page's tools.js on a camera pinned to 1000 × 800 (`model.edit=view-size:1000,800`; the view's width follows the
+  side panel's content); `cadcraft-shot mcacts` times actions for `--bench-edit`.
+- Fixes found by the new walk: typed values used the units the model had when it opened after an undo restored
+  another unit (the page reads model.units; `after_history` now copies it to the tools); the Place tool no longer
+  places a definition a purge dropped meanwhile (0.5 does, and its file then names a missing definition that cannot
+  be opened again — a 0.5 bug, avoided here; the walk counts it: 3 times in 7,040 steps).
+- Rust tests: `crates/manifold/tests/cross_section_tree.rs`, `crates/io-m3d/tests/text3d.rs` (the frozen
+  test-modelcraft.mjs "3D text" section), `mcedit::tests`.
+
 ## 2026-10-20 — M6.18 ModelCraft kernel: the m3d_tools fuzz timeout in add_edge (agent, work/m3dfix)
 
 - Cause: a zero-length edge (two corners at one point) is split at a NaN point by the next edge drawn — segSeg lets

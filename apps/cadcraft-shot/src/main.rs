@@ -11,6 +11,8 @@
 //!   cadcraft-shot tkactbench <old.pdf> <new.pdf> [--runs N] → JSON timings of TakeoffCraft's actions (M9.20–M9.23)
 //!   cadcraft-shot mcbench <file.modelcraft|.skp> [--runs N] → JSON timings of ModelCraft's open, panel edits, save and
 //!       3D-print check (best of N; forks/tools/mcuidiff.mjs --bench runs the same steps in the 0.5 JS)
+//!   cadcraft-shot mcacts <file.modelcraft|.skp> --acts "a|b|…" [--runs N] → JSON [{act, ms}]: each ModelCraft action
+//!       (`model.edit=` names) timed in order, best of N fresh runs (forks/tools/mcuidiff.mjs --bench-edit, M6.19–M6.21)
 //!   cadcraft-shot bench <file.dwg|.dxf|--sample> [--frames N] [--size WxH] [--space N] [--edit]
 //!       → JSON {open_ms, first_frame_ms, frame_ms: [...], spaces, segments …}; each frame pans/zooms the view.
 //!       --edit: open for editing, then also time one LINE (typed) from Enter to the redrawn frame (edit_ms)
@@ -86,6 +88,7 @@ fn main() -> ExitCode {
         Some("mkactbench") => mkactbench(&args),
         Some("tkactbench") => tkactbench(&args),
         Some("mcbench") => mcbench(&args),
+        Some("mcacts") => mcacts(&args),
         _ => shot(&args),
     };
     match r {
@@ -409,6 +412,41 @@ fn mcbench(args: &[String]) -> Result<(), String> {
         "{{\"file\":{:?},\"faces\":{faces},\"open_ms\":{:.2},\"edit_ms\":{:.2},\"save_ms\":{:.2},\"print_ms\":{:.2},\"saved_bytes\":{size}}}",
         name, best[0], best[1], best[2], best[3]
     );
+    Ok(())
+}
+
+fn mcacts(args: &[String]) -> Result<(), String> {
+    let f = args.get(1).ok_or("usage: cadcraft-shot mcacts <file> --acts \"a|b|…\" [--runs N]")?;
+    let acts: Vec<String> = arg(args, "--acts").ok_or("mcacts: --acts is required")?.split('|').map(str::to_string).collect();
+    let runs: usize = arg(args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(3).clamp(1, 50);
+    let bytes = std::fs::read(f).map_err(|e| format!("{f}: {e}"))?;
+    let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut best = vec![f64::INFINITY; acts.len()];
+    let mut msgs = vec![String::new(); acts.len()];
+    for _ in 0..runs {
+        let mut app = UiApp::default();
+        app.open_bytes(&name, &bytes);
+        if let Some(e) = &app.error {
+            return Err(e.clone());
+        }
+        let mc = app.mc.as_mut().ok_or("mcacts: no model opened")?;
+        for (k, a) in acts.iter().enumerate() {
+            let t = Instant::now();
+            let r = mc.act(a);
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            mc.take_tool_message();
+            if let (Some(b), Some(m)) = (best.get_mut(k), msgs.get_mut(k)) {
+                *b = b.min(ms);
+                *m = r.err().unwrap_or_else(|| mc.message.clone());
+            }
+        }
+    }
+    let rows: Vec<String> = acts
+        .iter()
+        .zip(best.iter().zip(msgs.iter()))
+        .map(|(a, (ms, m))| format!("{{\"act\":{a:?},\"ms\":{ms:.3},\"msg\":{m:?}}}"))
+        .collect();
+    println!("[{}]", rows.join(","));
     Ok(())
 }
 

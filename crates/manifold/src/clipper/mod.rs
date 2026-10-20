@@ -21,8 +21,10 @@
 //! no `USINGZ`, no `CLIPPER2_HI_PRECISION`, 32-bit `uintptr_t` (the 64-bit products of `CrossProductSign` /
 //! `ProductsAreEqual` are exact either way; i128 here), C++ exceptions on (a range error throws: [`ClipError`]).
 //!
-//! Not ported: open paths' output, polytrees (owner nesting, splits), offsets, rect clipping, Minkowski,
-//! triangulation.
+//! Polytrees (`BooleanOp` into a `PolyTreeD`: owner nesting, splits) and `SimplifyPaths` are ported for
+//! `CrossSection::Simplify` / `Decompose`.
+//!
+//! Not ported: open paths' output, offsets, rect clipping, Minkowski, triangulation.
 #![allow(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
 pub(crate) mod engine;
@@ -289,6 +291,151 @@ pub(crate) fn boolean_op_d(
         c.add_paths(&scale_paths_to_64(clips, scale)?, engine::PathType::Clip)?;
     }
     Ok(c.execute_d(ct, fr, inv_scale)?)
+}
+
+/// `BooleanOp(cliptype, fillrule, subjects, clips, polytree, precision)` on `PathsD` (`ClipperD` into a `PolyTreeD`).
+pub(crate) fn boolean_op_tree_d(
+    ct: ClipType,
+    fr: FillRule,
+    subjects: &[PathD],
+    clips: &[PathD],
+    precision: i32,
+) -> Result<engine::PolyTreeD, ClipError> {
+    let precision = precision.clamp(-8, 8);
+    let p10 = 10f64.powi(precision);
+    let ilogb = ((p10.to_bits() >> 52) & 0x7ff) as i32 - 1023;
+    let scale = 2f64.powi(ilogb + 1);
+    let inv_scale = 1.0 / scale;
+    let mut c = engine::Clipper::new();
+    c.add_paths(&scale_paths_to_64(subjects, scale)?, engine::PathType::Subject)?;
+    if !clips.is_empty() {
+        c.add_paths(&scale_paths_to_64(clips, scale)?, engine::PathType::Clip)?;
+    }
+    Ok(c.execute_tree_d(ct, fr, inv_scale)?)
+}
+
+/// `PerpendicDistFromLineSqrd` on `PointD`.
+#[inline]
+fn perpendic_dist_from_line_sqrd_d(pt: PD, line1: PD, line2: PD) -> f64 {
+    let a = pt.x - line1.x;
+    let b = pt.y - line1.y;
+    let c = line2.x - line1.x;
+    let d = line2.y - line1.y;
+    if c == 0.0 && d == 0.0 {
+        return 0.0;
+    }
+    let e = a * d - c * b;
+    (e * e) / (c * c + d * d)
+}
+
+fn get_next(mut current: usize, high: usize, flags: &[bool]) -> usize {
+    let f = |i: usize| flags.get(i).copied().unwrap_or(true);
+    current += 1;
+    while current <= high && f(current) {
+        current += 1;
+    }
+    if current <= high {
+        return current;
+    }
+    current = 0;
+    while current <= high && f(current) {
+        current += 1;
+    }
+    current
+}
+
+fn get_prior(mut current: usize, high: usize, flags: &[bool]) -> usize {
+    let f = |i: usize| flags.get(i).copied().unwrap_or(true);
+    if current == 0 {
+        current = high;
+    } else {
+        current -= 1;
+    }
+    while current > 0 && f(current) {
+        current -= 1;
+    }
+    if !f(current) {
+        return current;
+    }
+    current = high;
+    while current > 0 && f(current) {
+        current -= 1;
+    }
+    current
+}
+
+/// `SimplifyPath(path, epsilon, isClosedPath)` on `PathD`.
+pub(crate) fn simplify_path_d(path: &[PD], epsilon: f64, closed: bool) -> PathD {
+    let len = path.len();
+    if len < 4 {
+        return path.to_vec();
+    }
+    let high = len - 1;
+    let eps_sqr = epsilon * epsilon;
+    let p = |i: usize| path.get(i).copied().unwrap_or_default();
+    let mut flags = vec![false; len];
+    let mut dist_sqr: Vec<f64> = (0..len)
+        .map(|i| {
+            if i == 0 || i == high {
+                if !closed {
+                    f64::MAX
+                } else if i == 0 {
+                    perpendic_dist_from_line_sqrd_d(p(0), p(high), p(1))
+                } else {
+                    perpendic_dist_from_line_sqrd_d(p(high), p(0), p(high - 1))
+                }
+            } else {
+                perpendic_dist_from_line_sqrd_d(p(i), p(i - 1), p(i + 1))
+            }
+        })
+        .collect();
+    let mut curr = 0usize;
+    let ds = |d: &[f64], i: usize| d.get(i).copied().unwrap_or(0.0);
+    // each pass flags one point or stops: at most `len` passes
+    for _ in 0..=len {
+        if ds(&dist_sqr, curr) > eps_sqr {
+            let start = curr;
+            loop {
+                curr = get_next(curr, high, &flags);
+                if !(curr != start && ds(&dist_sqr, curr) > eps_sqr) {
+                    break;
+                }
+            }
+            if curr == start {
+                break;
+            }
+        }
+        let mut prior = get_prior(curr, high, &flags);
+        let mut next = get_next(curr, high, &flags);
+        if next == prior {
+            break;
+        }
+        let prior2;
+        if ds(&dist_sqr, next) < ds(&dist_sqr, curr) {
+            prior2 = prior;
+            prior = curr;
+            curr = next;
+            next = get_next(next, high, &flags);
+        } else {
+            prior2 = get_prior(prior, high, &flags);
+        }
+        if let Some(f) = flags.get_mut(curr) {
+            *f = true;
+        }
+        curr = next;
+        next = get_next(next, high, &flags);
+        if (closed || (curr != high && curr != 0))
+            && let Some(d) = dist_sqr.get_mut(curr)
+        {
+            *d = perpendic_dist_from_line_sqrd_d(p(curr), p(prior), p(next));
+        }
+        if (closed || (prior != 0 && prior != high))
+            && let Some(d) = dist_sqr.get_mut(prior)
+        {
+            *d = perpendic_dist_from_line_sqrd_d(p(prior), p(prior2), p(curr));
+        }
+    }
+    path.iter().zip(flags.iter()).filter(|(_, f)| !**f).map(|(q, _)| *q).collect()
 }
 
 #[cfg(test)]

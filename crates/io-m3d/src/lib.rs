@@ -50,6 +50,7 @@ pub mod skp;
 pub mod solids;
 pub mod stl;
 pub mod strokefont;
+pub mod text3d;
 pub mod util;
 pub mod xml;
 

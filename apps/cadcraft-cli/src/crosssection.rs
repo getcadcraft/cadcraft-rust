@@ -8,6 +8,8 @@
 //! ["add"|"subtract"|"intersect", "R", "A", "B"]
 //! ["union"|"difference"|"intersection", "R", ["A", "B", ...]]    CrossSection.union(list) etc.
 //! ["translate"|"scale"|"mirror", "R", "A", [x, y]] | ["rotate", "R", "A", deg] | ["transform", "R", "A", [9 numbers]]
+//! ["simplify", "R", "A", epsilon]               R = A.simplify(epsilon)
+//! ["decompose", "R", "A"]                        R.0, R.1, … = A.decompose(); outputs {pieces: n}
 //! ["out", "A"]      {polys, area, isEmpty, numVert, numContour, bounds}
 //! ```
 //! A step whose operation throws in the wasm (Clipper2's range error) outputs `{"throw": true}` and leaves its handle
@@ -116,6 +118,23 @@ fn run_case(case: &Value, emit: bool) -> Result<Vec<Value>, String> {
                         a.transform([g(0)?, g(1)?, g(3)?, g(4)?, g(6)?, g(7)?])
                     }
                 })
+            }
+            "simplify" => {
+                let Some(a) = vars.get(s(step, 2)?) else { continue };
+                a.try_simplify(hexf(step.get(3).ok_or("epsilon")?)?)
+            }
+            "decompose" => {
+                let Some(a) = vars.get(s(step, 2)?) else { continue };
+                match a.try_decompose() {
+                    Ok(list) => {
+                        out.push(json!({ "pieces": list.len() }));
+                        for (k, cs) in list.into_iter().enumerate() {
+                            vars.insert(format!("{id}.{k}"), cs);
+                        }
+                    }
+                    Err(_) => out.push(json!({ "throw": true })),
+                }
+                continue;
             }
             "out" => {
                 match vars.get(&id) {

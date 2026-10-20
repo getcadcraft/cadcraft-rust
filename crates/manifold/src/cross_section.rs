@@ -12,14 +12,16 @@
 //! Inputs past [`MAX_CS_POINTS`] points are refused ([`ClipError::TooLarge`]).
 //!
 //! Ported: the constructor (fill rules), `Square`, `Circle`, booleans and `BatchBoolean`, `Area`, `IsEmpty`,
-//! `NumVert`, `NumContour`, `Bounds`, `ToPolygons`, `Translate` / `Rotate` / `Scale` / `Mirror` / `Transform`.
-//! Not ported: `Offset`, `Simplify`, `Hull`, `Decompose`, `Warp`.
+//! `NumVert`, `NumContour`, `Bounds`, `ToPolygons`, `Translate` / `Rotate` / `Scale` / `Mirror` / `Transform`,
+//! `Simplify` and `Decompose` (through Clipper2's polytree).
+//! Not ported: `Offset`, `Hull`, `Warp`.
 
 use std::sync::Arc;
 
 use crate::OpType;
+use crate::clipper::engine::PolyTreeD;
 pub use crate::clipper::{ClipError, FillRule};
-use crate::clipper::{ClipType, PD, PathD, area_d, boolean_op_d};
+use crate::clipper::{ClipType, PD, PathD, area_d, boolean_op_d, boolean_op_tree_d, simplify_path_d};
 use crate::linalg::{dot2, la_max, la_min, v2};
 use crate::math::{cosd, sind};
 
@@ -76,6 +78,44 @@ fn transform_paths(ps: &[PathD], m: &[f64; 6]) -> Vec<PathD> {
             s
         })
         .collect()
+}
+
+/// `flatten(tree, polys, 0)`: each outline's children before it, depth first (an explicit stack for the recursion).
+fn flatten(tree: &PolyTreeD, node: usize, polys: &mut Vec<PathD>) {
+    // (node, next child to visit); (usize::MAX, n) = emit n's polygon
+    let mut stack: Vec<(usize, usize)> = vec![(node, 0)];
+    while let Some((n, i)) = stack.pop() {
+        if n == usize::MAX {
+            polys.push(tree.polygon(i).to_vec());
+            continue;
+        }
+        let Some(&child) = tree.children(n).get(i) else { continue };
+        // the child's subtree, then its polygon, then the next sibling
+        stack.push((n, i.saturating_add(1)));
+        stack.push((usize::MAX, child));
+        stack.push((child, 0));
+    }
+}
+
+/// `decompose_outline(tree, polys, 0)` / `decompose_hole`: each outline with its holes, the outlines inside a hole
+/// first.
+fn decompose_outline(tree: &PolyTreeD, node: usize, polys: &mut Vec<Vec<PathD>>) {
+    decompose_outline_d(tree, node, polys, 0);
+}
+fn decompose_outline_d(tree: &PolyTreeD, node: usize, polys: &mut Vec<Vec<PathD>>, depth: u32) {
+    if depth > 256 {
+        return;
+    }
+    for &outline in tree.children(node) {
+        let holes = tree.children(outline);
+        let mut poly: Vec<PathD> = Vec::with_capacity(holes.len().saturating_add(1));
+        poly.push(tree.polygon(outline).to_vec());
+        for &hole in holes {
+            decompose_outline_d(tree, hole, polys, depth.saturating_add(1));
+            poly.push(tree.polygon(hole).to_vec());
+        }
+        polys.push(poly);
+    }
 }
 
 fn to_pathd(polys: &[Vec<[f64; 2]>]) -> Vec<PathD> {
@@ -240,6 +280,51 @@ impl CrossSection {
         }
         // Rect({left, bottom}, {right, top})
         ([la_min(left, right), la_min(bottom, top)], [la_max(left, right), la_max(bottom, top)])
+    }
+
+    /// `Simplify(epsilon)`: the contours unioned (Positive) through a polytree, flattened children first, those
+    /// narrower than epsilon dropped, the rest simplified (Clipper2's SimplifyPaths, closed).
+    pub fn try_simplify(&self, epsilon: f64) -> Result<CrossSection, ClipError> {
+        let tree = boolean_op_tree_d(ClipType::Union, FillRule::Positive, &self.get_paths(), &[], PRECISION)?;
+        let mut polys: Vec<PathD> = Vec::new();
+        flatten(&tree, 0, &mut polys);
+        let mut filtered: Vec<PathD> = Vec::new();
+        for poly in polys {
+            let area = area_d(&poly);
+            let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+            for v in &poly {
+                lo = [la_min(lo[0], v.x), la_min(lo[1], v.y)];
+                hi = [la_max(hi[0], v.x), la_max(hi[1], v.y)];
+            }
+            let size = [hi[0] - lo[0], hi[1] - lo[1]];
+            if area.abs() > la_max(size[0], size[1]) * epsilon {
+                filtered.push(poly);
+            }
+        }
+        let ps: Vec<PathD> = filtered.iter().map(|p| simplify_path_d(p, epsilon, true)).collect();
+        Ok(CrossSection::from_paths(ps))
+    }
+
+    /// [`CrossSection::try_simplify`], empty on error.
+    pub fn simplify(&self, epsilon: f64) -> CrossSection {
+        self.try_simplify(epsilon).unwrap_or_default()
+    }
+
+    /// `Decompose()`: one CrossSection per outline with its holes (fewer than two contours: itself).
+    pub fn try_decompose(&self) -> Result<Vec<CrossSection>, ClipError> {
+        if self.num_contour() < 2 {
+            return Ok(vec![self.clone()]);
+        }
+        let tree = boolean_op_tree_d(ClipType::Union, FillRule::Positive, &self.get_paths(), &[], PRECISION)?;
+        let mut polys: Vec<Vec<PathD>> = Vec::new();
+        decompose_outline(&tree, 0, &mut polys);
+        // reverse the stack while wrapping
+        Ok(polys.into_iter().rev().map(CrossSection::from_paths).collect())
+    }
+
+    /// [`CrossSection::try_decompose`], empty on error.
+    pub fn decompose(&self) -> Vec<CrossSection> {
+        self.try_decompose().unwrap_or_default()
     }
 
     /// `ToPolygons()`.

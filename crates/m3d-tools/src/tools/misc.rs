@@ -857,6 +857,10 @@ impl PlaceTool {
         };
         PlaceTool { b: Base::new(name), def_id, align, hint_text }
     }
+    /// The definition this tool places.
+    pub fn def_id(&self) -> &str {
+        &self.def_id
+    }
     /// The world frame the copy gets at snap r.
     fn frame_at(&self, t: &Tools, r: &Snap) -> [P3; 3] {
         let a = t.axes();

@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-20 M6.19: ModelCraft copy / cut / paste (the copy follows the pointer) / paste in place, duplicate and move, flip and flipped copy, 3D text (text3d.js on a ported Clipper2 polytree: CrossSection Simplify / Decompose, csdiff 2,000/2,000 bit-identical); saved files identical to 0.5 (mcuidiff --edit).
 - 2026-10-20 M6.18: the m3d_tools fuzz timeout in add_edge fixed: past 1,024 edges with a NaN end (left by splitting a zero-length edge, doubled by every edge drawn, as in the frozen JS) addEdge stops splitting them; below the cap the results stay the JS's (mdiff seeds 1–10, tdiff, mfdiff identical).
 - 2026-10-20 M9.19: MarkupCraft BCF export / import, compare picture overlay, nudge / align line-up and whole-set compare; mkuidiff full sweep 17/17 scenarios and 194/194 status lines identical to 0.5.
 - 2026-10-20 M9.18: MarkupCraft cut-outs, spaces, legends, sheet links (PDF links on save) and the punch list; title blocks read at open as 0.5 does; mkuidiff 15/15 scenarios identical; editing actions 1.2–17× faster than 0.5.
