@@ -1,6 +1,6 @@
 //! The material library of 0.5 (render/materials.js, RC.7 / RC.11 (b)): ids, categories and the colour each material
 //! shows from afar (what the 3D view, exports and 3D printing use). Names are catalog words `render.mat.<id>`,
-//! categories `render.matcat.<cat>`. The procedural textures (textures.js) are not drawn yet: swatches show the colour.
+//! categories `render.matcat.<cat>`. The procedural textures (textures.js) are cc-m3d-tools `matlib`: the 3D view and the swatches draw them.
 
 /// One library material: (id, category, colour, roughness, metalness, glass).
 #[derive(Clone, Copy, Debug, PartialEq)]

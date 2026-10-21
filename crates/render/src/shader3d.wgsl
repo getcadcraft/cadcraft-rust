@@ -22,10 +22,14 @@ struct Frame {
     ground: vec4<f32>,
     // x: depth bias, y: normal bias (m), z: one shadow-map texel (uv), w: the ground's shadow opacity
     sh: vec4<f32>,
+    // x = 1: material textures shown
+    opts: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> fr: Frame;
 @group(1) @binding(0) var smap: texture_depth_2d;
 @group(1) @binding(1) var ssamp: sampler_comparison;
+@group(1) @binding(2) var mtex: texture_2d_array<f32>;
+@group(1) @binding(3) var msamp: sampler;
 
 // How much of the sun reaches a point (1 = all), 3 x 3 filtered taps (three.js PCF soft shadows); outside the map: lit.
 fn sunlit(rel: vec3<f32>, n: vec3<f32>) -> f32 {
@@ -61,6 +65,8 @@ struct FaceOut {
     @location(0) n: vec3<f32>,
     @location(1) col: vec4<f32>,
     @location(2) rel: vec3<f32>,
+    // texture u, v (tile copies) and layer (negative: none)
+    @location(3) uvl: vec3<f32>,
 };
 
 fn cut(rel: vec3<f32>) -> bool {
@@ -68,7 +74,7 @@ fn cut(rel: vec3<f32>) -> bool {
 }
 
 @vertex
-fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c: vec4<f32>, i: Inst) -> FaceOut {
+fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c: vec4<f32>, @location(11) uvl: vec3<f32>, i: Inst) -> FaceOut {
     let m = mat4x4<f32>(i.m0, i.m1, i.m2, i.m3);
     let nm = mat3x3<f32>(i.n0.xyz, i.n1.xyz, i.n2.xyz);
     var o: FaceOut;
@@ -77,11 +83,15 @@ fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c:
     o.rel = w.xyz;
     o.n = nm * n;
     o.col = select(c, i.tint, i.tint.a > 0.0);
+    // a painted instance (selection) shows its paint, not the texture
+    o.uvl = select(uvl, vec3<f32>(0.0, 0.0, -1.0), i.tint.a > 0.0);
     return o;
 }
 
 @fragment
 fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
+    // sampled before any branch (implicit derivatives need uniform control flow)
+    let texel = textureSample(mtex, msamp, v.uvl.xy, max(i32(round(v.uvl.z)), 0));
     if cut(v.rel) {
         discard;
     }
@@ -99,7 +109,11 @@ fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<
         direct *= sunlit(v.rel, n);
     }
     let lit = fr.shade.x + fr.shade.y * direct;
-    let base = select(mix(fr.back.rgb, v.col.rgb, fr.back.a), v.col.rgb, front);
+    var own = v.col.rgb;
+    if v.uvl.z >= 0.0 && fr.opts.x > 0.0 {
+        own = texel.rgb;
+    }
+    let base = select(mix(fr.back.rgb, own, fr.back.a), own, front);
     return vec4<f32>(base * lit, fr.shade.z);
 }
 
@@ -136,7 +150,7 @@ struct ShadowOut {
 };
 
 @vertex
-fn vs_shadow(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c: vec4<f32>, i: Inst) -> ShadowOut {
+fn vs_shadow(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c: vec4<f32>, @location(11) uvl: vec3<f32>, i: Inst) -> ShadowOut {
     let m = mat4x4<f32>(i.m0, i.m1, i.m2, i.m3);
     var o: ShadowOut;
     let w = m * vec4<f32>(p, 1.0);

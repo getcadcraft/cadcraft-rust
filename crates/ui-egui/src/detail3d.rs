@@ -181,7 +181,15 @@ impl Mk {
         self.edges.push(f3(b));
     }
     fn done(self) -> MeshData {
-        MeshData { origin: [0.0; 3], positions: self.pos, normals: self.nrm, colors: self.col, indices: self.idx, edges: self.edges }
+        MeshData {
+            origin: [0.0; 3],
+            positions: self.pos,
+            normals: self.nrm,
+            colors: self.col,
+            indices: self.idx,
+            edges: self.edges,
+            tex: Vec::new(),
+        }
     }
     fn triangles(&self) -> usize {
         self.idx.len() / 3

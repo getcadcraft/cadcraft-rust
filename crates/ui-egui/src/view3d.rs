@@ -144,6 +144,8 @@ pub struct Gpu3 {
     instances: Option<InstanceSet>,
     /// the scene version the instance data was made for
     inst_version: u64,
+    /// material texture layers uploaded so far
+    tex_loaded: u64,
     /// what the target shows now: (scene id, version, camera, style)
     shown: Option<(u64, u64, Cam3, Style3)>,
     pub last: Stats3,
@@ -159,6 +161,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         meshes: Vec::new(),
         instances: None,
         inst_version: u64::MAX,
+        tex_loaded: 0,
         shown: None,
         last: Stats3::default(),
     };
@@ -185,6 +188,26 @@ impl egui_wgpu::CallbackTrait for Callback {
         let Some(g) = res.get_mut::<Gpu3>() else { return Vec::new() };
         if g.scene != self.scene.id {
             g.meshes = self.scene.meshes.iter().map(|m| GpuMesh::upload(device, m)).collect();
+            // the material textures this scene shows, drawn by code once each (textures.js at aspect 1: a square layer)
+            for m in self.scene.meshes.iter() {
+                for t in &m.tex {
+                    let layer = t[2];
+                    if layer < 0.0 || layer >= 64.0 {
+                        continue;
+                    }
+                    let bit = 1u64 << (layer as u32);
+                    if g.tex_loaded & bit != 0 {
+                        continue;
+                    }
+                    g.tex_loaded |= bit;
+                    if let Some(id) = cc_m3d_tools::matlib::TEXTURED.get(layer as usize)
+                        && let Some(spec) = cc_m3d_tools::matlib::tex_spec(id)
+                    {
+                        let t = cc_m3d_tools::matlib::make_texture_aspect(&spec, cc_render::mesh3d::TEX_SIZE as usize, 1.0);
+                        g.renderer.set_texture(queue, layer as u32, &t.albedo);
+                    }
+                }
+            }
             g.scene = self.scene.id;
             g.inst_version = u64::MAX;
             g.shown = None;

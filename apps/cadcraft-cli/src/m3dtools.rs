@@ -79,9 +79,50 @@ fn bench(v: &serde_json::Value, runs: usize) -> Result<serde_json::Value, String
     Ok(serde_json::json!({"scene": best_scene, "infer": best_infer, "pick": best_pick, "points": pts.len(), "snapped": kinds}))
 }
 
+/// `--texture <material id> --size N [--square | --swatch] --out FILE`: a library material's texture (texdiff.mjs):
+/// albedo RGBA, then height and roughness as little-endian f32; `--square` the 3D view's square layer; `--swatch` the
+/// N × N swatch (RGBA only). The time it took goes to stderr (`texture_ms=`).
+fn texture(id: &str, size: Option<&str>, square: bool, swatch: bool, out: Option<&str>) -> ExitCode {
+    let size: usize = size.and_then(|s| s.parse().ok()).unwrap_or(256).clamp(1, 1024);
+    let Some(out) = out else {
+        eprintln!("usage: cadcraft-cli m3dtools --texture <id> --size N [--square | --swatch] --out FILE");
+        return ExitCode::from(2);
+    };
+    let Some(spec) = cc_m3d_tools::matlib::tex_spec(id) else {
+        eprintln!("texture: {id} is not a textured library material");
+        return ExitCode::from(1);
+    };
+    let t0 = std::time::Instant::now();
+    let bytes = if swatch {
+        cc_m3d_tools::matlib::swatch_pixels(id, size).unwrap_or_default()
+    } else {
+        let t = if square {
+            cc_m3d_tools::matlib::make_texture_aspect(&spec, size, 1.0)
+        } else {
+            cc_m3d_tools::matlib::make_texture(&spec, size)
+        };
+        let mut b = t.albedo;
+        for v in t.height.iter().chain(&t.rough) {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b
+    };
+    eprintln!("texture_ms={:.3}", t0.elapsed().as_secs_f64() * 1000.0);
+    match std::fs::write(out, bytes) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("texture: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 pub fn m3dtools(rest: &[&str]) -> ExitCode {
     let flag = |k: &str| rest.iter().position(|a| *a == k);
     let value_of = |k: &str| flag(k).and_then(|i| rest.get(i + 1)).copied();
+    if let Some(id) = value_of("--texture") {
+        return texture(id, value_of("--size"), flag("--square").is_some(), flag("--swatch").is_some(), value_of("--out"));
+    }
     if let Some(file) = value_of("--bench") {
         let v = match read_json(file) {
             Ok(v) => v,

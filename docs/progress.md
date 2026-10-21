@@ -2,6 +2,32 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.23 ModelCraft material textures drawn by code (agent, work/model621)
+
+- `crates/m3d-tools/src/matlib.rs`: 0.5's `render/textures.js` (mulberry32, the hashed tileable value noise, fbm /
+  fbm2, the twelve generators: brick, block, planks, siding, shingles, stone, ashlar, tile, concrete, grass, stucco,
+  seam, gravel), materials.js's `tex` specs and `planarUV`, and three-mats.js `swatchPixels` — numbers as the JS has
+  them (fdlibm `Math.sin`, V8's `Math.hypot`, `Uint8ClampedArray` rounding half to even, `Float32Array` height and
+  roughness). `cadcraft-cli m3dtools --texture <id> --size N [--square | --swatch] --out FILE` writes one for the
+  harness.
+- The 3D view (`cc-render::mesh3d`): a 32-layer 256² texture array (Rgba8Unorm, so texels read as the vertex colours'
+  bytes do; mipmapped on the CPU, repeat, 8× anisotropic); a vertex carries u, v (tiles) and a layer; faces painted
+  with a textured library material — their own paint or their placement's, as view3d.js — show it in the shaded
+  style (other styles and selection tints show the colour). UVs are planarUV in the definition's frame over the tile's
+  size, less a whole number of tiles per face, so f32 keeps the fraction far from the origin. A layer is drawn by code
+  the first time a scene uses it (textures.js at aspect 1: the same tile on square texels). The Materials panel's
+  swatches are the textures' corners (40 px), three made per frame as the page makes them when idle.
+- Parity (`forks/tools/texdiff.mjs`, new): every textured material (30) at 256, 128, 64 and 17 texels, the square view
+  layer and the 40-px swatch: 180 / 180 byte-identical (albedo, height and roughness bits). mcuidiff seeds 1 × 40:
+  400 / 400 status lines, 414 / 414 files identical.
+- Timing (texdiff --bench, all 30 textures at 256, one run each): 0.5 JS 340 ms, Rust 303 ms (1.1×); `ToInt32` and
+  the JS `%` without `fmod` in the common case took it from 0.7× (897 ms). Stone and gravel (25 cell distances a texel)
+  are the heaviest: 23 / 27 ms.
+- Screenshot: `forks/lead/shots/model621/m623-house-materials.png` (brick walls, gray shingles, weathered decking,
+  sun shadows, the Materials panel's swatches).
+- Not done: imported pictures as textures (`img:` paints from SketchUp / glTF) still show their average colour; the
+  view does not fade or untexture what lies outside an open group (0.5 does both).
+
 ## 2026-10-21 — S.4–S.8 Speed: shared block lists, undo that moves objects, clipboards without copies (agent, work/speed2)
 
 - Profiled with perf (cpu-clock:u, frame pointers, `--profile profiling`; this WSL perf does not resolve symbols, so

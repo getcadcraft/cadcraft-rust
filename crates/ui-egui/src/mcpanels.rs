@@ -60,6 +60,45 @@ fn swatch(ui: &mut egui::Ui, fill: Option<Color32>, on: bool, tip: &str, t: &Tok
 }
 
 /// Two columns of label / value rows (mc-props).
+/// A library material's swatch (three-mats.js swatchPixels: the texture's lower-left corner, 40 px), drawn by code a
+/// few a frame as the page draws them when idle; until then (and for materials without a texture) its colour.
+fn mat_swatch(ui: &mut egui::Ui, id: &str, color: Color32, on: bool, tip: &str, t: &Tokens) -> bool {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(20.0, 20.0), Sense::click());
+    let key = egui::Id::unique(("mc-swatch", id));
+    let ctx = ui.ctx().clone();
+    let mut tex: Option<egui::TextureHandle> = ctx.data_mut(|d| d.get_temp(key));
+    if tex.is_none() && cc_m3d_tools::matlib::tex_spec(id).is_some() {
+        let budget = egui::Id::unique(("mc-swatch-budget", ctx.cumulative_pass_nr()));
+        let made: u32 = ctx.data_mut(|d| d.get_temp(budget)).unwrap_or(0);
+        if made < 3 {
+            ctx.data_mut(|d| d.insert_temp(budget, made + 1));
+            if let Some(px) = cc_m3d_tools::matlib::swatch_pixels(id, 40) {
+                let h = ctx.load_texture(
+                    format!("mc-swatch-{id}"),
+                    egui::ColorImage::from_rgba_unmultiplied([40, 40], &px),
+                    egui::TextureOptions::LINEAR,
+                );
+                ctx.data_mut(|d| d.insert_temp(key, h.clone()));
+                tex = Some(h);
+            }
+        } else {
+            ctx.request_repaint();
+        }
+    }
+    match &tex {
+        Some(h) => {
+            ui.painter().image(h.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+        }
+        None => {
+            ui.painter().rect_filled(r, 2.0, color);
+        }
+    }
+    if on {
+        ui.painter().rect_stroke(r, 2.0, Stroke::new(2.0, t.text_strong), egui::StrokeKind::Outside);
+    }
+    resp.on_hover_text(tip).clicked()
+}
+
 fn row(ui: &mut egui::Ui, t: &Tokens, k: &str, v: &str) {
     ui.label(RichText::new(k).color(t.text_dim));
     ui.label(v);
@@ -697,9 +736,10 @@ impl ModelView {
                 ui.horizontal_wrapped(|ui| {
                     for m in list {
                         let key = format!("mat:{}", m.id);
-                        if swatch(
+                        if mat_swatch(
                             ui,
-                            Some(hex_color(m.color)),
+                            m.id,
+                            hex_color(m.color),
                             cur.as_deref() == Some(key.as_str()),
                             &mt(&format!("render.mat.{}", m.id), &[]),
                             t,

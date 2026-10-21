@@ -63,6 +63,14 @@ pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4]) -> MeshData {
         }
         let n = face_normal(def, f);
         let c = f.color.as_deref().filter(|c| !c.is_empty()).and_then(paint_rgba).unwrap_or(fill);
+        // a library material with a texture (view3d.js: the face's paint, else its placement's): planarUV in metres over
+        // the tile's size, less a whole number of tiles per face (f32 keeps the fraction far from the origin)
+        let paint = f.color.as_deref().filter(|c| !c.is_empty()).or(dflt);
+        let tex = paint.and_then(|p| p.strip_prefix("mat:")).and_then(|id| {
+            let layer = cc_m3d_tools::matlib::TEXTURED.iter().position(|x| *x == id)?;
+            Some((layer as f32, cc_m3d_tools::matlib::tex_spec(id)?.size))
+        });
+        let mut tile0: Option<[f64; 2]> = None;
         // a face's corners are shared by its triangles (same normal and colour): each is stored once
         let mut at: HashMap<u64, u32> = HashMap::new();
         for t in face_tris(def, f) {
@@ -79,6 +87,17 @@ pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4]) -> MeshData {
                         m.positions.push(rel(def.v(v), origin));
                         m.normals.push([q[0] as f32, q[1] as f32, q[2] as f32]);
                         m.colors.push(c);
+                        match tex {
+                            Some((layer, size)) => {
+                                let uv = cc_m3d_tools::matlib::planar_uv(def.v(v), n, [0.0, 0.0, 1.0]);
+                                let (u, w) = (uv[0] / size[0], uv[1] / size[1]);
+                                let o = *tile0.get_or_insert([u.floor(), w.floor()]);
+                                m.tex.resize(m.positions.len() - 1, [0.0, 0.0, -1.0]);
+                                m.tex.push([(u - o[0]) as f32, (w - o[1]) as f32, layer]);
+                            }
+                            None if !m.tex.is_empty() => m.tex.push([0.0, 0.0, -1.0]),
+                            None => {}
+                        }
                         j
                     }
                 };
@@ -192,6 +211,27 @@ pub fn sample_model() -> Model {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_face_painted_with_a_material_carries_texture_coordinates() {
+        let mut model = Model::new();
+        let r = model.change("plate", |m: &mut Model| {
+            let d = m.root_mut().ok_or(cc_m3d::error::Error::Type)?;
+            cc_m3d::ops::add_polygon(d, &[[0.0, 0.0, 0.0], [1.8, 0.0, 0.0], [1.8, 1.2, 0.0], [0.0, 1.2, 0.0]], None)?;
+            for f in d.faces.values_mut() {
+                f.color = Some("mat:brick-red".into());
+            }
+            Ok(())
+        });
+        assert!(r.is_ok(), "{r:?}");
+        let s = scene_of(&model, 1, false);
+        let m = &s.meshes[0];
+        assert_eq!(m.tex.len(), m.positions.len());
+        // brick-red is layer 0, its tile 0.9 × 0.6 m: the plate is two tiles each way
+        assert!(m.tex.iter().all(|t| t[2] == 0.0));
+        let (umax, vmax) = m.tex.iter().fold((0.0f32, 0.0f32), |(a, b), t| (a.max(t[0]), b.max(t[1])));
+        assert!((umax - 2.0).abs() < 1e-5 && (vmax - 2.0).abs() < 1e-5, "{umax} {vmax}");
+    }
 
     #[test]
     fn a_pushed_box_becomes_one_mesh_with_its_edges() {

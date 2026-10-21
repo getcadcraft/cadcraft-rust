@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M6.23: ModelCraft material textures drawn by code (textures.js ported, texdiff 180/180 byte-identical, 1.1× the JS) in the 3D view and the Materials swatches.
 - 2026-10-21 S.4–S.8: block lists shared copy-on-write, undo / redo that move objects, clipboards without copies: Carey XATTACH 0.6× → 1.8× the JS, SELECT ALL + MOVE 1.1× → 1.6×, EXPLODE ALL 0.9× → 1.5×, ERASE ALL + UNDO 0.8× → 1.7×; ModelCraft undo 0.3–0.5× → 3.5–4.8×; TakeoffCraft copy + paste in place 0.4× → 0.7×; DXF 2000 save 1.0× (unchanged); kdiff / idiff / tkopsdiff / mdiff / tdiff / mcuidiff as before.
 - 2026-10-21 M6.22: ModelCraft sun shadows in the 3D view (shadow map + shadow-catching ground, as view3d.js); +6 ms a frame on the 50k-face model.
 - 2026-10-21 M6.21: ModelCraft components that stretch (Stretch this copy… dialog, part rules per axis with a repeated part's spacing); mcuidiff --edit full sweep 7,040/7,040 status lines and 6,651/6,651 saved files identical to 0.5; stretching 6–8× faster than 0.5.

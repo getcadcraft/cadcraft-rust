@@ -290,6 +290,8 @@ impl ModelView {
         self.style.xray = self.mode == "xray";
         self.style.hidden_line = self.mode == "hidden";
         self.style.edges = self.edges || self.mode == "wire";
+        // view3d.js: library materials are textured in the shaded style
+        self.style.textures = self.mode == "shaded";
         // updateLights: with shadows the sun of the style's date, time and place lights the model and casts shadows
         self.style.sun = self.shadows.then(|| {
             let [month, day, hour, lat, lon, tz] = self.sun;

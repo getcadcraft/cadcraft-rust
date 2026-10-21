@@ -295,6 +295,9 @@ pub struct MeshData {
     pub indices: Vec<u32>,
     /// edge segments: pairs of points relative to `origin`
     pub edges: Vec<[f32; 3]>,
+    /// per vertex: where it falls on a texture (u, v in copies of the tile) and the texture's layer, or a negative
+    /// layer for none; empty = no textures in this mesh
+    pub tex: Vec<[f32; 3]>,
 }
 
 impl MeshData {
@@ -328,9 +331,9 @@ impl MeshData {
     }
 }
 
-const VSTRIDE: u64 = 28; // pos 12 + normal 12 + colour 4
+const VSTRIDE: u64 = 40; // pos 12 + normal 12 + colour 4 + texture u, v, layer 12
 const ISTRIDE: u64 = 128; // m 64 + normal matrix 48 + tint 16
-const FRAME: u64 = 256;
+const FRAME: u64 = 272;
 
 /// A mesh on the GPU.
 #[derive(Debug)]
@@ -353,6 +356,9 @@ impl GpuMesh {
                 vb.extend_from_slice(&v.to_le_bytes());
             }
             vb.extend_from_slice(&c);
+            for v in m.tex.get(i).copied().unwrap_or([0.0, 0.0, -1.0]) {
+                vb.extend_from_slice(&v.to_le_bytes());
+            }
         }
         let ib: Vec<u8> = m.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
         let eb: Vec<u8> = m.edges.iter().flat_map(|p| p.iter().flat_map(|v| v.to_le_bytes())).collect();
@@ -398,6 +404,8 @@ pub struct Style3 {
     /// sun shadows (view3d.js with `style.shadows`): the sun lights the faces and casts shadows on them and on a
     /// ground under the model; None = the fixed light, no shadows
     pub sun: Option<Sun3>,
+    /// faces painted with a library material show its texture (the shaded style); else its colour
+    pub textures: bool,
 }
 
 /// The sun of view3d.js `updateLights` with shadows on: the direction towards it (world, unit) and whether it is up.
@@ -411,6 +419,11 @@ pub struct Sun3 {
 
 /// view3d.js's shadow map: 2048 × 2048 texels.
 pub const SHADOW_SIZE: u32 = 2048;
+/// A material texture's side (texels; three-mats.js libTextures' default size) and its mip levels.
+pub const TEX_SIZE: u32 = 256;
+const TEX_MIPS: u32 = 9;
+/// Layers of the material texture array (the library's textured materials).
+pub const TEX_LAYERS: u32 = 32;
 
 impl Default for Style3 {
     fn default() -> Self {
@@ -424,6 +437,7 @@ impl Default for Style3 {
             back: [0.62, 0.66, 0.74],
             section: None,
             sun: None,
+            textures: true,
         }
     }
 }
@@ -492,6 +506,8 @@ pub struct Renderer3 {
     bind: wgpu::BindGroup,
     shadow_view: wgpu::TextureView,
     shadow_bind: wgpu::BindGroup,
+    /// the material textures: one layer of TEX_SIZE² (with mips) per library material
+    textures: wgpu::Texture,
 }
 
 impl std::fmt::Debug for Renderer3 {
@@ -618,7 +634,46 @@ impl Renderer3 {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
+        });
+        // material textures: Rgba8Unorm (the texel bytes read as the vertex colours' bytes are), repeating, mipmapped
+        let textures = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("cc3 material textures"),
+            size: wgpu::Extent3d { width: TEX_SIZE, height: TEX_SIZE, depth_or_array_layers: TEX_LAYERS },
+            mip_level_count: TEX_MIPS,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let tex_view = textures
+            .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        let tex_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("cc3 material textures"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            anisotropy_clamp: 8,
+            ..Default::default()
         });
         let shadow_tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("cc3 shadow map"),
@@ -644,6 +699,8 @@ impl Renderer3 {
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&shadow_view) },
                 wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&shadow_sampler) },
+                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&tex_view) },
+                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&tex_sampler) },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -660,7 +717,7 @@ impl Renderer3 {
             3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4,
             7 => Float32x4, 8 => Float32x4, 9 => Float32x4, 10 => Float32x4
         ];
-        let vert_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Unorm8x4];
+        let vert_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Unorm8x4, 11 => Float32x3];
         let edge_attrs = wgpu::vertex_attr_array![0 => Float32x3];
         let ms = wgpu::MultisampleState { count: SAMPLES, mask: !0, alpha_to_coverage_enabled: false };
         let depth = |write: bool, cmp: wgpu::CompareFunction| {
@@ -802,7 +859,48 @@ impl Renderer3 {
             multiview_mask: None,
             cache: None,
         });
-        Renderer3 { face, face_xray, edge, shadow, ground, frame, bind, shadow_view, shadow_bind }
+        Renderer3 { face, face_xray, edge, shadow, ground, frame, bind, shadow_view, shadow_bind, textures }
+    }
+
+    /// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
+    pub fn set_texture(&self, queue: &wgpu::Queue, layer: u32, rgba: &[u8]) {
+        let n = TEX_SIZE as usize;
+        if layer >= TEX_LAYERS || rgba.len() != n * n * 4 {
+            return;
+        }
+        let mut level = rgba.to_vec();
+        let mut side = n;
+        for mip in 0..TEX_MIPS {
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &self.textures,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &level,
+                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(side as u32 * 4), rows_per_image: Some(side as u32) },
+                wgpu::Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 },
+            );
+            if side == 1 {
+                break;
+            }
+            let half = side / 2;
+            let mut next = vec![0u8; half * half * 4];
+            for y in 0..half {
+                for x in 0..half {
+                    for c in 0..4 {
+                        let px = |xx: usize, yy: usize| u32::from(level.get((yy * side + xx) * 4 + c).copied().unwrap_or(0));
+                        let s = px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) + px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1);
+                        if let Some(o) = next.get_mut((y * half + x) * 4 + c) {
+                            *o = ((s + 2) / 4) as u8;
+                        }
+                    }
+                }
+            }
+            level = next;
+            side = half;
+        }
     }
 
     /// Draw `instances` of `meshes` seen by `cam` into `target`; returns what was drawn. The camera's size should be
@@ -860,6 +958,8 @@ impl Renderer3 {
         }
         // three.js shadow.bias −0.0004 (depth units), normalBias 0.02 (m), one texel, ShadowMaterial opacity 0.28
         fb.extend_from_slice(&[-0.0004, 0.02, 1.0 / SHADOW_SIZE as f32, 0.28]);
+        // x = 1: faces show their material textures
+        fb.extend_from_slice(&[if style.textures && !style.hidden_line { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0]);
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);
         let (inst_buf, ranges) = (&set.buf, &set.ranges);
