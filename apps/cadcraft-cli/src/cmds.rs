@@ -270,7 +270,14 @@ impl Host for Stub {
             return;
         }
         // a PDF (PUBLISH) as Latin-1 text with its creation time blanked, as kdiff.mjs's stub logs it
-        let text = if data.starts_with(b"%PDF") { pdf_for_log(data) } else { String::from_utf8_lossy(data).into_owned() };
+        // GLB / STL (EXPORT3D, M4.24): bytes as Latin-1 text
+        let text = if data.starts_with(b"%PDF") {
+            pdf_for_log(data)
+        } else if matches!(_mime, "model/gltf-binary" | "model/stl") {
+            data.iter().map(|b| char::from(*b)).collect()
+        } else {
+            String::from_utf8_lossy(data).into_owned()
+        };
         self.log.borrow_mut().events.push(json!(["saveBlob", name, text]));
     }
     fn can_pick_files(&self) -> bool {
@@ -418,7 +425,7 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         let pv = cursor.map_or_else(Vec::new, |c| eng.preview(c));
         let mut l = log.borrow_mut();
         let rec = json!({
-            "snap": eng.doc().snapshot(),
+            "snap": snap_with_m3d(&eng.doc()),
             "printed": std::mem::take(&mut l.printed),
             "prompts": std::mem::take(&mut l.prompts),
             "previews": std::mem::take(&mut l.previews),
@@ -515,4 +522,19 @@ fn pdf_for_log(s: &[u8]) -> String {
         }
     }
     out.iter().map(|&b| char::from(b)).collect()
+}
+
+/// The doc snapshot with the 3D model's (kdiff.mjs: `m3d` = `doc.model3d.snapshot()` unless the model is empty; M4.24).
+pub(crate) fn snap_with_m3d(d: &cc_cad::Doc) -> serde_json::Value {
+    let mut v = d.snapshot();
+    if d.m3d.is_some() || !d.faces3d.is_empty() || d.model3d_text.is_some() {
+        let name = cc_io_cad::i18n::Catalog::en().t("model3d.faces_file", &[]);
+        let mut m = cc_io_cad::m3dmodel::model_of(d, &name);
+        if !cc_io_cad::m3dmodel::is_empty(&m)
+            && let Some(o) = v.as_object_mut()
+        {
+            o.insert("m3d".into(), serde_json::Value::String(m.snapshot()));
+        }
+    }
+    v
 }

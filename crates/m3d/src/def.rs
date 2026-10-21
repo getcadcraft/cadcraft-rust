@@ -483,6 +483,23 @@ pub fn vert_faces(def: &Def) -> VAdj<'_> {
     VAdj::build(&def.verts, &pairs, true)
 }
 
+thread_local! {
+    static PLAIN_TRIS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Run `f` with [`face_tris`] as the copy of m3d/model.js that CadCraft 0.5 bundles has it: every face through earcut,
+/// without the triangle / quad shortcut ModelCraft added later (CadCraft's 3D exports and 3DFACE output, M4.24).
+pub fn with_plain_face_tris<R>(f: impl FnOnce() -> R) -> R {
+    struct Reset(bool);
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            PLAIN_TRIS.with(|c| c.set(self.0));
+        }
+    }
+    let _reset = Reset(PLAIN_TRIS.with(|c| c.replace(true)));
+    f()
+}
+
 /// Triangles of a face as vertex-id triples (counter-clockwise seen from the front).
 pub fn face_tris(def: &Def, f: &Face) -> Vec<[f64; 3]> {
     let n = face_normal(def, f);
@@ -493,6 +510,7 @@ pub fn face_tris(def: &Def, f: &Face) -> Vec<[f64; 3]> {
     // both halves facing front
     if let [l] = f.loops.as_slice()
         && (l.len() == 3 || l.len() == 4)
+        && !PLAIN_TRIS.with(std::cell::Cell::get)
     {
         if let [a, b, c] = l.as_slice() {
             return vec![[*a, *b, *c]];

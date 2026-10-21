@@ -21,6 +21,8 @@ cc-cad.workspace = true
 cc-cad-geom.workspace = true
 # constraints in saved files (gcons.js forFile)
 cc-gcons.workspace = true
+# the drawing's 3D model (model3d.js on ModelCraft's kernel; EXTRUDE … GLBOUT, M4.24)
+cc-m3d.workspace = true
 cc-geom.workspace = true
 serde_json.workspace = true
 # the plot PDF's zlib streams (already in the lock file: cc-io-markup, cc-detail, cc-io-civil)

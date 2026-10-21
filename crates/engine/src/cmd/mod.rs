@@ -18,6 +18,7 @@ pub mod param;
 pub mod pictures;
 pub mod publish;
 pub mod qselect;
+pub mod solid3d;
 pub mod trim;
 pub mod ucscmd;
 pub mod units;
@@ -248,6 +249,24 @@ pub static COMMANDS: &[CmdDef] = &[
     CmdDef { no_repeat: true, keep_selection: true, ..def("ZOOM", &["Z"], |c| Box::pin(view::zoom(c))) },
     CmdDef { no_repeat: true, ..def("UNDO", &["U"], |c| Box::pin(view::undo(c))) },
     CmdDef { no_repeat: true, ..def("REDO", &[], |c| Box::pin(view::redo(c))) },
+    // the 3D commands (commands3d.js install3d, installed last as in 0.5)
+    def("EXTRUDE", &["EXT"], |c| Box::pin(solid3d::extrude(c))),
+    def("SWEEP", &[], |c| Box::pin(solid3d::sweep(c))),
+    def("REVOLVE", &["REV"], |c| Box::pin(solid3d::revolve(c))),
+    def("BOX", &[], |c| Box::pin(solid3d::box3d(c))),
+    def("WEDGE", &["WE"], |c| Box::pin(solid3d::wedge(c))),
+    def("CYLINDER", &["CYL"], |c| Box::pin(solid3d::cylinder(c))),
+    def("PRESSPULL", &[], |c| Box::pin(solid3d::presspull(c))),
+    def("3DORBIT", &["3DO", "ORBIT"], |c| Box::pin(solid3d::orbit3d(c))),
+    def("VIEW", &["-VIEW", "V"], |c| Box::pin(solid3d::view(c))),
+    def("VSCURRENT", &["VS", "SHADEMODE"], |c| Box::pin(solid3d::vscurrent(c))),
+    def("UNION", &["UNI"], |c| Box::pin(solid3d::union(c))),
+    def("INTERSECT", &["IN"], |c| Box::pin(solid3d::intersect(c))),
+    def("SUBTRACT", &["SU"], |c| Box::pin(solid3d::subtract(c))),
+    def("EXPORT3D", &["3DEXPORT"], |c| Box::pin(solid3d::export3d_cmd(c))),
+    def("STLOUT", &[], |c| Box::pin(solid3d::stlout(c))),
+    def("OBJOUT", &[], |c| Box::pin(solid3d::objout(c))),
+    def("GLBOUT", &[], |c| Box::pin(solid3d::glbout(c))),
 ];
 
 /// A command by name or alias (case-insensitive; a leading `_ . ' -` is ignored).

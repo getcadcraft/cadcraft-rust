@@ -27,6 +27,9 @@ cc-drawing.workspace = true
 # sheets.js papers, units and scales (LAYOUT, MVIEW): ported once in cc-io-cad's plot
 cc-io-cad.workspace = true
 cc-tools.workspace = true
+# the 3D commands (commands3d.js, M4.24): ModelCraft's kernel and its GLB / OBJ / STL writers
+cc-m3d.workspace = true
+cc-io-m3d.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 # libplace.js slugify (NFKD, accents dropped)

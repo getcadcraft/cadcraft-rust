@@ -351,3 +351,10 @@ path = "fuzz_targets/markup_picture.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cad_model3d"
+path = "fuzz_targets/cad_model3d.rs"
+test = false
+doc = false
+bench = false

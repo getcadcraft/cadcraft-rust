@@ -40,7 +40,7 @@ pub mod dyn_blocks;
 mod en;
 pub mod i18n;
 pub mod jsv;
-pub mod m3d_file;
+pub mod m3dmodel;
 pub mod model3d;
 pub mod pdfimage;
 pub mod plot;

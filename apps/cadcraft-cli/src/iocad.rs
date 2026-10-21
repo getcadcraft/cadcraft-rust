@@ -60,7 +60,7 @@ pub fn import(rest: &[&str]) -> ExitCode {
         d.load(&input);
         cc_gcons::install();
         cc_gcons::finish_load(&mut d);
-        println!("{}", d.snapshot());
+        println!("{}", crate::cmds::snap_with_m3d(&d));
     } else {
         println!("{input}");
     }

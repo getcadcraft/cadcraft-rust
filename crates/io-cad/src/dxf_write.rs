@@ -1,9 +1,8 @@
 //! dxf.js `writeDxf(doc)`: a `Doc` → DXF R12 (AC1009) ASCII, byte-identical to the JS writer, and its report
 //! { notes, counts, extents }.
 //!
-//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC). Not
-//! written (needs ports this crate does not have yet): the 3D model's block and 3DFACEs for a model made in CadCraft
-//! (model3d.js `forFile3d`; loose faces are). A drawing with one is written without it.
+//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC); the 3D
+//! model as model3d.js `forFile3d` writes it (m3dmodel.rs: 3DFACEs on layer CC-3D, its JSON in block CADCRAFT_3D).
 
 use std::collections::{HashMap, HashSet};
 
@@ -1202,9 +1201,7 @@ pub fn write_dxf_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_json::V
         w.used.insert(cc_gcons::gcons::PARAM_BLOCK.into());
     }
     // the 3D model (model3d.js): 3DFACEs on layer CC-3D + its exact copy in block CADCRAFT_3D
-    let units = jsv::str_or_empty(jsv::from_json(&serde_json::Value::Object(doc.meta.clone())).as_obj().and_then(|m| m.get("units")));
-    let m3 =
-        if doc.faces3d.is_empty() { None } else { crate::m3d_file::for_file3d(&doc.faces3d, &units, &cat.t("model3d.faces_file", &[])) };
+    let m3 = crate::m3dmodel::doc_for_file3d(doc, &cat.t("model3d.faces_file", &[]));
     if let Some(m3) = &m3 {
         w.used.insert(crate::model3d::M3D_BLOCK.into());
         if !doc.layers.contains_key(&m3.layer.to_string()) {

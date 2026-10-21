@@ -1,8 +1,8 @@
 //! dwg-save.js: a CadCraft drawing → the cc-dwg model → DWG through cc-io-dwg's writer (`write_dwg_opts`), in AutoCAD
 //! 2000 … 2018. `model_only` gives the model instead (dxf2000.rs writes it as an R2000 DXF).
 //!
-//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC). Not
-//! written here (as in dxf_write.rs): a 3D model CadCraft saved itself (only loose 3D faces, m3d_file.rs).
+//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC); the 3D
+//! model as model3d.js `forFile3d` writes it (m3dmodel.rs), as in dxf_write.rs.
 
 use cc_cad::entity::{Entity, Geo};
 use cc_cad::js;
@@ -1480,8 +1480,7 @@ pub fn build_model(doc: &Doc, opts: &SaveOpts, cat: &Catalog) -> R<Built> {
     }
     // the 3D model (model3d.js): every face as 3DFACE on layer CC-3D, and its exact copy in block CADCRAFT_3D
     let units = jsv::str_or_empty(obj_of_json(&doc.meta).get("units"));
-    let m3 =
-        if doc.faces3d.is_empty() { None } else { crate::m3d_file::for_file3d(&doc.faces3d, &units, &cat.t("model3d.faces_file", &[])) };
+    let m3 = crate::m3dmodel::doc_for_file3d(doc, &cat.t("model3d.faces_file", &[]));
     if let Some(m3) = &m3 {
         if !layers.iter().any(|l| jsv::s(l.get("name")) == Some(m3.layer)) {
             layers.push(cc_io_dwg::obj! { "name" => m3.layer, "color" => V::Obj(cc_io_dwg::obj! { "index" => 8.0 }), "off" => false, "frozen" => false, "locked" => false, "plot" => true });

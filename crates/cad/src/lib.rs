@@ -7,11 +7,12 @@
 //! doc.js does (`mark` / `squash` too). [`doc::Doc::load`] takes doc.load's input shape; [`doc::Doc::snapshot`] is the
 //! comparison form the parity harness (`forks/tools/gdiff.mjs`) also writes from the JS `Doc`.
 //!
+//! The 3D model (model3d.js) is kept as its JSON snapshot (`Doc::m3d`, undone through `Op::M3d`); before anything
+//! made one it is what the file brought (`faces3d`, `model3d_text`), which cc-io-cad's m3dmodel.rs turns into the model.
+//! Constraints and parameters (gcons.js, params-doc.js) are `Doc::constraints` / `Doc::params`, solved by cc-gcons
+//! through the edit hook.
+//!
 //! Left out of M4 (kept only so `load` accepts and keeps what a file brings):
-//! - parametric constraints and parameters (gcons.js / params-doc.js): `load`'s `parametric` is kept as given in
-//!   `Doc::parametric`; `ccref` keys are dropped from model entities as doc.js does; nothing is solved.
-//! - the 3D model (model3d.js): 'face3d' entities and `faces3d` are taken out of the drawing (as split3d does) into
-//!   `Doc::faces3d`; CADCRAFT_3D blocks are dropped; nothing is restored.
 //! - split screen (panes.js), UCS (ucs.js): `vports` / `ucs` kept as given, not cleaned.
 //! - add-on edit hooks and name hooks, the block editor (BEDIT), Studio Live hooks, `swapContent`.
 //! - listeners: events queue up instead ([`doc::Doc::drain_events`]).

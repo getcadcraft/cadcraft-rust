@@ -324,6 +324,8 @@ pub struct Current {
     pub dim: Obj,
     pub linetype: Option<String>,
     pub lineweight: Option<f64>,
+    /// EXTRUDE's Delete originals (commands3d.js `doc.current.delobj`; absent until first set)
+    pub delobj: Option<bool>,
 }
 impl Current {
     pub fn to_value(&self) -> Value {
@@ -334,6 +336,9 @@ impl Current {
         m.insert("dim".into(), Value::Object(self.dim.clone()));
         m.insert("linetype".into(), self.linetype.clone().map_or(Value::Null, Value::String));
         m.insert("lineweight".into(), self.lineweight.map_or(Value::Null, num));
+        if let Some(d) = self.delobj {
+            m.insert("delobj".into(), Value::Bool(d));
+        }
         Value::Object(m)
     }
 }
@@ -393,6 +398,11 @@ pub enum Op {
     Views {
         before: Vec<View>,
         after: Vec<View>,
+    },
+    /// `{ m3d: true, before, after }` (model3d.js Model3D.record): the 3D model's JSON snapshots (None = no model yet)
+    M3d {
+        before: Option<std::sync::Arc<str>>,
+        after: Option<std::sync::Arc<str>>,
     },
     /// `setParametric`: the constraints and the parameter table, replaced together
     Parametric {
@@ -494,6 +504,12 @@ pub struct Doc {
     pub load_notes: Vec<String>,
     /// 'face3d' entities and `faces3d` that load took out of the 2D drawing (model3d.js split3d)
     pub faces3d: Vec<Value>,
+    /// CadCraft's own 3D model JSON a file brought (block CADCRAFT_3D) and its saved 3D view, as given to load
+    pub model3d_text: Option<String>,
+    pub view3d: Option<Value>,
+    /// the 3D model as its JSON snapshot (model3d.js `doc.model3d.snapshot()`), once something made or read one: None
+    /// = still what the file brought (`faces3d`, `model3d_text`); undoable through `Op::M3d`
+    pub m3d: Option<std::sync::Arc<str>>,
     /// the file's dynamic-block objects (dwg-save.js)
     pub dyn_src: Option<Value>,
     /// what a view label shows for a viewport with no view name (commands.js `field.vpview.none`; the engine sets
@@ -545,6 +561,7 @@ impl Doc {
                 dim: dim_defaults(),
                 linetype: None,
                 lineweight: None,
+                delobj: None,
             },
             meta: default_meta(),
             undo_stack: Vec::new(),
@@ -567,6 +584,9 @@ impl Doc {
             last_note: None,
             load_notes: Vec::new(),
             faces3d: Vec::new(),
+            model3d_text: None,
+            view3d: None,
+            m3d: None,
             dyn_src: None,
             unnamed_view: "Unnamed view".into(),
             pictures: crate::pictures::Pictures::new(),
@@ -1116,6 +1136,15 @@ impl Doc {
             (std::mem::replace(&mut self.constraints, std::sync::Arc::clone(&after)), std::mem::replace(&mut self.params, params.clone()));
         self.push(Op::Parametric { before, after: (after, params) })
     }
+    /// model3d.js `Model3D.record(label, before, after)`: a 3D edit in this drawing's history — inside the open change,
+    /// or a change of its own.
+    pub fn record_m3d(&mut self, label: &str, before: Option<std::sync::Arc<str>>, after: std::sync::Arc<str>) -> Result<(), DocError> {
+        self.m3d = Some(std::sync::Arc::clone(&after));
+        if self.pending.is_some() {
+            return self.push(Op::M3d { before, after: Some(after) });
+        }
+        self.change(label, |d| d.push(Op::M3d { before, after: Some(after) }))
+    }
     /// `doc.note(msg)`: a message about constraints (an edit refused, objects that followed).
     pub fn note(&mut self, msg: &str) {
         self.last_note = Some(msg.to_string());
@@ -1168,6 +1197,9 @@ impl Doc {
                 }
             }
             Op::Views { before, after } => self.views = if forward { after.clone() } else { before.clone() },
+            Op::M3d { before, after } => {
+                self.m3d = if forward { after.clone() } else { before.clone() };
+            }
             Op::Parametric { before, after } => {
                 let v = if forward { after } else { before };
                 self.constraints = std::sync::Arc::clone(&v.0);
@@ -1311,6 +1343,9 @@ impl Doc {
         });
         faces.extend(kept);
         self.faces3d = faces;
+        self.model3d_text = get("model3d").and_then(Value::as_str).map(str::to_string);
+        self.view3d = get("view3d").cloned();
+        self.m3d = None;
         let mut blocks = list("blocks");
         blocks.retain(|b| !b.get("name").is_some_and(|n| js::to_js_string(n).to_uppercase() == "CADCRAFT_3D"));
         let mut model = Space::default();

@@ -2,6 +2,40 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.24 3D commands, the 3D model in files (agent, work/drafting2)
+
+- cc-io-cad `m3dmodel.rs` (model3d.js, shapes3d.js on ModelCraft's kernel cc-m3d): the drawing's 3D model from a file
+  (CadCraft's JSON in block CADCRAFT_3D through the kernel's own checked `load`, else loose 3DFACEs as one group, 200k
+  at most), `forFile3d` (every face as a 3DFACE on CC-3D, the JSON in CC3D xdata strings, the saved 3D view), the
+  outlines (`outline2d`) and the solids (prism, box, cylinder, wedge, tapered, revolved, swept). Replaces m3d_file.rs's
+  private copy of the kernel (−850 lines). cc-cad `Doc::m3d` keeps the model as its snapshot, undone through `Op::M3d`
+  (doc.js `{m3d, before, after}`); `current.delobj` is EXTRUDE's Delete setting.
+- cc-engine `solid3d.rs` (commands3d.js): EXTRUDE (Delete originals, Taper angle, Path), SWEEP, REVOLVE (X / Y axis or
+  two points, angle), BOX, WEDGE, CYLINDER, EXPORT3D / STLOUT / OBJOUT / GLBOUT (io-m3d writers, through the host's
+  save service); PRESSPULL 3DORBIT VIEW VSCURRENT UNION INTERSECT SUBTRACT print 0.5's "needs the 3D tab" (no 3D tab
+  in this window yet). Each 3D edit is one undo step; the model the last command left is kept while the drawing holds
+  its snapshot, so the next one does not read it again.
+- Spec gap: CadCraft 0.5 bundles an older copy of m3d/model.js whose `faceTris` has no triangle / quad shortcut
+  (ModelCraft's has); cc-m3d `with_plain_face_tris` gives CadCraft's for its exports and 3DFACEs.
+- Fuzz target `cad_model3d` (doc.load input → model, forFile3d, every solid from its outlines): 143k runs, clean.
+- Parity: kdiff 4 new 3D scenarios 182/182 records (exports logged byte for byte); full run seed 1 3973/3973, seeds
+  2–4 × 16 scripts 2240/2240 each. idiff `--solids` (new: BOX, CYLINDER, WEDGE, EXTRUDE plain and tapered, REVOLVE on
+  each kit drawing): saves DXF R12 / DXF 2000 / DWG 2000 / 2018 78/78 byte-identical each; read back
+  (testfiles/generated/solids3d, 52 files, in LARGE-FILES.md) and constraints files: 91 files 0 differences with the
+  model compared; kit `--save` all versions 78/78; plotdiff kit 1128/1128.
+- Timings (drafttime, best of 5, ms JS / Rust):
+
+  | command | Carey (21,491) | ar1all (9,021) | kitchen (254) |
+  |---|---|---|---|
+  | BOX ×5 + CYLINDER | 33.0 / 0.9 · 37× | 27.9 / 0.9 · 31× | 26.3 / 1.0 · 26× |
+  | EXTRUDE ALL closed outlines | 640 / 188 · 3.4× | 40.2 / 15.7 · 2.6× | 15.4 / 2.5 · 6.1× |
+  | EXTRUDE ALL + UNDO | 628 / 188 · 3.3× | 38.5 / 15.7 · 2.5× | 16.0 / 2.4 · 6.5× |
+  | EXTRUDE ALL + BOX ×3 | 789 / 203 · 3.9× | 65.2 / 17.1 · 3.8× | 28.0 / 2.9 · 9.6× |
+  | EXTRUDE ALL + STLOUT + GLBOUT | 728 / 233 · 3.1× | 45.8 / 18.9 · 2.4× | 17.9 / 3.2 · 5.6× |
+
+- Not done: the 3D tab (and the commands that need it); the drawing-units choice in Properties that scales the solids
+  (model3d.js setUnits; the window has no units row yet); saves read the model from its snapshot again (not timed).
+
 ## 2026-10-21 — M4.23 constraints and parameters (agent, work/drafting2)
 
 - New crate cc-gcons (L3): gsolve.js (the solver: damped least-norm Newton, Gram–Schmidt analysis), gcons.js (making,
