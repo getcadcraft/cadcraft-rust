@@ -97,5 +97,11 @@ Last updated 2026-10-20 · Change: speed S.1–S.3 (marked PDF, section sheets P
    pulled zbus crates RustSec lists as unmaintained (RUSTSEC-2026-0370/0371/0372, no upgrade); it comes back with the
    screen-reader work.
 
+11. **Found on the new build machine (2026-10-21, workstation11a):** (a) fuzz target `civil_raster` hits an
+   out-of-memory on a hostile GeoTIFF (a 3.1 GB allocation from a claimed size; input
+   `fuzz/artifacts/civil_raster/oom-d13891f65898fa6735c56122b0dacff01f48b088` on that machine; present before S.1–S.3);
+   (b) MarkupCraft's XLSX summary and BCF export carry dates that differ from 0.5 when the machine's time zone is not UTC
+   (mkuidiff 17/17 under TZ=UTC, 4 different under America/Denver): one side writes local time, the other UTC.
+
 Closed: DWG reading R13–R2018 at full-model parity with 0.5 (M2, 2026-10-16); DXF reading and the 2D viewer (M3);
 the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG import and DWG / DXF saving at byte parity (M4).
