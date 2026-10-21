@@ -1192,6 +1192,11 @@ impl<'a> Image<'a> {
         // _readRaster
         let tw = self.tile_width();
         let th = self.tile_height();
+        // Spec gap: geotiff.js takes any tile size; a TileLength of 7.7e-304 (a DOUBLE tag) made it, and this port,
+        // walk ~1e305 tile rows for a 64-row window (fuzz timeout, 2026-10-21). A tile is at least one pixel.
+        if !(tw >= 1.0 && th >= 1.0 && tw.is_finite() && th.is_finite()) {
+            return Err("Invalid tile size".into());
+        }
         let iw = self.width();
         let ih = self.height();
         let min_xt = crate::math::max((window[0] / tw).floor(), 0.0);
@@ -2095,5 +2100,50 @@ mod tests {
         let img = tiff.image(0).expect("image");
         assert_eq!(img.read_rgb(&ReadOptions::default()).err().as_deref(), Some("Invalid typed array length"));
         assert_eq!(img.read_rasters(&ReadOptions::default()).err().as_deref(), Some("Invalid typed array length"));
+    }
+    /// A tiled TIFF whose TileLength is a DOUBLE of 7.7e-304: the read is refused at once instead of walking ~1e305
+    /// tile rows (fuzz timeout 2026-10-21).
+    #[test]
+    fn sub_pixel_tile_refused() {
+        // 12 entries at 10, then the TileLength double, then one 16 × 16 tile of zeros
+        let n = 12u16;
+        let dbl = 10 + 2 + 12 * u32::from(n) + 4;
+        let data = dbl + 8;
+        let tags: [(u16, u16, u32); 12] = [
+            (256, 3, 64),
+            (257, 3, 64),
+            (258, 3, 8),
+            (259, 3, 1),
+            (262, 3, 1),
+            (277, 3, 1),
+            (284, 3, 1),
+            (322, 3, 16),
+            (323, 12, dbl),
+            (324, 4, data),
+            (325, 4, 256),
+            (339, 3, 1),
+        ];
+        let mut b = b"II\x2a\x00\x0a\x00\x00\x00\x00\x00".to_vec();
+        b.extend_from_slice(&n.to_le_bytes());
+        for (tag, ty, v) in tags {
+            b.extend_from_slice(&tag.to_le_bytes());
+            b.extend_from_slice(&ty.to_le_bytes());
+            b.extend_from_slice(&1u32.to_le_bytes());
+            if ty == 3 {
+                b.extend_from_slice(&(v as u16).to_le_bytes());
+                b.extend_from_slice(&[0, 0]);
+            } else {
+                b.extend_from_slice(&v.to_le_bytes());
+            }
+        }
+        b.extend_from_slice(&0u32.to_le_bytes());
+        b.extend_from_slice(&7.746817150022664e-304f64.to_le_bytes());
+        b.extend_from_slice(&[0u8; 256]);
+        let tiff = Tiff::from_bytes(&b).expect("header");
+        let img = tiff.image(0).expect("image");
+        let o = ReadOptions { window: Some([0.0, 0.0, 64.0, 64.0]), samples: vec![0], ..ReadOptions::default() };
+        let t = std::time::Instant::now();
+        assert_eq!(img.read_rasters(&o).err().as_deref(), Some("Invalid tile size"));
+        assert!(t.elapsed().as_secs() < 1);
     }
 }

@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M11.17 GeoTIFF tiles under one pixel refused (lead, workstation11a)
+
+- A civil_raster fuzz input (632 bytes, found by the model621 agent's gate) ran past libFuzzer's 10 s limit: its
+  TileLength is a DOUBLE tag of 7.7e-304, so cc-proj `read_rasters` walked `ceil(64 / th)` tile rows for a 64-row
+  window, decoding a tile each time, until the 50M-tile guard. geotiff.js loops the same way (spec gap noted in the
+  code). A tile smaller than one pixel, or not finite, is now refused ("Invalid tile size"); with tiles of at least one
+  pixel the walk is bounded by the window's cells, which `MAX_CELLS` caps. The input runs in 90 ms.
+- Regression test `tiff::tests::sub_pixel_tile_refused`; the input is a seed (`fuzz/seeds/civil_raster/timeout-subpixel-tile`).
+
 ## 2026-10-21 — M4.24 3D commands, the 3D model in files (agent, work/drafting2)
 
 - cc-io-cad `m3dmodel.rs` (model3d.js, shapes3d.js on ModelCraft's kernel cc-m3d): the drawing's 3D model from a file

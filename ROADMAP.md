@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M11.17: GeoTIFF tiles under one pixel refused (civil_raster fuzz timeout: a 7.7e-304 TileLength walked ~1e305 tile rows); regression test + seed.
 - 2026-10-21 M4.24: CadCraft 3D commands (EXTRUDE with Taper / Path, SWEEP, REVOLVE, BOX, WEDGE, CYLINDER, EXPORT3D / STLOUT / OBJOUT / GLBOUT) on ModelCraft's kernel, one undo step each, and the 3D model in DWG / DXF: kdiff 182/182, saves byte-identical 4 × 78/78, read-back 52/52; 1.8–37× the JS.
 - 2026-10-21 M4.23: constraints and parameters (new crate cc-gcons: gsolve.js, gcons.js, params-doc.js, ckeep.js; pcommands.js commands; the Parameters panel and constraint bars; DWG / DXF CCREF + CADCRAFT_PARAMETRIC) at kdiff parity (244/244) and byte-identical saves (idiff --constraints 4 × 78/78); 2.1–12× the JS.
 - 2026-10-21 M4.22: LIBRARY (the Library panel: item files, credits) and INSERT File / Library (blockcopy.js, libplace.js) at kdiff parity (162/162, 31/31); INSERT File 1.5–4.2× the JS.
