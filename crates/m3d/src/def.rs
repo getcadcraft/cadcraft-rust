@@ -44,6 +44,58 @@ pub struct Rule {
     pub sx: Option<f64>,
     pub sy: Option<f64>,
     pub sz: Option<f64>,
+    /// The keys in the order the page set them (a JS object keeps its keys in insertion order, and the file writes
+    /// them so); None: x y z sx sy sz, as a file is read.
+    pub order: Option<Vec<&'static str>>,
+}
+
+impl Rule {
+    const KEYS: [&'static str; 6] = ["x", "y", "z", "sx", "sy", "sz"];
+    fn has(&self, k: &str) -> bool {
+        match k {
+            "x" => self.x.is_some(),
+            "y" => self.y.is_some(),
+            "z" => self.z.is_some(),
+            "sx" => self.sx.is_some(),
+            "sy" => self.sy.is_some(),
+            "sz" => self.sz.is_some(),
+            _ => false,
+        }
+    }
+    /// The keys present, in the order they are written.
+    pub fn keys(&self) -> Vec<&'static str> {
+        let mut out: Vec<&'static str> =
+            self.order.as_ref().map(|o| o.iter().copied().filter(|k| self.has(k)).collect()).unwrap_or_default();
+        for k in Self::KEYS {
+            if self.has(k) && !out.contains(&k) {
+                out.push(k);
+            }
+        }
+        out
+    }
+    /// `rule[k] = v` (a new key goes last) or `delete rule[k]` (both None): a word for x / y / z, a number for
+    /// sx / sy / sz.
+    pub fn set(&mut self, k: &str, word: Option<String>, num: Option<f64>) {
+        let mut order = self.keys();
+        let Some(&key) = Self::KEYS.iter().find(|q| **q == k) else { return };
+        let present = word.is_some() || num.is_some();
+        match key {
+            "x" => self.x = word,
+            "y" => self.y = word,
+            "z" => self.z = word,
+            "sx" => self.sx = num,
+            "sy" => self.sy = num,
+            _ => self.sz = num,
+        }
+        if present {
+            if !order.contains(&key) {
+                order.push(key);
+            }
+        } else {
+            order.retain(|q| *q != key);
+        }
+        self.order = Some(order);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -139,7 +139,7 @@ impl Mk<'_> {
 }
 
 fn rule(x: Option<&str>, y: Option<&str>, z: Option<&str>) -> cc_m3d::def::Rule {
-    cc_m3d::def::Rule { x: x.map(String::from), y: y.map(String::from), z: z.map(String::from), sx: None, sy: None, sz: None }
+    cc_m3d::def::Rule { x: x.map(String::from), y: y.map(String::from), z: z.map(String::from), sx: None, sy: None, sz: None, order: None }
 }
 
 #[allow(clippy::too_many_lines)]

@@ -308,6 +308,14 @@ impl ModelView {
                 }
             }
             soften_row(ui, t, boxes, self.soften_deg, acts);
+            // 0.4 M26: a component made of parts stretches its parts by their rules, for this copy only
+            if d.kind == "component" && (!d.insts.is_empty() || d.dyn_.is_some()) {
+                buttons.push((mt("app.dyn.stretch", &[]), format!("stretch:{}", ns(iid))));
+            }
+            // a part inside an open component: how it follows when the component is stretched
+            if !self.tools.host.path.is_empty() && def.kind == "component" {
+                part_rules(ui, t, boxes, acts, model, def, iid, &u);
+            }
             if let Some(dy) = &d.dyn_ {
                 let src = model.def(&dy.src).map(|x| x.name.clone()).unwrap_or_default();
                 notes.push(mt("app.dyn.is", &[("name", &src)]));
@@ -996,4 +1004,68 @@ fn len_box(
         acts.push(format!("{act}{v}"));
     }
     ui.end_row();
+}
+
+/// partRules: a part's rule per axis inside an open component (auto shows the rule it works out), and the spacing of a
+/// repeated part.
+#[allow(clippy::too_many_arguments)]
+fn part_rules(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    boxes: &mut HashMap<String, String>,
+    acts: &mut Vec<String>,
+    model: &cc_m3d::Model,
+    comp: &cc_m3d::def::Def,
+    iid: f64,
+    u: &str,
+) {
+    let Some(inst) = comp.insts.get(iid) else { return };
+    let Some(bb) = model.bbox(&comp.id, &cc_m3d::vec::IDENT) else { return };
+    let parts = cc_m3d_tools::dynamic::parts_of(model, &comp.id);
+    let Some(part) = parts.iter().find(|p| p.iid == iid) else { return };
+    // the heading in the value column (a long label in the first column would widen the whole grid)
+    ui.label("");
+    ui.label(RichText::new(mt("app.dyn.rules", &[])).color(t.text_strong));
+    ui.end_row();
+    for (k, ax) in ["x", "y", "z"].iter().enumerate() {
+        let cur = inst.rule.as_ref().and_then(|r| match k {
+            0 => r.x.clone(),
+            1 => r.y.clone(),
+            _ => r.z.clone(),
+        });
+        let cur = cur.unwrap_or_else(|| "auto".into());
+        let mut bare = part.clone();
+        bare.inst.rule = None;
+        let auto =
+            mt("app.dyn.rule.auto", &[("rule", &mt(&format!("app.dyn.rule.{}", cc_m3d_tools::dynamic::rule_of(&bare, k, &bb)), &[]))]);
+        let word = |r: &str| if r == "auto" { auto.clone() } else { mt(&format!("app.dyn.rule.{r}"), &[]) };
+        let l = ui.label(RichText::new(mt(&format!("app.dyn.axis.{ax}"), &[])).color(t.text_dim));
+        egui::ComboBox::new(format!("mc-rule-{ax}"), "")
+            .width(150.0)
+            .truncate()
+            .selected_text(word(&cur))
+            .show_ui(ui, |ui| {
+                for r in crate::mcstretch::RULES {
+                    if ui.selectable_label(cur == r, word(r)).clicked() && cur != r {
+                        acts.push(format!("rule:{}:{ax}={r}", ns(iid)));
+                    }
+                }
+            })
+            .response
+            .labelled_by(l.id);
+        ui.end_row();
+        if cur == "repeat" {
+            let sp = inst.rule.as_ref().and_then(|r| match k {
+                0 => r.sx,
+                1 => r.sy,
+                _ => r.sz,
+            });
+            let w = sp.unwrap_or((part.bx.max.get(k).copied().unwrap_or(0.0) - part.bx.min.get(k).copied().unwrap_or(0.0)) * 2.0);
+            ui.label(RichText::new(mt("app.dyn.spacing", &[])).color(t.text_dim));
+            if let Some(v) = text_box(ui, boxes, &format!("rule-sp:{}:{ax}", ns(iid)), &cc_m3d::units::format_length(w, u), 90.0) {
+                acts.push(format!("rule-spacing:{}:{ax}={v}", ns(iid)));
+            }
+            ui.end_row();
+        }
+    }
 }

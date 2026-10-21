@@ -2,6 +2,42 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.21 ModelCraft components that stretch (agent, work/m3dfix → work/model621)
+
+- `crates/ui-egui/src/mcstretch.rs`: Entity info's Stretch this copy… (the dialog with the copy's width, depth and
+  height; a new stretched definition for that copy, `dyn` kept so it stretches again from the original), and inside
+  an open component a part's rule per axis (auto shows the rule it works out; stretch, start, end, move, scale,
+  repeat) with a repeated part's spacing (`mcpanels.rs` part_rules).
+- cc-m3d: a part's rule keeps its keys in the order they are set (`Rule::order`), as a JS object does and the file
+  writes; a file read gives x y z sx sy sz as before.
+- Parity, the full sweep on this commit (`forks/tools/mcuidiff.mjs --edit --seeds 8 --steps 80`, 11 inputs: 5
+  ModelCraft files, the edit-walk file, 5 SketchUp imports; re-run on workstation11a): 7,040 / 7,040 status lines the
+  same, 6,651 / 6,651 saved files byte-identical (stretch-go 38 times, rule 26, with M6.19–M6.20's Edit menu, solids,
+  storeys and axes in the same walk); Place of a purged definition (the 0.5 bug M6.19 avoids) 3 times.
+- Timings (`mcuidiff.mjs --bench-edit`, 0.5 JS best of 3 vs `cadcraft-shot mcacts` best of 3, ms, every status the same):
+
+  | file | action | 0.5 JS | Rust | × |
+  |---|---|---:|---:|---:|
+  | m3d-50k-faces | flip red | 36.4 | 3.3 | 11.1× |
+  | m3d-50k-faces | flipped copy green | 16.0 | 1.6 | 9.9× |
+  | m3d-50k-faces | copy (everything) | 82.4 | 102.4 | 0.8× |
+  | m3d-50k-faces | paste in place | 88.6 | 61.2 | 1.4× |
+  | m3d-50k-faces | solid union | 39.9 | 9.4 | 4.3× |
+  | m3d-50k-faces | subtract (two picks) | 21.8 | 4.3 | 5.1× |
+  | m3d-50k-faces | intersect with model | 872.3 | 16.5 | 52.9× |
+  | m3d-50k-faces | 3D text "Hi", 0.1 deep | 47.8 | 9.2 | 5.2× |
+  | m3d-50k-faces | 3D text "CadCraft 0.5", 0.1 deep | 38,294 | 13,346 | 2.9× |
+  | m3d-50k-faces | IFC storeys: guess / save | 0.9 / 17.8 | 0.12 / 2.9 | 7.5× / 6.0× |
+  | m3d-edit-walk | solid union | 18.2 | 0.70 | 26× |
+  | m3d-edit-walk | stretch a table to 2.4 × 1 × 0.9 | 0.53 | 0.06 | 8.4× |
+  | m3d-edit-walk | stretch again to 3 × 1 × 2 (a part on repeat) | 0.26 | 0.04 | 5.9× |
+
+  Undo is 0.6–2 ms against the JS's 0.2–0.5 (the JS swaps a snapshot; the app also rebuilds the 3D scene) and copy of
+  the whole 50k-face model 0.8×; both left as they are.
+- Screenshots: `forks/lead/shots/model621/m621-stretch-dialog.png` (the dialog over the view),
+  `m621-part-rules.png` (a table's top on repeat along blue, with its spacing).
+- Plain English where 0.5 has no key: the storeys row's remove button shows "×"; the clipboard and view-size actions
+  are scripting names only.
 ## 2026-10-21 — M16.8 Local-time dates as 0.5 writes them (agent, work/tz)
 
 - Audited every app's frozen 0.5 JS for local-time dates (`getHours` … `getFullYear`, `getTimezoneOffset`,

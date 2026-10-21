@@ -173,25 +173,28 @@ fn inst_json(id: f64, i: &Inst, o: &mut Out) {
     }
     if let Some(r) = &i.rule {
         o.raw(",\"rule\":{");
-        let mut first = true;
-        let mut sep = |o: &mut Out| {
-            if !first {
+        for (n, k) in r.keys().into_iter().enumerate() {
+            if n > 0 {
                 o.ch(',');
             }
-            first = false;
-        };
-        for (k, v) in [("x", &r.x), ("y", &r.y), ("z", &r.z)] {
-            if let Some(v) = v {
-                sep(o);
-                o.key(k);
-                o.str(v);
-            }
-        }
-        for (k, v) in [("sx", r.sx), ("sy", r.sy), ("sz", r.sz)] {
-            if let Some(v) = v {
-                sep(o);
-                o.key(k);
-                o.num(v);
+            o.key(k);
+            match k {
+                "x" | "y" | "z" => o.str(
+                    match k {
+                        "x" => r.x.as_deref(),
+                        "y" => r.y.as_deref(),
+                        _ => r.z.as_deref(),
+                    }
+                    .unwrap_or(""),
+                ),
+                _ => o.num(
+                    match k {
+                        "sx" => r.sx,
+                        "sy" => r.sy,
+                        _ => r.sz,
+                    }
+                    .unwrap_or(f64::NAN),
+                ),
             }
         }
         o.ch('}');
@@ -327,14 +330,17 @@ fn inst_value_with(id: f64, i: &Inst, jn: impl Fn(f64) -> Value) -> Value {
     }
     if let Some(r) = &i.rule {
         let mut ro = Map::new();
-        for (k, v) in [("x", &r.x), ("y", &r.y), ("z", &r.z)] {
+        for k in r.keys() {
+            let v = match k {
+                "x" => r.x.clone().map(Value::String),
+                "y" => r.y.clone().map(Value::String),
+                "z" => r.z.clone().map(Value::String),
+                "sx" => r.sx.map(&jn),
+                "sy" => r.sy.map(&jn),
+                _ => r.sz.map(&jn),
+            };
             if let Some(v) = v {
-                ro.insert(k.into(), Value::String(v.clone()));
-            }
-        }
-        for (k, v) in [("sx", r.sx), ("sy", r.sy), ("sz", r.sz)] {
-            if let Some(v) = v {
-                ro.insert(k.into(), jn(v));
+                ro.insert(k.into(), v);
             }
         }
         o.insert("rule".into(), Value::Object(ro));
@@ -473,7 +479,7 @@ pub fn def_from_json(d: &mut Def, j: &Value, fail: Fail) -> Res<()> {
         if let Some(r) = i.get("rule").filter(|r| r.is_object() || r.is_array()) {
             let word = |k: &str| json::str(r.get(k)).filter(|w| RULE_WORDS.contains(w)).map(str::to_string);
             let scale = |k: &str| json::finite(r.get(k)).filter(|&x| x > 0.0 && x < 1e6);
-            let rule = Rule { x: word("x"), y: word("y"), z: word("z"), sx: scale("sx"), sy: scale("sy"), sz: scale("sz") };
+            let rule = Rule { x: word("x"), y: word("y"), z: word("z"), sx: scale("sx"), sy: scale("sy"), sz: scale("sz"), order: None };
             if rule != Rule::default() {
                 ins.rule = Some(rule);
             }

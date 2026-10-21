@@ -102,7 +102,7 @@ impl ModelView {
                 }
                 Ok(())
             }
-            _ => return None,
+            _ => return self.stretch_act(name, arg),
         };
         Some(r)
     }
@@ -337,7 +337,7 @@ impl ModelView {
         self.print(if n > 0 { mt("app.storeys.saved", &[("n", &n.to_string())]) } else { mt("app.storeys.none", &[]) });
     }
 
-    /// The dialogs after the Edit menu's: IFC storeys.
+    /// The dialogs after the Edit menu's: IFC storeys, then the stretch dialog.
     pub fn more_dialogs(&mut self, ctx: &egui::Context, act: &mut Option<String>) {
         if let Some(StoreysDlg { mut rows, err }) = self.storeys_dlg.clone() {
             let mut a: Option<String> = None;
@@ -388,6 +388,7 @@ impl ModelView {
                 *act = a;
             }
         }
+        self.stretch_dialogs(ctx, act);
     }
 }
 

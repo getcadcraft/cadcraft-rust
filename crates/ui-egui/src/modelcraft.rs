@@ -123,6 +123,8 @@ pub struct ModelView {
     /// the IFC storeys dialog; Subtract's cutter while its two clicks are under way (Some(None): none yet) (mcsolids.rs)
     pub storeys_dlg: Option<crate::mcsolids::StoreysDlg>,
     pub(crate) sub_cutter: Option<Option<f64>>,
+    /// the Stretch this copy dialog (mcstretch.rs)
+    pub stretch_dlg: Option<crate::mcstretch::StretchDlg>,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -190,6 +192,7 @@ impl ModelView {
             pinned_size: None,
             storeys_dlg: None,
             sub_cutter: None,
+            stretch_dlg: None,
         };
         v.fit();
         Ok(v)
