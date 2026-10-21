@@ -309,6 +309,13 @@ fn bump(d: &mut [u8]) -> bool {
 }
 
 /// `x.toFixed(f)` (0 ≤ f ≤ 100): the exact value rounded half up, as the spec says.
+///
+/// Rust's `{:.p}` is the exact value correctly rounded to p places; with p = f + 25 its digit at place f + 1 decides
+/// the half-up rounding just as the exact digits do (the 25 digits after it are off from the exact ones by at most
+/// half a unit in the last place, so a tail at or past a half reads 5…, a tail under it reads under 5…, and a carry
+/// into the kept digits only happens from a run of nines that rounds up anyway), except when the text reads
+/// exactly 5000…0 past place f: the exact tail may be just under a half there, so those go the exact way.
+/// S.2: the 1100-digit expansion of every number was most of a PDF page writer's time.
 pub fn to_fixed(x: f64, f: usize) -> String {
     if x.is_nan() {
         return "NaN".into();
@@ -316,10 +323,34 @@ pub fn to_fixed(x: f64, f: usize) -> String {
     if x.abs() >= 1e21 {
         return num_to_string(x);
     }
-    let neg = x < 0.0;
-    // the exact decimal expansion (a double has at most 1074 digits after the point)
+    const EXTRA: usize = 25;
+    if f > 100 {
+        return to_fixed_exact(x, f);
+    }
+    let s = format!("{:.*}", f.saturating_add(EXTRA), x.abs());
+    let (ip, fp) = s.split_once('.').unwrap_or((s.as_str(), ""));
+    let fb = fp.as_bytes();
+    if fb.get(f) == Some(&b'5') && fb.get(f.saturating_add(1)..).is_some_and(|r| r.iter().all(|&c| c == b'0')) {
+        return to_fixed_exact(x, f);
+    }
+    fixed_from(x < 0.0, ip, fp, f)
+}
+
+/// [`to_fixed`] from the exact decimal expansion (a double has at most 1074 digits after the point).
+pub fn to_fixed_exact(x: f64, f: usize) -> String {
+    if x.is_nan() {
+        return "NaN".into();
+    }
+    if x.abs() >= 1e21 {
+        return num_to_string(x);
+    }
     let s = format!("{:.1100}", x.abs());
     let (ip, fp) = s.split_once('.').unwrap_or((s.as_str(), ""));
+    fixed_from(x < 0.0, ip, fp, f)
+}
+
+/// The text of `toFixed(f)` from the integer and fraction digits of |x| (the fraction long enough to decide).
+fn fixed_from(neg: bool, ip: &str, fp: &str, f: usize) -> String {
     let mut digits: Vec<u8> = ip.bytes().chain(fp.bytes().take(f)).collect();
     let next = fp.as_bytes().get(f).copied().unwrap_or(b'0');
     let mut int_len = ip.len();
@@ -636,5 +667,36 @@ mod tests {
         assert!(str_to_number("1/2").is_nan());
         assert_eq!(str_to_number("1e3"), 1000.0);
         assert_eq!(str_to_number("0x1F"), 31.0);
+    }
+
+    /// S.2: `to_fixed` (25 extra places, exact only on a …5000… tail) equals the exact expansion's rounding on random
+    /// doubles, short decimals (coordinates, including exact halves such as 1.005 and 0.125), f32 values, binary
+    /// fractions and big numbers, for every place count a writer uses and some past it.
+    #[test]
+    fn to_fixed_fast_equals_exact() {
+        let mut s = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let mut vals: Vec<f64> =
+            vec![0.0, -0.0, 0.5, 1.5, 2.5, 1.005, 0.125, 0.0625, 1e20, 9.999_999_999_999_999e20, 4.35, -4.35, 0.000_05, 5e-5];
+        for _ in 0..1000 {
+            let r = next();
+            vals.push(f64::from_bits(r));
+            vals.push(f64::from(f32::from_bits((r >> 32) as u32)));
+            vals.push((r % 20_000_000) as f64 / 10_000.0 - 1000.0);
+            vals.push((r % 2_000_000) as f64 / 1000.0 * 0.5);
+            vals.push((r % 1_000_000) as f64 / 1024.0);
+            vals.push((r >> 20) as f64 * 3.7);
+            vals.push(((r % 100_000) as f64 * 0.3048 / 7.0) * if r & 1 == 1 { -1.0 } else { 1.0 });
+        }
+        for x in vals {
+            for f in [0usize, 1, 2, 3, 4, 5, 6, 8, 9, 12, 17, 20, 30] {
+                assert_eq!(to_fixed(x, f), to_fixed_exact(x, f), "{x:e} toFixed({f})");
+            }
+        }
     }
 }
