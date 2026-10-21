@@ -257,7 +257,7 @@ fn for_each_object(d: &mut cc_cad::Doc, f: &mut dyn FnMut(&Entity) -> Option<Opt
         }
         if changed {
             let mut nb = b.clone();
-            nb.entities = ents;
+            nb.entities = ents.into();
             d.define_block(&nb)?;
         }
     }

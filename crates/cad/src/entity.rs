@@ -19,6 +19,9 @@ pub type Obj = Map<String, Value>;
 /// clone of an [`Entity`] (a preview, an edit's before / after, an undo step) shares the map, as the JS shares the
 /// object `{ ...e }` spreads; only a write ([`Extra::insert`], [`Extra::remove`], [`Extra::make_mut`]) copies it, and
 /// a remove of a key that is not there copies nothing. Reads go through `Deref` to the [`Obj`].
+/// Up to this many keys [`Extra::get`] compares keys in order instead of hashing.
+const SMALL: usize = 8;
+
 #[derive(Clone, Default, PartialEq)]
 pub struct Extra(std::sync::Arc<Obj>);
 impl Extra {
@@ -34,22 +37,36 @@ impl Extra {
     }
     /// `Map::remove`.
     pub fn remove(&mut self, k: &str) -> Option<Value> {
-        if !self.0.contains_key(k) {
+        if !self.contains_key(k) {
             return None;
         }
         self.make_mut().remove(k)
     }
     pub fn shift_remove(&mut self, k: &str) -> Option<Value> {
-        if !self.0.contains_key(k) {
+        if !self.contains_key(k) {
             return None;
         }
         self.make_mut().shift_remove(k)
     }
     pub fn get_mut(&mut self, k: &str) -> Option<&mut Value> {
-        if !self.0.contains_key(k) {
+        if !self.contains_key(k) {
             return None;
         }
         self.make_mut().get_mut(k)
+    }
+    /// `Map::get`; a small map (most objects carry a handful of extra keys) is searched in order, without hashing the key.
+    pub fn get(&self, k: &str) -> Option<&Value> {
+        if self.0.len() <= SMALL {
+            return self.0.iter().find(|(x, _)| x.as_str() == k).map(|(_, v)| v);
+        }
+        self.0.get(k)
+    }
+    /// `Map::contains_key` (as [`Extra::get`]).
+    pub fn contains_key(&self, k: &str) -> bool {
+        if self.0.len() <= SMALL {
+            return self.0.keys().any(|x| x.as_str() == k);
+        }
+        self.0.contains_key(k)
     }
     /// The map itself (copied when shared).
     pub fn into_obj(self) -> Obj {
@@ -81,6 +98,76 @@ impl<'a> IntoIterator for &'a Extra {
     type IntoIter = serde_json::map::Iter<'a>;
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
+    }
+}
+
+/// A block's objects, shared copy-on-write: a clone of a [`crate::Block`] (its undo step's before / after, a definition
+/// handed out by `define_block`) shares the list, as the JS keeps references to one array; a write through
+/// `DerefMut` ([`Ents::make_mut`]) copies it first when it is shared. Reads go through `Deref` to the `Vec`.
+#[derive(Clone, Default, PartialEq)]
+pub struct Ents(std::sync::Arc<Vec<Entity>>);
+impl Ents {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// The list to write to (copied first when it is shared).
+    pub fn make_mut(&mut self) -> &mut Vec<Entity> {
+        std::sync::Arc::make_mut(&mut self.0)
+    }
+    /// The list itself (copied when shared).
+    pub fn into_vec(self) -> Vec<Entity> {
+        std::sync::Arc::unwrap_or_clone(self.0)
+    }
+    /// Do both share one list (no copy was made)?
+    pub fn ptr_eq(a: &Ents, b: &Ents) -> bool {
+        std::sync::Arc::ptr_eq(&a.0, &b.0)
+    }
+}
+impl std::ops::Deref for Ents {
+    type Target = Vec<Entity>;
+    fn deref(&self) -> &Vec<Entity> {
+        &self.0
+    }
+}
+impl std::ops::DerefMut for Ents {
+    fn deref_mut(&mut self) -> &mut Vec<Entity> {
+        self.make_mut()
+    }
+}
+impl From<Vec<Entity>> for Ents {
+    fn from(v: Vec<Entity>) -> Self {
+        Ents(std::sync::Arc::new(v))
+    }
+}
+impl FromIterator<Entity> for Ents {
+    fn from_iter<I: IntoIterator<Item = Entity>>(it: I) -> Self {
+        Ents(std::sync::Arc::new(it.into_iter().collect()))
+    }
+}
+impl std::fmt::Debug for Ents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+impl<'a> IntoIterator for &'a Ents {
+    type Item = &'a Entity;
+    type IntoIter = std::slice::Iter<'a, Entity>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+impl<'a> IntoIterator for &'a mut Ents {
+    type Item = &'a mut Entity;
+    type IntoIter = std::slice::IterMut<'a, Entity>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.make_mut().iter_mut()
+    }
+}
+impl IntoIterator for Ents {
+    type Item = Entity;
+    type IntoIter = std::vec::IntoIter<Entity>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.into_vec().into_iter()
     }
 }
 

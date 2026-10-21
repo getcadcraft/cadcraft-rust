@@ -932,9 +932,9 @@ impl Sv<'_> {
         let own = if jsv::truthy(g("block")) { self.doc.blocks.get(&jsv::to_str(g("block"))) } else { None };
         self.dim_n = self.dim_n.saturating_add(1);
         let name = format!("*D{}", self.dim_n);
-        let parts: Vec<Entity> = match own {
+        let parts: cc_cad::Ents = match own {
             Some(b) => b.entities.clone(),
-            None => cc_cad_geom::dims::dim_geometry(&ent),
+            None => cc_cad_geom::dims::dim_geometry(&ent).into(),
         };
         let mut ents = Vec::new();
         for p in &parts {

@@ -457,10 +457,10 @@ fn box4(c: &[P2; 4], boxed: bool) -> Vec<Prim> {
 }
 
 /// What a dimension draws: its imported block while it has one, else its own geometry.
-pub fn dim_parts(e: &Entity, block: Option<&str>, blocks: Option<&Blocks>) -> Vec<Entity> {
+pub fn dim_parts(e: &Entity, block: Option<&str>, blocks: Option<&Blocks>) -> cc_cad::Ents {
     match block.filter(|b| !b.is_empty()).and_then(|b| blocks.and_then(|m| m.get(&b.to_string()))) {
         Some(blk) => blk.entities.clone(),
-        None => crate::dims::dim_geometry(e),
+        None => crate::dims::dim_geometry(e).into(),
     }
 }
 

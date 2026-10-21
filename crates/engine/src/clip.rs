@@ -605,7 +605,7 @@ pub fn read_clip(input: &str, lang: &Lang) -> Result<Clip, String> {
             attdefs = Some(out);
         }
         let bp = P2::new(base.get("x").and_then(Value::as_f64).unwrap_or(0.0), base.get("y").and_then(Value::as_f64).unwrap_or(0.0));
-        blocks.push(Block { name: n, base: bp, entities: ents, attdefs: attdefs.filter(|a| !a.is_empty()), xref: None, dyn_: None });
+        blocks.push(Block { name: n, base: bp, entities: ents.into(), attdefs: attdefs.filter(|a| !a.is_empty()), xref: None, dyn_: None });
     }
     // no block may contain itself, however deep
     let mut state: Vec<(String, u8)> = Vec::new();
@@ -918,7 +918,7 @@ pub fn paste_clip(doc: &mut Doc, clip: &Clip, dx: f64, dy: f64, lang: &Lang) -> 
             }
         }
         let name = rename_of(n).unwrap_or_else(|| n.clone());
-        doc.define_block(&Block { name, base: b.base, entities: ents, attdefs: b.attdefs.clone(), xref: None, dyn_: None })?;
+        doc.define_block(&Block { name, base: b.base, entities: ents.into(), attdefs: b.attdefs.clone(), xref: None, dyn_: None })?;
     }
     let src_layer = |n: &str| clip.layers.iter().find(|l| l.get("name").and_then(Value::as_str) == Some(n)).cloned();
     let mut added: Vec<String> = Vec::new();

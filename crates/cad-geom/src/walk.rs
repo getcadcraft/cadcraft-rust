@@ -395,7 +395,7 @@ impl Walker<'_> {
         };
         match &e.geo {
             Geo::Insert(_) | Geo::Dim(_) | Geo::Mleader(_) => {
-                let parts: Vec<Entity>;
+                let parts: cc_cad::Ents;
                 let mut m2: Option<M> = mm.copied();
                 if let Geo::Insert(ins) = &e.geo {
                     let Some(b) = self.doc.blocks.get(&ins.block) else { return };
@@ -414,7 +414,7 @@ impl Walker<'_> {
                 } else if let Geo::Dim(d) = &e.geo {
                     parts = dim_parts(e, d.block.as_deref(), Some(&self.doc.blocks));
                 } else {
-                    parts = leader_geometry(e);
+                    parts = leader_geometry(e).into();
                 }
                 let layer: Option<String> = match (e.layer.as_deref(), parent) {
                     (Some("0"), Some(p)) if !p.is_empty() => Some(p.to_string()),

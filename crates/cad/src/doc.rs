@@ -16,7 +16,7 @@ use std::fmt;
 use cc_geom::P2;
 use serde_json::Value;
 
-use crate::entity::{Color, Entity, Geo, Obj, num, pt};
+use crate::entity::{Color, Entity, Ents, Geo, Obj, num, pt};
 use crate::js;
 use crate::omap::{IdBuild, OMap};
 
@@ -185,14 +185,14 @@ impl Layer {
 pub struct Block {
     pub name: String,
     pub base: P2,
-    pub entities: Vec<Entity>,
+    pub entities: Ents,
     pub attdefs: Option<Vec<Value>>,
     pub xref: Option<Value>,
     pub dyn_: Option<Value>,
 }
 impl Block {
     pub fn new(name: &str, base: P2, entities: Vec<Entity>) -> Self {
-        Block { name: name.into(), base, entities, attdefs: None, xref: None, dyn_: None }
+        Block { name: name.into(), base, entities: entities.into(), attdefs: None, xref: None, dyn_: None }
     }
     /// From the JSON shape `{ name, base, entities, attdefs?, xref?, dyn? }` as given (no normalising).
     pub fn from_value(v: &Value) -> Block {

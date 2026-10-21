@@ -531,7 +531,7 @@ pub async fn bedit(c: Ctx) -> R {
         // DB.9: a block with visibility states opens on one of them, the others kept aside
         vis = crate::cmd::visedit::open_vis(&mut d, &blk);
         let from_vis: Option<Vec<Entity>> = vis.as_mut().map(|(_, e)| std::mem::take(e));
-        let list = from_vis.unwrap_or_else(|| blk.entities.clone());
+        let list = from_vis.unwrap_or_else(|| blk.entities.to_vec());
         for e in list {
             ents.push(if e.id.is_some_and(|i| i != 0) { e } else { fresh(e, &mut d) });
         }

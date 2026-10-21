@@ -175,16 +175,25 @@ pub fn attach_xref(doc: &mut Doc, src: XSource, file_name: &str, name: Option<&s
         }
     };
     let p = format!("{root}|");
-    let lay_s = |n: &str| -> String { if n.is_empty() || n == "0" { "0".into() } else { format!("{p}{n}") } };
+    let lay_s = |n: &str| -> String {
+        if n.is_empty() || n == "0" {
+            return "0".into();
+        }
+        let mut s = String::with_capacity(p.len().saturating_add(n.len()));
+        s.push_str(&p);
+        s.push_str(n);
+        s
+    };
     let lay = |n: Option<&Value>| -> String { name_of(n).map_or_else(|| "0".into(), |s| lay_s(&s)) };
     // the last block of a name wins, as a Map keeps it
     let bmap: std::collections::HashMap<String, String> = src.blocks.iter().map(|b| (b.name.clone(), format!("{p}{}", b.name))).collect();
-    let map_e = |e: Entity| -> Entity {
-        let mut c = e;
-        c.layer = Some(match (&c.layer, c.extra.get("layer")) {
-            (Some(l), _) => lay_s(l),
-            (None, v) => lay(v),
-        });
+    // each object in place: its layer under the link's name (the old text's buffer grows in front), no id
+    let map_e = |c: &mut Entity| {
+        match &mut c.layer {
+            Some(l) if l.is_empty() || l.as_str() == "0" => "0".clone_into(l),
+            Some(l) => l.insert_str(0, &p),
+            None => c.layer = Some(lay(c.extra.get("layer"))),
+        }
         c.extra.remove("layer");
         c.id = None;
         c.extra.remove("id");
@@ -211,7 +220,6 @@ pub fn attach_xref(doc: &mut Doc, src: XSource, file_name: &str, name: Option<&s
                 }
             }
         }
-        c
     };
     // layers: the other drawing's, under the link's name (its layer 0 is this drawing's 0)
     let mut s: LayerState = doc.layer_state();
@@ -251,7 +259,9 @@ pub fn attach_xref(doc: &mut Doc, src: XSource, file_name: &str, name: Option<&s
     let XSource { meta, layers: _, blocks: src_blocks, entities: src_entities } = src;
     for b in src_blocks {
         let mut blk = Block::from_value(&json!({ "name": format!("{p}{}", b.name), "base": b.base }));
-        blk.entities = b.entities.into_iter().map(&map_e).collect();
+        let mut ents = b.entities;
+        ents.iter_mut().for_each(&map_e);
+        blk.entities = ents.into();
         blk.attdefs = b.attdefs.as_ref().filter(|a| !a.is_empty()).map(|a| {
             a.iter()
                 .map(|d| {
@@ -267,7 +277,9 @@ pub fn attach_xref(doc: &mut Doc, src: XSource, file_name: &str, name: Option<&s
     }
     let insbase = meta.get("insbase").cloned().unwrap_or(Value::Null);
     let mut rb = Block::from_value(&json!({ "name": root, "base": insbase }));
-    rb.entities = src_entities.into_iter().map(&map_e).collect();
+    let mut ents = src_entities;
+    ents.iter_mut().for_each(&map_e);
+    rb.entities = ents.into();
     rb.xref = Some(json!({ "path": file_name, "loaded": true }));
     doc.define_block_owned(rb)?;
     let su = meta.get("units");
@@ -323,7 +335,7 @@ pub fn detach_xref(doc: &mut Doc, name: &str, keep_refs: bool, keep_root: bool) 
     }
     if keep_root {
         let mut b = root.clone();
-        b.entities = Vec::new();
+        b.entities = cc_cad::Ents::new();
         let path = root.xref.as_ref().and_then(|x| x.get("path")).cloned();
         let mut x = Obj::new();
         if let Some(p) = path {

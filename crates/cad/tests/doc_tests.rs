@@ -242,3 +242,32 @@ fn view_labels_follow_their_viewport_name() {
     d.change("ERASE", |d| d.remove(vid)).unwrap();
     assert_eq!(d.get(lid).unwrap().to_value()["s"], json!("Unnamed view"));
 }
+
+/// S.4: a block's objects are shared copy-on-write between the drawing and its undo step (a linked drawing of 21k
+/// objects is not copied for undo); a later edit of the block copies, and undo / redo give each version back.
+#[test]
+fn block_objects_shared_copy_on_write() {
+    let mut d = Doc::new();
+    let b = Block::new("B", P2::new(0.0, 0.0), vec![line(), line(), line()]);
+    d.change("BLOCK", |d| d.define_block_owned(b)).unwrap();
+    let held = d.blocks.get(&"B".to_string()).unwrap().entities.clone();
+    let in_step = match d.undo_stack.last().and_then(|s| s.ops.last()) {
+        Some(cc_cad::doc::Op::Block { after: Some(a), .. }) => a.entities.clone(),
+        _ => panic!("a block op"),
+    };
+    assert!(cc_cad::Ents::ptr_eq(&held, &in_step), "the step shares the list");
+    let mut b2 = d.blocks.get(&"B".to_string()).unwrap().clone();
+    assert!(cc_cad::Ents::ptr_eq(&b2.entities, &held), "a clone shares the list");
+    b2.entities.push(line());
+    assert!(!cc_cad::Ents::ptr_eq(&b2.entities, &held), "a write copies");
+    assert_eq!(held.len(), 3);
+    d.change("BEDIT", |d| d.define_block(&b2).map(|_| ())).unwrap();
+    assert_eq!(d.blocks.get(&"B".to_string()).unwrap().entities.len(), 4);
+    d.undo();
+    assert_eq!(d.blocks.get(&"B".to_string()).unwrap().entities.len(), 3);
+    d.redo();
+    assert_eq!(d.blocks.get(&"B".to_string()).unwrap().entities.len(), 4);
+    d.undo();
+    d.undo();
+    assert!(d.blocks.get(&"B".to_string()).is_none());
+}
