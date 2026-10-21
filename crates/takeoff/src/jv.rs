@@ -425,12 +425,106 @@ pub fn is_space(c: char) -> bool {
     cc_m3d::js::is_ws(c)
 }
 
+/// Whether a finite ax > 0 whose shortest digits are k long with the first at 10^e can sit exactly halfway between two
+/// k-digit decimals: false when its exact expansion has more than k + 1 significant digits (see `num_str`).
+fn may_tie(ax: f64, k: usize, e: i64) -> bool {
+    let bits = ax.to_bits();
+    let bexp = i64::try_from((bits >> 52) & 0x7ff).unwrap_or(0);
+    let mut m = bits & ((1u64 << 52) - 1);
+    let e2 = if bexp == 0 {
+        -1074
+    } else {
+        m |= 1u64 << 52;
+        bexp.saturating_sub(1075)
+    };
+    if m == 0 {
+        return true;
+    }
+    let e2 = e2.saturating_add(i64::from(m.trailing_zeros()));
+    if e2 >= 0 {
+        return true;
+    }
+    // fractional digits minus the zeros right after the point (ax < 1: 0.00ddd has -e - 1 of them) = significant
+    // fractional digits; the integer part's digits only add to that
+    let lead_zeros = e.saturating_neg().saturating_sub(1).max(0);
+    let sig = e2.saturating_neg().saturating_sub(lead_zeros);
+    sig <= i64::try_from(k).unwrap_or(i64::MAX).saturating_add(1)
+}
+
+/// `may_tie` before any formatting, for any digit count (shortest digits are at most 17, so a tie needs at most 18
+/// significant exact digits): true when x's exact expansion surely has more. The zeros after the point of an
+/// ax < 1 are at most -log10(ax) + 1 (one spare for the float log).
+fn surely_no_tie(ax: f64) -> bool {
+    let bits = ax.to_bits();
+    let bexp = i64::try_from((bits >> 52) & 0x7ff).unwrap_or(0);
+    let mut m = bits & ((1u64 << 52) - 1);
+    let e2 = if bexp == 0 {
+        -1074
+    } else {
+        m |= 1u64 << 52;
+        bexp.saturating_sub(1075)
+    };
+    if m == 0 {
+        return false;
+    }
+    let e2 = e2.saturating_add(i64::from(m.trailing_zeros()));
+    if e2 >= 0 {
+        return false;
+    }
+    let lead_zeros = if ax >= 1.0 {
+        0
+    } else {
+        // finite and ≤ 325 for any positive double
+        #[allow(clippy::cast_possible_truncation)]
+        let z = (-ax.log10()).ceil().clamp(0.0, 400.0) as i64;
+        z.saturating_add(1)
+    };
+    e2.saturating_neg().saturating_sub(lead_zeros) > 18
+}
+
+/// The exact decimal digits of a finite ax > 0 (trailing zeros of a whole number kept) and the decimal exponent of the
+/// first. ax = m·2^e2: m·5^-e2 (a fraction) or m·2^e2 (a whole number) in a u128 when it fits (f32 values and the like:
+/// the numbers that reach this), else the 1100-digit expansion.
+fn exact_digits(ax: f64) -> (Vec<u8>, i64) {
+    let bits = ax.to_bits();
+    let bexp = i64::try_from((bits >> 52) & 0x7ff).unwrap_or(0);
+    let mut m = bits & ((1u64 << 52) - 1);
+    let e2 = if bexp == 0 {
+        -1074
+    } else {
+        m |= 1u64 << 52;
+        bexp.saturating_sub(1075)
+    };
+    let tz = m.trailing_zeros();
+    let (m, e2) = (m.checked_shr(tz).unwrap_or(0), e2.saturating_add(i64::from(tz)));
+    let exact = if m == 0 {
+        None
+    } else if e2 < 0 {
+        // ax = m·5^n / 10^n
+        let n = e2.saturating_neg();
+        u32::try_from(n).ok().and_then(|n| 5u128.checked_pow(n)).and_then(|p| p.checked_mul(u128::from(m))).map(|v| (v, n))
+    } else {
+        u32::try_from(e2)
+            .ok()
+            .and_then(|s| u128::from(m).checked_shl(s).filter(|v| v.checked_shr(s) == Some(u128::from(m))))
+            .map(|v| (v, 0))
+    };
+    if let Some((v, n)) = exact {
+        let d = v.to_string().into_bytes();
+        let len = i64::try_from(d.len()).unwrap_or(0);
+        return (d, len.saturating_sub(1).saturating_sub(n));
+    }
+    let exact = format!("{ax:.1100e}");
+    let (xm, xe) = exact.split_once('e').unwrap_or((exact.as_str(), "0"));
+    (xm.bytes().filter(u8::is_ascii_digit).collect(), xe.parse::<i64>().unwrap_or(0))
+}
+
 /// `String(x)` for a number (ECMAScript Number::toString). The shortest round-trip digits, and where two candidates
 /// are equally near (x exactly halfway between two k-digit decimals) the one with an even last digit, as the spec
 /// says (Rust's formatter can pick the other one).
 pub fn num_str(x: f64) -> String {
     let base = cc_m3d::js::num_str(x);
-    if !x.is_finite() || x == 0.0 {
+    if !x.is_finite() || x == 0.0 || surely_no_tie(x.abs()) {
         return base;
     }
     let sh = format!("{:e}", x.abs());
@@ -441,10 +535,16 @@ pub fn num_str(x: f64) -> String {
         return base;
     }
     let e: i64 = exp.parse().unwrap_or(0);
-    let exact = format!("{:.1100e}", x.abs());
-    let (xm, xe) = exact.split_once('e').unwrap_or((exact.as_str(), "0"));
-    let xd: Vec<u8> = xm.bytes().filter(u8::is_ascii_digit).collect();
-    if xe.parse::<i64>().unwrap_or(0) != e {
+    // A tie needs the last digit odd (the even candidate is what Rust already gave: it is the floor or the ceil) and
+    // x's exact decimal expansion to end one digit past the k shown. x = m·2^e2 (m odd, e2 < 0) has exactly -e2
+    // fractional digits (m·5^-e2 has no trailing zero), so when those reach past k + 1 significant digits there is no
+    // tie. That skips the exact 1100-digit expansion below for nearly every number (S.1: it was most of the marked
+    // PDF's time); only short binary fractions and big integers go on.
+    if digits.last().is_some_and(|d| d.wrapping_sub(b'0').is_multiple_of(2)) || !may_tie(x.abs(), k, e) {
+        return base;
+    }
+    let (xd, xe) = exact_digits(x.abs());
+    if xe != e {
         return base;
     }
     let tail = xd.get(k..).unwrap_or(&[]);

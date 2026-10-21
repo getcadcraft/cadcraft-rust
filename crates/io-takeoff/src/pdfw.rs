@@ -51,8 +51,7 @@ pub fn number_to_string(num0: f64) -> String {
     let mut num = num0;
     let mut s = jv::num_str(num);
     if num.abs() < 1.0 {
-        let t = jv::num_str(num);
-        let e = t.split_once("e-").map(|(_, e)| jv::parse_int(e)).unwrap_or(0.0);
+        let e = s.split_once("e-").map(|(_, e)| jv::parse_int(e)).unwrap_or(0.0);
         if e != 0.0 && !e.is_nan() {
             let negative = num < 0.0;
             if negative {
@@ -68,8 +67,7 @@ pub fn number_to_string(num0: f64) -> String {
             }
         }
     } else {
-        let t = jv::num_str(num);
-        let mut e = t.split_once('+').map(|(_, e)| jv::parse_int(e)).unwrap_or(0.0);
+        let mut e = s.split_once('+').map(|(_, e)| jv::parse_int(e)).unwrap_or(0.0);
         if e > 20.0 {
             e -= 20.0;
             num /= cc_takeoff::jsmath::pow(10.0, e);

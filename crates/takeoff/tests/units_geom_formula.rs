@@ -380,3 +380,66 @@ fn js_number_text() {
     assert_eq!(cc_takeoff::jv::num_str(0.000001), "0.000001");
     assert_eq!(cc_takeoff::jv::num_str(1e-7), "1e-7");
 }
+
+/// S.1: `num_str` skips the exact expansion when no tie is possible; the result must be what the exact way gives.
+/// The reference below is the pre-S.1 code path (every number through the 1100-digit expansion).
+fn num_str_exact(x: f64) -> String {
+    let base = cc_m3d::js::num_str(x);
+    if !x.is_finite() || x == 0.0 {
+        return base;
+    }
+    let sh = format!("{:e}", x.abs());
+    let (mant, exp) = sh.split_once('e').unwrap();
+    let digits: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+    let k = digits.len();
+    if k < 2 {
+        return base;
+    }
+    let e: i64 = exp.parse().unwrap();
+    let exact = format!("{:.1100e}", x.abs());
+    let (xm, xe) = exact.split_once('e').unwrap();
+    let xd: Vec<u8> = xm.bytes().filter(u8::is_ascii_digit).collect();
+    if xe.parse::<i64>().unwrap() != e {
+        return base;
+    }
+    let tail = &xd[k..];
+    if tail.first() != Some(&b'5') || !tail.iter().skip(1).all(|c| *c == b'0') {
+        return base;
+    }
+    if digits[k - 1].is_multiple_of(2) {
+        return base; // Rust's digits are the even neighbour already
+    }
+    // a tie: the even neighbour; with the digits Rust gave odd, that is the other one, as num_str writes it
+    format!("tie:{x:e}")
+}
+
+#[test]
+fn js_number_text_fast_path_matches_exact() {
+    let mut s = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
+    let mut vals: Vec<f64> = Vec::new();
+    for _ in 0..20_000 {
+        let r = next();
+        vals.push(f64::from_bits(r)); // any double
+        vals.push(f64::from(f32::from_bits((r >> 32) as u32))); // f32 values: the usual ties
+        vals.push((r % 2_000_000) as f64 / 1000.0 - 1000.0); // short decimals (coordinates)
+        vals.push((r % 1_000_000) as f64 / 64.0); // short binary fractions
+        vals.push((r >> 11) as f64 * 1024.0); // big integers past 2^53
+        vals.push((r % 100_000) as f64 * 0.3048 / 7.0); // computed lengths
+    }
+    for x in vals.into_iter().filter(|x| x.is_finite()) {
+        let fast = cc_takeoff::jv::num_str(x);
+        let exact = num_str_exact(x);
+        if exact.starts_with("tie:") {
+            // the exact way found a tie: the fast path must have looked too (and so differ from Rust's digits)
+            assert_ne!(fast, cc_m3d::js::num_str(x), "{x:e}: a tie the fast path skipped");
+        } else {
+            assert_eq!(fast, exact, "{x:e}");
+        }
+    }
+}
