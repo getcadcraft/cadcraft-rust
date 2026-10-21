@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M11.16 GeoTIFF reads capped at 1 GB (lead, workstation11a)
+
+- The workstation's first `cargo xtask fuzz --smoke` found `civil_raster` out of memory in 30 s: a 10-byte RGB TIFF
+  header claiming ~12 000 × 11 000 pixels made `read_geo_image` → cc-proj `read_rgb` → `read_rasters` allocate 3.15 GB.
+  cc-proj's `MAX_CELLS` was 4e8 cells, but cells are f64 whatever the typed array kind, so the cap allowed 3.2 GB.
+  It is now 1.25e8 cells (1 GB): an 11 000 × 11 000 single-band grid still reads; the largest corpus GeoTIFF is
+  4000 × 4000. Bigger claims get geotiff.js's "Invalid typed array length" error.
+- Regression test `tiff::tests::claimed_size_capped` (fails with the old cap); the fuzz input is a seed
+  (`fuzz/seeds/civil_raster/oom-claimed-size`) and runs clean under `-rss_limit_mb=2048`.
+
 ## 2026-10-21 — S.1–S.3 Speed: number text without the 1100-digit expansion, typed GLB writer (agent, work/speed)
 
 - Profiled with perf (cpu-clock; `perf_event_paranoid` does not block root). S.1 and S.2 share one cause: the JS-exact

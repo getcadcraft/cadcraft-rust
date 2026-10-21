@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M11.16: GeoTIFF reads capped at 1 GB of cells (was 3.2 GB): civil_raster fuzz OOM fixed, regression test + seed.
 - 2026-10-21 S.1–S.3: number text without the 1100-digit expansion (cc-takeoff num_str, cc-cad to_fixed) and a typed GLB writer: TakeoffCraft marked PDF 0.3× → 4.5× the JS, CivilCraft section sheets PDF 0.4× → 1.4×, TakeoffCraft 3D + GLB 0.9× → 2.0×; tkopsdiff 61/61, 262/262; cvtooldiff 76/76 projects, 2084/2084 status lines, 20/20 files (section sheets PDF included).
 - 2026-10-20 M6.20: ModelCraft solids (union, subtract by two clicks, intersect), intersect faces, IFC storeys dialog, drawing axes (place, align to face, reset); saved files identical to 0.5 (mcuidiff --edit).
 - 2026-10-20 M6.19: ModelCraft copy / cut / paste (the copy follows the pointer) / paste in place, duplicate and move, flip and flipped copy, 3D text (text3d.js on a ported Clipper2 polytree: CrossSection Simplify / Decompose, csdiff 2,000/2,000 bit-identical); saved files identical to 0.5 (mcuidiff --edit).

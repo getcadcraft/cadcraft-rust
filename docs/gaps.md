@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-20 · Change: speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-21 · Change: GeoTIFF reads capped at 1 GB (civil_raster fuzz OOM, M11.16); speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -97,11 +97,9 @@ Last updated 2026-10-20 · Change: speed S.1–S.3 (marked PDF, section sheets P
    pulled zbus crates RustSec lists as unmaintained (RUSTSEC-2026-0370/0371/0372, no upgrade); it comes back with the
    screen-reader work.
 
-11. **Found on the new build machine (2026-10-21, workstation11a):** (a) fuzz target `civil_raster` hits an
-   out-of-memory on a hostile GeoTIFF (a 3.1 GB allocation from a claimed size; input
-   `fuzz/artifacts/civil_raster/oom-d13891f65898fa6735c56122b0dacff01f48b088` on that machine; present before S.1–S.3);
-   (b) MarkupCraft's XLSX summary and BCF export carry dates that differ from 0.5 when the machine's time zone is not UTC
-   (mkuidiff 17/17 under TZ=UTC, 4 different under America/Denver): one side writes local time, the other UTC.
+11. **Found on the new build machine (2026-10-21, workstation11a):** MarkupCraft's XLSX summary and BCF export carry
+   dates that differ from 0.5 when the machine's time zone is not UTC (mkuidiff 17/17 under TZ=UTC, 4 different under
+   America/Denver): one side writes local time, the other UTC.
 
 Closed: DWG reading R13–R2018 at full-model parity with 0.5 (M2, 2026-10-16); DXF reading and the 2D viewer (M3);
 the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG import and DWG / DXF saving at byte parity (M4).

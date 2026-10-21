@@ -13,8 +13,10 @@ type R<T> = Result<T, String>;
 const OOB: &str = "Offset is outside the bounds of the DataView";
 /// The most IFDs followed (geotiff.js follows a cyclic chain forever).
 const MAX_IFDS: usize = 4096;
-/// The most cells one read may produce (the JS would try to allocate them).
-const MAX_CELLS: f64 = 4.0e8;
+/// The most cells one read may produce (the JS would try to allocate them). Cells are held as f64 here whatever the
+/// typed array kind, so this is a 1 GB budget: 4e8 let a 10-byte hostile header claim a 3.2 GB read (fuzz OOM,
+/// 2026-10-21). A 11 000 × 11 000 single-band grid still fits; the largest corpus GeoTIFF is 4000 × 4000.
+const MAX_CELLS: f64 = 1.25e8;
 
 /// A JS number used as an index (finite, non-negative, below 2^53).
 pub fn idx(x: f64) -> Option<usize> {
@@ -2065,5 +2067,33 @@ mod tests {
     fn bad_header() {
         assert!(Tiff::from_bytes(b"XX").is_err());
         assert!(Tiff::from_bytes(b"II\x2a\x00\x08\x00\x00\x00").is_ok());
+    }
+    /// A tiny RGB TIFF claiming 12 000 × 11 000 pixels: the read is refused, not a 3.2 GB allocation (fuzz OOM 2026-10-21).
+    #[test]
+    fn claimed_size_capped() {
+        let tags: [(u16, u16, u32); 9] = [
+            (256, 4, 12_000),
+            (257, 4, 11_000),
+            (258, 3, 8),
+            (259, 3, 1),
+            (262, 3, 2),
+            (273, 4, 8),
+            (277, 3, 3),
+            (278, 4, 11_000),
+            (279, 4, 1),
+        ];
+        let mut b = b"II\x2a\x00\x0a\x00\x00\x00\x00\x00".to_vec();
+        b.extend_from_slice(&(tags.len() as u16).to_le_bytes());
+        for (tag, ty, v) in tags {
+            b.extend_from_slice(&tag.to_le_bytes());
+            b.extend_from_slice(&ty.to_le_bytes());
+            b.extend_from_slice(&1u32.to_le_bytes());
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+        b.extend_from_slice(&0u32.to_le_bytes());
+        let tiff = Tiff::from_bytes(&b).expect("header");
+        let img = tiff.image(0).expect("image");
+        assert_eq!(img.read_rgb(&ReadOptions::default()).err().as_deref(), Some("Invalid typed array length"));
+        assert_eq!(img.read_rasters(&ReadOptions::default()).err().as_deref(), Some("Invalid typed array length"));
     }
 }
