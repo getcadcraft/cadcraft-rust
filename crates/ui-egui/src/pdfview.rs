@@ -233,6 +233,9 @@ pub struct PdfView {
     last_press: Option<(f64, [f64; 2])>,
     /// a fixed clock for new markups' ids and dates (`markup.clock`; scripts and parity runs), else the wall clock
     pub clock: Option<f64>,
+    /// the zone local-time fields are written in (the XLSX / BCF zip dates, list dates): the machine's, or a fixed
+    /// offset (`app.tz`; scripts and tests)
+    pub zone: cc_clock::Zone,
     /// the Properties panel's text fields while typed in: key → (value when typing began, text)
     pub edits: std::collections::HashMap<String, (String, String)>,
     /// Compare sheets by changed lines, and the old sheet picked for it
@@ -303,6 +306,7 @@ impl PdfView {
             show_markups: true,
             last_press: None,
             clock: None,
+            zone: cc_clock::Zone::System,
             edits: std::collections::HashMap::new(),
             cmp: crate::markupcompare::Compare::default(),
             cmp_pick: String::new(),
@@ -436,6 +440,7 @@ impl PdfView {
             .clock
             .unwrap_or_else(|| web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64));
         self.store.env.now_ms = now;
+        self.store.env.zone = self.zone;
     }
 
     /// A press with the markup tool at `q` (screen `s`).
@@ -1149,7 +1154,7 @@ impl PdfView {
 
     /// A TakeoffCraft export of this plan set (see `TakeoffMode::export_file`).
     pub fn takeoff_export(&self, kind: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
-        self.takeoff.export_file(kind, self.cur.hash(), &self.cur.bytes, &self.cur.name, now_ms)
+        self.takeoff.export_file(kind, self.cur.hash(), &self.cur.bytes, &self.cur.name, now_ms, self.zone)
     }
 
     /// TakeoffCraft's exports as the JS writes them: the marked PDF once per file that has marks (exportPdf), the
@@ -1162,7 +1167,7 @@ impl PdfView {
         if with.is_empty() {
             return Err(cc_takeoff::i18n::t("export.pdf.none"));
         }
-        with.iter().map(|f| self.takeoff.export_file("pdf", f.hash(), &f.bytes, &f.name, now_ms)).collect()
+        with.iter().map(|f| self.takeoff.export_file("pdf", f.hash(), &f.bytes, &f.name, now_ms, self.zone)).collect()
     }
 
     /// The open sheet's key ("f1:<index>"): what its markups name.

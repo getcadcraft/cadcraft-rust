@@ -16,7 +16,7 @@ Last reviewed 2026-10-16 · Change: drafting (M4): cc-cad, cc-cad-geom, the comm
 
 | Layer | Crates |
 |---|---|
-| L0 | `cc-geom` |
+| L0 | `cc-geom`, `cc-clock` (the host's UTC offset per instant: jiff natively, `Date.getTimezoneOffset` on the web; writers take a `Zone` from the host) |
 | L1 | `cc-drawing` (display model), `cc-cad` (CadCraft's editable Doc, doc.js) |
 | L2 | `cc-cad-geom` (geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch; `display` = Doc → `cc-drawing`) |
 | L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client) |

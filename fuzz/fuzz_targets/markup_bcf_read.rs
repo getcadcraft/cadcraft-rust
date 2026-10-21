@@ -13,7 +13,7 @@ fuzz_target!(|data: &[u8]| {
             file: "set.pdf".into(),
             view: [0.0, 0.0, 1296.0, 1728.0],
         }];
-        let plan = cc_markup::bcfread::plan_import(&bcf, &[], &[], &[], &sheets, "B:0", "Fuzz");
+        let plan = cc_markup::bcfread::plan_import(&bcf, &[], &[], &[], &sheets, "B:0", "Fuzz", cc_clock::Zone::Utc);
         std::hint::black_box(plan.to_string().len());
     }
 });

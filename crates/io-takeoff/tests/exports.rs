@@ -84,7 +84,7 @@ fn xlsx_workbook() {
     let est = model::base_estimate(&t.state);
     let mut both = Vec::new();
     for compress in [true, false] {
-        let bytes = e::estimate_xlsx(&t.state, &label, compress, &stamp());
+        let bytes = e::estimate_xlsx(&t.state, &label, compress, &stamp(), &stamp());
         let entries = unzip(&bytes);
         let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(
@@ -155,6 +155,7 @@ fn xlsx_workbook() {
         ],
         "Takeoff",
         true,
+        &stamp(),
         &stamp(),
     );
     let oe = unzip(&odd);
@@ -320,7 +321,7 @@ fn reports_tk4() {
         "{k}"
     );
     // the quote request sheet: empty unit prices, live extensions and total
-    let entries = unzip(&e::estimate_xlsx(&t.state, &|_: &str| "Sheet 1".to_string(), false, &stamp()));
+    let entries = unzip(&e::estimate_xlsx(&t.state, &|_: &str| "Sheet 1".to_string(), false, &stamp(), &stamp()));
     let qr = sheet_xml(&entries, 8);
     assert!(
         qr.contains(">Quote request: Takeoff</t>")
@@ -448,4 +449,30 @@ fn markups_marked_pdf_and_sheet() {
         mk.rows.len() == 4
             && jv::stringify(&Value::Array(mk.rows.iter().flat_map(|r| r.iter().map(XCell::to_json)).collect())).contains("Answered")
     );
+}
+
+/// The workbook's zip entries carry the local time of the instant (xlsx.js `getHours()` …), its created date UTC:
+/// takeoffcraft xlsx.js `zip(files, { date: new Date(1791810123000) })` under TZ=Asia/Kolkata (+330) and Etc/GMT+6 (−360).
+#[test]
+fn xlsx_zip_dates_are_local_time() {
+    let t = 1_791_810_123_000.0;
+    let dos = |z: &[u8]| (u16::from_le_bytes([z[10], z[11]]), u16::from_le_bytes([z[12], z[13]]));
+    for (zone, want) in [
+        (cc_clock::Zone::Fixed(330), (0x9401, 0x5d4c)),
+        (cc_clock::Zone::Fixed(-360), (0x3841, 0x5d4c)),
+        (cc_clock::Zone::Fixed(825), (0x15e1, 0x5d4d)),
+    ] {
+        let x = xlsx::write_xlsx(&[], "T", false, &Stamp::from_ms(t), &Stamp::local(t, zone));
+        assert_eq!(dos(&x), want, "{zone:?}");
+        assert!(String::from_utf8_lossy(&x).contains(">2026-10-12T13:02:03Z</dcterms:created>"));
+    }
+    // 1980-01-01T05:59:58Z is still 1979 in Denver: the year wraps as the JS's 32-bit shift does (not clamped)
+    let x = xlsx::write_xlsx(
+        &[],
+        "T",
+        false,
+        &Stamp::from_ms(315_554_398_000.0),
+        &Stamp::local(315_554_398_000.0, cc_clock::Zone::Fixed(-360)),
+    );
+    assert_eq!(dos(&x), (0xbf7d, 0xff9f));
 }

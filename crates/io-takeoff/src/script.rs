@@ -231,6 +231,11 @@ fn estimate_json(e: &model::Estimate) -> Value {
 
 /// A pure function call (`{fn, args}`) → its result as JSON.
 pub fn call(f: &str, a: &[Value], labels: &Value) -> Result<Value, String> {
+    call_in(f, a, labels, cc_clock::Zone::Utc)
+}
+
+/// [`call`] with the zone local-time fields are written in when the call gives no `tz`.
+pub fn call_in(f: &str, a: &[Value], labels: &Value, zone: cc_clock::Zone) -> Result<Value, String> {
     let lab = labeler(labels);
     let ok = |v: Value| Ok(v);
     match f {
@@ -628,14 +633,14 @@ pub fn call(f: &str, a: &[Value], labels: &Value) -> Result<Value, String> {
         "estimateXlsx" => {
             let o = argv(a, 1);
             let compress = o.get("compress").is_none_or(|c| jv::truthy(Some(c)));
-            let date = Stamp::from_ms(jv::to_number(o.get("now")));
-            ok(bytes_json(&export::estimate_xlsx(&argv(a, 0), &lab, compress, &date)))
+            let (date, local) = stamps(&o, zone);
+            ok(bytes_json(&export::estimate_xlsx(&argv(a, 0), &lab, compress, &date, &local)))
         }
         "writeXlsx" => {
             let o = argv(a, 1);
             let compress = o.get("compress").is_none_or(|c| jv::truthy(Some(c)));
-            let date = Stamp::from_ms(jv::to_number(o.get("now")));
-            ok(bytes_json(&xlsx::write_xlsx(&sheets_of(a.first()), &jv::to_string_or_empty(o.get("title")), compress, &date)))
+            let (date, local) = stamps(&o, zone);
+            ok(bytes_json(&xlsx::write_xlsx(&sheets_of(a.first()), &jv::to_string_or_empty(o.get("title")), compress, &date, &local)))
         }
         "crc32" => ok(json!(xlsx::crc32(str_arg(a, 0).as_bytes()))),
         "colName" => ok(s(xlsx::col_name(usize_of(num_arg(a, 0, 0.0))))),
@@ -651,6 +656,14 @@ pub fn call(f: &str, a: &[Value], labels: &Value) -> Result<Value, String> {
         "matchFiles" => ok(crate::pdf::match_files(jv::arr(a.first()).map_or(&[][..], Vec::as_slice), jv::arr(a.get(1)).map_or(&[][..], Vec::as_slice))),
         _ => Err(format!("unknown function {f}")),
     }
+}
+
+/// `{now, tz?}` → the UTC and local stamps of `now` (`tz`: minutes east of UTC, the JS's `-getTimezoneOffset()`;
+/// the runner's zone without it).
+fn stamps(o: &Value, zone: cc_clock::Zone) -> (Stamp, Stamp) {
+    let now = jv::to_number(o.get("now"));
+    let zone = o.get("tz").map_or(zone, |v| cc_clock::Zone::from_minutes(Some(jv::to_number(Some(v)))));
+    (Stamp::from_ms(now), Stamp::local(now, zone))
 }
 
 fn i32_of(v: f64) -> i32 {
@@ -868,7 +881,7 @@ fn model_op(t: &mut Takeoff, st: &Value) -> Result<Value, String> {
 }
 
 /// Queries on the current takeoff (no state change; no project record).
-fn query(t: &Takeoff, st: &Value, labels: &Value) -> Option<Result<Value, String>> {
+fn query(t: &Takeoff, st: &Value, labels: &Value, zone: cc_clock::Zone) -> Option<Result<Value, String>> {
     let op = jv::str(st.get("op")).unwrap_or("");
     let state = &t.state;
     let qo = |v: Option<&Value>| -> QOpts {
@@ -932,29 +945,36 @@ fn query(t: &Takeoff, st: &Value, labels: &Value) -> Option<Result<Value, String
         "xlsx" => {
             let lab = labeler(labels);
             let compress = st.get("compress").is_none_or(|c| jv::truthy(Some(c)));
-            let date = Stamp::from_ms(jv::to_number(st.get("now")));
-            Ok(bytes_json(&export::estimate_xlsx(state, &lab, compress, &date)))
+            let (date, local) = stamps(st, zone);
+            Ok(bytes_json(&export::estimate_xlsx(state, &lab, compress, &date, &local)))
         }
         _ => return None,
     };
     Some(r)
 }
 
-/// Run a script: `{ labels?, steps: [ {op, …} | {fn, args} ] }` → `{ records: [...] }`.
+/// Run a script: `{ labels?, steps: [ {op, …} | {fn, args} ] }` → `{ records: [...] }`, local-time fields (the XLSX
+/// zip dates) in UTC unless a step gives `tz`.
 pub fn run(script: &Value) -> Value {
+    run_in(script, cc_clock::Zone::Utc)
+}
+
+/// [`run`] with local-time fields in `zone` (the host's: the CLI passes the machine's) unless a step gives `tz`
+/// (minutes east of UTC).
+pub fn run_in(script: &Value, zone: cc_clock::Zone) -> Value {
     let labels = script.get("labels").cloned().unwrap_or(Value::Null);
     let mut t = Takeoff::default();
     let mut records = Vec::new();
     for st in jv::arr(script.get("steps")).map_or(&[][..], Vec::as_slice) {
         if let Some(f) = jv::str(st.get("fn")) {
             let args = jv::arr(st.get("args")).cloned().unwrap_or_default();
-            records.push(match call(f, &args, &labels) {
+            records.push(match call_in(f, &args, &labels, zone) {
                 Ok(v) => json!({ "ret": v }),
                 Err(e) => json!({ "err": e }),
             });
             continue;
         }
-        if let Some(r) = query(&t, st, &labels) {
+        if let Some(r) = query(&t, st, &labels, zone) {
             records.push(match r {
                 Ok(v) => json!({ "ret": v }),
                 Err(e) => json!({ "err": e }),

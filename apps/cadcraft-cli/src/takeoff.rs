@@ -85,11 +85,11 @@ pub fn takeoff(rest: &[&str]) -> ExitCode {
             Err(c) => return c,
         };
         let runs: usize = flag(rest, "--runs").and_then(|s| s.parse().ok()).unwrap_or(5).clamp(1, 1000);
-        let _ = script::run(&v);
+        let _ = script::run_in(&v, cc_clock::Zone::System);
         let mut ms = Vec::with_capacity(runs);
         for _ in 0..runs {
             let t = Instant::now();
-            let r = script::run(&v);
+            let r = script::run_in(&v, cc_clock::Zone::System);
             ms.push(t.elapsed().as_secs_f64() * 1000.0);
             drop(r);
         }
@@ -106,7 +106,7 @@ pub fn takeoff(rest: &[&str]) -> ExitCode {
         Ok(v) => v,
         Err(c) => return c,
     };
-    println!("{}", jv::stringify(&script::run(&v)));
+    println!("{}", jv::stringify(&script::run_in(&v, cc_clock::Zone::System)));
     ExitCode::SUCCESS
 }
 
@@ -143,8 +143,8 @@ fn export_cmd(rest: &[&str]) -> ExitCode {
         "csv" => export::estimate_csv(&state, &est).into_bytes(),
         "sheets-csv" => export::sheets_csv(&state, &lab).into_bytes(),
         "material-csv" => export::material_csv(&state, &est).into_bytes(),
-        "xlsx" => export::estimate_xlsx(&state, &lab, true, &Stamp::from_ms(now)),
-        "xlsx-stored" => export::estimate_xlsx(&state, &lab, false, &Stamp::from_ms(now)),
+        "xlsx" => export::estimate_xlsx(&state, &lab, true, &Stamp::from_ms(now), &Stamp::local(now, cc_clock::Zone::System)),
+        "xlsx-stored" => export::estimate_xlsx(&state, &lab, false, &Stamp::from_ms(now), &Stamp::local(now, cc_clock::Zone::System)),
         "sheets" => jv::stringify(&export::sheets_json(&export::estimate_sheets(&state, &lab, &est))).into_bytes(),
         "spots" => match export::spot_elevations_csv(&state, flag(rest, "--sheet").unwrap_or(""), &lab) {
             Ok((csv, _)) => csv.into_bytes(),
@@ -226,7 +226,7 @@ fn bench_cmd(rest: &[&str]) -> ExitCode {
             } else {
                 let lab = |k: &str| k.to_string();
                 time(&mut || {
-                    let b = export::estimate_xlsx(&state, &lab, true, &Stamp::from_ms(0.0));
+                    let b = export::estimate_xlsx(&state, &lab, true, &Stamp::from_ms(0.0), &Stamp::from_ms(0.0));
                     std::hint::black_box(b);
                 })
             }

@@ -236,7 +236,8 @@ pub fn export(t: &TakeoffDoc, kind: &str, now_ms: f64) -> Result<Vec<u8>, String
         "xlsx" => {
             let label = |k: &str| sheet_label(&t.state, k);
             let stamp = cc_io_takeoff::xlsx::Stamp::from_ms(now_ms);
-            Ok(cc_io_takeoff::export::estimate_xlsx(&t.state, &label, true, &stamp))
+            let local = cc_io_takeoff::xlsx::Stamp::local(now_ms, cc_clock::Zone::System);
+            Ok(cc_io_takeoff::export::estimate_xlsx(&t.state, &label, true, &stamp, &local))
         }
         _ => Err("Exports: csv, xlsx.".into()),
     }

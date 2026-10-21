@@ -5,9 +5,10 @@
 //! The JS reads the XML with regular expressions; each one is matched by hand here in the order its backtracking
 //! engine tries things (the comments at each matcher say which expression it is).
 
-use crate::js::{parse_date, slice16, to_iso_s, trim};
+use crate::js::{parse_date_in, slice16, to_iso_s, trim};
 use crate::model::{Markup, STATUSES};
 use crate::slip::num_value;
+use cc_clock::Zone;
 use serde_json::{Map, Value, json};
 
 const MAX_FILES: usize = 5000;
@@ -574,8 +575,9 @@ pub struct PlanSheet {
     pub view: [f64; 4],
 }
 
-fn iso(d: &str) -> String {
-    let t = parse_date(d);
+/// `iso(d)`: `Date.parse` (a date-time without an offset is local time in `zone`) → ISO seconds, or "".
+fn iso(d: &str, zone: Zone) -> String {
+    let t = parse_date_in(d, zone);
     if t.is_finite() { to_iso_s(t).unwrap_or_default() } else { String::new() }
 }
 
@@ -592,7 +594,9 @@ fn norm(s: &str) -> String {
     s.to_lowercase().chars().filter(|c| !(crate::js::is_ws(*c) || matches!(c, '.' | '_' | '-'))).collect()
 }
 
-/// `planImport(bcf, {markups, guidOf, replyGuids, sheets, current, author})` → the JS result object.
+/// `planImport(bcf, {markups, guidOf, replyGuids, sheets, current, author})` → the JS result object; `zone` reads the
+/// BCF's dates written without an offset (local time in the JS).
+#[allow(clippy::too_many_arguments)]
 pub fn plan_import(
     bcf: &Bcf,
     markups: &[&Markup],
@@ -601,6 +605,7 @@ pub fn plan_import(
     sheets: &[PlanSheet],
     current: &str,
     author: &str,
+    zone: Zone,
 ) -> Value {
     let k = 0.0254 / 72.0;
     let mut updates: Vec<Value> = Vec::new();
@@ -612,7 +617,7 @@ pub fn plan_import(
             .comments
             .iter()
             .filter(|c| !reply_guids.contains(&c.guid.to_lowercase()) && !c.text.is_empty())
-            .map(|c| json!({"id": format!("bcf-{}", c.guid.to_lowercase()), "author": c.author, "date": iso(&c.date), "text": c.text, "kind": "comment"}))
+            .map(|c| json!({"id": format!("bcf-{}", c.guid.to_lowercase()), "author": c.author, "date": iso(&c.date, zone), "text": c.text, "kind": "comment"}))
             .collect();
         let id = guid_of.iter().rev().find(|(g, _)| *g == tp.guid).map(|(_, id)| id.clone());
         let st = status_of(&tp.status);
@@ -689,7 +694,7 @@ pub fn plan_import(
             "status": if st.is_empty() { "Open".to_string() } else { st.clone() },
             "replies": reps, "bcfGuid": tp.guid,
         });
-        let created = iso(&tp.created);
+        let created = iso(&tp.created, zone);
         if !created.is_empty()
             && let Value::Object(o) = &mut add
         {

@@ -238,8 +238,16 @@ impl TakeoffMode {
 
     /// One of the 0.5 exports, named as takeoffcraft.js names it: the estimate as XLSX or CSV (with a BOM), the PDF
     /// with the takeoff drawn in ("<pdf> (takeoff).pdf"), or the project ("<name>.takeoff.json", indent 1).
-    /// `now_ms` is local time: the workbook's dates and the project's savedAt.
-    pub fn export_file(&self, kind: &str, hash: &str, pdf: &[u8], pdf_name: &str, now_ms: f64) -> Result<(String, Vec<u8>), String> {
+    /// `now_ms` dates the workbook (created in UTC, its zip entries on `zone`'s wall clock) and the project's savedAt.
+    pub fn export_file(
+        &self,
+        kind: &str,
+        hash: &str,
+        pdf: &[u8],
+        pdf_name: &str,
+        now_ms: f64,
+        zone: cc_clock::Zone,
+    ) -> Result<(String, Vec<u8>), String> {
         let name = safe_name(self.tk.state.get("name").and_then(Value::as_str).unwrap_or(""));
         let has_items = !self.tk.items().is_empty();
         match kind {
@@ -247,7 +255,8 @@ impl TakeoffMode {
             "xlsx" => {
                 let label = |k: &str| self.sheet_label(k);
                 let stamp = cc_io_takeoff::xlsx::Stamp::from_ms(now_ms);
-                Ok((format!("{name}.xlsx"), cc_io_takeoff::export::estimate_xlsx(&self.tk.state, &label, true, &stamp)))
+                let local = cc_io_takeoff::xlsx::Stamp::local(now_ms, zone);
+                Ok((format!("{name}.xlsx"), cc_io_takeoff::export::estimate_xlsx(&self.tk.state, &label, true, &stamp, &local)))
             }
             "csv" => {
                 // exportCsv: the estimate without bid alternates (baseEstimate), as the JS writes it
@@ -1186,18 +1195,18 @@ mod tests {
         let mut m = TakeoffMode::new("abc");
         m.add_file("abc", "Kitchen.pdf", 10, 1);
         assert_eq!(m.sheet_label("abc:0"), "Kitchen, page 1");
-        assert_eq!(m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0).unwrap_err(), t("export.empty"));
+        assert_eq!(m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0, cc_clock::Zone::Utc).unwrap_err(), t("export.empty"));
         m.add_item("Outlets", "count");
-        let (name, bytes) = m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("csv", "abc", &[], "Kitchen.pdf", 0.0, cc_clock::Zone::Utc).unwrap();
         assert!(name.ends_with(".csv"));
         assert!(bytes.starts_with("\u{feff}".as_bytes()));
-        let (name, bytes) = m.export_file("xlsx", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("xlsx", "abc", &[], "Kitchen.pdf", 0.0, cc_clock::Zone::Utc).unwrap();
         assert!(name.ends_with(".xlsx") && bytes.starts_with(b"PK"));
-        let (name, bytes) = m.export_file("project", "abc", &[], "Kitchen.pdf", 0.0).unwrap();
+        let (name, bytes) = m.export_file("project", "abc", &[], "Kitchen.pdf", 0.0, cc_clock::Zone::Utc).unwrap();
         assert!(name.ends_with(".takeoff.json"));
         let back: Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(back["items"].as_array().map(Vec::len), Some(1));
-        assert!(m.export_file("nope", "abc", &[], "", 0.0).is_err());
+        assert!(m.export_file("nope", "abc", &[], "", 0.0, cc_clock::Zone::Utc).is_err());
     }
 
     #[test]

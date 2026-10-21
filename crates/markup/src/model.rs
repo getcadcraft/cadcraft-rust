@@ -285,11 +285,14 @@ pub struct Env {
     pub now_ms: f64,
     /// how many ids have been made (`seq` and the source of the random words)
     pub count: u64,
+    /// the zone local-time fields are written in (the zip dates of the XLSX and BCF exports); the host passes
+    /// `Zone::System`, scripts `tz` minutes (default UTC)
+    pub zone: cc_clock::Zone,
 }
 
 impl Default for Env {
     fn default() -> Self {
-        Self { now_ms: 1_791_806_400_000.0, count: 0 }
+        Self { now_ms: 1_791_806_400_000.0, count: 0, zone: cc_clock::Zone::Utc }
     }
 }
 

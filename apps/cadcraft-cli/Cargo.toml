@@ -16,6 +16,7 @@ layer = 7
 workspace = true
 
 [dependencies]
+cc-clock.workspace = true
 cc-io-dwg.workspace = true
 cc-io-ifc.workspace = true
 cc-bim.workspace = true

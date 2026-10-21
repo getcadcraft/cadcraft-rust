@@ -863,3 +863,15 @@ fn base_maps() {
     let (mx, tiles) = basemap::grid_tiles(&g, [-1000.0, -1000.0, 1000.0, 1000.0], 10.0, 64.0);
     assert!(mx.is_some() && !tiles.is_empty() && tiles.len() <= 64);
 }
+
+/// zipfile.js `((date.getFullYear() - 1980) << 9 | …) & 0xffff`: a year before 1980 wraps in 32-bit two's complement
+/// (1979-12-31 23:59:58 → time 0xbf7d, date 0xff9f), as does one past 2107 (2108-01-01 → 0x0021); nothing is clamped.
+#[test]
+fn zip_dos_dates_wrap_like_the_js() {
+    let dos = |z: &[u8]| (u16::from_le_bytes([z[10], z[11]]), u16::from_le_bytes([z[12], z[13]]));
+    let at = |year, month, day, hour, minute, second| zipfile::DosDate { year, month, day, hour, minute, second };
+    let f = [("a".to_string(), b"x".to_vec())];
+    assert_eq!(dos(&zipfile::zip(&f, false, at(1979, 12, 31, 23, 59, 58))), (0xbf7d, 0xff9f));
+    assert_eq!(dos(&zipfile::zip(&f, false, at(2108, 1, 1, 0, 0, 0))), (0, 0x0021));
+    assert_eq!(dos(&zipfile::zip(&f, false, DOS)), ((13 << 11) | (45 << 5) | 15, ((2024 - 1980) << 9) | (5 << 5) | 17));
+}

@@ -10,7 +10,7 @@ use cc_markup::model::Env;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    let mut env = Env { now_ms: 1_791_882_000_000.0, count: 0 };
+    let mut env = Env { now_ms: 1_791_882_000_000.0, count: 0, ..Env::default() };
     let Ok(rec) = open_pdf(&mut env, data, &OpenOpts { file_id: "f".into(), name: "x.pdf".into(), read_text: true }) else { return };
     let pages: Vec<WritePage> = rec
         .pages

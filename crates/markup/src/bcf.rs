@@ -3,8 +3,9 @@
 //! `viewpoint.bcfv` and `snapshot.png`. Byte for byte what the JS writes for the same input and export time.
 
 use crate::i18n::{Fill, t};
-use crate::js::{civil, ns, parse_date, str_to_number, to_fixed, to_iso_s};
+use crate::js::{civil, ns, parse_date_in, str_to_number, to_fixed, to_iso_s};
 use crate::model::{Markup, STATUSES, TYPE_IDS, is_type, type_name};
+use cc_clock::Zone;
 
 // a const block: evaluated by the compiler (an overflow or bad index there fails the build, never a run)
 #[allow(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
@@ -48,17 +49,17 @@ fn u32le(v: &mut Vec<u8>, x: u64) {
     v.extend_from_slice(&((x & 0xffff_ffff) as u32).to_le_bytes());
 }
 
-/// `zip(files, date)`: stored entries, UTF-8 names, DOS time of `date_ms` (UTC; the JS uses local time — the
-/// parity harness runs it with TZ=UTC).
-pub fn zip(files: &[ZipFile], date_ms: f64) -> Vec<u8> {
-    zip_with(files, date_ms, false)
+/// `zip(files, date)`: stored entries, UTF-8 names, the DOS time of `date_ms` on `zone`'s wall clock (the JS's
+/// `getHours()` … are local time).
+pub fn zip(files: &[ZipFile], date_ms: f64, zone: Zone) -> Vec<u8> {
+    zip_with(files, date_ms, zone, false)
 }
 
 /// xlsx.js `zip(files, {compress, date})`: like [`zip`], and with `compress` each entry deflated (raw deflate)
 /// when that makes it smaller. The deflated bytes are miniz's, not zlib's (the JS uses CompressionStream): same
 /// contents, other bytes.
-pub fn zip_with(files: &[ZipFile], date_ms: f64, compress: bool) -> Vec<u8> {
-    let (y, mo, d, h, mi, s, _) = civil(date_ms);
+pub fn zip_with(files: &[ZipFile], date_ms: f64, zone: Zone, compress: bool) -> Vec<u8> {
+    let (y, mo, d, h, mi, s, _) = civil(zone.local_ms(date_ms));
     let dos_time = (u64::from(h) << 11 | u64::from(mi) << 5 | u64::from(s) >> 1) & 0xffff;
     // (year − 1980) << 9 in 32-bit two's complement (a year before 1980 goes negative), then & 0xffff
     let year = y.saturating_sub(1980).cast_unsigned();
@@ -310,9 +311,9 @@ pub struct Topic<'a> {
     pub png: Option<Vec<u8>>,
 }
 
-/// `isoDate(s)`: the time as ISO (seconds), or now when it does not read.
-fn iso_date(s: &str, now_ms: f64) -> String {
-    let t = parse_date(s);
+/// `isoDate(s)`: the time as ISO (seconds), or now when it does not read (a date-time without an offset is local).
+fn iso_date(s: &str, now_ms: f64, zone: Zone) -> String {
+    let t = parse_date_in(s, zone);
     to_iso_s(if t.is_nan() { now_ms } else { t }).or_else(|| to_iso_s(now_ms)).unwrap_or_default()
 }
 
@@ -322,8 +323,8 @@ fn fx6(x: f64) -> String {
 }
 
 /// `buildBcf(topics, {project, exported})` → (zip bytes, count). `now_ms` stands in for `new Date()` where a date does
-/// not read.
-pub fn build_bcf(topics: &[Topic<'_>], project: &str, exported_ms: f64, now_ms: f64) -> (Vec<u8>, usize) {
+/// not read; `zone` is the local time of the zip dates and of dates written without an offset.
+pub fn build_bcf(topics: &[Topic<'_>], project: &str, exported_ms: f64, now_ms: f64, zone: Zone) -> (Vec<u8>, usize) {
     let mut files: Vec<ZipFile> = Vec::new();
     let f = |name: &str, s: String| ZipFile { name: name.to_string(), data: s.into_bytes() };
     files.push(f(
@@ -396,10 +397,10 @@ pub fn build_bcf(topics: &[Topic<'_>], project: &str, exported_ms: f64, now_ms: 
             lines.push(format!("\t\t<Labels>{}</Labels>", xml(l)));
         }
         let author = if m.author.is_empty() { "Unknown" } else { m.author.as_str() };
-        lines.push(format!("\t\t<CreationDate>{}</CreationDate>", iso_date(&m.created, now_ms)));
+        lines.push(format!("\t\t<CreationDate>{}</CreationDate>", iso_date(&m.created, now_ms, zone)));
         lines.push(format!("\t\t<CreationAuthor>{}</CreationAuthor>", xml(author)));
         if !m.modified.is_empty() && m.modified != m.created {
-            lines.push(format!("\t\t<ModifiedDate>{}</ModifiedDate>", iso_date(&m.modified, now_ms)));
+            lines.push(format!("\t\t<ModifiedDate>{}</ModifiedDate>", iso_date(&m.modified, now_ms, zone)));
             lines.push(format!("\t\t<ModifiedAuthor>{}</ModifiedAuthor>", xml(author)));
         }
         if let Some(p) = &m.punch {
@@ -418,7 +419,7 @@ pub fn build_bcf(topics: &[Topic<'_>], project: &str, exported_ms: f64, now_ms: 
         for r in &m.replies {
             let cg = guid_for(&format!("comment:{}:{}", m.id, r.id));
             lines.push(format!("\t<Comment Guid=\"{cg}\">"));
-            lines.push(format!("\t\t<Date>{}</Date>", iso_date(&r.date, now_ms)));
+            lines.push(format!("\t\t<Date>{}</Date>", iso_date(&r.date, now_ms, zone)));
             lines.push(format!("\t\t<Author>{}</Author>", xml(if r.author.is_empty() { "Unknown" } else { &r.author })));
             lines.push(format!("\t\t<Comment>{}</Comment>", xml(&r.text)));
             lines.push(format!("\t\t<Viewpoint Guid=\"{vg}\"/>"));
@@ -453,7 +454,7 @@ pub fn build_bcf(topics: &[Topic<'_>], project: &str, exported_ms: f64, now_ms: 
             files.push(ZipFile { name: format!("{g}/snapshot.png"), data: png.clone() });
         }
     }
-    (zip(&files, exported_ms), topics.len())
+    (zip(&files, exported_ms, zone), topics.len())
 }
 
 #[cfg(test)]
@@ -467,5 +468,29 @@ mod tests {
         assert_eq!(g.len(), 36);
         assert_eq!(&g[14..15], "5");
         assert_eq!(crc32(b"123456789"), 0xcbf4_3926);
+    }
+
+    /// The DOS time / date of a zip entry (local header bytes 10..14).
+    fn dos(z: &[u8]) -> (u16, u16) {
+        (u16::from_le_bytes([z[10], z[11]]), u16::from_le_bytes([z[12], z[13]]))
+    }
+
+    #[test]
+    fn zip_dates_are_local_time() {
+        // bcf.js zip(files, new Date(1791810123000)) under TZ=Asia/Kolkata, Etc/GMT+6, Pacific/Chatham, UTC
+        let t = 1_791_806_400_000.0 + 3_723_000.0;
+        let f = [ZipFile { name: "a".into(), data: b"x".to_vec() }];
+        assert_eq!(dos(&zip(&f, t, Zone::Fixed(330))), (0x9401, 0x5d4c));
+        assert_eq!(dos(&zip(&f, t, Zone::Fixed(-360))), (0x3841, 0x5d4c));
+        assert_eq!(dos(&zip(&f, t, Zone::Fixed(825))), (0x15e1, 0x5d4d));
+        assert_eq!(dos(&zip(&f, t, Zone::Utc)), (0x6841, 0x5d4c));
+        // 1980-01-01T05:59:58Z is still 1979 in Denver: the year wraps as the JS's 32-bit shift does (not clamped)
+        assert_eq!(dos(&zip(&f, 315_554_398_000.0, Zone::Fixed(-360))), (0xbf7d, 0xff9f));
+        // the workbook's created date stays UTC; its zip dates are local
+        let x = crate::xlsx::write_xlsx(&[], "T", false, t, Zone::Fixed(-360));
+        assert_eq!(dos(&x), (0x3841, 0x5d4c));
+        assert!(
+            String::from_utf8_lossy(&x).contains("<dcterms:created xsi:type=\"dcterms:W3CDTF\">2026-10-12T13:02:03Z</dcterms:created>")
+        );
     }
 }

@@ -35,7 +35,7 @@ fn obj(v: Value) -> Map<String, Value> {
     v.as_object().cloned().unwrap()
 }
 fn env() -> Env {
-    Env { now_ms: 1_791_882_000_000.0, count: 0 }
+    Env { now_ms: 1_791_882_000_000.0, count: 0, ..Env::default() }
 }
 fn mk(e: &mut Env, v: Value) -> Markup {
     make_markup(e, &obj(v))
@@ -741,7 +741,7 @@ fn summary_workbook() {
             && total[4]["v"].as_f64().unwrap() + total[5]["v"].as_f64().unwrap() == ms.len() as f64,
         "the totals are live formulas"
     );
-    let x = cc_markup::xlsx::write_xlsx(&sheets, "Summary", false, e.now_ms);
+    let x = cc_markup::xlsx::write_xlsx(&sheets, "Summary", false, e.now_ms, e.zone);
     let files = unzip(&x).unwrap();
     let sh1 = String::from_utf8(files.iter().find(|f| f.name == "xl/worksheets/sheet1.xml").unwrap().data.clone()).unwrap();
     assert!(
@@ -772,7 +772,7 @@ fn bcf_import() {
             png: None,
         })
         .collect();
-    let (bytes, _) = build_bcf(&topics, "Example kitchen", e.now_ms, e.now_ms);
+    let (bytes, _) = build_bcf(&topics, "Example kitchen", e.now_ms, e.now_ms, e.zone);
     let ours = read_bcf(&bytes).unwrap();
     assert!(
         ours.version == "2.1"
@@ -801,7 +801,7 @@ fn bcf_import() {
         },
     ];
     let refs: Vec<&Markup> = ms.iter().collect();
-    let same = plan_import(&ours, &refs, &guid_of, &reply_guids, &sheets, "B:1", "");
+    let same = plan_import(&ours, &refs, &guid_of, &reply_guids, &sheets, "B:1", "", cc_clock::Zone::Utc);
     assert!(
         same["matched"] == 2 && same["updates"].as_array().unwrap().is_empty() && same["adds"].as_array().unwrap().is_empty(),
         "importing our own export again changes nothing"
@@ -824,6 +824,7 @@ fn bcf_import() {
             f("evil/markup.bcf", "<Markup><Topic Guid=\"../../x\">".into()),
         ],
         e.now_ms,
+        e.zone,
         true,
     );
     let theirs = read_bcf(&z).unwrap();
@@ -837,7 +838,7 @@ fn bcf_import() {
             && t1.camera.map(|c| c[0]) == Some(12.5)
     );
     let sheets_b0 = sheets.clone();
-    let plan = plan_import(&theirs, &refs, &guid_of, &reply_guids, &sheets_b0, "B:0", "Me");
+    let plan = plan_import(&theirs, &refs, &guid_of, &reply_guids, &sheets_b0, "B:0", "Me", cc_clock::Zone::Utc);
     let up = &plan["updates"][0];
     assert!(
         plan["matched"] == 1

@@ -4,7 +4,7 @@ use cc_io_markup::read::{OpenOpts, open_pdf};
 use cc_markup::model::Env;
 
 fn open(bytes: &[u8]) {
-    let mut env = Env { now_ms: 0.0, count: 0 };
+    let mut env = Env { now_ms: 0.0, count: 0, ..Env::default() };
     let _ = open_pdf(&mut env, bytes, &OpenOpts { file_id: "f".into(), name: "x.pdf".into(), read_text: true });
 }
 

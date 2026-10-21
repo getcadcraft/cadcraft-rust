@@ -24,6 +24,7 @@ cc-io-m3d = { path = "../crates/io-m3d" }
 cc-takeoff = { path = "../crates/takeoff" }
 cc-io-takeoff = { path = "../crates/io-takeoff" }
 cc-markup = { path = "../crates/markup" }
+cc-clock = { path = "../crates/clock" }
 cc-io-markup = { path = "../crates/io-markup" }
 cc-bim = { path = "../crates/bim" }
 cc-civil = { path = "../crates/civil" }

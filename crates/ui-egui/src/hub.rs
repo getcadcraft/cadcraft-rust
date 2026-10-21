@@ -151,20 +151,41 @@ pub fn app_for(name: &str) -> &'static str {
     }
 }
 
-/// Relative time, in the hub's sense ("2 hours ago").
-fn when_text(ms: f64, now: f64) -> String {
-    let s = ((now - ms) / 1000.0).max(0.0);
-    if s < 45.0 {
-        return "just now".into();
-    }
-    let (n, unit) = if s < 3600.0 {
-        ((s / 60.0).round(), "minute")
-    } else if s < 86_400.0 {
-        ((s / 3600.0).round(), "hour")
-    } else {
-        ((s / 86_400.0).round(), "day")
+/// Relative time, as host.js `whenText` with `Intl.RelativeTimeFormat('en', { numeric: 'auto' })`: "now", "5 minutes
+/// ago", "2 hours ago", "yesterday", "3 days ago"; a week or more away, the date on `zone`'s wall clock ("Oct 12,
+/// 2026": `toLocaleDateString('en', { dateStyle: 'medium' })`). Spec gap: English only (the JS follows the page's
+/// language).
+fn when_text(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
+    // Math.round: halves toward +∞
+    let js_round = |x: f64| (x + 0.5).floor();
+    let diff = js_round((ms - now) / 1000.0);
+    let abs = diff.abs();
+    let rel = |n: f64, unit: &str| {
+        let k = n.abs();
+        let units = format!("{k} {unit}{}", if k == 1.0 { "" } else { "s" });
+        if n < 0.0 { format!("{units} ago") } else { format!("in {units}") }
     };
-    format!("{n} {unit}{} ago", if n == 1.0 { "" } else { "s" })
+    if !diff.is_finite() {
+        return String::new();
+    }
+    if abs < 45.0 {
+        "now".into()
+    } else if abs < 3600.0 {
+        rel(js_round(diff / 60.0), "minute")
+    } else if abs < 86_400.0 {
+        rel(js_round(diff / 3600.0), "hour")
+    } else if abs < 7.0 * 86_400.0 {
+        let n = js_round(diff / 86_400.0);
+        if n == -1.0 {
+            "yesterday".into()
+        } else if n == 1.0 {
+            "tomorrow".into()
+        } else {
+            rel(n, "day")
+        }
+    } else {
+        cc_markup::js::short_date_en(zone.local_ms(ms))
+    }
 }
 
 fn layer(slug: &str, dark: bool) -> Color32 {
@@ -180,6 +201,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let dark = app.preset == crate::theme::Preset::Dark;
     let loc = app.hub.loc().to_string();
     let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
+    let zone = app.zone;
     let act: std::cell::RefCell<Option<(String, Params)>> = std::cell::RefCell::new(None);
     egui::CentralPanel::default().frame(egui::Frame::new().fill(t0.canvas_bg).inner_margin(egui::Margin::symmetric(24, 18))).show(
         ui,
@@ -303,7 +325,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                                     resp.on_disabled_hover_text(t(&loc, "recent.noreopen"));
                                 }
                                 ui.label(
-                                    RichText::new(t(&loc, "recent.opened").replace("{when}", &when_text(r.when, now)))
+                                    RichText::new(t(&loc, "recent.opened").replace("{when}", &when_text(r.when, now, zone)))
                                         .small()
                                         .color(t0.text_dim),
                                 );
@@ -444,6 +466,37 @@ fn app_title_of(slug: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// host.js `whenText(now + d, now, 'en')` under TZ=Asia/Kolkata (Node 22).
+    #[test]
+    fn when_text_is_the_js_one() {
+        let now = 1_791_810_123_000.0;
+        let z = cc_clock::Zone::Fixed(330);
+        for (d, want) in [
+            (-10e3, "now"),
+            (-44.4e3, "now"),
+            (-45e3, "1 minute ago"),
+            (-90e3, "1 minute ago"),
+            (-150e3, "2 minutes ago"),
+            (-3599e3, "60 minutes ago"),
+            (-3600e3, "1 hour ago"),
+            (-5400e3, "1 hour ago"),
+            (-86399e3, "24 hours ago"),
+            (-86400e3, "yesterday"),
+            (-129600e3, "yesterday"),
+            (-172800e3, "2 days ago"),
+            (-596160e3, "7 days ago"),
+            (-604800e3, "Oct 5, 2026"),
+            (120e3, "in 2 minutes"),
+            (86400e3, "tomorrow"),
+            (-3456000e3, "Sep 2, 2026"),
+        ] {
+            assert_eq!(when_text(now + d, now, z), want, "{d}");
+        }
+        // 2026-10-01T20:00Z is already Oct 2 in Kolkata
+        assert_eq!(when_text(1_790_884_800_000.0, now, z), "Oct 2, 2026");
+        assert_eq!(when_text(1_790_884_800_000.0, now, cc_clock::Zone::Utc), "Oct 1, 2026");
+    }
 
     #[test]
     fn hub_words_come_from_the_05_catalogs() {

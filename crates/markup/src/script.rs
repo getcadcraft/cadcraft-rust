@@ -179,11 +179,19 @@ fn markup_arg(st: &Store, step: &Map<String, Value>) -> Option<Markup> {
     step.get("id").and_then(Value::as_str).and_then(|id| st.get(id)).cloned()
 }
 
-/// Run one script (parsed JSON) and give the records as JSON text.
+/// Run one script (parsed JSON) and give the records as JSON text (local-time fields in UTC unless the script's env
+/// has `tz`).
 pub fn run(script: &Value) -> String {
+    run_in(script, cc_clock::Zone::Utc)
+}
+
+/// [`run`] with local-time fields in `zone` (the host's zone) unless the script's env sets `tz` (minutes east of UTC).
+pub fn run_in(script: &Value, zone: cc_clock::Zone) -> String {
     let mut st = Store::new();
+    st.env.zone = zone;
     if let Some(e) = script.get("env") {
-        st.env = Env { now_ms: num(e.get("now")), count: e.get("count").and_then(Value::as_u64).unwrap_or(0) };
+        let zone = if e.get("tz").is_some() { cc_clock::Zone::from_minutes(e.get("tz").and_then(Value::as_f64)) } else { zone };
+        st.env = Env { now_ms: num(e.get("now")), count: e.get("count").and_then(Value::as_u64).unwrap_or(0), zone };
     }
     let empty = Vec::new();
     let steps = script.get("steps").and_then(Value::as_array).unwrap_or(&empty);
@@ -641,9 +649,14 @@ fn run_step(st: &mut Store, step: &Map<String, Value>, o: &mut Out) {
                     png: t.get("png").and_then(Value::as_str).map(crate::imagestamp::b64_decode),
                 })
                 .collect();
-            let exported = crate::js::parse_date(&s(step.get("exported")));
-            let (bytes, count) =
-                build_bcf(&topics, step.get("project").and_then(Value::as_str).unwrap_or("MarkupCraft"), exported, st.env.now_ms);
+            let exported = crate::js::parse_date_in(&s(step.get("exported")), st.env.zone);
+            let (bytes, count) = build_bcf(
+                &topics,
+                step.get("project").and_then(Value::as_str).unwrap_or("MarkupCraft"),
+                exported,
+                st.env.now_ms,
+                st.env.zone,
+            );
             o.raw("{\"bytes\":{\"$base64\":");
             o.str(&crate::imagestamp::b64_encode(&bytes));
             o.raw("},\"count\":");

@@ -1,0 +1,25 @@
+[package]
+name = "cc-clock"
+description = "CadCraft L0: the host's clock edge: the system time zone's UTC offset at an instant (local-time fields the 0.5 JS writes)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 0
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# TZ, /etc/localtime + /usr/share/zoneinfo on Unix; the Windows zone through the bundled tzdb
+jiff = { version = "0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3"

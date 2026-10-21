@@ -27,10 +27,10 @@ fn quarter() -> Cal {
     preset_calibration("1/4\" = 1'-0\"", 48.0, "ft-in")
 }
 fn env() -> Env {
-    Env { now_ms: NOW, count: 0 }
+    Env { now_ms: NOW, count: 0, ..Env::default() }
 }
 fn open(bytes: &[u8], file_id: &str) -> Record {
-    let mut e = Env { now_ms: NOW, count: 100_000 };
+    let mut e = Env { now_ms: NOW, count: 100_000, ..Env::default() };
     open_pdf(&mut e, bytes, &OpenOpts { file_id: file_id.into(), name: "x.pdf".into(), read_text: true }).unwrap()
 }
 fn page(index: usize, markups: Vec<Markup>, cal: Option<Cal>) -> WritePage {

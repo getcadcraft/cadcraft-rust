@@ -214,7 +214,8 @@ fn deflate_raw(data: &[u8]) -> Option<Vec<u8>> {
 /// `zip([{ name, data }], { deflate, date })`.
 pub fn zip(files: &[(String, Vec<u8>)], deflate: bool, date: DosDate) -> Vec<u8> {
     let dos_time = ((date.hour << 11) | (date.minute << 5) | (date.second >> 1)) & 0xffff;
-    let dos_date = ((u32::try_from(date.year.saturating_sub(1980)).unwrap_or(0) << 9) | (date.month << 5) | date.day) & 0xffff;
+    // ((year − 1980) << 9) in 32-bit two's complement, as the JS: a year before 1980 wraps (1979 → 0xfe00 | …), not 0
+    let dos_date = ((date.year.saturating_sub(1980).cast_unsigned().wrapping_shl(9)) | (date.month << 5) | date.day) & 0xffff;
     let (dos_time, dos_date) = (u16::try_from(dos_time).unwrap_or(0), u16::try_from(dos_date).unwrap_or(0));
     let mut locals: Vec<u8> = Vec::new();
     let mut central: Vec<u8> = Vec::new();

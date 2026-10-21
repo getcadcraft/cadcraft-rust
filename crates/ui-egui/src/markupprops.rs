@@ -411,9 +411,9 @@ impl crate::pdfview::PdfView {
         if let [m] = sel.as_slice() {
             head(ui, if m.locked { t0("props.h.locked") } else { t0(&format!("type.{}", m.kind)) });
             kv(ui, t0("props.author"), if m.author.is_empty() { t0("props.author.none") } else { m.author.clone() });
-            kv(ui, t0("props.created"), m.created.replace('T', " ").trim_end_matches('Z').to_string());
+            kv(ui, t0("props.created"), self.date_time(&m.created));
             if !m.modified.is_empty() && m.modified != m.created {
-                kv(ui, t0("props.modified"), m.modified.replace('T', " ").trim_end_matches('Z').to_string());
+                kv(ui, t0("props.modified"), self.date_time(&m.modified));
             }
             for (k, v) in self.value_rows(m) {
                 kv(ui, k, v);

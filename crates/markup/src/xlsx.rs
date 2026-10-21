@@ -187,7 +187,7 @@ pub fn sheet_xml(sh: &Value) -> String {
 }
 
 /// `writeXlsx(sheets, {title, compress})` at time `now_ms` (the core properties' date and the zip's).
-pub fn write_xlsx(sheets: &[Value], title: &str, compress: bool, now_ms: f64) -> Vec<u8> {
+pub fn write_xlsx(sheets: &[Value], title: &str, compress: bool, now_ms: f64, zone: cc_clock::Zone) -> Vec<u8> {
     let mut used = Vec::new();
     let named: Vec<(String, &Value)> = sheets
         .iter()
@@ -249,5 +249,5 @@ pub fn write_xlsx(sheets: &[Value], title: &str, compress: bool, now_ms: f64) ->
     for (i, (_, s)) in named.iter().enumerate() {
         files.push(ZipFile { name: format!("xl/worksheets/sheet{}.xml", i.saturating_add(1)), data: sheet_xml(s).into_bytes() });
     }
-    zip_with(&files, now_ms, compress)
+    zip_with(&files, now_ms, zone, compress)
 }

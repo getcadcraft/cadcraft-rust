@@ -1832,6 +1832,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
 
 /// The commands that need an open project.
 fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) -> Result<(), String> {
+    // the zone of the exports' local-time fields (`app.tz`, else the machine's)
+    let zone = app.zone;
     let name = name.to_string();
     let cv = app.civil.as_mut().ok_or_else(|| format!("{id}: open a CivilCraft project first (civil.sample)"))?;
     match id {
@@ -2139,7 +2141,7 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         }
         "civil.export" => {
             // civilcraft.js exportLandXml / exportDxf / exportDwg / plot, site-view3d.js exportGLB, saveProject
-            match crate::civilexport::run(cv, &name, now_ms(), dark)? {
+            match crate::civilexport::run(cv, &name, now_ms(), dark, zone)? {
                 crate::civilexport::Outcome::Nothing(m) => cv.message = m,
                 crate::civilexport::Outcome::File(fname, bytes, msg) => {
                     let project = name.trim_start().starts_with("project");

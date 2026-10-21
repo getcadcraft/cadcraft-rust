@@ -128,3 +128,20 @@ fn hostile_files_do_not_panic() {
     let deep = "<a>".repeat(5000);
     let _ = run(json!([{ "op": "xml.parse", "args": [deep] }]));
 }
+
+/// landxml.js writes `date` / `time` from `getFullYear()` … `getSeconds()` (local time): the caller passes the
+/// instant on the local wall clock. `writeLandXml({ date: new Date(1791810123000) })` under TZ=Asia/Kolkata (+330),
+/// Etc/GMT+6 (−360) and Pacific/Chatham (+825 in October).
+#[test]
+fn landxml_date_and_time_are_local() {
+    let t = 1_791_810_123_000.0;
+    for (zone, want) in [
+        (cc_clock::Zone::Fixed(330), "date=\"2026-10-12\" time=\"18:32:03\""),
+        (cc_clock::Zone::Fixed(-360), "date=\"2026-10-12\" time=\"07:02:03\""),
+        (cc_clock::Zone::Fixed(825), "date=\"2026-10-13\" time=\"02:47:03\""),
+        (cc_clock::Zone::Utc, "date=\"2026-10-12\" time=\"13:02:03\""),
+    ] {
+        let x = cc_io_civil::landxml::write_land_xml("P", "ft", &[], &[], &[], &[], zone.local_ms(t), None);
+        assert!(x.contains(want), "{zone:?}: {}", x.lines().nth(1).unwrap_or(""));
+    }
+}

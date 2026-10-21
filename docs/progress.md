@@ -2,6 +2,40 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M16.8 Local-time dates as 0.5 writes them (agent, work/tz)
+
+- Audited every app's frozen 0.5 JS for local-time dates (`getHours` … `getFullYear`, `getTimezoneOffset`,
+  `toLocale*`, local `new Date(…)` and offset-less parsing). Ported writers that use local time: zip dates (markupcraft
+  xlsx.js / bcf.js, takeoffcraft xlsx.js, detailcraft zip.js), kiss.js H line, landxml.js date / time,
+  bcf.js / bcf-read.js offset-less dates, MarkupCraft list and Properties dates (ui-util shortDate / dateTime),
+  host.js whenText (the hub). PDF dates, IFC / STEP / DAE stamps, DWG TDCREATE and title-block dates are UTC in 0.5
+  and stay UTC. Dates in parts not ported yet are listed in gaps.md item 11.
+- New L0 crate cc-clock: the host's UTC offset per instant (jiff natively: TZ, /etc/localtime, the Windows zone; on
+  the web, `Date.getTimezoneOffset`). Writers take a `Zone` (System, Fixed(minutes), Utc) from the host, so the engine
+  reads no clock and no zone. Library defaults to UTC; the app, CLI and MCP pass System; `app.tz` (UI command) and
+  a script's `tz` fix it. `utc_of_local` takes V8's offset before a change, in both the spring gap and the autumn
+  overlap. `with_offset` / `with_zone_name` let tests fix the zone per thread. jiff 0.2.38 (Unlicense OR MIT, used
+  under MIT; native only, no build.rs) is in THIRD_PARTY.md.
+- Pre-1980 zip years wrap like the JS's 32-bit shift (CivilCraft clamped them to 0). Script runners (takeoff, civil,
+  markup CLI) use the machine's zone unless a call gives `tz`.
+- Tests: DST edges in Denver / Auckland, Kolkata +5:30, Chatham +13:45 / +12:45, LMT 1880 (−419); DOS dates per zone
+  and pre-1980 in each zip writer; LandXML date / time per zone; offset-less BCF parsing; hub whenText against Node.
+- Parity, frozen 0.5 JS and Rust under the same TZ (0 differences everywhere; mkuidiff was 4 different under
+  America/Denver before):
+
+  | harness | UTC | America/Denver | Asia/Kolkata | Pacific/Auckland | DST clock |
+  |---|---|---|---|---|---|
+  | mkuidiff (17 checks) | 0 | 0 | 0 | 0 | 0 (Denver 2026-11-01 01:30 repeated, Auckland 2026-09-27 spring-forward; both zones at both) |
+  | mkdiff (7963 records) | 0 | 0 | 0 | 0 | – |
+  | todiff (18442 records + 29 PDF) | 0 | 0 | 0 | 0 | – |
+  | cvuidiff (sample, all exports) | 0 | 0 | 0 | 0 | 0 (Auckland, Denver) |
+  | cvdiff (landxml, dbf, shp, zip, kml, gis-export, t-main; 8090 calls) | 0 | 0 | 0 | 0 | – |
+  | dcuidiff (sample, 58 files) | 0 | 0 | 0 | 0 | 0 (Denver, Auckland) |
+  | tkopsdiff (61 files, 262 status lines) | 0 | 0 | 0 | 0 | – |
+
+- Harnesses (outside the repo): mkdiff / mkpdf / todiff run under any TZ (default UTC); mkuidiff takes `--time ms`.
+  Timings unchanged (zone lookup per export only).
+
 ## 2026-10-21 — M11.16 GeoTIFF reads capped at 1 GB (lead, workstation11a)
 
 - The workstation's first `cargo xtask fuzz --smoke` found `civil_raster` out of memory in 30 s: a 10-byte RGB TIFF

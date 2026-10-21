@@ -235,6 +235,12 @@ impl PdfView {
         strip(&strip(&n, ".pdf"), " (marked up)")
     }
 
+    /// ui-util.js `dateTime(iso)`: "Oct 10, 2026, 3:04 PM" on the local clock, or "" when it does not read.
+    pub(crate) fn date_time(&self, iso: &str) -> String {
+        let t = cc_markup::js::parse_date_in(iso, self.zone);
+        if t.is_nan() { String::new() } else { cc_markup::js::date_time_en(self.zone.local_ms(t)) }
+    }
+
     /// The clock for files made now (a fixed one in scripts and parity runs).
     pub(crate) fn now(&self) -> f64 {
         self.clock.unwrap_or_else(|| web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64))
@@ -807,7 +813,7 @@ impl PdfView {
             "xlsx" => {
                 let name = t("sum.file", &[("set", Fill::S(set))]);
                 let sheets = cc_markup::summary::summary_sheets(&list, &sheet_of, &measure_of, space_of, &cols);
-                let bytes = cc_markup::xlsx::write_xlsx(&sheets, &name, true, now);
+                let bytes = cc_markup::xlsx::write_xlsx(&sheets, &name, true, now, self.zone);
                 let file = format!("{name}.xlsx");
                 let msg = t("sum.saved.xlsx", &[("n", Fill::N(n)), ("file", Fill::S(file.clone()))]);
                 (file, bytes, msg)
@@ -985,10 +991,14 @@ impl PdfView {
                 }
             );
             let sheet = self.locate(m.sheet()).map(|(f, i)| f.title(&self.store, i)).unwrap_or_default();
-            let meta: Vec<String> = [sheet, m.author.clone(), cc_markup::js::short_date_en(cc_markup::js::parse_date(&m.created))]
-                .into_iter()
-                .filter(|s| !s.is_empty())
-                .collect();
+            let meta: Vec<String> = [
+                sheet,
+                m.author.clone(),
+                cc_markup::js::short_date_en(self.zone.local_ms(cc_markup::js::parse_date_in(&m.created, self.zone))),
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
             let chip = if m.locked { t0("props.read_only") } else { cc_markup::model::status_name(&m.status) };
             let on = self.tools.sel.contains(&m.id);
             let colour = crate::pdfview::hex_color(&m.style.color, 1.0).unwrap_or(tok.text);
@@ -1040,7 +1050,7 @@ impl PdfView {
         }
         for r in &m.replies {
             let who = if r.author.is_empty() { t0("thread.unknown") } else { r.author.clone() };
-            let date = r.date.replace('T', " ").trim_end_matches('Z').to_string();
+            let date = self.date_time(&r.date);
             ui.label(RichText::new(t("thread.meta", &[("author", Fill::S(who)), ("date", Fill::S(date))])).small().color(tok.text_dim));
             if !r.text.is_empty() {
                 ui.label(&r.text);

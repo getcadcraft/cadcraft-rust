@@ -19,7 +19,7 @@ fn read_json(path: &str) -> Result<serde_json::Value, ExitCode> {
 }
 
 fn run(v: &serde_json::Value) -> serde_json::Value {
-    cc_civil::script::run_with(v, &[cc_io_civil::script::handle, cc_civil::script::handle, view_ops])
+    cc_civil::script::run_with_in(v, &[cc_io_civil::script::handle, cc_civil::script::handle, view_ops], cc_clock::Zone::System)
 }
 
 /// ModelCraft's camera (cc-m3d-tools) as the 3D site view's picking camera.

@@ -16,6 +16,7 @@ layer = 3
 workspace = true
 
 [dependencies]
+cc-clock.workspace = true
 cc-takeoff.workspace = true
 serde_json.workspace = true
 cc-m3d.workspace = true

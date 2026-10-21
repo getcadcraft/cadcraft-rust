@@ -27,7 +27,8 @@
 //! - `takeoff.undo`, `takeoff.redo`.
 //!
 //! MarkupCraft (points in PDF user space of the open sheet):
-//! - `pdf.zoom` factor = screen pixels per PDF point; `markup.clock` factor = ms (a fixed clock for ids and dates).
+//! - `pdf.zoom` factor = screen pixels per PDF point; `markup.clock` factor = ms (a fixed clock for ids and dates;
+//!   `app.tz` fixes the zone of the local-time fields: zip dates, list dates).
 //! - `markup.down | move | up | dbl` name = `x,y[,shift]`: the pointer with the current tool (dbl = a double-click's
 //!   second press); `markup.enter`, `markup.esc`.
 //! - `markup.type` name = the editor's text; `markup.commit` (Ctrl+Enter).

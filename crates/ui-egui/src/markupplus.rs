@@ -373,7 +373,9 @@ impl PdfView {
                 meta.push(t("punch.assigned", &[("name", Fill::S(p.assignee.clone()))]));
             }
             if !p.due.is_empty() {
-                let d = cc_markup::js::short_date_en(cc_markup::js::parse_date(&format!("{}T12:00:00", p.due)));
+                let d = cc_markup::js::short_date_en(
+                    self.zone.local_ms(cc_markup::js::parse_date_in(&format!("{}T12:00:00", p.due), self.zone)),
+                );
                 meta.push(t("punch.due_on", &[("date", Fill::S(d))]));
             }
             meta.retain(|s| !s.is_empty());

@@ -177,6 +177,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "Ctrl+S",
         "{name?: \"2018\"|\"2013\"|\"2010\"|\"2007\"|\"2004\"|\"2000\"|\"dxf2000\"|\"dxf12\"} → saves the drawing open for editing (default: the last format, else 2018)",
     ),
+    (
+        "app.tz",
+        "Time zone of exports",
+        "",
+        "{factor?: number, minutes east of UTC (±1560)} → the zone the local-time fields of exports and lists are written in (zip dates, LandXML date / time, KISS header, XLSX / BCF zips, MarkupCraft's list dates), fixed; no factor = the machine's zone (the default)",
+    ),
 ];
 
 /// The built-in sample (CadCraft's own public fixture, base-plan.dwg).
@@ -211,6 +217,9 @@ pub struct UiApp {
     ifc_name: String,
     /// an open PDF plan set
     pub pdf: Option<pdfview::PdfView>,
+    /// the zone local-time fields are written in (0.5 writes zip dates, LandXML date / time, the KISS header … with
+    /// `getHours()`): the machine's, or a fixed offset (`app.tz`: scripts and tests)
+    pub zone: cc_clock::Zone,
     /// what MarkupCraft keeps between runs (the tool chest, the picture and signature, tool settings): the desktop
     /// app reads and writes it as `markupcraft.json`
     pub mc_prefs: serde_json::Value,
@@ -301,6 +310,7 @@ impl Default for UiApp {
             bim: bimtools::BimTools::default(),
             ifc_name: String::new(),
             pdf: None,
+            zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
             cut3: (false, 0.5),
             sel3: None,
@@ -414,6 +424,7 @@ impl UiApp {
             match pdfview::PdfView::open(&f.name, &f.bytes) {
                 Ok(mut v) => {
                     v.tools.load_prefs(&self.mc_prefs);
+                    v.zone = self.zone;
                     self.doc = None;
                     self.editor = None;
                     self.source = None;
@@ -1074,6 +1085,17 @@ impl UiApp {
     pub fn run(&mut self, id: &str, params: &Params) -> Result<(), String> {
         detailview::before_run(self, id);
         match id {
+            "app.tz" => {
+                let zone = match params.factor {
+                    None => cc_clock::Zone::System,
+                    Some(m) if m.is_finite() && m.abs() <= 1560.0 => cc_clock::Zone::from_minutes(Some(m)),
+                    Some(_) => return Err("app.tz: factor = minutes east of UTC (±1560), or none for the machine's zone".into()),
+                };
+                self.zone = zone;
+                if let Some(p) = self.pdf.as_mut() {
+                    p.zone = zone;
+                }
+            }
             "file.open" => {
                 if let Some(p) = self.services.pick_open.as_mut() {
                     match p() {

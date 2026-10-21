@@ -78,7 +78,9 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                     WNetwork { name: net.name, ty: net.ty, structures, pipes: net.pipes }
                 })
                 .collect();
-            let date = o.get("date").map_or(0.0, |d| numf(Some(d)));
+            // `tz` (minutes east of UTC): the zone of the JS's local date / time fields; the runner's without it
+            let zone = o.get("tz").map_or(reg.zone, |v| cc_clock::Zone::from_minutes(Some(numf(Some(v)))));
+            let date = zone.local_ms(o.get("date").map_or(0.0, |d| numf(Some(d))));
             let crs = o.get("crs").filter(|c| !c.is_null());
             let text = landxml::write_land_xml(&name, &units, &points, &surfaces, &alignments, &networks, date, crs);
             let j = text.j();

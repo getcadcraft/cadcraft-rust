@@ -1167,11 +1167,11 @@ pub fn area_rows(state: &Value) -> Vec<Vec<XCell>> {
 }
 
 /// The workbook (`estimateXlsx`).
-pub fn estimate_xlsx(state: &Value, label: Labeler<'_>, compress: bool, date: &crate::xlsx::Stamp) -> Vec<u8> {
+pub fn estimate_xlsx(state: &Value, label: Labeler<'_>, compress: bool, date: &crate::xlsx::Stamp, local: &crate::xlsx::Stamp) -> Vec<u8> {
     let est = base_estimate(state);
     let sheets = estimate_sheets(state, label, &est);
     let title = jv::to_string(state.get("name"));
-    crate::xlsx::write_xlsx(&sheets, &title, compress, date)
+    crate::xlsx::write_xlsx(&sheets, &title, compress, date, local)
 }
 
 /// The cell types are shared with the harness output.

@@ -210,7 +210,7 @@ pub fn project_file(p: &Project, now_ms: f64) -> (String, Vec<u8>) {
 // ------------------------------------------------------------------------------------------------ LandXML
 
 /// civilcraft.js `exportLandXml`.
-pub fn landxml(p: &mut Project, now_ms: f64) -> Outcome {
+pub fn landxml(p: &mut Project, now_ms: f64, zone: cc_clock::Zone) -> Outcome {
     let eg = p.eg();
     let als: Vec<Value> = arr(p.state.get("alignments")).to_vec();
     if p.points.is_empty() && eg.surface.is_none() && als.is_empty() {
@@ -292,7 +292,7 @@ pub fn landxml(p: &mut Project, now_ms: f64) -> Outcome {
     let units = units_of(p);
     let name = p.state.get("name").and_then(Value::as_str).unwrap_or("CivilCraft project").to_string();
     let crs = p.state.get("crs").filter(|c| !c.is_null());
-    let xml = cc_io_civil::landxml::write_land_xml(&name, &units, &p.points, &surfaces, &alignments, &networks, now_ms, crs);
+    let xml = cc_io_civil::landxml::write_land_xml(&name, &units, &p.points, &surfaces, &alignments, &networks, zone.local_ms(now_ms), crs);
     let skipped = built.iter().filter(|(al, _, _)| !al.ok()).count();
     let als_t = tr!("cv.als.n", n = als.len().saturating_sub(skipped));
     let n_pts = p.points.len();
@@ -689,7 +689,7 @@ pub fn glb(p: &mut Project, exag: f64, dark: bool) -> Outcome {
 
 /// `civil.export` on the open project → what to save (or what to say). `now_ms` is the clock when the name has no
 /// `@time`.
-pub fn run(cv: &mut CivilView, name: &str, now_ms: f64, dark: bool) -> Result<Outcome, String> {
+pub fn run(cv: &mut CivilView, name: &str, now_ms: f64, dark: bool, zone: cc_clock::Zone) -> Result<Outcome, String> {
     let spec = Spec::parse(name)?;
     let now = spec.at.unwrap_or(now_ms);
     let t0 = web_time::Instant::now();
@@ -700,7 +700,7 @@ pub fn run(cv: &mut CivilView, name: &str, now_ms: f64, dark: bool) -> Result<Ou
                 if cfg!(target_arch = "wasm32") { tr!("cv.saved.dl", name = n.as_str()) } else { tr!("save.written", name = n.as_str()) };
             Outcome::File(n, b, msg)
         }
-        "landxml" => landxml(&mut cv.project, now),
+        "landxml" => landxml(&mut cv.project, now, zone),
         "dxf" => dxf(&mut cv.project),
         "dwg" => {
             let v = if spec.opts.is_empty() { cv.export.dwg.clone() } else { spec.opts.clone() };
@@ -754,7 +754,7 @@ mod tests {
     fn the_demo_exports_everything() {
         let mut cv = CivilView::demo().unwrap();
         for k in ["project", "landxml", "dxf", "dwg", "dwg:2018", "pdf", "pdf:paper=a1,ink=mono,area=view", "glb"] {
-            match run(&mut cv, &format!("{k}@1760700000000"), 0.0, true).unwrap() {
+            match run(&mut cv, &format!("{k}@1760700000000"), 0.0, true, cc_clock::Zone::Utc).unwrap() {
                 Outcome::File(name, bytes, msg) => {
                     assert!(!bytes.is_empty() && !msg.is_empty(), "{k}");
                     assert!(name.starts_with("Demo site"), "{k}: {name}");
@@ -762,24 +762,24 @@ mod tests {
                 Outcome::Nothing(m) => panic!("{k}: {m}"),
             }
         }
-        assert!(run(&mut cv, "dwg:AC9999", 0.0, true).is_err());
-        assert!(run(&mut cv, "pdf:paper=b5", 0.0, true).is_err());
-        assert!(run(&mut cv, "pdf:scale=1:3", 0.0, true).is_err());
+        assert!(run(&mut cv, "dwg:AC9999", 0.0, true, cc_clock::Zone::Utc).is_err());
+        assert!(run(&mut cv, "pdf:paper=b5", 0.0, true, cc_clock::Zone::Utc).is_err());
+        assert!(run(&mut cv, "pdf:scale=1:3", 0.0, true, cc_clock::Zone::Utc).is_err());
     }
 
     #[test]
     fn exports_are_stable_with_a_fixed_clock() {
         let mut cv = CivilView::demo().unwrap();
         for k in ["project", "landxml", "dxf", "dwg", "pdf"] {
-            let a = run(&mut cv, &format!("{k}@1760700000000"), 0.0, true).unwrap();
-            let b = run(&mut cv, &format!("{k}@1760700000000"), 9.0, true).unwrap();
+            let a = run(&mut cv, &format!("{k}@1760700000000"), 0.0, true, cc_clock::Zone::Utc).unwrap();
+            let b = run(&mut cv, &format!("{k}@1760700000000"), 9.0, true, cc_clock::Zone::Utc).unwrap();
             let (Outcome::File(_, x, _), Outcome::File(_, y, _)) = (a, b) else { panic!("{k}") };
             assert_eq!(x, y, "{k}");
         }
-        let Outcome::File(_, b, _) = run(&mut cv, "project@1760700000000", 0.0, true).unwrap() else { panic!() };
+        let Outcome::File(_, b, _) = run(&mut cv, "project@1760700000000", 0.0, true, cc_clock::Zone::Utc).unwrap() else { panic!() };
         let s = String::from_utf8(b).unwrap();
         assert!(s.starts_with("{\"format\":\"civilcraft-project\",\"version\":1,\"saved\":\"2025-10-17T11:20:00.000Z\","), "{}", &s[..120]);
-        let Outcome::File(_, b, _) = run(&mut cv, "pdf@1760700000000", 0.0, true).unwrap() else { panic!() };
+        let Outcome::File(_, b, _) = run(&mut cv, "pdf@1760700000000", 0.0, true, cc_clock::Zone::Utc).unwrap() else { panic!() };
         assert!(b.windows(17).any(|w| w == b"D:20251017112000Z"));
     }
 
@@ -787,7 +787,7 @@ mod tests {
     fn an_empty_project_has_nothing_to_export() {
         let mut cv = CivilView::new(Project::new(), "empty.civilcraft.json");
         for k in ["landxml", "dxf", "dwg", "pdf"] {
-            assert!(matches!(run(&mut cv, k, 0.0, true).unwrap(), Outcome::Nothing(_)), "{k}");
+            assert!(matches!(run(&mut cv, k, 0.0, true, cc_clock::Zone::Utc).unwrap(), Outcome::Nothing(_)), "{k}");
         }
     }
 }

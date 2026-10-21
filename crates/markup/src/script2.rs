@@ -246,7 +246,7 @@ pub fn run_ext(st: &mut Store, op: &str, step: &Map<String, Value>, o: &mut Out)
         "writeXlsx" => {
             let sheets = step.get("sheets").and_then(Value::as_array).cloned().unwrap_or_default();
             let compress = crate::js::truthy(step.get("compress"));
-            let bytes = crate::xlsx::write_xlsx(&sheets, &js_str(step.get("title")), compress, st.env.now_ms);
+            let bytes = crate::xlsx::write_xlsx(&sheets, &js_str(step.get("title")), compress, st.env.now_ms, st.env.zone);
             if compress { unzipped_value(&bytes) } else { json!({"$base64": crate::imagestamp::b64_encode(&bytes)}) }
         }
         "unzipAll" => unzipped_value(&crate::imagestamp::b64_decode(&s(step.get("b64")))),
@@ -283,7 +283,7 @@ pub fn run_ext(st: &mut Store, op: &str, step: &Map<String, Value>, o: &mut Out)
                         .collect()
                 })
                 .unwrap_or_default();
-            plan_import(&bcf, &ms, &pairs, &rg, &sheets, &s(step.get("current")), &s(step.get("author")))
+            plan_import(&bcf, &ms, &pairs, &rg, &sheets, &s(step.get("current")), &s(step.get("author")), st.env.zone)
         }
         "diffSegments" => {
             let t = step.get("T").and_then(Value::as_array).map(|a| {

@@ -126,7 +126,8 @@ pub enum Outcome {
     Nothing(String),
 }
 
-/// UTC fields of a time in ms (`new Date(ms)` read with getUTC… — the desktop and the harness run in UTC).
+/// Civil fields of a time in ms as UTC (`new Date(ms)` read with getUTC…, `toISOString`); of a local wall-clock time
+/// (`Zone::local_ms`) for what the JS reads with `getHours()` … (the NC zip's DOS dates, the KISS header).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Clock {
     pub year: i64,
@@ -249,10 +250,12 @@ pub fn format_name(f: &str) -> Option<String> {
 pub const KINDS: &[&str] =
     &["project", "ifc", "nc", "bom", "bending", "kiss", "cutlist", "report-csv", "report-pdf", "drawings", "sheet", "shop"];
 
-/// Run one export: `spec` = kind[:options]; `fixed` = the clock was given (DWG GUIDs then cc-io-dwg's fixed sequence).
-pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool) -> Result<Outcome, String> {
+/// Run one export: `spec` = kind[:options]; `fixed` = the clock was given (DWG GUIDs then cc-io-dwg's fixed sequence);
+/// `zone` = the wall clock of the local-time fields.
+pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool, zone: cc_clock::Zone) -> Result<Outcome, String> {
     let (kind, opt) = spec.split_once(':').map_or((spec.trim(), ""), |(a, b)| (a.trim(), b.trim()));
     let clock = Clock::of_ms(now_ms);
+    let local = Clock::of_ms(zone.local_ms(now_ms));
     let st = c.state;
     let safe = safe_name(st);
     Ok(match kind {
@@ -301,7 +304,7 @@ pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool) -> Result<Outcome, Str
             }
             msg.push(' ');
             msg.push_str(&t0("app.export.nc.check"));
-            Outcome::File(format!("{safe} NC.zip"), cc_detail::zip::zip(&files, clock.dos()), msg)
+            Outcome::File(format!("{safe} NC.zip"), cc_detail::zip::zip(&files, local.dos()), msg)
         }
         "bom" => {
             let b = cc_detail::marks::bom_tables(c.marks, &c.built.bolts);
@@ -334,7 +337,7 @@ pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool) -> Result<Outcome, Str
                 _ => cc_detail::kiss::kiss_metric(c.built),
             };
             let revs = cc_detail::issues::revs_by_number(cc_detail::js::arr(st.get("issues")));
-            let k = cc_detail::kiss::kiss_file(st, c.built, c.marks, Some(metric), clock.kiss(), "", Some(&revs));
+            let k = cc_detail::kiss::kiss_file(st, c.built, c.marks, Some(metric), local.kiss(), "", Some(&revs));
             let count = |key: &str| k.counts.iter().find(|(x, _)| x == key).map_or(0, |(_, v)| *v);
             let msg = t(
                 "kiss.saved",
@@ -432,7 +435,7 @@ pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool) -> Result<Outcome, Str
                     let Some((name, data)) = files.into_iter().next() else { return Ok(Outcome::Nothing(msg)) };
                     Outcome::File(name, data, msg)
                 } else {
-                    Outcome::File(format!("{safe} {} {ext}.zip", t0("app.dwg.file")), cc_detail::zip::zip(&files, clock.dos()), msg)
+                    Outcome::File(format!("{safe} {} {ext}.zip", t0("app.dwg.file")), cc_detail::zip::zip(&files, local.dos()), msg)
                 }
             }
         }
@@ -538,6 +541,27 @@ mod tests {
         assert_eq!(c.date(), "2025-10-17");
         assert_eq!(Clock::of_ms(0.0).date(), "1970-01-01");
         assert_eq!(Clock::of_ms(951_782_400_000.0).date(), "2000-02-29");
+    }
+
+    #[test]
+    fn local_fields_follow_the_zone() {
+        // kiss.js / zip.js read new Date(1791810123000) with getHours() … under TZ=Asia/Kolkata, Etc/GMT+6, Pacific/Chatham
+        let t = 1_791_810_123_000.0;
+        let k = |z| {
+            let w = Clock::of_ms(cc_clock::Zone::Fixed(z).local_ms(t)).kiss();
+            (w.year, w.month, w.day, w.hour, w.minute, w.second)
+        };
+        assert_eq!(k(330), (2026, 10, 12, 18, 32, 3));
+        assert_eq!(k(-360), (2026, 10, 12, 7, 2, 3));
+        assert_eq!(k(825), (2026, 10, 13, 2, 47, 3));
+        let z = cc_detail::zip::zip(&[("a".into(), b"x".to_vec())], Clock::of_ms(cc_clock::Zone::Fixed(-360).local_ms(t)).dos());
+        assert_eq!((u16::from_le_bytes([z[10], z[11]]), u16::from_le_bytes([z[12], z[13]])), (0x3841, 0x5d4c));
+        // 1980-01-01T05:59:58Z is still 1979 in Denver: the year wraps as zip.js's 32-bit shift does (not clamped)
+        let z = cc_detail::zip::zip(
+            &[("a".into(), b"x".to_vec())],
+            Clock::of_ms(cc_clock::Zone::Fixed(-360).local_ms(315_554_398_000.0)).dos(),
+        );
+        assert_eq!((u16::from_le_bytes([z[10], z[11]]), u16::from_le_bytes([z[12], z[13]])), (0xbf7d, 0xff9f));
     }
 
     #[test]

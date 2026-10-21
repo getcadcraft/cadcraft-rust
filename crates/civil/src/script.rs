@@ -11,10 +11,12 @@ use serde_json::{Value, json};
 use std::any::Any;
 use std::collections::HashMap;
 
-/// Objects kept between calls.
+/// Objects kept between calls, and the zone writers stamp local-time fields in (LandXML `date` / `time`) when a
+/// call gives no `tz`: UTC unless the host passes its own ([`run_with_in`]).
 #[derive(Default)]
 pub struct Registry {
     objs: HashMap<String, Box<dyn Any>>,
+    pub zone: cc_clock::Zone,
 }
 impl Registry {
     pub fn new() -> Self {
@@ -68,7 +70,13 @@ pub type Handler = fn(&mut Registry, &Call) -> Option<Result<Value, String>>;
 
 /// Run a script through the handlers (tried in order) → the JSON array of results.
 pub fn run_with(script: &Value, handlers: &[Handler]) -> Value {
+    run_with_in(script, handlers, cc_clock::Zone::Utc)
+}
+
+/// [`run_with`] with local-time fields in `zone` (the host's; the CLI passes the machine's) unless a call gives `tz`.
+pub fn run_with_in(script: &Value, handlers: &[Handler], zone: cc_clock::Zone) -> Value {
     let mut reg = Registry::new();
+    reg.zone = zone;
     let mut out = Vec::new();
     for c in arr(script.get("calls")) {
         let call = Call {

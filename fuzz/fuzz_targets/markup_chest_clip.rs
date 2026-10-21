@@ -9,7 +9,7 @@ use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
     let text = String::from_utf8_lossy(data);
-    let mut env = Env { now_ms: 1_791_882_000_000.0, count: 0 };
+    let mut env = Env { now_ms: 1_791_882_000_000.0, count: 0, ..Env::default() };
     if let Ok((tools, skipped)) = cc_markup::chest::parse_chest(&env, &text) {
         std::hint::black_box((tools.len(), skipped));
     }

@@ -96,7 +96,8 @@ pub fn date_parts(ms: f64) -> (i64, i64, i64, i64, i64, i64) {
     (y, m, d, f(h), f(mi), f(s))
 }
 
-/// `writeLandXml({ name, units, points, surfaces, alignments, networks, date, crs })`.
+/// `writeLandXml({ name, units, points, surfaces, alignments, networks, date, crs })`. `date_ms` is on the local wall
+/// clock (`Zone::local_ms`): the JS writes `date` / `time` with `getFullYear()` … `getSeconds()`.
 #[allow(clippy::too_many_arguments, clippy::arithmetic_side_effects)]
 pub fn write_land_xml(
     name: &str,

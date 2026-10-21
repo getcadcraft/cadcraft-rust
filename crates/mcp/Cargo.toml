@@ -16,6 +16,7 @@ layer = 6
 workspace = true
 
 [dependencies]
+cc-clock.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
 cc-engine.workspace = true

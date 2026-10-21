@@ -1253,6 +1253,8 @@ fn now_ms() -> f64 {
 /// The `detail.*` commands.
 pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     let name = params.name.clone().unwrap_or_default();
+    // the zone of the exports' local-time fields (`app.tz`, else the machine's)
+    let zone = app.zone;
     match id {
         "detail.sample" => {
             install(app, DetailView::sample()?);
@@ -1374,7 +1376,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             };
             dv.recompute();
             let t1 = web_time::Instant::now();
-            let out = detailexport::run(&dv.ctx(), &spec, at.unwrap_or_else(now_ms), at.is_some())?;
+            let out = detailexport::run(&dv.ctx(), &spec, at.unwrap_or_else(now_ms), at.is_some(), zone)?;
             let took = ms(t1);
             dv.set_timing("export", took);
             match out {
@@ -1707,15 +1709,15 @@ mod tests {
             "sheet:0",
             "sheet:1:dxf",
         ] {
-            match detailexport::run(&v.ctx(), k, 1_760_700_000_000.0, true).unwrap() {
+            match detailexport::run(&v.ctx(), k, 1_760_700_000_000.0, true, cc_clock::Zone::Utc).unwrap() {
                 Outcome::File(name, bytes, msg) => assert!(!bytes.is_empty() && !name.is_empty() && !msg.is_empty(), "{k}"),
                 Outcome::Nothing(m) => panic!("{k}: {m}"),
             }
         }
         let beam = v.built.parts.iter().find(|p| p.kind == "beam").map(|p| p.id.clone()).unwrap();
         v.select(Some(Ref::Member(beam)));
-        assert!(matches!(detailexport::run(&v.ctx(), "shop", 0.0, true).unwrap(), Outcome::File(..)));
-        assert!(detailexport::run(&v.ctx(), "nope", 0.0, true).is_err());
-        assert!(detailexport::run(&v.ctx(), "drawings:png", 0.0, true).is_err());
+        assert!(matches!(detailexport::run(&v.ctx(), "shop", 0.0, true, cc_clock::Zone::Utc).unwrap(), Outcome::File(..)));
+        assert!(detailexport::run(&v.ctx(), "nope", 0.0, true, cc_clock::Zone::Utc).is_err());
+        assert!(detailexport::run(&v.ctx(), "drawings:png", 0.0, true, cc_clock::Zone::Utc).is_err());
     }
 }

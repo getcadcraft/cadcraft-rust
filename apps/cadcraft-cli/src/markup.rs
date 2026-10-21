@@ -61,7 +61,7 @@ pub fn markup(rest: &[&str]) -> ExitCode {
                 Ok(v) => v,
                 Err(c) => return c,
             };
-            println!("{}", cc_markup::script::run(&v));
+            println!("{}", cc_markup::script::run_in(&v, cc_clock::Zone::System));
             ExitCode::SUCCESS
         }
         None => usage(),
@@ -69,7 +69,7 @@ pub fn markup(rest: &[&str]) -> ExitCode {
 }
 
 fn env_from(rest: &[&str]) -> Env {
-    let mut env = Env::default();
+    let mut env = Env { zone: cc_clock::Zone::System, ..Env::default() };
     if let Some(n) = value_of(rest, "--now").and_then(|s| s.parse::<f64>().ok()) {
         env.now_ms = n;
     }
@@ -241,7 +241,7 @@ fn bcf(rest: &[&str]) -> ExitCode {
         o.insert("op".into(), Value::from("bcf"));
     }
     let wrapped = serde_json::json!({ "env": { "now": script.get("now").cloned().unwrap_or(Value::from(0)) }, "steps": [script] });
-    let recs: Value = serde_json::from_str(&cc_markup::script::run(&wrapped)).unwrap_or(Value::Null);
+    let recs: Value = serde_json::from_str(&cc_markup::script::run_in(&wrapped, cc_clock::Zone::System)).unwrap_or(Value::Null);
     let r = recs.as_array().and_then(|a| a.first()).and_then(|x| x.get("r")).cloned().unwrap_or(Value::Null);
     let b64 = r.get("bytes").and_then(|b| b.get("$base64")).and_then(Value::as_str).unwrap_or("");
     let zip = cc_markup::imagestamp::b64_decode(b64);
@@ -336,7 +336,7 @@ fn bench(rest: &[&str]) -> ExitCode {
             }
             let wrapped = serde_json::json!({ "env": { "now": 0 }, "steps": [v] });
             time(&mut || {
-                std::hint::black_box(cc_markup::script::run(&wrapped));
+                std::hint::black_box(cc_markup::script::run_in(&wrapped, cc_clock::Zone::System));
             })
         }
         _ => return usage(),

@@ -35,7 +35,8 @@ pub fn crc32(bytes: &[u8]) -> u32 {
     c ^ 0xFFFF_FFFF
 }
 
-/// A local date and time for the zip entries and the workbook's created date.
+/// A date and time: UTC fields for the workbook's created date (`toISOString`), local ones for the zip entries
+/// ([`Stamp::local`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Stamp {
     pub year: i32,
@@ -77,6 +78,10 @@ impl Stamp {
             ms: u32::try_from(rem_ms % 1000).unwrap_or(0),
         }
     }
+    /// The local fields of `ms` (`getHours()` … in the JS) on `zone`'s wall clock.
+    pub fn local(ms: f64, zone: cc_clock::Zone) -> Stamp {
+        Stamp::from_ms(zone.local_ms(ms))
+    }
     /// `toISOString()` (`YYYY-MM-DDTHH:MM:SS.mmmZ`).
     pub fn iso(&self) -> String {
         format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z", self.year, self.month, self.day, self.hour, self.min, self.sec, self.ms)
@@ -94,7 +99,7 @@ fn u32le(out: &mut Vec<u8>, v: u64) {
     out.extend_from_slice(&((v & 0xFFFF_FFFF) as u32).to_le_bytes());
 }
 
-/// files: (name, data) → zip bytes.
+/// files: (name, data) → zip bytes, dated `date` (local fields: [`Stamp::local`]).
 pub fn zip(files: &[(String, Vec<u8>)], compress: bool, date: &Stamp) -> Vec<u8> {
     let dos_time = u64::from(((date.hour << 11) | (date.min << 5) | (date.sec >> 1)) & 0xFFFF);
     let yr = i64::from(date.year).saturating_sub(1980);
@@ -444,7 +449,7 @@ pub fn workbook_files(sheets: &[Sheet], title: &str, created: &Stamp) -> Vec<(St
     files
 }
 
-/// sheets → .xlsx bytes.
-pub fn write_xlsx(sheets: &[Sheet], title: &str, compress: bool, date: &Stamp) -> Vec<u8> {
-    zip(&workbook_files(sheets, title, date), compress, date)
+/// sheets → .xlsx bytes: created `date` (UTC fields), zip entries dated `local` (the same instant's local fields).
+pub fn write_xlsx(sheets: &[Sheet], title: &str, compress: bool, date: &Stamp, local: &Stamp) -> Vec<u8> {
+    zip(&workbook_files(sheets, title, date), compress, local)
 }

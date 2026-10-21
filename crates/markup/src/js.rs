@@ -7,6 +7,7 @@ pub use cc_cad::js::{num_to_string, str_to_number, to_js_string, to_number, to_n
 pub use cc_m3d::js::{hypot2, is_ws, max, min, radix36, round, sign, slice16, to_fixed, trim};
 pub use cc_m3d::jsmath::JsMath;
 
+use cc_clock::Zone;
 use serde_json::Value;
 
 /// `String(x)` for a number.
@@ -179,11 +180,18 @@ pub fn to_iso_s(t: f64) -> Option<String> {
     })
 }
 
-/// `new Date(s)` → time value (NaN when V8 would give an Invalid Date). Reads the ISO forms V8 reads (`YYYY`,
-/// `YYYY-MM`, `YYYY-MM-DD`, `±YYYYYY-…`, `T` / `t` / space, `HH:mm[:ss[.f…]]`, `Z` / `z` / `±HH[:]mm`; local times are
-/// taken as UTC: the parity harness runs with TZ=UTC), with V8's day overflow (Feb 30 → Mar 2).
-/// Spec gap (engine quirk): V8's legacy fallback forms ("Oct 10 2026", "1/2/2026") are not read here: NaN.
+/// `new Date(s)` → time value (NaN when V8 would give an Invalid Date), with a date-time without an offset read as
+/// UTC: [`parse_date_in`] with [`Zone::Utc`].
 pub fn parse_date(s: &str) -> f64 {
+    parse_date_in(s, Zone::Utc)
+}
+
+/// `new Date(s)` → time value (NaN when V8 would give an Invalid Date). Reads the ISO forms V8 reads (`YYYY`,
+/// `YYYY-MM`, `YYYY-MM-DD`, `±YYYYYY-…`, `T` / `t` / space, `HH:mm[:ss[.f…]]`, `Z` / `z` / `±HH[:]mm`), with V8's day
+/// overflow (Feb 30 → Mar 2). A date alone is UTC; a date-time without `Z` or an offset is local time in `zone`
+/// (ECMA-262 Date Time String Format).
+/// Spec gap (engine quirk): V8's legacy fallback forms ("Oct 10 2026", "1/2/2026") are not read here: NaN.
+pub fn parse_date_in(s: &str, zone: Zone) -> f64 {
     let b = trim(s).as_bytes();
     let mut i = 0usize;
     let num = |i: &mut usize, min: usize, max: usize| -> Option<f64> {
@@ -237,6 +245,7 @@ pub fn parse_date(s: &str) -> f64 {
     }
     let (mut h, mut mi, mut sec, mut ms) = (0.0, 0.0, 0.0, 0.0);
     let mut offset_min = 0.0;
+    let mut has_offset = false;
     if matches!(b.get(i), Some(b'T' | b't' | b' ')) {
         date_only = false;
         i = i.saturating_add(1);
@@ -279,8 +288,12 @@ pub fn parse_date(s: &str) -> f64 {
             }
         }
         match b.get(i) {
-            Some(b'Z' | b'z') => i = i.saturating_add(1),
+            Some(b'Z' | b'z') => {
+                has_offset = true;
+                i = i.saturating_add(1);
+            }
             Some(&c @ (b'+' | b'-')) => {
+                has_offset = true;
                 i = i.saturating_add(1);
                 let oh = match num(&mut i, 2, 2) {
                     Some(v) => v,
@@ -301,7 +314,6 @@ pub fn parse_date(s: &str) -> f64 {
     if i != b.len() {
         return f64::NAN;
     }
-    let _ = date_only;
     if !(1.0..=12.0).contains(&month) || !(1.0..=31.0).contains(&day) || h > 24.0 || mi > 59.0 || sec > 59.0 {
         return f64::NAN;
     }
@@ -311,6 +323,7 @@ pub fn parse_date(s: &str) -> f64 {
     // Date.UTC's 0–99 → 1900s rule does not apply to parsed years
     let dayn = days_from_civil(year, month - 1.0) + day - 1.0;
     let t = dayn * MS_PER_DAY + h * 3_600_000.0 + mi * 60_000.0 + sec * 1000.0 + ms - offset_min * 60_000.0;
+    let t = if date_only || has_offset { t } else { zone.utc_of_local(t) };
     time_clip(t)
 }
 
@@ -322,6 +335,16 @@ pub fn short_date_en(t: f64) -> String {
     let (y, mo, d, ..) = civil(t);
     let m = MONTHS.get(usize::try_from(mo.saturating_sub(1)).unwrap_or(0)).copied().unwrap_or("Jan");
     format!("{m} {d}, {y}")
+}
+
+/// `d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })`
+/// of a wall-clock time (`zone.local_ms(t)`) → "Oct 10, 2026, 3:04 PM" (a plain space before the day period, as V8
+/// prints it). Spec gap: years before 1 print as plain numbers here.
+pub fn date_time_en(local: f64) -> String {
+    let (_, _, _, h, mi, ..) = civil(local);
+    let h12 = if h % 12 == 0 { 12 } else { h % 12 };
+    let ampm = if h < 12 { "AM" } else { "PM" };
+    format!("{}, {h12}:{mi:02} {ampm}", short_date_en(local))
 }
 
 /// A float the caller has range-checked (or clamps here: NaN and negatives → 0, above 9·10^15 → 9·10^15) as u64.
@@ -351,6 +374,18 @@ mod tests {
         assert!(parse_date("2026-13-01").is_nan());
         assert_eq!(to_iso(parse_date("2026-10-10T10:00:00+05:30")).as_deref(), Some("2026-10-10T04:30:00.000Z"));
         assert_eq!(to_iso(parse_date("2026-10-10T24:00:00Z")).as_deref(), Some("2026-10-11T00:00:00.000Z"));
+        // a date-time without an offset is local; a date alone is UTC (new Date() under TZ=Asia/Kolkata, America/Chicago)
+        let kolkata = Zone::Fixed(330);
+        assert_eq!(to_iso(parse_date_in("2026-10-10T10:00:00", kolkata)).as_deref(), Some("2026-10-10T04:30:00.000Z"));
+        assert_eq!(to_iso(parse_date_in("2026-10-10T10:00", Zone::Fixed(-360))).as_deref(), Some("2026-10-10T16:00:00.000Z"));
+        assert_eq!(to_iso(parse_date_in("2026-10-10", kolkata)).as_deref(), Some("2026-10-10T00:00:00.000Z"));
+        assert_eq!(to_iso(parse_date_in("2026-10-10T10:00:00Z", kolkata)).as_deref(), Some("2026-10-10T10:00:00.000Z"));
+        // dateTime(): new Date('2026-10-10T21:04:00Z').toLocaleString('en-US', …) under TZ=Asia/Kolkata / America/Chicago
+        let t = parse_date("2026-10-10T21:04:00Z");
+        assert_eq!(date_time_en(kolkata.local_ms(t)), "Oct 11, 2026, 2:34 AM");
+        assert_eq!(date_time_en(Zone::Fixed(-360).local_ms(t)), "Oct 10, 2026, 3:04 PM");
+        assert_eq!(date_time_en(parse_date("2026-10-10T12:00:00Z")), "Oct 10, 2026, 12:00 PM");
+        assert_eq!(date_time_en(parse_date("2026-10-10T00:05:00Z")), "Oct 10, 2026, 12:05 AM");
         assert_eq!(to_iso(date_utc(2026.0, 12.0, 1.0, 0.0, 0.0, 0.0, 0.0)).as_deref(), Some("2027-01-01T00:00:00.000Z"));
         assert_eq!(to_iso(date_utc(50.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0)).as_deref(), Some("1950-01-01T00:00:00.000Z"));
         assert_eq!(to_iso(-62198755200000.0).as_deref(), Some("-000001-01-01T00:00:00.000Z"));

@@ -112,7 +112,7 @@ impl PdfView {
                 png,
             })
             .collect();
-        let (bytes, count) = cc_markup::bcf::build_bcf(&topics, &self.set_name(), now, now);
+        let (bytes, count) = cc_markup::bcf::build_bcf(&topics, &self.set_name(), now, now, self.zone);
         let name = format!("{}.bcfzip", t("export.list.file", &[("set", Fill::S(self.set_name()))]));
         let size = fmt_bytes(bytes.len());
         self.outbox.push((name, bytes));
@@ -159,7 +159,8 @@ impl PdfView {
             })
             .collect();
         let refs: Vec<&Markup> = all.iter().collect();
-        let plan = cc_markup::bcfread::plan_import(&bcf, &refs, &guid_of, &reply_guids, &sheets, &self.sheet_key(), &self.tools.author);
+        let plan =
+            cc_markup::bcfread::plan_import(&bcf, &refs, &guid_of, &reply_guids, &sheets, &self.sheet_key(), &self.tools.author, self.zone);
         let ups = plan.get("updates").and_then(Value::as_array).cloned().unwrap_or_default();
         let adds = plan.get("adds").and_then(Value::as_array).cloned().unwrap_or_default();
         let n = |k: &str| plan.get(k).and_then(Value::as_f64).unwrap_or(0.0);
