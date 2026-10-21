@@ -302,22 +302,30 @@ pub fn intersect_faces(model: &mut Model, path: &[f64], sel: &[Sel], others: &st
     }
     let b: &[Poly] = if use_model { &b_own } else { &a };
     let mut segs: Vec<(P3, P3)> = Vec::new();
-    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-    for pa in &a {
-        for pb in b {
-            if pa.key == pb.key {
+    // each face's key as a number (the same key, the same number), so a pair is two numbers, not two strings
+    let mut ids: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut ida: Vec<usize> = Vec::with_capacity(a.len());
+    for p in &a {
+        let n = ids.len();
+        ida.push(*ids.entry(p.key.as_str()).or_insert(n));
+    }
+    let mut idb: Vec<usize> = Vec::with_capacity(b.len());
+    for p in b {
+        let n = ids.len();
+        idb.push(*ids.entry(p.key.as_str()).or_insert(n));
+    }
+    let mut seen: std::collections::HashSet<(usize, usize)> = std::collections::HashSet::new();
+    for (pa, &ka) in a.iter().zip(&ida) {
+        for (pb, &kb) in b.iter().zip(&idb) {
+            if ka == kb {
                 continue;
             }
-            let pk = if pa.key.encode_utf16().lt(pb.key.encode_utf16()) {
-                (pa.key.clone(), pb.key.clone())
-            } else {
-                (pb.key.clone(), pa.key.clone())
-            };
-            if seen.contains(&pk) {
-                continue;
-            }
-            seen.insert(pk);
+            // boxes apart: skipped (the test is symmetric, so the pair's other order is skipped too and the set of
+            // pairs seen below is the one a seen-first order gives)
             if (0..3).any(|k| at3(&pa.hi, k) < at3(&pb.lo, k) - EPS || at3(&pb.hi, k) < at3(&pa.lo, k) - EPS) {
+                continue;
+            }
+            if !seen.insert((ka.min(kb), ka.max(kb))) {
                 continue;
             }
             let dir = cross(pa.n, pb.n);

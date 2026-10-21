@@ -120,6 +120,9 @@ pub struct ModelView {
     pub(crate) click_clock: f64,
     /// the camera's size pinned by `view-size` (harnesses), else the view's
     pub(crate) pinned_size: Option<(f64, f64)>,
+    /// the IFC storeys dialog; Subtract's cutter while its two clicks are under way (Some(None): none yet) (mcsolids.rs)
+    pub storeys_dlg: Option<crate::mcsolids::StoreysDlg>,
+    pub(crate) sub_cutter: Option<Option<f64>>,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -185,6 +188,8 @@ impl ModelView {
             text_last: crate::mcedit::TextLast::default(),
             click_clock: 0.0,
             pinned_size: None,
+            storeys_dlg: None,
+            sub_cutter: None,
         };
         v.fit();
         Ok(v)
@@ -377,6 +382,7 @@ impl ModelView {
         self.tools.host.cam.set_size(w, h);
         self.input(ui, &resp, rect);
         self.sync_ctx();
+        self.after_pointer();
         self.step_anim(ui);
         self.rebuild();
         let c = &self.tools.host.cam;

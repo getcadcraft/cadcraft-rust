@@ -59,6 +59,7 @@ pub mod mcedit;
 pub mod mcmats;
 pub mod mcpanels;
 pub mod mcprint;
+pub mod mcsolids;
 pub mod model3d;
 pub mod modelcraft;
 pub mod partfeat;

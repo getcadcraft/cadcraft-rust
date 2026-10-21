@@ -119,6 +119,7 @@ impl ModelView {
                 };
                 self.take_tool_message();
                 self.sync_ctx();
+                self.after_pointer();
                 Ok(())
             }
             "view-size" => {
@@ -140,7 +141,7 @@ impl ModelView {
                 self.print(format!("{},{}", c.w, c.h));
                 Ok(())
             }
-            _ => return None,
+            _ => return self.solids_act(name, arg),
         };
         Some(r)
     }
@@ -389,6 +390,7 @@ impl ModelView {
                 self.text_dlg = Some(Text3dDlg { text, height, depth, err });
             }
         }
+        self.more_dialogs(ctx, &mut act);
         if let Some(a) = act
             && let Err(e) = self.act(&a)
         {
@@ -397,8 +399,8 @@ impl ModelView {
     }
 }
 
-/// The palette's Edit and 3D text entries (ui.inc's Edit group and its More menu, Draw's 3D Text): → the action
-/// picked.
+/// The palette's Edit, Solids and 3D text entries (ui.inc's Edit group, the More menu, the Solids menu, File ›
+/// Export › IFC storeys): → the action picked.
 pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
     let mut act: Option<String> = None;
     let item = |ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>| {
@@ -438,13 +440,30 @@ pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
             item(ui, &format!("ui.editmenu.flipcopy_{ax}"), &format!("flipcopy-{ax}"), &mut act);
         }
         ui.separator();
+        item(ui, "ui.editmenu.intersect_model", "intersect-model", &mut act);
+        item(ui, "ui.editmenu.intersect_sel", "intersect-sel", &mut act);
+        ui.separator();
+        item(ui, "ui.editmenu.axes_place", "axes-place", &mut act);
+        item(ui, "ui.editmenu.axes_face", "axes-face", &mut act);
+        item(ui, "ui.editmenu.axes_reset", "axes-reset", &mut act);
+        ui.separator();
         item(ui, "ui.editmenu.select_all", "select-all", &mut act);
         item(ui, "ui.editmenu.select_none", "select-none", &mut act);
     })
     .response
     .on_hover_text(mt("ui.editmenu.title", &[]));
+    ui.menu_button(mt("ui.solids", &[]), |ui| {
+        item(ui, "ui.solids.union", "solid-union", &mut act);
+        item(ui, "ui.solids.subtract", "solid-subtract", &mut act);
+        item(ui, "ui.solids.intersect", "solid-intersect", &mut act);
+    })
+    .response
+    .on_hover_text(mt("ui.solids.title", &[]));
     if ui.button(mt("ui.tool.text3d", &[])).on_hover_text(mt("ui.tool.text3d.title", &[])).clicked() {
         act = Some("text3d".into());
+    }
+    if ui.button(mt("ui.export.storeys", &[])).clicked() {
+        act = Some("storeys".into());
     }
     act
 }

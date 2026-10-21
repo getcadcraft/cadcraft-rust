@@ -2,6 +2,19 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-20 — M6.20 ModelCraft solids, intersect faces, IFC storeys, drawing axes (agent, work/m3dfix)
+
+- `crates/ui-egui/src/mcsolids.rs`: the Solids menu as modelcraft.js runs it (Union and Intersect on the selected
+  closed groups and components; Subtract by two clicks — the piece to take away, then the piece to cut — through the
+  Pick tool, or `solid-subtract-pick` at once) on cc-io-m3d's solids.js port (cc-manifold), with the page's status
+  words and volumes; Intersect with model / with selection; IFC storeys (the dialog: rows of name and elevation, Add
+  storey, Guess from the model, remove, Save with the page's checks); drawing axes (Place axes: the Axes tool's three
+  clicks; Align axes to face; Reset axes). The palette has Solids and IFC storeys…; More has intersect and axes.
+- 0.5 offers Union, Subtract and Intersect (no split or trim), so those are the solid tools here.
+- cc-m3d `intersect_faces`: each face pair is now two numbers, not two cloned strings, and pairs whose boxes are
+  apart are skipped before the seen-set (the box test is symmetric, so the same pairs are worked): Intersect with
+  model on the 46k-face model went from 0.6× to faster than 0.5 (timings in M6.21); mdiff unchanged.
+
 ## 2026-10-20 — M6.19 ModelCraft copy / paste, duplicate, flip, 3D text (agent, work/m3dfix)
 
 - `crates/ui-egui/src/mcedit.rs`: modelcraft.js's Edit actions in the app, each one undo step through the cc-m3d
