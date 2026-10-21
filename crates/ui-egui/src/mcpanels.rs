@@ -897,6 +897,13 @@ impl ModelView {
                     if ui.small_button(format!("{} ›", mt("ui.scenes.next", &[]))).clicked() {
                         acts.push("scene-next".into());
                     }
+                    let playing = self.playing.is_some();
+                    if ui
+                        .selectable_label(playing, format!("▶ {}", mt(if playing { "app.scene.stop" } else { "ui.scenes.play" }, &[])))
+                        .clicked()
+                    {
+                        acts.push("scene-play".into());
+                    }
                 }
             });
             if scenes.is_empty() {

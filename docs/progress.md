@@ -2,6 +2,19 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.26 ModelCraft scenes' Play (agent, work/model621)
+
+- modelcraft.js startPlay / stopPlay in the app: Scenes › Play goes to the next scene at once (moving there) and then
+  every 3.2 s, round and round; the button reads Stop while it plays; Stop or Esc stops it; fewer than two scenes:
+  "Add two or more scenes to play them." Action `scene-play` (toggles). A scripted run on a pinned view (the parity
+  harness) replays no timer, as the harness's page has none.
+- Parity (`forks/tools/mcuidiff.mjs --edit --lights --play`, the page's startPlay / stopPlay DOM-free), full sweep
+  `--seeds 8 --steps 80`: 7,040 / 7,040 status lines the same, 6,691 / 6,691 files byte-identical (scene-play 74 times);
+  0.5 threw out of its handler twice with the words the app shows.
+- Test: `mcact::tests::play_needs_two_scenes_and_goes_to_the_next`. Screenshot: `forks/lead/shots/model621/m626-play.png`
+  (three scenes playing: Scene 2 shown, the button reading Stop).
+- Not done: the scenes' WebM recording (0.5 records the view with MediaRecorder: a browser API).
+
 ## 2026-10-21 — M6.25 ModelCraft Render a picture… (Fast and High quality) (agent, work/model621)
 
 - `crates/ui-egui/src/mcrender.rs`: render-ui.js's dialog with render-mc.js's adapter — Mode (Fast / High quality,

@@ -130,6 +130,8 @@ pub struct ModelView {
     /// Render a picture…: the dialog and the settings it keeps while the app runs (mcrender.rs)
     pub render_dlg: Option<crate::mcrender::RenderDlg>,
     pub render_settings: cc_m3d_tools::looks::Settings,
+    /// the scenes playing (Play): when the next one comes, ms on the view's clock
+    pub playing: Option<f64>,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -201,6 +203,7 @@ impl ModelView {
             sel_light: None,
             render_dlg: None,
             render_settings: cc_m3d_tools::looks::Settings::default(),
+            playing: None,
         };
         v.fit();
         Ok(v)
@@ -403,6 +406,7 @@ impl ModelView {
         self.input(ui, &resp, rect);
         self.sync_ctx();
         self.after_pointer();
+        self.step_play(ui);
         self.step_anim(ui);
         self.rebuild();
         let c = &self.tools.host.cam;
@@ -557,6 +561,8 @@ impl ModelView {
         }
         match key {
             Key::Escape => {
+                // modelcraft.js: Esc stops the scenes playing first (and goes on)
+                self.stop_play();
                 if !self.vcb.is_empty() {
                     self.vcb.clear();
                 } else if self.tools.escape().unwrap_or(false) {
@@ -1022,6 +1028,44 @@ impl ModelView {
         }
         let from = if self.scene_index < 0 { if d > 0 { -1 } else { 0 } } else { self.scene_index };
         self.go_scene((from + d).rem_euclid(n) as usize);
+    }
+
+    /// startPlay(): every 3.2 s the next scene, moving there (two scenes at least).
+    pub fn start_play(&mut self) {
+        if self.tools.host.model.scenes.len() < 2 {
+            self.print(mt("app.scene.play.few", &[]));
+            return;
+        }
+        let n = self.tools.host.model.scenes.len() as isize;
+        let from = if self.scene_index < 0 { -1 } else { self.scene_index };
+        self.go_scene_with((from + 1).rem_euclid(n) as usize, true);
+        self.playing = Some(self.now() + 3200.0);
+    }
+
+    /// stopPlay().
+    pub fn stop_play(&mut self) {
+        self.playing = None;
+    }
+
+    /// The scenes playing: the next one when its time comes (each frame).
+    fn step_play(&mut self, ui: &egui::Ui) {
+        let Some(next) = self.playing else { return };
+        // a scripted run on a pinned view (the parity harness) replays no timers, as the harness's page does not
+        if self.pinned_size.is_some() {
+            return;
+        }
+        let now = self.now();
+        if now >= next {
+            if self.tools.host.model.scenes.len() < 2 {
+                self.playing = None;
+                return;
+            }
+            let n = self.tools.host.model.scenes.len() as isize;
+            let from = if self.scene_index < 0 { -1 } else { self.scene_index };
+            self.go_scene_with((from + 1).rem_euclid(n) as usize, true);
+            self.playing = Some(next.max(now - 3200.0) + 3200.0);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(((self.playing.unwrap_or(now) - now).max(16.0)) as u64));
     }
 
     /// updateScene(i): the current camera, style and visibility saved into scene i.

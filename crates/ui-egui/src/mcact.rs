@@ -341,6 +341,14 @@ impl ModelView {
                 let i = num(arg)?;
                 self.delete_scene(i as usize);
             }
+            "scene-play" => {
+                if self.playing.is_some() {
+                    self.stop_play();
+                } else {
+                    self.start_play();
+                    self.finish_anim();
+                }
+            }
             "scene-next" => {
                 self.step_scene(1);
                 self.finish_anim();
@@ -1073,6 +1081,22 @@ mod tests {
         assert!(v.tools.host.path.is_empty());
         v.sync_ctx();
         assert!(v.tools.host.sel.is_empty(), "{:?}", v.tools.host.sel);
+    }
+
+    #[test]
+    fn play_needs_two_scenes_and_goes_to_the_next() {
+        let mut v = boxes();
+        v.act("scene-play").unwrap();
+        assert_eq!(v.message, mt("app.scene.play.few", &[]));
+        assert!(v.playing.is_none());
+        v.act("scene-add").unwrap();
+        v.act("scene-add").unwrap();
+        assert_eq!(v.scene_index, 1);
+        v.act("scene-play").unwrap();
+        assert!(v.playing.is_some());
+        assert_eq!(v.scene_index, 0, "round to the first");
+        v.act("scene-play").unwrap();
+        assert!(v.playing.is_none(), "a second press stops");
     }
 
     #[test]
