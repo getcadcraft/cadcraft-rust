@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-21 · Change: ModelCraft scenes' Play (M6.26); ModelCraft Render a picture (M6.25); ModelCraft Lights panel (M6.24); ModelCraft material textures (M6.23); speed S.4–S.8 (XATTACH, whole-drawing edits and undo on Carey, TakeoffCraft copy + paste, ModelCraft undo); ModelCraft sun shadows (M6.22); ModelCraft components that stretch (M6.21); local-time dates in every ported writer (M16.8); GeoTIFF reads capped at 1 GB (civil_raster fuzz OOM, M11.16); speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-21 · Change: PUBLISH and pictures in plots (M4.21); ModelCraft scenes' Play (M6.26); ModelCraft Render a picture (M6.25); ModelCraft Lights panel (M6.24); ModelCraft material textures (M6.23); speed S.4–S.8 (XATTACH, whole-drawing edits and undo on Carey, TakeoffCraft copy + paste, ModelCraft undo); ModelCraft sun shadows (M6.22); ModelCraft components that stretch (M6.21); local-time dates in every ported writer (M16.8); GeoTIFF reads capped at 1 GB (civil_raster fuzz OOM, M11.16); speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -20,14 +20,14 @@ Last updated 2026-10-21 · Change: ModelCraft scenes' Play (M6.26); ModelCraft R
    draws one width). XATTACH XREF XCLIP (M4.18; clipped references clip on screen, in plots and in extents; a linked
    drawing comes through the window's file picker). IMAGEATTACH IMAGE IMAGECLIP (M4.19; pictures draw in the window and
    the viewer, PNG and JPEG). BVSTATE BVHIDE BVSHOW (M4.20; BEDIT opens a dynamic block on one of its visibility states,
-   BCLOSE keeps it dynamic and its references follow renamed and deleted states). **Next, by everyday use:** PUBLISH;
-   LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
+   BCLOSE keeps it dynamic and its references follow renamed and deleted states). PUBLISH (M4.21; pictures plot,
+   with the Plot dialog's dpi cap). **Next, by everyday use:** LIBRARY and INSERT's File / Library options; the parametric set (GEOMCONSTRAINT DIMCONSTRAINT
    DELCONSTRAINT AUTOCONSTRAIN PARAMETERS CONSTRAINTBAR DCDISPLAY); 3D (EXTRUDE … GLBOUT); SHEETSET, VIEWBASE,
    POINTCLOUDATTACH POINTCLOUD, SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS SWBOUT. LAYER NEW OPEN SAVE
    SAVEAS DXFOUT HELP are the window's own buttons. The Properties panel (M4.11) has General, Geometry, Text, Pattern,
    the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
-   sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks pictures, Open / print and
-   PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, a DWG's own linked drawings found next to it
+   sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks Open / print (the browser's
+   new tab). Also missing: the ribbon / menus, constraints, recovery snapshots, a DWG's own linked drawings found next to it
    when it is opened for editing (the viewer finds them; in the editor XREF Reload takes the file); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save runs
    1.0–1.1× the JS on Carey (the 0.7× was before M5.1; S.5: what is left is spread over the save model's dynamic
    values — building them 48 %, writing 37 %, freeing 11 % — next: write DXF 2000 straight from the typed objects).
@@ -37,8 +37,8 @@ Last updated 2026-10-21 · Change: ModelCraft scenes' Play (M6.26); ModelCraft R
    left is one copy of each moved object's geometry and its layer name).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
    and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
-3. **Viewer details** vs CadCraft 0.5: pictures are not plotted (the PDF has their frames; M4.19 draws them on screen;
-   the viewer finds a DWG's picture files only next to it, on the desktop), per-viewport frozen layers, print view /
+3. **Viewer details** vs CadCraft 0.5: the viewer finds a DWG's picture files only next to it, on the desktop (pictures
+   plot when the drawing has them, M4.21), per-viewport frozen layers, print view /
    lineweights, find, recent files, settings, help panel, language files (en / es-MX), touch gestures.
 4. **CivilCraft app view** (M11): drawing tools, typed traverse / deed calls, grips, point moves and Delete (M11.7),
    the profile panel with PVI add / drag / delete and the PI / PVI tables (M11.8), the section panel and sample lines

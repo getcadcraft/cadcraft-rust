@@ -120,3 +120,78 @@ fn hostile_objects_do_not_panic() {
         },
     );
 }
+
+/// pictures.js `pdfImage` with a dpi cap: the size, the pixels (FNV-1a of the inflated RGB and alpha) and the
+/// shrunk / kept flags as the frozen 0.5 JS gives them (tests/data/pics, made with Pillow for these tests).
+#[test]
+fn pdf_image_matches_the_js() {
+    use cc_cad::pictures::PicRec;
+    use cc_io_cad::pdfimage::pdf_image;
+    let fnv = |b: &[u8]| b.iter().fold(0x811c_9dc5u32, |h, x| (h ^ u32::from(*x)).wrapping_mul(0x0100_0193));
+    let file = |n: &str| std::fs::read(format!("{}/tests/data/pics/{n}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+    // (file, mm wide, mm high, dpi, w, h, rgb hash, alpha hash (0 = none), shrunk, kept): node dpicheck.mjs
+    type Case = (&'static str, f64, f64, f64, u32, u32, u32, u32, bool, bool);
+    let cases: &[Case] = &[
+        ("rgba.png", 5.0, 4.0, 150.0, 30, 24, 0x8ea3d8ad, 0x83d82d15, true, false),
+        ("rgba.png", 3.3, 2.1, 300.0, 39, 25, 0xa5cac187, 0xf1bda121, true, false),
+        ("pal.png", 1.0, 1.0, 150.0, 6, 6, 0x17c897a9, 0xf31fc30d, true, false),
+        ("gray16.png", 1.7, 1.2, 150.0, 10, 7, 0x9f907957, 0x0, true, false),
+        ("photo.jpg", 2.0, 2.0, 300.0, 64, 48, 0x4fcdf684, 0x0, false, true),
+        ("photo.jpg", 20.0, 20.0, 300.0, 64, 48, 0x4fcdf684, 0x0, false, false),
+        ("rgba.png", 100.0, 100.0, 150.0, 40, 30, 0x8e3cf73d, 0x8c2caced, false, false),
+    ];
+    for &(n, mw, mh, dpi, w, h, rgb, a, shrunk, kept) in cases {
+        let bytes = file(n);
+        let (mime, pw, ph) = cc_cad::pictures::sniff_picture(&bytes).unwrap();
+        let rec = PicRec { name: n.into(), bytes: bytes.into(), mime, w: pw, h: ph };
+        let im = pdf_image(&rec, dpi, mw, mh).unwrap();
+        let px = if im.filter == "FlateDecode" { miniz_oxide::inflate::decompress_to_vec_zlib(&im.data).unwrap() } else { im.data.clone() };
+        let al = im.smask.as_ref().map_or(0, |s| fnv(&miniz_oxide::inflate::decompress_to_vec_zlib(s).unwrap()));
+        assert_eq!((im.w, im.h, fnv(&px), al, im.shrunk, im.kept), (w, h, rgb, a, shrunk, kept), "{n} {mw}×{mh} mm at {dpi} dpi");
+    }
+}
+
+/// plot.js `num`: the fast `{:.4}` path gives what `toFixed(4)` gives (the exact path), halfway values included.
+#[test]
+fn num_matches_to_fixed() {
+    let slow = |v: f64| -> String {
+        if !v.is_finite() {
+            return "0".into();
+        }
+        let s = cc_cad::js::to_fixed_exact(if v.abs() < 5e-5 { 0.0 } else { v }, 4);
+        if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
+    };
+    let mut vals = vec![
+        0.0,
+        -0.0,
+        5e-5,
+        -5e-5,
+        4.9999e-5,
+        0.03125,
+        -0.03125,
+        1.00005,
+        2.5e-4,
+        0.15625,
+        123.45675,
+        1e15,
+        -3e17,
+        4.5e11,
+        1e21,
+        f64::NAN,
+    ];
+    let mut x = 0x1234_5678_9abc_def0u64;
+    for _ in 0..200_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let m = (x >> 11) as f64 / (1u64 << 53) as f64;
+        let e = ((x & 0x3f) as i32) - 24;
+        let v = (m - 0.5) * 2f64.powi(e);
+        vals.push(v);
+        vals.push((v * 32.0).round() / 32.0);
+        vals.push((v * 20000.0).round() / 20000.0);
+    }
+    for v in vals {
+        assert_eq!(cc_io_cad::plot::num(v), slow(v), "{v:e}");
+    }
+}

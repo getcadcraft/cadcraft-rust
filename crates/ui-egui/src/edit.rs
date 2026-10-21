@@ -99,6 +99,8 @@ pub struct HostState {
     pub can_pick: bool,
     /// XATTACH / XREF Reload / IMAGEATTACH / IMAGE asked for files
     pub pick_req: Option<PickReq>,
+    /// the Plot dialog's ink ("mono" | "color") and pen (PUBLISH plots with them)
+    pub plot_prefs: Option<(String, f64)>,
 }
 
 /// What a command asked the window's picker for.
@@ -325,6 +327,9 @@ impl Host for UiHost {
     }
     fn can_save_blob(&self) -> bool {
         true
+    }
+    fn plot_prefs(&self) -> Option<(String, f64)> {
+        self.0.borrow().plot_prefs.clone()
     }
     fn save_blob(&mut self, name: &str, data: &[u8], _mime: &str) {
         self.0.borrow_mut().blob = Some((name.to_string(), data.to_vec()));

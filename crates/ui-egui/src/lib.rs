@@ -1574,6 +1574,7 @@ impl UiApp {
         }
         // XATTACH / XREF Reload / IMAGEATTACH / IMAGE: the picker (desktop answers at once, web later through `picked`)
         ed.hs.borrow_mut().can_pick = self.services.pick_files.is_some();
+        ed.hs.borrow_mut().plot_prefs = Some((if self.plot.mono { "mono" } else { "color" }.into(), self.plot.pen));
         let req = ed.hs.borrow_mut().pick_req.take();
         if let Some(req) = req {
             let (kind, multiple) = match req {
@@ -1592,7 +1593,7 @@ impl UiApp {
             self.pick_waiting = None;
             deliver_pick(ed, req, files);
         }
-        // COUNT's CSV
+        // COUNT's CSV, PUBLISH's PDF
         let blob = ed.hs.borrow_mut().blob.take();
         if let Some((name, bytes)) = blob {
             match self.services.save.as_mut().map(|f| f(&name, bytes)) {

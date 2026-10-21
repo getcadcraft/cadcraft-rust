@@ -275,6 +275,7 @@ dependencies = [
  "cc-io-cad",
  "cc-part",
  "cc-tools",
+ "rayon",
  "serde_json",
  "thiserror",
 ]
@@ -293,7 +294,9 @@ dependencies = [
  "cc-io-dwg",
  "image",
  "miniz_oxide 0.8.9",
+ "rayon",
  "serde_json",
+ "zlib-rs",
 ]
 
 [[package]]

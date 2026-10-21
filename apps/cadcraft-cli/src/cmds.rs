@@ -267,7 +267,9 @@ impl Host for Stub {
         if self.log.borrow().timing {
             return;
         }
-        self.log.borrow_mut().events.push(json!(["saveBlob", name, String::from_utf8_lossy(data)]));
+        // a PDF (PUBLISH) as Latin-1 text with its creation time blanked, as kdiff.mjs's stub logs it
+        let text = if data.starts_with(b"%PDF") { pdf_for_log(data) } else { String::from_utf8_lossy(data).into_owned() };
+        self.log.borrow_mut().events.push(json!(["saveBlob", name, text]));
     }
     fn can_pick_files(&self) -> bool {
         true
@@ -431,4 +433,62 @@ pub fn cmds(rest: &[&str]) -> ExitCode {
         };
     println!("{}", Value::Array(run_script(&script)));
     ExitCode::SUCCESS
+}
+
+/// kdiff.mjs `pdfCanon`: a PDF as Latin-1 text the same on both sides however each deflates: every FlateDecode stream
+/// inflated, /Length keys and the xref offsets left out, the creation time blanked.
+fn pdf_for_log(s: &[u8]) -> String {
+    fn find(h: &[u8], n: &[u8], from: usize) -> Option<usize> {
+        h.get(from..)?.windows(n.len()).position(|w| w == n).map(|k| k.saturating_add(from))
+    }
+    fn rfind(h: &[u8], n: &[u8], before: usize) -> Option<usize> {
+        h.get(..before)?.windows(n.len()).rposition(|w| w == n)
+    }
+    fn digits_at(h: &[u8], at: usize) -> (usize, usize) {
+        let d: Vec<u8> = h.get(at..).unwrap_or(&[]).iter().copied().take_while(u8::is_ascii_digit).collect();
+        (d.len(), std::str::from_utf8(&d).ok().and_then(|x| x.parse().ok()).unwrap_or(0))
+    }
+    const ST: &[u8] = b">>\nstream\n";
+    let mut out: Vec<u8> = Vec::new();
+    let mut pos = 0usize;
+    while let Some(at) = find(s, ST, pos) {
+        let ds = rfind(s, b"obj\n", at).map_or(0, |i| i.saturating_add(4));
+        let mut dict = s.get(ds..at.saturating_add(2)).unwrap_or(&[]).to_vec();
+        let len = find(&dict, b"/Length ", 0).map_or(0, |i| digits_at(&dict, i.saturating_add(8)).1);
+        let d0 = at.saturating_add(ST.len());
+        let end = d0.saturating_add(len).min(s.len());
+        let raw = s.get(d0..end).unwrap_or(&[]);
+        let body = if find(&dict, b"/FlateDecode", 0).is_some() {
+            miniz_oxide::inflate::decompress_to_vec_zlib(raw).unwrap_or_else(|_| b"(bad deflate)".to_vec())
+        } else {
+            raw.to_vec()
+        };
+        if let Some(i) = find(&dict, b" /Length ", 0) {
+            let (n, _) = digits_at(&dict, i.saturating_add(9));
+            dict.drain(i..i.saturating_add(9).saturating_add(n));
+        }
+        out.extend_from_slice(s.get(pos..ds).unwrap_or(&[]));
+        out.extend_from_slice(&dict);
+        out.extend_from_slice(b"\nstream\n");
+        out.extend_from_slice(&body);
+        pos = end;
+    }
+    out.extend_from_slice(s.get(pos..).unwrap_or(&[]));
+    if let Some(x) = rfind(&out, b"\nxref\n", out.len())
+        && let Some(tr) = find(&out, b"trailer", x)
+    {
+        out.drain(x.saturating_add(1)..tr);
+    }
+    if let Some(i) = find(&out, b"startxref\n", 0) {
+        let from = i.saturating_add(10);
+        let (n, _) = digits_at(&out, from);
+        out.splice(from..from.saturating_add(n), *b"-");
+    }
+    if let Some(i) = find(&out, b"/CreationDate (D:", 0) {
+        let from = i.saturating_add(17);
+        if let Some(k) = find(&out, b")", from) {
+            out.splice(from..k, *b"-");
+        }
+    }
+    out.iter().map(|&b| char::from(b)).collect()
 }

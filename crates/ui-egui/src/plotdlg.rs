@@ -4,9 +4,12 @@
 //! PDF where the person chooses (the browser build downloads it) and prints the 0.5 line ("Plotted … (… bytes, … mm)").
 //! Every control is a `plot.*` command, so the CLI and assistants reach the same plot.
 //!
-//! Not here: pictures (the fork draws no IMAGE objects yet, so the dpi choice is left out), "Open / print", PUBLISH.
+//! Pictures plot at their own resolution or capped at 600 / 300 / 150 dpi (PNGs shrunk, JPEGs kept and said so). With
+//! two or more sheets, Publish closes the dialog and runs PUBLISH for every sheet with the dialog's ink and pen.
+//!
+//! Not here: "Open / print" (the browser's new tab).
 
-use cc_io_cad::plot::{PAPERS, PEN_WIDTHS, display_list, extents_of, layout_sheet, model_sheet, paper_label, scale_list, to_pdf};
+use cc_io_cad::plot::{PAPERS, PEN_WIDTHS, display_list, extents_of, layout_sheet, model_sheet, paper_label, scale_list, to_pdf_dpi};
 use egui::{Color32, RichText};
 
 use crate::{Params, UiApp};
@@ -23,6 +26,8 @@ pub struct PlotDlg {
     pub scale: Option<f64>,
     pub mono: bool,
     pub pen: f64,
+    /// pictures: 0 = their own resolution, else a cap in dpi on paper (600, 300, 150)
+    pub dpi: u32,
     /// the last result line
     pub status: String,
     /// paper chosen by the person (else the drawing's default: letter for inches / feet, ISO A4 otherwise)
@@ -39,6 +44,7 @@ impl Default for PlotDlg {
             scale: None,
             mono: true,
             pen: 0.25,
+            dpi: 0,
             status: String::new(),
             paper_set: false,
         }
@@ -53,9 +59,10 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "plot.set",
         "Plot: set an option",
         "",
-        "{name: \"area=extents|display|window\" | \"paper=<key>\" | \"orient=landscape|portrait\" | \"scale=<n>|\" (1:n, empty = fit) | \"ink=mono|color\" | \"pen=<mm>\" | \"window=minX,minY,maxX,maxY\"}",
+        "{name: \"area=extents|display|window\" | \"paper=<key>\" | \"orient=landscape|portrait\" | \"scale=<n>|\" (1:n, empty = fit) | \"ink=mono|color\" | \"pen=<mm>\" | \"dpi=0|600|300|150\" (pictures; 0 = their own resolution) | \"window=minX,minY,maxX,maxY\"}",
     ),
     ("plot.save", "Plot: save the PDF", "", "{name?: file name} → plots with the dialog's settings and saves the PDF"),
+    ("plot.publish", "Plot: publish every sheet", "", "{} → closes the dialog and runs PUBLISH (all sheets, one PDF) with its ink and pen"),
 ];
 
 fn t(k: &str) -> String {
@@ -100,6 +107,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     }
                 }
                 "ink" if matches!(v, "mono" | "color") => p.mono = v == "mono",
+                "dpi" if matches!(v, "0" | "600" | "300" | "150") => p.dpi = v.parse().unwrap_or(0),
                 "pen" => p.pen = v.parse::<f64>().ok().filter(|w| (0.05..=2.0).contains(w)).ok_or("plot.set: pen = 0.05 … 2 mm")?,
                 "window" => {
                     let n: Vec<f64> = v.split(',').filter_map(|x| x.trim().parse::<f64>().ok()).collect();
@@ -114,6 +122,16 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             }
         }
         "plot.save" => save(app, params.name.as_deref())?,
+        "plot.publish" => {
+            app.editor.as_ref().ok_or("plot.publish: no drawing is open for editing")?;
+            // cadcraft.js: the dialog closes (PLOT ends), then PUBLISH runs; Enter answers "all sheets"
+            app.plot.open = false;
+            app.run_ui_pub("cmd.line", &Params { name: Some("PUBLISH".into()), ..Default::default() });
+            let asking = app.editor.as_ref().is_some_and(|e| e.eng.running() == Some("PUBLISH") && e.eng.expects().is_some());
+            if asking {
+                app.run_ui_pub("cmd.line", &Params { name: Some(String::new()), ..Default::default() });
+            }
+        }
         other => return Err(format!("unknown command {other}")),
     }
     Ok(())
@@ -168,7 +186,7 @@ pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
     let (sheet, info) = current_sheet(app);
     let sheet = sheet.ok_or(if info.is_empty() { "There is nothing to plot.".to_string() } else { info })?;
     let ed = app.editor.as_ref().ok_or("plot.save: no drawing is open for editing")?;
-    let (bytes, list_w, list_h, title, scale_label, missing) = {
+    let (bytes, list_w, list_h, title, scale_label, missing, pics) = {
         let doc = ed.eng.doc();
         let list = display_list(&doc, &sheet, app.plot.mono);
         let dname = match doc.meta.get("name") {
@@ -181,9 +199,9 @@ pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
             None => dname.clone(),
         };
         let date = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64() * 1000.0).floor();
-        let pdf = to_pdf(&list, app.plot.pen, &title, date, true);
+        let pdf = to_pdf_dpi(&list, app.plot.pen, &title, date, true, f64::from(app.plot.dpi));
         let file = format!("{dname}{}.pdf", lay.map(|l| format!("-{l}")).unwrap_or_default());
-        (pdf.bytes, list.w, list.h, file, sheet.scale.as_ref().map(|s| s.label.clone()), pdf.missing)
+        (pdf.bytes, list.w, list.h, file, sheet.scale.as_ref().map(|s| s.label.clone()), pdf.missing, (pdf.pictures, pdf.shrunk, pdf.kept))
     };
     let mut clean: String = name
         .map_or(title, str::to_string)
@@ -218,6 +236,14 @@ pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
         if missing > 0 {
             hs.log.push_back(format!("  {}", tv("app.plot.missing_chars", &[("n", missing.to_string())])));
         }
+        let (n, shrunk, kept) = pics;
+        if n > 0 {
+            let cap = if shrunk > 0 { app.plot.dpi.to_string() } else { String::new() };
+            hs.log.push_back(format!("  {}", tv("app.plot.pictures", &[("n", n.to_string()), ("cap", cap)])));
+        }
+        if kept > 0 {
+            hs.log.push_back(format!("  {}", tv("app.plot.pictures_jpeg", &[("n", kept.to_string())])));
+        }
     }
     Ok(())
 }
@@ -245,6 +271,8 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let on_sheet = app.editor.as_ref().is_some_and(|e| e.eng.doc().layout().is_some());
     let mut act: Vec<(String, String)> = Vec::new();
     let mut do_save = false;
+    let mut publish = false;
+    let sheets = app.editor.as_ref().map_or(0, |e| e.eng.doc().layouts.len());
     let mut close = false;
     let mut pick = false;
     let mut open = true;
@@ -368,6 +396,17 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             },
                         );
                         ui.end_row();
+                        ui.label(t("ui.plot.pictures"));
+                        let dpi_label =
+                            |d: u32| if d == 0 { t("ui.plot.pictures.own") } else { tv("ui.plot.dpi", &[("n", d.to_string())]) };
+                        egui::ComboBox::new("plot_dpi", "").selected_text(dpi_label(p.dpi)).show_ui(ui, |ui| {
+                            for d in [0u32, 600, 300, 150] {
+                                if ui.selectable_label(p.dpi == d, dpi_label(d)).clicked() {
+                                    act.push(("dpi".into(), d.to_string()));
+                                }
+                            }
+                        });
+                        ui.end_row();
                     });
                     if !info.is_empty() {
                         ui.label(RichText::new(&info).color(tok.text_dim));
@@ -377,6 +416,9 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
+                        if sheets >= 2 && ui.button(t("plot.publish")).on_hover_text(t("plot.publish.title")).clicked() {
+                            publish = true;
+                        }
                         if ui.add_enabled(sheet.is_some(), egui::Button::new(t("ui.download_pdf"))).clicked() {
                             do_save = true;
                         }
@@ -408,6 +450,9 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     }
     if do_save {
         app.run_ui_pub("plot.save", &Params::default());
+    }
+    if publish {
+        app.run_ui_pub("plot.publish", &Params::default());
     }
 }
 

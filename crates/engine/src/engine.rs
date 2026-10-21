@@ -139,6 +139,11 @@ pub trait Host {
         false
     }
     fn save_blob(&mut self, _name: &str, _data: &[u8], _mime: &str) {}
+    /// `host.plotPrefs()`: the Plot dialog's last ink ("mono" | "color") and pen (mm), which PUBLISH plots with; None
+    /// when the host has no Plot dialog (black, 0.25 mm).
+    fn plot_prefs(&self) -> Option<(String, f64)> {
+        None
+    }
     /// The pick tolerance in drawing units (`host.pickRadius`, BVSHOW); None = 1.
     fn pick_radius(&self) -> Option<f64> {
         None

@@ -4,9 +4,10 @@
 //!   fitted; [`display_list`] what to draw, in millimetres on the sheet; [`to_pdf`] / [`to_pdf_pages`] the PDF bytes;
 //!   [`plot_pdf`] agents.js `plotPdf` (the MCP tool `drawing_plot`).
 //! - Lines are vectors (arcs as Béziers), fills keep their holes (even-odd), text is Helvetica in WinAnsiEncoding
-//!   (nothing embedded; other characters print as "?" and the report counts them). Pictures are not plotted (the
-//!   fork does not draw IMAGE objects yet).
-//! - The content streams are deflated (zlib, miniz_oxide); the JS uses the browser's CompressionStream, so the
+//!   (nothing embedded; other characters print as "?" and the report counts them). Pictures whose files the drawing
+//!   keeps (`doc.pictures`) go in as image XObjects under the linework, clipped to their frames ([`crate::pdfimage`]);
+//!   image data is always deflated (the JS writes no picture without CompressionStream).
+//! - The content streams are deflated (zlib level 6, zlib-rs); the JS uses the browser's CompressionStream, so the
 //!   compressed bytes differ. With `deflate: false` both write the same uncompressed file byte for byte (the parity
 //!   harness `forks/tools/plotdiff.mjs` compares that form, and that the deflated one inflates to it).
 
@@ -18,7 +19,12 @@ use cc_cad_geom::geom::{
 };
 use cc_cad_geom::jsmath::JsMath;
 use cc_cad_geom::pick::{empty_bounds, grow_pt, prim_bounds, valid_bounds};
-use cc_cad_geom::walk::{Frozen, Opts, WalkOpts, WalkOut, frozen_set, walk};
+use cc_cad_geom::walk::{Frozen, Opts, PicOut, WalkOpts, WalkOut, frozen_set, walk};
+use std::sync::Arc;
+
+use cc_cad::pictures::{PicRec, find_picture};
+
+use crate::pdfimage::{PdfImage, pdf_image};
 use cc_geom::P2;
 use serde_json::{Value, json};
 
@@ -297,6 +303,8 @@ pub struct Mask {
 }
 pub struct ListView {
     pub clip: Option<Vec<P2>>,
+    /// pictures whose files the drawing has, in drawing order (sheet millimetres)
+    pub pictures: Vec<PicOut>,
     pub fills: Vec<Fill>,
     pub masks: Vec<Mask>,
     pub strokes: Vec<Stroke>,
@@ -308,6 +316,8 @@ pub struct DisplayList {
     pub h: f64,
     pub name: String,
     pub views: Vec<ListView>,
+    /// `pictureFiles`: picture file → its stored record (first use order)
+    pub picture_files: Vec<(String, Arc<PicRec>)>,
 }
 
 /// `mix(a, b, t)`: two '#rrggbb' colours mixed.
@@ -348,12 +358,17 @@ fn alpha_of(o: Option<Opts>) -> f64 {
 }
 
 struct Collect<'a> {
+    doc: &'a Doc,
+    pictures: Vec<PicOut>,
+    files: &'a mut Vec<(String, Arc<PicRec>)>,
     mono: bool,
     area: Option<Bounds>,
     fills: Vec<Fill>,
     masks: Vec<Mask>,
     strokes: Vec<Stroke>,
-    keys: Vec<(String, String, String)>,
+    /// (colour, lineweight, alpha) of each stroke group: the JS keys on `String(lw)` and `String(a)`, which are equal
+    /// exactly when the numbers are (−0 and 0 alike, every NaN alike): compared as normalised bits
+    keys: Vec<(String, u64, u64)>,
     points: Vec<(String, f64, f64)>,
     texts: Vec<TextItem>,
     _p: std::marker::PhantomData<&'a ()>,
@@ -364,12 +379,20 @@ impl Collect<'_> {
     }
     /// Push prims onto the stroke group of (colour, lineweight, alpha), made on first use (insertion order).
     fn stroke_push(&mut self, color: String, lw: f64, a: f64, prims: impl IntoIterator<Item = Prim>) {
-        let lwk = js::num_to_string(if lw >= 0.0 { lw } else { -3.0 });
-        let key = (color.clone(), lwk, js::num_to_string(a));
-        let i = match self.keys.iter().position(|k| *k == key) {
+        let bits = |x: f64| {
+            if x.is_nan() {
+                f64::NAN.to_bits()
+            } else if x == 0.0 {
+                0
+            } else {
+                x.to_bits()
+            }
+        };
+        let (lwk, ak) = (bits(if lw >= 0.0 { lw } else { -3.0 }), bits(a));
+        let i = match self.keys.iter().position(|k| k.1 == lwk && k.2 == ak && k.0 == color) {
             Some(i) => i,
             None => {
-                self.keys.push(key);
+                self.keys.push((color.clone(), lwk, ak));
                 self.strokes.push(Stroke { color, lw: if lw >= 0.0 { lw } else { -3.0 }, alpha: a, prims: Vec::new() });
                 self.strokes.len().saturating_sub(1)
             }
@@ -424,6 +447,16 @@ impl WalkOut for Collect<'_> {
         let c = if wipe || self.mono { "#ffffff".to_string() } else { self.ink(color) };
         self.masks.push(Mask { color: c, ring });
     }
+    /// 0.5 WL.13/14: only pictures whose file CadCraft has
+    fn picture(&mut self, p: &PicOut) {
+        if let Some(rec) = find_picture(&self.doc.pictures, &p.file) {
+            self.pictures.push(p.clone());
+            match self.files.iter_mut().find(|(f, _)| *f == p.file) {
+                Some(slot) => slot.1 = rec.clone(),
+                None => self.files.push((p.file.clone(), rec.clone())),
+            }
+        }
+    }
     fn has_infinite(&self) -> bool {
         true
     }
@@ -443,6 +476,7 @@ impl WalkOut for Collect<'_> {
 
 /// plot.js `displayList(doc, sheet, { mono })`.
 pub fn display_list(doc: &Doc, sheet: &Sheet, mono: bool) -> DisplayList {
+    let mut files: Vec<(String, Arc<PicRec>)> = Vec::new();
     let views = sheet
         .views
         .iter()
@@ -464,6 +498,9 @@ pub fn display_list(doc: &Doc, sheet: &Sheet, mono: bool) -> DisplayList {
                 None => None,
             };
             let mut out = Collect {
+                doc,
+                pictures: Vec::new(),
+                files: &mut files,
                 mono,
                 area,
                 fills: Vec::new(),
@@ -477,6 +514,7 @@ pub fn display_list(doc: &Doc, sheet: &Sheet, mono: bool) -> DisplayList {
             walk(doc, &v.entities, &mut out, &WalkOpts { m: v.m, plot: true, frozen: v.frozen.as_ref(), max_dashes: None });
             ListView {
                 clip: v.clip.clone(),
+                pictures: out.pictures,
                 fills: out.fills,
                 masks: out.masks,
                 strokes: out.strokes,
@@ -485,7 +523,7 @@ pub fn display_list(doc: &Doc, sheet: &Sheet, mono: bool) -> DisplayList {
             }
         })
         .collect();
-    DisplayList { w: sheet.w, h: sheet.h, name: sheet.name.clone(), views }
+    DisplayList { w: sheet.w, h: sheet.h, name: sheet.name.clone(), views, picture_files: files }
 }
 
 /// plot.js `extentsOf(doc)`: the model area a plot covers when asked for its extents.
@@ -537,11 +575,62 @@ fn pen_for(lw: f64, pen: f64) -> f64 {
 
 /// plot.js `num(v)`: 4 decimals, trailing zeros dropped.
 pub fn num(v: f64) -> String {
-    if !v.is_finite() {
-        return "0".into();
+    let mut s = String::new();
+    push_num(&mut s, v);
+    s
+}
+
+/// [`num`] appended to `out`, without the float formatter (its exact mode falls back to bignum arithmetic, which made
+/// number text most of a plot's time). y = |v| × 10⁴ is off the exact product by at most half an ulp, so when its
+/// fraction is clearly away from ½ the nearest whole number is the toFixed(4) digits; exactly halfway (|v| = m / 32, so
+/// y is exact) toFixed rounds away from zero; anything closer to ½ than the error, or too big, takes the exact path.
+pub fn push_num(out: &mut String, v: f64) {
+    use std::fmt::Write as _;
+    if !v.is_finite() || v.abs() < 5e-5 {
+        out.push('0');
+        return;
     }
-    let s = js::to_fixed(if v.abs() < 5e-5 { 0.0 } else { v }, 4);
-    if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_string() } else { s }
+    let y = v.abs() * 10000.0;
+    let n = if y < 4.0e15 {
+        let fl = y.floor();
+        let e = y - fl;
+        if (e - 0.5).abs() > y * 4.0 * f64::EPSILON {
+            Some(if e > 0.5 { fl + 1.0 } else { fl })
+        } else if e == 0.5 && (v.abs() * 32.0).fract() == 0.0 {
+            Some(fl + 1.0)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let Some(n) = n else {
+        let start = out.len();
+        out.push_str(&js::to_fixed(v, 4));
+        if out.get(start..).is_some_and(|t| t.contains('.')) {
+            let keep = out.trim_end_matches('0').trim_end_matches('.').len();
+            out.truncate(keep);
+        }
+        return;
+    };
+    // a whole number in [1, 4e15]: exact in u64
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let n = n as u64;
+    if v < 0.0 {
+        out.push('-');
+    }
+    let (ip, fp) = (n / 10000, n % 10000);
+    // writing to a String cannot fail
+    let _ = write!(out, "{ip}");
+    if fp > 0 {
+        let mut f = fp;
+        let mut w = 4usize;
+        while f % 10 == 0 {
+            f /= 10;
+            w = w.saturating_sub(1);
+        }
+        let _ = write!(out, ".{f:0w$}");
+    }
 }
 fn rgb(hex: &str) -> String {
     let h: String =
@@ -606,7 +695,8 @@ pub fn arc_beziers(cx: f64, cy: f64, r: f64, a: f64, b: f64) -> Vec<[f64; 6]> {
 }
 
 struct Ops {
-    lines: Vec<String>,
+    /// the content stream, one operator per line
+    text: String,
     alphas: Vec<f64>,
     sc: Option<String>,
     fc: Option<String>,
@@ -614,7 +704,7 @@ struct Ops {
 }
 impl Ops {
     fn new() -> Ops {
-        Ops { lines: Vec::new(), alphas: Vec::new(), sc: None, fc: None, ga: 1.0 }
+        Ops { text: String::new(), alphas: Vec::new(), sc: None, fc: None, ga: 1.0 }
     }
     fn reset(&mut self) {
         self.sc = None;
@@ -622,7 +712,17 @@ impl Ops {
         self.ga = 1.0;
     }
     fn raw(&mut self, s: String) {
-        self.lines.push(s);
+        self.text.push_str(&s);
+        self.text.push('\n');
+    }
+    /// "x y op" without a temporary string per number.
+    fn xy(&mut self, x: f64, y: f64, op: &str) {
+        push_num(&mut self.text, x);
+        self.text.push(' ');
+        push_num(&mut self.text, y);
+        self.text.push(' ');
+        self.text.push_str(op);
+        self.text.push('\n');
     }
     fn alpha(&mut self, a: f64) {
         let a = if a.is_finite() { js::max(0.0, js::min(1.0, js::round(a * 1000.0) / 1000.0)) } else { 1.0 };
@@ -655,9 +755,9 @@ impl Ops {
     }
     fn poly(&mut self, pts: &[P2]) {
         let Some(f) = pts.first() else { return };
-        self.raw(format!("{} {} m", num(f.x), num(f.y)));
+        self.xy(f.x, f.y, "m");
         for p in pts.iter().skip(1) {
-            self.raw(format!("{} {} l", num(p.x), num(p.y)));
+            self.xy(p.x, p.y, "l");
         }
         self.raw("h".into());
     }
@@ -666,9 +766,9 @@ impl Ops {
         for q in ps {
             if q.is_l() {
                 if (q.x1 - lx).abs() > 1e-9 || (q.y1 - ly).abs() > 1e-9 {
-                    self.raw(format!("{} {} m", num(q.x1), num(q.y1)));
+                    self.xy(q.x1, q.y1, "m");
                 }
-                self.raw(format!("{} {} l", num(q.x2), num(q.y2)));
+                self.xy(q.x2, q.y2, "l");
                 lx = q.x2;
                 ly = q.y2;
             } else {
@@ -677,11 +777,14 @@ impl Ops {
                 let sx = q.cx + q.r * from.jcos();
                 let sy = q.cy + q.r * from.jsin();
                 if (sx - lx).abs() > 1e-9 || (sy - ly).abs() > 1e-9 {
-                    self.raw(format!("{} {} m", num(sx), num(sy)));
+                    self.xy(sx, sy, "m");
                 }
                 for c in arc_beziers(q.cx, q.cy, q.r, from, to) {
-                    let s = c.iter().map(|v| num(*v)).collect::<Vec<_>>().join(" ");
-                    self.raw(format!("{s} c"));
+                    for v in c {
+                        push_num(&mut self.text, v);
+                        self.text.push(' ');
+                    }
+                    self.text.push_str("c\n");
                 }
                 lx = q.cx + q.r * to.jcos();
                 ly = q.cy + q.r * to.jsin();
@@ -725,6 +828,43 @@ impl Ops {
     }
 }
 
+/// A zlib stream at level 6 (what the browser's CompressionStream('deflate') writes; the bytes differ, the inflated
+/// data does not): zlib-rs, or miniz_oxide should zlib-rs refuse.
+pub(crate) fn zlib(data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; zlib_rs::compress_bound(data.len()).saturating_add(64)];
+    let cfg = zlib_rs::DeflateConfig {
+        level: 6,
+        method: zlib_rs::Method::Deflated,
+        window_bits: 15,
+        mem_level: 8,
+        strategy: zlib_rs::Strategy::Default,
+    };
+    let (got, rc) = zlib_rs::compress_slice(&mut out, data, cfg);
+    if rc != zlib_rs::ReturnCode::Ok {
+        return miniz_oxide::deflate::compress_to_vec_zlib(data, 6);
+    }
+    let n = got.len();
+    out.truncate(n);
+    out
+}
+
+/// Every page's content stream deflated: on all cores natively (the pages are independent), one by one on the web.
+fn deflate_pages(pages: &mut [Page]) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        use rayon::prelude::*;
+        pages.par_iter_mut().for_each(|p| {
+            p.content = zlib(&p.content);
+            p.flate = true;
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    for p in pages.iter_mut() {
+        p.content = zlib(&p.content);
+        p.flate = true;
+    }
+}
+
 /// One page of a PDF being assembled.
 struct Page {
     w: f64,
@@ -735,12 +875,26 @@ struct Page {
     texts: usize,
     alphas: Vec<f64>,
     name: String,
+    /// the images this page draws (indices into the file's images, first use order)
+    xobjects: Vec<usize>,
+    pictures: usize,
+    shrunk: usize,
+    kept: usize,
 }
 
-fn page_of(list: &DisplayList, pen: f64, deflate: bool) -> Page {
+/// An image of the file: what it was made from (a picture used on several pages is stored once).
+struct FileImage {
+    img: PdfImage,
+    rec: Arc<PicRec>,
+    max_dpi: f64,
+}
+
+fn page_of(list: &DisplayList, pen: f64, deflate: bool, images: &mut Vec<FileImage>, max_dpi: f64) -> Page {
     let mut out = Ops::new();
     let mut missing = 0usize;
     let mut n_texts = 0usize;
+    let (mut n_pics, mut shrunk, mut kept) = (0usize, 0usize, 0usize);
+    let mut xobjects: Vec<usize> = Vec::new();
     let k = js::to_fixed(72.0 / 25.4, 9);
     out.raw(format!("{k} 0 0 {k} 0 0 cm"));
     for v in &list.views {
@@ -749,6 +903,48 @@ fn page_of(list: &DisplayList, pen: f64, deflate: bool) -> Page {
         if let Some(c) = &v.clip {
             out.poly(c);
             out.raw("W n".into());
+        }
+        for p in &v.pictures {
+            let (mm_w, mm_h) = (js::hypot(p.ux, p.uy) * p.w, js::hypot(p.vx, p.vy) * p.h);
+            let Some(rec) = list.picture_files.iter().find(|(f, _)| *f == p.file).map(|(_, r)| r.clone()) else { continue };
+            let k = match images.iter().position(|im| Arc::ptr_eq(&im.rec, &rec) && im.max_dpi == max_dpi) {
+                Some(k) => k,
+                None => {
+                    let Some(img) = pdf_image(&rec, max_dpi, mm_w, mm_h) else { continue };
+                    if img.shrunk {
+                        shrunk = shrunk.saturating_add(1);
+                    }
+                    if img.kept {
+                        kept = kept.saturating_add(1);
+                    }
+                    images.push(FileImage { img, rec, max_dpi });
+                    images.len().saturating_sub(1)
+                }
+            };
+            if !xobjects.contains(&k) {
+                xobjects.push(k);
+            }
+            out.raw("q".into());
+            if p.clip.len() >= 6 {
+                let (x0, y0) = (p.clip.first().copied().unwrap_or(0.0), p.clip.get(1).copied().unwrap_or(0.0));
+                out.raw(format!("{} {} m", num(x0), num(y0)));
+                let mut i = 2usize;
+                while let (Some(x), Some(y)) = (p.clip.get(i), p.clip.get(i.saturating_add(1))) {
+                    out.raw(format!("{} {} l", num(*x), num(*y)));
+                    i = i.saturating_add(2);
+                }
+                out.raw("h W n".into());
+            }
+            out.alpha(p.alpha);
+            let m = [p.ux * p.w, p.uy * p.w, p.vx * p.h, p.vy * p.h, p.x, p.y]
+                .iter()
+                .map(|x| if x.is_finite() { js::to_fixed(*x, 6) } else { "0".into() })
+                .collect::<Vec<_>>()
+                .join(" ");
+            out.raw(format!("{m} cm /Im{k} Do"));
+            out.raw("Q".into());
+            out.alpha(1.0);
+            n_pics = n_pics.saturating_add(1);
         }
         out.raw(format!("1 J 1 j {} w", num(pen)));
         for f in &v.fills {
@@ -811,11 +1007,24 @@ fn page_of(list: &DisplayList, pen: f64, deflate: bool) -> Page {
         }
         out.raw("Q".into());
     }
-    let mut text = out.lines.join("\n");
-    text.push('\n');
+    let text = std::mem::take(&mut out.text);
     let content = text.into_bytes();
-    let (content, flate) = if deflate { (miniz_oxide::deflate::compress_to_vec_zlib(&content, 6), true) } else { (content, false) };
-    Page { w: list.w, h: list.h, content, flate, missing, texts: n_texts, alphas: out.alphas, name: String::new() }
+    let (content, flate) = if deflate { (zlib(&content), true) } else { (content, false) };
+    // (to_pdf_pages asks for plain content and deflates its pages together, on several threads)
+    Page {
+        w: list.w,
+        h: list.h,
+        content,
+        flate,
+        missing,
+        texts: n_texts,
+        alphas: out.alphas,
+        name: String::new(),
+        xobjects,
+        pictures: n_pics,
+        shrunk,
+        kept,
+    }
 }
 
 /// `D:YYYYMMDDHHMMSSZ` for a UTC time in ms (the JS formats `new Date()` in UTC the same way).
@@ -841,7 +1050,7 @@ fn pdf_date(ms: f64) -> String {
     format!("D:{}{}{}{}{}{}Z", i(y), p2(m), p2(d), p2(hh), p2(mi), p2(ss))
 }
 
-fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
+fn assemble(pages: &[Page], title: &str, date_ms: f64, images: &[FileImage]) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::new();
     let mut offsets: Vec<usize> = Vec::new();
     let obj = |out: &mut Vec<u8>, offsets: &mut Vec<usize>, n: usize, body: &[&[u8]]| {
@@ -867,6 +1076,15 @@ fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
     let page_no = |i: usize| first.saturating_add(i.saturating_mul(2));
     let item_no = |i: usize| first.saturating_add(n.saturating_mul(2)).saturating_add(i);
     let img_base = if outlines { item_no(n) } else { page_no(n) };
+    // pictures (0.5 WL.13): after everything else, each image followed by its soft mask when it has one
+    let mut img_no: Vec<usize> = Vec::with_capacity(images.len());
+    {
+        let mut k = img_base;
+        for im in images {
+            img_no.push(k);
+            k = k.saturating_add(if im.img.smask.is_some() { 2 } else { 1 });
+        }
+    }
     let cat = format!("<< /Type /Catalog /Pages 2 0 R{} >>", if outlines { " /Outlines 5 0 R /PageMode /UseOutlines" } else { "" });
     obj(&mut out, &mut offsets, 1, &[cat.as_bytes()]);
     let kids = (0..n).map(|i| format!("{} 0 R", page_no(i))).collect::<Vec<_>>().join(" ");
@@ -893,8 +1111,15 @@ fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
                 .join(" ");
             format!(" /ExtGState << {items} >>")
         };
+        let xo = if p.xobjects.is_empty() {
+            String::new()
+        } else {
+            let items =
+                p.xobjects.iter().map(|k| format!("/Im{k} {} 0 R", img_no.get(*k).copied().unwrap_or(0))).collect::<Vec<_>>().join(" ");
+            format!(" /XObject << {items} >>")
+        };
         let pg = format!(
-            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >>{gs} >> /Contents {} 0 R >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >>{gs}{xo} >> /Contents {} 0 R >>",
             pt(p.w),
             pt(p.h),
             page_no(i).saturating_add(1)
@@ -911,7 +1136,33 @@ fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
             obj(&mut out, &mut offsets, item_no(i), &[body.as_bytes()]);
         }
     }
-    let total = img_base;
+    for (i, im) in images.iter().enumerate() {
+        let no = img_no.get(i).copied().unwrap_or(0);
+        let g = &im.img;
+        let head = format!(
+            "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /{} /BitsPerComponent 8 /Filter /{}{} /Length {} >>\nstream\n",
+            g.w,
+            g.h,
+            if g.colors == 1 { "DeviceGray" } else { "DeviceRGB" },
+            g.filter,
+            if g.smask.is_some() { format!(" /SMask {} 0 R", no.saturating_add(1)) } else { String::new() },
+            g.data.len()
+        );
+        obj(&mut out, &mut offsets, no, &[head.as_bytes(), &g.data, b"\nendstream"]);
+        if let Some(sm) = &g.smask {
+            let head = format!(
+                "<< /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {} >>\nstream\n",
+                g.w,
+                g.h,
+                sm.len()
+            );
+            obj(&mut out, &mut offsets, no.saturating_add(1), &[head.as_bytes(), sm, b"\nendstream"]);
+        }
+    }
+    let total = match (img_no.last(), images.last()) {
+        (Some(no), Some(im)) => no.saturating_add(if im.img.smask.is_some() { 2 } else { 1 }),
+        _ => img_base,
+    };
     let xref = out.len();
     let mut x = format!("xref\n0 {total}\n0000000000 65535 f \n");
     for k in 1..total {
@@ -922,25 +1173,40 @@ fn assemble(pages: &[Page], title: &str, date_ms: f64) -> Vec<u8> {
     out
 }
 
-/// What a PDF holds: bytes and its report { missing, texts, size, compressed }.
+/// What a PDF holds: bytes and its report { missing, texts, size, compressed, pictures, shrunk, kept }.
 pub struct Pdf {
     pub bytes: Vec<u8>,
     pub missing: usize,
     pub texts: usize,
     pub compressed: bool,
+    /// pictures drawn, PNGs shrunk to the dpi cap, JPEGs kept denser than it
+    pub pictures: usize,
+    pub shrunk: usize,
+    pub kept: usize,
 }
 
 /// plot.js `toPdf(list, { pen, title })`; `date_ms` is the CreationDate; `deflate` false writes plain streams.
 pub fn to_pdf(list: &DisplayList, pen: f64, title: &str, date_ms: f64, deflate: bool) -> Pdf {
-    let page = page_of(list, pen, deflate);
-    let (missing, texts, compressed) = (page.missing, page.texts, page.flate);
-    let bytes = assemble(&[page], title, date_ms);
-    Pdf { bytes, missing, texts, compressed }
+    to_pdf_dpi(list, pen, title, date_ms, deflate, 0.0)
+}
+
+/// plot.js `toPdf(list, { pen, title, maxDpi })`: pictures capped at `max_dpi` on paper (0 = their own resolution).
+pub fn to_pdf_dpi(list: &DisplayList, pen: f64, title: &str, date_ms: f64, deflate: bool, max_dpi: f64) -> Pdf {
+    let mut images = Vec::new();
+    let page = page_of(list, pen, deflate, &mut images, max_dpi);
+    let (missing, texts, compressed, pictures, shrunk, kept) =
+        (page.missing, page.texts, page.flate, page.pictures, page.shrunk, page.kept);
+    let bytes = assemble(&[page], title, date_ms, &images);
+    Pdf { bytes, missing, texts, compressed, pictures, shrunk, kept }
 }
 
 /// plot.js `toPdfPages(lists, { pen, title, names })`: one page per sheet, with a bookmark each.
 pub fn to_pdf_pages(lists: &[DisplayList], pen: f64, title: &str, names: &[String], date_ms: f64, deflate: bool) -> Pdf {
-    let mut pages: Vec<Page> = lists.iter().map(|l| page_of(l, pen, deflate)).collect();
+    let mut images = Vec::new();
+    let mut pages: Vec<Page> = lists.iter().map(|l| page_of(l, pen, false, &mut images, 0.0)).collect();
+    if deflate {
+        deflate_pages(&mut pages);
+    }
     for (i, p) in pages.iter_mut().enumerate() {
         p.name = names
             .get(i)
@@ -952,8 +1218,10 @@ pub fn to_pdf_pages(lists: &[DisplayList], pen: f64, title: &str, names: &[Strin
     let missing = pages.iter().map(|p| p.missing).fold(0usize, usize::saturating_add);
     let texts = pages.iter().map(|p| p.texts).fold(0usize, usize::saturating_add);
     let compressed = deflate;
-    let bytes = assemble(&pages, title, date_ms);
-    Pdf { bytes, missing, texts, compressed }
+    let sum = |f: fn(&Page) -> usize| pages.iter().map(f).fold(0usize, usize::saturating_add);
+    let (pictures, shrunk, kept) = (sum(|p| p.pictures), sum(|p| p.shrunk), sum(|p| p.kept));
+    let bytes = assemble(&pages, title, date_ms, &images);
+    Pdf { bytes, missing, texts, compressed, pictures, shrunk, kept }
 }
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -42,6 +42,7 @@ pub mod i18n;
 pub mod jsv;
 pub mod m3d_file;
 pub mod model3d;
+pub mod pdfimage;
 pub mod plot;
 pub mod props;
 pub mod raster;

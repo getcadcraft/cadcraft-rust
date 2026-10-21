@@ -23,5 +23,11 @@ cc-geom.workspace = true
 serde_json.workspace = true
 # the plot PDF's zlib streams (already in the lock file: cc-io-markup, cc-detail, cc-io-civil)
 miniz_oxide = "0.8"
+# the plot PDF's zlib streams are deflated with zlib-rs (2–3× miniz_oxide at level 6; PUBLISH of many sheets, M4.21)
+zlib-rs = { version = "0.6.8", default-features = false, features = ["rust-allocator"] }
 # pictures in drawings (IMAGE, M4.19): PNG and JPEG only, decoded with image::Limits (raster.rs)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# PUBLISH: the pages' content streams deflated in parallel (M4.21)
+rayon = "1"

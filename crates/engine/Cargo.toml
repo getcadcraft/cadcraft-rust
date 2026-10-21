@@ -27,3 +27,7 @@ cc-io-cad.workspace = true
 cc-tools.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# PUBLISH: the sheets' display lists made in parallel (M4.21)
+rayon = "1"

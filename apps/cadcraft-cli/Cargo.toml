@@ -40,6 +40,8 @@ cc-io-detail.workspace = true
 cc-part.workspace = true
 cc-mcp.workspace = true
 serde_json.workspace = true
+# PUBLISH's PDFs logged inflated (kdiff.mjs compares them that way)
+miniz_oxide = "0.8"
 cc-takeoff.workspace = true
 cc-io-takeoff.workspace = true
 

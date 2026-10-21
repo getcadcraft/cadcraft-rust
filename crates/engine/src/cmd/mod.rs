@@ -13,6 +13,7 @@ pub mod layers;
 pub mod layout;
 pub mod modify;
 pub mod pictures;
+pub mod publish;
 pub mod qselect;
 pub mod trim;
 pub mod ucscmd;
@@ -204,6 +205,7 @@ pub static COMMANDS: &[CmdDef] = &[
     CmdDef { no_repeat: true, ..def("IMAGE", &["IM"], |c| Box::pin(pictures::image(c))) },
     def("IMAGECLIP", &["ICL"], |c| Box::pin(pictures::imageclip(c))),
     // PUBLISH is its own command in 0.5 (layertools.js, several sheets in one PDF): not an alias of PLOT here
+    def("PUBLISH", &["-PUBLISH"], |c| Box::pin(publish::publish(c))),
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),
     quiet(def("PROPERTIES", &["PR", "PROPS", "CH", "MO", "DDMODIFY"], |c| Box::pin(view::properties(c)))),

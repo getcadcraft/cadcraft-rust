@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.21 PUBLISH, pictures in plotted PDFs (agent, work/drafting2)
+
+- PUBLISH / -PUBLISH (layertools.js): All or Some sheets (names typed, unknown ones listed) plotted into one PDF, a page
+  and a bookmark per sheet, with the Plot dialog's last ink and pen (`Host::plot_prefs`); the window saves the PDF
+  through its save service. The Plot dialog has "All sheets in one PDF" (two or more sheets: closes the dialog, runs
+  PUBLISH, Enter = all) and the Pictures choice (their own resolution or 600 / 300 / 150 dpi), and prints 0.5's lines
+  for pictures and JPEGs kept denser than the cap.
+- Pictures plot (0.5 WL.13): cc-io-cad `pdfimage` ports pictures.js `pdfImage` (JPEG as DCTDecode; its own PNG decoder:
+  grey, grey + alpha, RGB, RGBA, palette + tRNS, 16-bit; soft masks; the dpi cap's box filter), drawn under the
+  linework clipped to their frames (IMAGECLIP); a picture used on several pages is stored once. The picture decoders are
+  in the `cad_raster` fuzz target (seeds: 16-bit grey, palette + tRNS).
+- Speed (perf, frame pointers): number text was most of a plot: `{:.4}` falls back to bignum arithmetic in Rust's
+  exact float formatter. plot.rs `push_num` now rounds |v|·10⁴ itself (exact halves and anything within the product's
+  error take the old exact path; test `num_matches_to_fixed`, 600k values), content streams are written into one
+  buffer, stroke groups key on numbers, not their text, and PDF streams deflate with zlib-rs (was miniz_oxide); PUBLISH
+  makes the sheets' display lists and deflates the pages on all cores (native; the web build does them in turn).
+  LAYOUT ×2 + PUBLISH: Carey 12 sheets 10.2 s JS → 1.9 s (5.5×; it was 0.7× before the changes), ar1all 5.7×, kitchen 3.0×.
+- Parity: kdiff PUBLISH scenarios (all / some / unknown names / no sheets; pictures PNG alpha, palette, 16-bit, JPEG
+  colour, grey, CMYK, clipped, on a sheet) 80/80 records; PDFs logged inflated on both sides (kdiff `pdfCanon`, the CLI
+  stub's `pdf_for_log`). Plot dialog pictures at a dpi cap vs JS `toPdf({ maxDpi })`: 4/4 PDFs identical
+  (scratch/drafting2/plotpics.mjs). plotdiff kit set 1128/1128 plots identical after the speed work.
 ## 2026-10-21 — M6.26 ModelCraft scenes' Play (agent, work/model621)
 
 - modelcraft.js startPlay / stopPlay in the app: Scenes › Play goes to the next scene at once (moving there) and then

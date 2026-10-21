@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M4.21: PUBLISH (several sheets in one PDF) and pictures in plotted PDFs (pictures.js pdfImage, the Plot dialog's dpi cap) at kdiff parity (80/80); plot number text, zlib-rs and parallel sheets: PUBLISH 3.0–5.7× the JS (was 0.6–0.8×); plotdiff 1128/1128.
 - 2026-10-21 M6.26: ModelCraft scenes' Play (every 3.2 s, Stop / Esc); mcuidiff --edit --lights --play 7,040/7,040 status lines, 6,691/6,691 files identical to 0.5.
 - 2026-10-21 M6.25: ModelCraft Render a picture… — Fast (GPU accumulation: jittered camera, sun disc and sky light shadow-mapped, lamps, ACES) and High quality (compute path tracer over a box tree); cleanSettings 3,000/3,000 as 0.5.
 - 2026-10-21 M6.24: ModelCraft Lights panel and lamp editor (the Light tool, lamp marks picked in the view); mcuidiff --edit --lights 7,040/7,040 status lines, 6,704/6,704 files identical to 0.5; an undo dropping the open group no longer selects it.
