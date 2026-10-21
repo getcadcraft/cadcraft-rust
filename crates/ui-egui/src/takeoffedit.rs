@@ -4,7 +4,7 @@
 //! paste in place, duplicate) on clipboard.js. Every edit is one `Takeoff` change with 0.5's undo label, and says what
 //! 0.5's status line says.
 
-use cc_takeoff::clipboard::{CopyCtx, PasteOpts, copy_marks, paste_clip, read_clip, scale_problem, size_problem};
+use cc_takeoff::clipboard::{CopyCtx, PasteOpts, copy_marks, paste_clip, read_clip, read_clip_owned, scale_problem, size_problem};
 use cc_takeoff::geom::{self as G, P};
 use cc_takeoff::i18n::{F, t, tf};
 use egui::{Color32, Pos2, RichText};
@@ -107,7 +107,8 @@ impl TakeoffMode {
 
     /// selIds(): the selected marks that still exist, the main one first.
     pub fn sel_ids(&self) -> Vec<String> {
-        self.sel.iter().chain(self.sel_more.iter()).filter(|id| self.tk.mark(id).is_some()).cloned().collect()
+        let have: std::collections::HashSet<&str> = self.tk.marks().iter().filter_map(|m| m.get("id").and_then(Value::as_str)).collect();
+        self.sel.iter().chain(self.sel_more.iter()).filter(|id| have.contains(id.as_str())).cloned().collect()
     }
 
     pub fn is_sel(&self, id: &str) -> bool {
@@ -361,8 +362,10 @@ impl TakeoffMode {
         };
         let ctx = self.copy_ctx(&s(first.get("sheet")));
         let Some(wire) = copy_marks(&self.tk.state, &ids, &ctx) else { return false };
-        // storeClip: the clip as read back (what a paste uses, as clipMem.clip)
-        let clip = match read_clip(&wire) {
+        let n = wire.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
+        let names = if quiet { String::new() } else { item_list(wire.get("items")) };
+        // storeClip: the clip as read back (what a paste uses, as clipMem.clip); the wire form is not kept
+        let clip = match read_clip_owned(wire) {
             Ok(r) => r.clip,
             Err(e) => {
                 self.message = e;
@@ -370,8 +373,6 @@ impl TakeoffMode {
             }
         };
         if !quiet {
-            let n = wire.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
-            let names = item_list(wire.get("items"));
             #[allow(clippy::cast_precision_loss)]
             let fills = [("n", F::N(n as f64)), ("items", F::S(names)), ("mod", F::S(MOD.into()))];
             self.message = tf("copy.done", &fills);
@@ -405,11 +406,6 @@ impl TakeoffMode {
         self.message = tf("cut.done", &[("n", F::N(n)), ("mod", F::S(MOD.into()))]);
     }
 
-    /// The clip this window copied (currentClip).
-    fn current_clip(&self) -> Option<Value> {
-        self.clip.clone()
-    }
-
     /// pasteRefused: can these marks go on the sheet?
     fn paste_refused(&self, clip: &Value, sheet: &str, in_place: bool) -> Option<String> {
         if clip.get("marks").and_then(Value::as_array).is_none_or(Vec::is_empty) {
@@ -432,13 +428,19 @@ impl TakeoffMode {
     /// startPaste: items only at once; marks on the pointer (or in place).
     pub fn start_paste(&mut self, sheet: &str, in_place: bool) {
         self.end_paste(false);
-        let Some(clip) = self.current_clip() else {
+        // the clip this window copied (currentClip), lent out while it is pasted (only the pointer keeps a copy)
+        let Some(clip) = self.clip.take() else {
             self.message = tf("paste.empty", &[("mod", F::S(MOD.into()))]);
             return;
         };
+        self.paste_from(&clip, sheet, in_place);
+        self.clip = Some(clip);
+    }
+
+    fn paste_from(&mut self, clip: &Value, sheet: &str, in_place: bool) {
         if clip.get("marks").and_then(Value::as_array).is_none_or(Vec::is_empty) {
             let opts = PasteOpts { label: t("undo.item.paste"), ..PasteOpts::default() };
-            match paste_clip(&mut self.tk, &clip, &opts) {
+            match paste_clip(&mut self.tk, clip, &opts) {
                 Ok(Some(out)) if !out.items.is_empty() => {
                     self.item = out.items.first().cloned();
                     let names: Vec<String> = out.items.iter().filter_map(|i| self.tk.item(i)).map(|i| s(i.get("name"))).collect();
@@ -451,14 +453,14 @@ impl TakeoffMode {
             }
             return;
         }
-        if let Some(why) = self.paste_refused(&clip, sheet, in_place) {
+        if let Some(why) = self.paste_refused(clip, sheet, in_place) {
             self.message = why;
             return;
         }
         if in_place {
-            self.finish_paste(sheet, &clip, 0.0, 0.0, "inplace");
+            self.finish_paste(sheet, clip, 0.0, 0.0, "inplace");
         } else {
-            self.begin_placing(clip, "paste");
+            self.begin_placing(clip.clone(), "paste");
         }
     }
 

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::i18n::{F, t, tf};
 use crate::jv::{self, Obj, n, s};
-use crate::model::{self, Ch, ExtrasCtx, MARK_EXTRAS, Res, Takeoff, arr_of, kinds_of, limits, mark_extras, normal_item, read_extras};
+use crate::model::{self, Ch, ExtrasCtx, MARK_EXTRAS, Res, Takeoff, arr_of, kinds_of, limits, mark_extras, normal_item, read_extras_by};
 
 pub const CLIP_FORMAT: &str = "takeoffcraft-clip";
 pub const CLIP_VERSION: f64 = 1.0;
@@ -25,6 +25,11 @@ fn clip_sheet() -> String {
 
 /// Middle of the marks' points (bounding box).
 pub fn anchor_of(marks: &[Value]) -> Value {
+    anchor_of_refs(marks.iter())
+}
+
+/// [`anchor_of`] over borrowed marks.
+fn anchor_of_refs<'a>(marks: impl Iterator<Item = &'a Value>) -> Value {
     let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
     for m in marks {
         let mut rings: Vec<&Value> = Vec::new();
@@ -85,9 +90,9 @@ fn sheet_info(state: &Value, sheet: &str, ctx: &CopyCtx) -> Value {
 
 /// Copy marks (and the items they belong to); only marks on the first mark's sheet.
 pub fn copy_marks(state: &Value, ids: &[String], ctx: &CopyCtx) -> Option<Value> {
-    let want: HashSet<&String> = ids.iter().collect();
+    let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let all = jv::arr(state.get("marks")).map_or(&[][..], Vec::as_slice);
-    let marks: Vec<&Value> = all.iter().filter(|m| jv::str(m.get("id")).is_some_and(|i| want.contains(&i.to_string()))).collect();
+    let marks: Vec<&Value> = all.iter().filter(|m| jv::str(m.get("id")).is_some_and(|i| want.contains(i))).collect();
     let first = marks.first()?;
     let sheet = first.get("sheet").cloned().unwrap_or(Value::Null);
     let marks: Vec<&Value> = marks.into_iter().filter(|m| jv::strict_eq(m.get("sheet"), Some(&sheet))).collect();
@@ -101,7 +106,6 @@ pub fn copy_marks(state: &Value, ids: &[String], ctx: &CopyCtx) -> Option<Value>
     let items_all = jv::arr(state.get("items")).map_or(&[][..], Vec::as_slice);
     let items: Vec<Value> =
         item_ids.iter().filter_map(|id| items_all.iter().find(|i| jv::str(i.get("id")) == Some(id.as_str())).cloned()).collect();
-    let owned: Vec<Value> = marks.iter().map(|m| (*m).clone()).collect();
     let out_marks: Vec<Value> = marks
         .iter()
         .map(|m| {
@@ -123,12 +127,17 @@ pub fn copy_marks(state: &Value, ids: &[String], ctx: &CopyCtx) -> Option<Value>
             Value::Object(o)
         })
         .collect();
-    Some(json!({
+    // json! would copy the lists through serde (`to_value(&list)`): they move in instead
+    let mut out = json!({
         "format": CLIP_FORMAT, "version": n(CLIP_VERSION), "source": ctx.source, "copiedAt": n(ctx.now),
         "sheet": sheet_info(state, &jv::to_string(Some(&sheet)), ctx),
-        "anchor": anchor_of(&owned),
-        "items": items, "marks": out_marks,
-    }))
+        "anchor": anchor_of_refs(marks.iter().copied()),
+    });
+    if let Value::Object(o) = &mut out {
+        o.insert("items".into(), Value::Array(items));
+        o.insert("marks".into(), Value::Array(out_marks));
+    }
+    Some(out)
 }
 
 /// Copy items only (with their assemblies).
@@ -154,6 +163,54 @@ pub struct ReadClip {
 
 /// Validate a clip (from storage, i.e. anything).
 pub fn read_clip(json: &Value) -> Result<ReadClip, String> {
+    let j = clip_head(json)?;
+    let raw_items = jv::arr(j.get("items")).cloned().unwrap_or_default();
+    let raw_marks = jv::arr(j.get("marks")).map_or(&[][..], Vec::as_slice);
+    if raw_items.len() > CLIP_ITEMS || raw_marks.len() > CLIP_MARKS {
+        return Err(t("clip.err.many"));
+    }
+    let marks_in: Vec<Value> = raw_marks.iter().enumerate().map(|(i, m)| clip_mark_in(i, m, |k| jv::field(m, k).cloned())).collect();
+    clip_tail(j, raw_items, marks_in, !raw_marks.is_empty())
+}
+
+/// [`read_clip`] of a clip that is given away (a copy just made): its lists and fields move instead of being copied.
+pub fn read_clip_owned(mut json: Value) -> Result<ReadClip, String> {
+    clip_head(&json)?;
+    let mut take = |k: &str| match json.get_mut(k).map(Value::take) {
+        Some(Value::Array(a)) => Some(a),
+        Some(other) => {
+            // not a list: put it back as it was (read as no list)
+            if let Some(slot) = json.get_mut(k) {
+                *slot = other;
+            }
+            None
+        }
+        None => None,
+    };
+    let raw_items = take("items").unwrap_or_default();
+    let mut raw_marks = take("marks").unwrap_or_default();
+    if raw_items.len() > CLIP_ITEMS || raw_marks.len() > CLIP_MARKS {
+        return Err(t("clip.err.many"));
+    }
+    let any = !raw_marks.is_empty();
+    let marks_in: Vec<Value> = raw_marks
+        .iter_mut()
+        .enumerate()
+        .map(|(i, m)| {
+            let is = jv::is_objlike(Some(m));
+            let mut cell = std::mem::take(m);
+            if !is {
+                return Value::Null;
+            }
+            clip_mark_in(i, &Value::Null, |k| cell.get_mut(k).map(Value::take))
+        })
+        .collect();
+    let Value::Object(j) = &json else { return Err(t("clip.err.format")) };
+    clip_tail(j, raw_items, marks_in, any)
+}
+
+/// The clip's format and version checks → its object.
+fn clip_head(json: &Value) -> Result<&Obj, String> {
     let Value::Object(j) = json else { return Err(t("clip.err.format")) };
     if jv::str(j.get("format")) != Some(CLIP_FORMAT) {
         return Err(t("clip.err.format"));
@@ -165,47 +222,54 @@ pub fn read_clip(json: &Value) -> Result<ReadClip, String> {
     if ver > CLIP_VERSION {
         return Err(t("clip.err.newer"));
     }
-    let raw_items = jv::arr(j.get("items")).cloned().unwrap_or_default();
-    let raw_marks = jv::arr(j.get("marks")).cloned().unwrap_or_default();
-    if raw_items.len() > CLIP_ITEMS || raw_marks.len() > CLIP_MARKS {
-        return Err(t("clip.err.many"));
+    Ok(j)
+}
+
+/// One copied mark as the clip project's mark `i` (`get` hands over each field it has).
+fn clip_mark_in(i: usize, m: &Value, mut get: impl FnMut(&str) -> Option<Value>) -> Value {
+    if !m.is_null() && !jv::is_objlike(Some(m)) {
+        return Value::Null;
     }
-    let marks_in: Vec<Value> = raw_marks
-        .iter()
-        .enumerate()
-        .map(|(i, m)| {
-            if !jv::is_objlike(Some(m)) {
-                return Value::Null;
-            }
-            let mut o = Obj::new();
-            for k in MARK_EXTRAS {
-                if let Some(v) = m.get(k) {
-                    o.insert(k.into(), v.clone());
-                }
-            }
-            for k in ["item", "kind", "pts", "holes"] {
-                if let Some(v) = m.get(k) {
-                    o.insert(k.into(), v.clone());
-                }
-            }
-            o.insert("id".into(), s(format!("k{}", i.saturating_add(1))));
-            o.insert("sheet".into(), s(clip_sheet()));
-            Value::Object(o)
-        })
-        .collect();
-    let proj = json!({
+    let mut o = Obj::new();
+    for k in MARK_EXTRAS {
+        if let Some(v) = get(k) {
+            o.insert(k.into(), v);
+        }
+    }
+    for k in ["item", "kind", "pts", "holes"] {
+        if let Some(v) = get(k) {
+            o.insert(k.into(), v);
+        }
+    }
+    o.insert("id".into(), s(format!("k{}", i.saturating_add(1))));
+    o.insert("sheet".into(), s(clip_sheet()));
+    Value::Object(o)
+}
+
+/// The rest of [`read_clip`]: the clip project read back, then the clip as a paste uses it.
+fn clip_tail(j: &Obj, raw_items: Vec<Value>, marks_in: Vec<Value>, any_marks: bool) -> Result<ReadClip, String> {
+    let mut proj = json!({
         "format": model::FORMAT, "version": 1, "name": "Clipboard",
         "files": [{ "hash": zero_hash(), "name": "clipboard.pdf", "size": 0, "pages": 1 }],
-        "items": raw_items, "marks": marks_in,
     });
-    let r = model::read_project(&proj)?;
-    let items = jv::arr(r.state.get("items")).cloned().unwrap_or_default();
+    if let Value::Object(o) = &mut proj {
+        o.insert("items".into(), Value::Array(raw_items));
+        o.insert("marks".into(), Value::Array(marks_in));
+    }
+    let mut r = model::read_project(&proj)?;
+    let items = match r.state.get_mut("items").map(Value::take) {
+        Some(Value::Array(a)) => a,
+        _ => Vec::new(),
+    };
     if items.is_empty() {
         return Err(t("clip.err.noitems"));
     }
-    let state_marks = jv::arr(r.state.get("marks")).cloned().unwrap_or_default();
+    let state_marks = match r.state.get_mut("marks").map(Value::take) {
+        Some(Value::Array(a)) => a,
+        _ => Vec::new(),
+    };
     let used: HashSet<String> = state_marks.iter().map(|m| jv::to_string(m.get("item"))).collect();
-    if !raw_marks.is_empty() && state_marks.is_empty() {
+    if any_marks && state_marks.is_empty() {
         return Err(t("clip.err.damaged"));
     }
     let sheet = match j.get("sheet") {
@@ -226,14 +290,16 @@ pub fn read_clip(json: &Value) -> Result<ReadClip, String> {
         }
         _ => Value::Null,
     };
+    // the read project's marks are ours: their fields move into the clip
     let marks: Vec<Value> = state_marks
-        .iter()
-        .map(|m| {
+        .into_iter()
+        .map(|mut m| {
+            let ex = mark_extras(&m);
             let mut o = Obj::new();
             for k in ["item", "kind", "pts", "holes"] {
-                o.insert(k.into(), m.get(k).cloned().unwrap_or(Value::Null));
+                o.insert(k.into(), m.get_mut(k).map_or(Value::Null, Value::take));
             }
-            jv::assign(&mut o, &mark_extras(m));
+            jv::assign(&mut o, &ex);
             Value::Object(o)
         })
         .collect();
@@ -248,10 +314,18 @@ pub fn read_clip(json: &Value) -> Result<ReadClip, String> {
         if marks.is_empty() { items } else { items.into_iter().filter(|i| used.contains(&jv::to_string(i.get("id")))).collect() };
     Ok(ReadClip {
         warnings: r.warnings,
-        clip: json!({
-            "format": CLIP_FORMAT, "version": n(CLIP_VERSION), "source": model::clean_str(j.get("source"), 64), "copiedAt": n(copied_at),
-            "sheet": sheet, "anchor": anchor, "items": items_out, "marks": marks,
-        }),
+        clip: {
+            let mut c = json!({
+                "format": CLIP_FORMAT, "version": n(CLIP_VERSION), "source": model::clean_str(j.get("source"), 64), "copiedAt": n(copied_at),
+            });
+            if let Value::Object(o) = &mut c {
+                o.insert("sheet".into(), sheet);
+                o.insert("anchor".into(), anchor);
+                o.insert("items".into(), Value::Array(items_out));
+                o.insert("marks".into(), Value::Array(marks));
+            }
+            c
+        },
     })
 }
 
@@ -371,11 +445,11 @@ impl Default for PasteOpts {
 
 /// Paste the clip, moved by (dx, dy), as ONE undo step. → None when nothing was pasted.
 pub fn paste_clip(model: &mut Takeoff, clip: &Value, o: &PasteOpts) -> Res<Option<Pasted>> {
-    let items = jv::arr(clip.get("items")).cloned().unwrap_or_default();
+    let items = jv::arr(clip.get("items")).map_or(&[][..], Vec::as_slice);
     if items.is_empty() {
         return Ok(None);
     }
-    let marks = jv::arr(clip.get("marks")).cloned().unwrap_or_default();
+    let marks = jv::arr(clip.get("marks")).map_or(&[][..], Vec::as_slice);
     if !marks.is_empty() && o.sheet.as_deref().is_none_or(str::is_empty) {
         return Err(t("clip.err.nosheet"));
     }
@@ -383,7 +457,7 @@ pub fn paste_clip(model: &mut Takeoff, clip: &Value, o: &PasteOpts) -> Res<Optio
     model.change(&o.label, |s| {
         let mut out = Pasted::default();
         let mut map: Vec<(String, String)> = Vec::new();
-        for ci in &items {
+        for ci in items {
             let ci_id = jv::to_string(ci.get("id"));
             let mut target = None;
             if !marks.is_empty() {
@@ -438,38 +512,42 @@ pub fn paste_clip(model: &mut Takeoff, clip: &Value, o: &PasteOpts) -> Res<Optio
             return Err(t("err.marks.many"));
         }
         let mv = |p: &Value| -> Res<Value> {
-            let x = jv::to_number(p.get("x")) + o.dx;
-            let y = jv::to_number(p.get("y")) + o.dy;
+            let x = jv::to_number(jv::field(p, "x")) + o.dx;
+            let y = jv::to_number(jv::field(p, "y")) + o.dy;
             if !(x.abs() < 1e7 && y.abs() < 1e7) {
                 return Err(t("clip.err.far"));
             }
             let mut q = Obj::new();
             q.insert("x".into(), n(x));
             q.insert("y".into(), n(y));
-            if jv::truthy(p.get("b"))
-                && let Some(b) = p.get("b")
+            if jv::truthy(jv::field(p, "b"))
+                && let Some(b) = jv::field(p, "b")
             {
                 q.insert("b".into(), b.clone());
             }
             Ok(Value::Object(q))
         };
-        for m in &marks {
-            let mi = jv::to_string(m.get("item"));
+        // the areas do not change while the marks go in
+        let areas: HashSet<String> =
+            jv::arr(s.get("areas")).map(|l| l.iter().map(|a| jv::to_string(a.get("id"))).collect()).unwrap_or_default();
+        let ctx = ExtrasCtx { areas, groups: HashSet::new() };
+        for m in marks {
+            let mi = jv::to_string(jv::field(m, "item"));
             let Some(item) = map.iter().find(|(k, _)| *k == mi).map(|(_, v)| v.clone()) else { continue };
             let st_items = jv::arr(s.get("items")).map_or(&[][..], Vec::as_slice);
             let it = st_items.iter().find(|i| jv::str(i.get("id")) == Some(item.as_str()));
-            let mk = jv::to_string(m.get("kind"));
+            let mk = jv::to_string(jv::field(m, "kind"));
             if it.is_none() || !kinds_of(it).contains(&mk) {
                 continue;
             }
             let id = model::next_id(s, "m");
             let mut pts = Vec::new();
-            for p in jv::arr(m.get("pts")).map_or(&[][..], Vec::as_slice) {
+            for p in jv::arr(jv::field(m, "pts")).map_or(&[][..], Vec::as_slice) {
                 pts.push(mv(p)?);
             }
             let mut holes = Vec::new();
             if mk == "area" {
-                for h in jv::arr(m.get("holes")).map_or(&[][..], Vec::as_slice) {
+                for h in jv::arr(jv::field(m, "holes")).map_or(&[][..], Vec::as_slice) {
                     let mut r = Vec::new();
                     for p in jv::arr(Some(h)).map_or(&[][..], Vec::as_slice) {
                         r.push(mv(p)?);
@@ -484,18 +562,16 @@ pub fn paste_clip(model: &mut Takeoff, clip: &Value, o: &PasteOpts) -> Res<Optio
             nm.insert("kind".into(), s_(&mk));
             nm.insert("pts".into(), Value::Array(pts));
             nm.insert("holes".into(), Value::Array(holes));
-            let areas: HashSet<String> =
-                jv::arr(s.get("areas")).map(|l| l.iter().map(|a| jv::to_string(a.get("id"))).collect()).unwrap_or_default();
-            let ctx = ExtrasCtx { areas, groups: HashSet::new() };
-            let raw = match &o.area {
-                None => m.clone(),
-                Some(a) => {
-                    let mut mo = jv::obj(Some(m)).cloned().unwrap_or_default();
-                    mo.insert("area".into(), a.as_ref().map_or(Value::Null, |x| s_(x)));
-                    Value::Object(mo)
-                }
-            };
-            let ex = read_extras(Some(&raw), &nm, &ctx);
+            // `{ ...m, area }` when the paste names an area, read without copying the mark
+            let area_v = o.area.as_ref().map(|a| a.as_ref().map_or(Value::Null, |x| s_(x)));
+            let ex = read_extras_by(
+                |k: &str| match (&area_v, k) {
+                    (Some(a), "area") => Some(a),
+                    _ => jv::field(m, k),
+                },
+                &nm,
+                &ctx,
+            );
             jv::assign(&mut nm, &ex);
             if let Value::Object(so) = s
                 && let Some(Value::Array(l)) = so.get_mut("marks")

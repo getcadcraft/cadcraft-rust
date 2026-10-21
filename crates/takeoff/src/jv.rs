@@ -57,6 +57,18 @@ pub fn truthy(v: Option<&Value>) -> bool {
 }
 /// `v` is an object (not null, not an array): `v && typeof v === 'object' && !Array.isArray(v)`.
 #[inline]
+/// `v[k]` on an object: a small object (a mark, a point) is searched in order, without hashing the key.
+pub fn field<'a>(v: &'a Value, k: &str) -> Option<&'a Value> {
+    match v {
+        Value::Object(o) if o.len() <= 12 => o.iter().find(|(x, _)| x.as_str() == k).map(|(_, v)| v),
+        Value::Object(o) => o.get(k),
+        _ => None,
+    }
+}
+/// [`field`] on a map.
+pub fn ofield<'a>(o: &'a Obj, k: &str) -> Option<&'a Value> {
+    if o.len() <= 12 { o.iter().find(|(x, _)| x.as_str() == k).map(|(_, v)| v) } else { o.get(k) }
+}
 pub fn obj(v: Option<&Value>) -> Option<&Obj> {
     match v {
         Some(Value::Object(o)) => Some(o),

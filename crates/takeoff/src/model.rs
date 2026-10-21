@@ -205,29 +205,29 @@ pub fn normal_note(f: &Obj) -> Option<Value> {
 /// A mark's optional fields beyond its geometry, as plain data.
 pub fn mark_extras(m: &Value) -> Obj {
     let mut o = Obj::new();
-    let kind = jv::str(m.get("kind"));
+    let kind = jv::str(jv::field(m, "kind"));
     if kind == Some("linear")
-        && let Some(d) = jv::arr(m.get("deducts")).filter(|d| !d.is_empty())
+        && let Some(d) = jv::arr(jv::field(m, "deducts")).filter(|d| !d.is_empty())
     {
         o.insert("deducts".into(), Value::Array(d.clone()));
     }
     for k in ["area", "group", "flag"] {
-        if jv::truthy(m.get(k))
-            && let Some(v) = m.get(k)
+        if jv::truthy(jv::field(m, k))
+            && let Some(v) = jv::field(m, k)
         {
             o.insert(k.into(), v.clone());
         }
     }
-    if let Some(p) = m.get("pitch") {
+    if let Some(p) = jv::field(m, "pitch") {
         o.insert("pitch".into(), p.clone());
     }
     if kind == Some("linear")
-        && let Some(sl) = jv::arr(m.get("slopes")).filter(|l| l.iter().any(|x| jv::truthy(Some(x))))
+        && let Some(sl) = jv::arr(jv::field(m, "slopes")).filter(|l| l.iter().any(|x| jv::truthy(Some(x))))
     {
         o.insert("slopes".into(), Value::Array(sl.iter().map(|x| if jv::truthy(Some(x)) { x.clone() } else { Value::Null }).collect()));
     }
     if kind == Some("count")
-        && let Some(z) = z_ok(m.get("z"))
+        && let Some(z) = z_ok(jv::field(m, "z"))
     {
         o.insert("z".into(), n(z));
     }
@@ -249,8 +249,13 @@ pub fn extras_ctx(s: &Value) -> ExtrasCtx {
 
 /// Validate the optional fields of an untrusted mark `raw` whose geometry `m` is already clean.
 pub fn read_extras(raw: Option<&Value>, m: &Obj, ctx: &ExtrasCtx) -> Obj {
+    read_extras_by(|k: &str| raw.and_then(|r| if let Value::Object(x) = r { jv::ofield(x, k) } else { None }), m, ctx)
+}
+
+/// [`read_extras`] reading the raw fields through `g` (a paste reads the copied mark with its area replaced, without
+/// copying the mark).
+pub fn read_extras_by<'a>(g: impl Fn(&str) -> Option<&'a Value>, m: &Obj, ctx: &ExtrasCtx) -> Obj {
     let mut o = Obj::new();
-    let g = |k: &str| raw.and_then(|r| if let Value::Object(x) = r { x.get(k) } else { None });
     if let Some(a) = jv::str(g("area"))
         && ctx.areas.contains(a)
     {
@@ -332,7 +337,7 @@ pub fn empty_state() -> Value {
 pub fn pt(p: &Value) -> Value {
     let (x, y, b) = match p {
         Value::Array(a) => (a.first().cloned(), a.get(1).cloned(), a.get(2).cloned()),
-        Value::Object(o) => (o.get("x").cloned(), o.get("y").cloned(), o.get("b").cloned()),
+        Value::Object(o) => (jv::ofield(o, "x").cloned(), jv::ofield(o, "y").cloned(), jv::ofield(o, "b").cloned()),
         _ => (None, None, None),
     };
     let mut q = Obj::new();

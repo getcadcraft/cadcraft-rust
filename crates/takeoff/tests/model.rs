@@ -734,6 +734,15 @@ fn clipboard_copy_paste() {
     bad["sheet"] = json!({ "ftPerUnit": -4, "view": [0, 0, "x", 1], "label": "x".repeat(500) });
     bad["anchor"] = json!({ "x": null, "y": 0 });
     let rb = clipboard::read_clip(&bad).unwrap();
+    // S.6: the owned read (a copy just made) gives the same clip and warnings as the borrowed one
+    for c in [&wire, &bad] {
+        let (a, b) = (clipboard::read_clip(c).unwrap(), clipboard::read_clip_owned(c.clone()).unwrap());
+        assert_eq!(jv::stringify(&a.clip), jv::stringify(&b.clip));
+        assert_eq!(a.warnings, b.warnings);
+    }
+    let mut odd = wire.clone();
+    odd["marks"] = json!("not a list");
+    assert_eq!(clipboard::read_clip(&odd).map(|r| r.clip), clipboard::read_clip_owned(odd.clone()).map(|r| r.clip));
     assert_eq!(rb.warnings.len(), 1);
     assert!(rb.clip["marks"].as_array().unwrap().len() == 1 && rb.clip["marks"][0]["kind"] == "count");
     assert!(
@@ -749,6 +758,7 @@ fn clipboard_copy_paste() {
         json!({ "format": "takeoffcraft-clip", "version": 1, "items": [] }),
     ] {
         assert!(clipboard::read_clip(&junk).is_err());
+        assert!(clipboard::read_clip_owned(junk).is_err());
     }
     let far = clipboard::read_clip(&clipboard::copy_marks(&tc.state, &dots, &ctx).unwrap()).unwrap().clip;
     let n0 = tc.marks().len();
