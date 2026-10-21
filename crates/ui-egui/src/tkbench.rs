@@ -111,7 +111,7 @@ pub fn bench(a: (&str, &[u8]), b: (&str, &[u8]), runs: usize) -> Result<String, 
             let p = v.cur.pages.first().ok_or("page")?;
             let view = cc_takeoff::scene3d::View { transform: Some(p.transform), width: p.width, height: p.height, step: None };
             let sc = cc_takeoff::scene3d::build_scene(&v.takeoff.tk.state, ka, &view)?;
-            let _ = cc_io_takeoff::glb::scene_to_glb(&sc.to_json(), "Takeoff");
+            let _ = cc_io_takeoff::glb::scene_glb(&sc, "Takeoff");
             Ok(())
         }),
         ("delete_all", |v, ka, _| {

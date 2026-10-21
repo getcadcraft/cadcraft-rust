@@ -261,7 +261,7 @@ impl PdfView {
         } else {
             format!("{base} - {}.glb", crate::takeofftools::safe_name(&self.takeoff.sheet_label(&d.sheet)))
         };
-        let bytes = cc_io_takeoff::glb::scene_to_glb(&d.scene.to_json(), &tname);
+        let bytes = cc_io_takeoff::glb::scene_glb(&d.scene, &tname);
         let n = d.scene.objects.iter().filter(|o| o.kind != "frame").count();
         #[allow(clippy::cast_precision_loss)]
         let fills = [("file", F::S(file.clone())), ("n", F::N(n as f64))];

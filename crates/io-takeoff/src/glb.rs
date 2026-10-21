@@ -5,7 +5,11 @@
 // capped project data and live in memory): it cannot overflow, so the crate-wide deny is relaxed for this module.
 #![allow(clippy::arithmetic_side_effects)]
 
+use std::borrow::Cow;
+
 use serde_json::{Map, Value, json};
+
+use cc_takeoff::scene3d::Scene;
 
 use cc_takeoff::jv::{self, n};
 
@@ -32,8 +36,62 @@ fn f32of(v: f64) -> f32 {
     f
 }
 
+/// One object of a scene as the writer reads it (from the scene JSON, or borrowed from a typed [`Scene`]).
+struct GObj<'a> {
+    kind: Cow<'a, str>,
+    tris: Cow<'a, [f64]>,
+    lines: Cow<'a, [f64]>,
+    color: String,
+    name: Option<String>,
+    id: Cow<'a, Value>,
+    item: Cow<'a, Value>,
+    measure: Option<Cow<'a, Value>>,
+}
+
 /// A scene (`buildScene` / `buildStack` JSON) → GLB bytes.
 pub fn scene_to_glb(scene: &Value, name: &str) -> Vec<u8> {
+    let objs = jv::arr(scene.get("objects")).map_or(&[][..], Vec::as_slice).iter().map(|o| {
+        let nums =
+            |k: &str| -> Vec<f64> { jv::arr(o.get(k)).map(|l| l.iter().map(|x| jv::to_number(Some(x))).collect()).unwrap_or_default() };
+        GObj {
+            kind: Cow::Owned(jv::to_string(o.get("kind"))),
+            tris: Cow::Owned(nums("tris")),
+            lines: Cow::Owned(nums("lines")),
+            color: jv::to_string_or_empty(o.get("color")),
+            name: o.get("name").filter(|v| jv::truthy(Some(v))).map(|v| jv::to_string(Some(v))),
+            id: Cow::Owned(o.get("id").cloned().unwrap_or(Value::Null)),
+            item: Cow::Owned(o.get("item").cloned().unwrap_or(Value::Null)),
+            measure: o.get("measure").map(|m| Cow::Owned(m.clone())),
+        }
+    });
+    glb_of(objs, name)
+}
+
+/// [`scene_to_glb`] of a typed scene, without its JSON: the same bytes as `scene_to_glb(&scene.to_json(), name)`
+/// (S.3: the JSON round trip of every coordinate was most of the writer's time).
+pub fn scene_glb(scene: &Scene, name: &str) -> Vec<u8> {
+    // what the JSON carries: a non-finite coordinate is written as null, which reads back as 0
+    fn fin(l: &[f64]) -> Cow<'_, [f64]> {
+        if l.iter().all(|v| v.is_finite()) {
+            Cow::Borrowed(l)
+        } else {
+            Cow::Owned(l.iter().map(|v| if v.is_finite() { *v } else { 0.0 }).collect())
+        }
+    }
+    let objs = scene.objects.iter().map(|o| GObj {
+        kind: Cow::Borrowed(o.kind),
+        tris: fin(&o.tris),
+        lines: fin(&o.lines),
+        color: jv::to_string_or_empty(Some(&o.color)),
+        name: Some(&o.name).filter(|v| jv::truthy(Some(v))).map(|v| jv::to_string(Some(v))),
+        id: Cow::Borrowed(&o.id),
+        item: Cow::Borrowed(&o.item),
+        measure: Some(Cow::Borrowed(&o.measure)),
+    });
+    glb_of(objs, name)
+}
+
+fn glb_of<'a>(objs: impl Iterator<Item = GObj<'a>>, name: &str) -> Vec<u8> {
     let mut chunks: Vec<Vec<f32>> = Vec::new();
     let mut byte_length = 0usize;
     let (mut buffer_views, mut accessors, mut meshes, mut nodes, mut materials) =
@@ -87,16 +145,12 @@ pub fn scene_to_glb(scene: &Value, name: &str) -> Vec<u8> {
         chunks.push(arr);
         accessors.len() - 1
     };
-    for o in jv::arr(scene.get("objects")).map_or(&[][..], Vec::as_slice) {
-        let kind = jv::to_string(o.get("kind"));
+    for o in objs {
+        let kind = o.kind.as_ref();
         if kind == "frame" {
             continue;
         }
-        let nums =
-            |k: &str| -> Vec<f64> { jv::arr(o.get(k)).map(|l| l.iter().map(|x| jv::to_number(Some(x))).collect()).unwrap_or_default() };
-        let tris = nums("tris");
-        let lines = nums("lines");
-        let color = jv::to_string_or_empty(o.get("color"));
+        let (tris, lines, color) = (o.tris.as_ref(), o.lines.as_ref(), o.color.as_str());
         let mut prims = Vec::new();
         if tris.len() >= 9 {
             let nv = tris.len() / 3;
@@ -104,7 +158,7 @@ pub fn scene_to_glb(scene: &Value, name: &str) -> Vec<u8> {
             let mut nor = vec![0f32; nv * 3];
             let mut v = 0usize;
             while v < nv {
-                let (a, b, c) = (to_gl(&tris, v * 3), to_gl(&tris, v * 3 + 3), to_gl(&tris, v * 3 + 6));
+                let (a, b, c) = (to_gl(tris, v * 3), to_gl(tris, v * 3 + 3), to_gl(tris, v * 3 + 6));
                 let (ux, uy, uz) = (b[0] - a[0], b[1] - a[1], b[2] - a[2]);
                 let (vx, vy, vz) = (c[0] - a[0], c[1] - a[1], c[2] - a[2]);
                 let (mut nx, mut ny, mut nz) = (uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
@@ -132,13 +186,13 @@ pub fn scene_to_glb(scene: &Value, name: &str) -> Vec<u8> {
             }
             let pa = add_accessor(&mut buffer_views, &mut accessors, &mut chunks, pos, "VEC3", true);
             let na = add_accessor(&mut buffer_views, &mut accessors, &mut chunks, nor, "VEC3", false);
-            let mi = material(&mut materials, &color, kind == "slab" || kind == "plate");
+            let mi = material(&mut materials, color, kind == "slab" || kind == "plate");
             prims.push(json!({ "attributes": { "POSITION": pa, "NORMAL": na }, "material": mi, "mode": 4 }));
         } else if kind == "run" && lines.len() >= 6 {
             let nv = lines.len() / 3;
             let mut pos = vec![0f32; nv * 3];
             for v in 0..nv {
-                let p = to_gl(&lines, v * 3);
+                let p = to_gl(lines, v * 3);
                 for (d, pv) in p.iter().enumerate() {
                     if let Some(slot) = pos.get_mut(v * 3 + d) {
                         *slot = f32of(*pv);
@@ -146,20 +200,20 @@ pub fn scene_to_glb(scene: &Value, name: &str) -> Vec<u8> {
                 }
             }
             let pa = add_accessor(&mut buffer_views, &mut accessors, &mut chunks, pos, "VEC3", true);
-            let mi = material(&mut materials, &color, false);
+            let mi = material(&mut materials, color, false);
             prims.push(json!({ "attributes": { "POSITION": pa }, "material": mi, "mode": 1 }));
         }
         if prims.is_empty() {
             continue;
         }
-        let oname = o.get("name").filter(|v| jv::truthy(Some(v))).map(|v| jv::to_string(Some(v)));
-        meshes.push(json!({ "name": oname.clone().unwrap_or_else(|| kind.clone()), "primitives": prims }));
+        let oname = o.name;
+        meshes.push(json!({ "name": oname.clone().unwrap_or_else(|| kind.to_string()), "primitives": prims }));
         let mut extras = Map::new();
-        extras.insert("mark".into(), o.get("id").cloned().unwrap_or(Value::Null));
-        extras.insert("item".into(), o.get("item").cloned().unwrap_or(Value::Null));
-        extras.insert("kind".into(), Value::String(kind.clone()));
-        if let Some(m) = o.get("measure") {
-            extras.insert("measure".into(), m.clone());
+        extras.insert("mark".into(), o.id.into_owned());
+        extras.insert("item".into(), o.item.into_owned());
+        extras.insert("kind".into(), Value::String(kind.to_string()));
+        if let Some(m) = o.measure {
+            extras.insert("measure".into(), m.into_owned());
         }
         nodes.push(json!({ "name": format!("{} ({kind})", oname.unwrap_or_default()), "mesh": meshes.len() - 1, "extras": extras }));
     }

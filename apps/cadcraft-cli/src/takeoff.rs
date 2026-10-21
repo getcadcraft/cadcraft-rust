@@ -156,7 +156,7 @@ fn export_cmd(rest: &[&str]) -> ExitCode {
         "glb" => {
             let sheet = flag(rest, "--sheet").unwrap_or("");
             match cc_takeoff::scene3d::build_scene(&state, sheet, &cc_takeoff::scene3d::View::default()) {
-                Ok(sc) => cc_io_takeoff::glb::scene_to_glb(&sc.to_json(), "TakeoffCraft"),
+                Ok(sc) => cc_io_takeoff::glb::scene_glb(&sc, "TakeoffCraft"),
                 Err(e) => {
                     crate::print_error("scene", &e);
                     return ExitCode::from(1);

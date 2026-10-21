@@ -2,6 +2,41 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — S.1–S.3 Speed: number text without the 1100-digit expansion, typed GLB writer (agent, work/speed)
+
+- Profiled with perf (cpu-clock; `perf_event_paranoid` does not block root). S.1 and S.2 share one cause: the JS-exact
+  number text expanded every number to 1100 digits (`format!("{:.1100e}")` / `{:.1100}`). In the marked PDF it was
+  cc-takeoff `jv::num_str`'s check for an exact tie between two shortest digit strings (pdf-lib's `numberToString`,
+  and `jv::stringify` everywhere); in CivilCraft's PDF page writer it was cc-cad `js::to_fixed` (plot.rs `num`,
+  `toFixed(4)` per coordinate). Deflate was 2 % of the civil profile, formatting 8 % + the allocations around it.
+- S.1 `jv::num_str`: the bit-level checks skip the tie work for nearly every number (an even last digit is already
+  the right candidate; x = m·2^e2 with more than k + 1 exact significant digits cannot be a tie), and the few that go
+  on (f32 values, short binary fractions) get their exact digits from a u128 (m·5^n or m·2^e2) instead of 1100
+  digits. pdfw `number_to_string` formats once instead of three times. Test: `js_number_text_fast_path_matches_exact`
+  (120k values against the old exact path).
+- S.2 cc-cad `js::to_fixed`: Rust's correctly rounded `{:.(f+25)}` decides the half-up rounding; only a tail that reads
+  exactly 5000…0 goes the exact way (`to_fixed_exact`). Test: `to_fixed_fast_equals_exact` (7k values × 13 place counts).
+- S.3 cc-io-takeoff `glb::scene_glb(&Scene, name)`: the GLB from the typed scene, without the JSON round trip of every
+  coordinate; `scene_to_glb(&Value)` stays for scripts and shares the writer (same bytes, non-finite coordinates read as
+  0 as the JSON does). The 3D view, the CLI and tkbench use it. Most of S.3's gain came from S.1 (`jv::stringify`).
+- Parity: tkopsdiff 61/61 files, 262/262 status lines (marked PDFs, GLB identical); cvtooldiff 76/76 projects, 2084/2084 status lines, 20/20 files (section sheets PDF included).
+- Timings, best of 7 (tkactbench) / best of 3 (cvsheetbench), ms, JS 0.5 vs Rust in the same run (the VPS load moved
+  between runs, so compare the JS/Rust columns):
+
+  | item | before: JS / Rust | × JS | after: JS / Rust | × JS |
+  |---|---|---|---|---|
+  | S.1 marked PDF (rev-a, 251 marks) | 9.8 / 34.9 | 0.3× | 9.0 / 2.0 | 4.5× |
+  | S.2 section sheets PDF (107 sections, layout + PDF) | 115 / 263 | 0.4× | 188 / 138 | 1.4× |
+  | S.3 3D scene + GLB | 16.0 / 17.0 | 0.9× | 11.5 / 5.7 | 2.0× |
+
+  The 0.2× / 0.6× of the M9.23 entry were measured under heavier load. In isolation (release test probe) the GLB
+  writer went 6.0 → 3.2 ms (scene build 1.2 ms, the glTF JSON's maps are what is left).
+- Not done (stopped for the move to a bigger machine): S.4 XATTACH on Carey — `Doc::define_block_owned` clones the
+  whole `Block` (every entity's geometry) into `Op::Block` for undo; the fix is a copy-on-write `Block.entities`
+  (`Arc<Vec<Entity>>` with `Deref`/`DerefMut` via `make_mut`, as M4.14's `Extra`), ~130 `.entities` uses to check.
+  S.5 DXF 2000 save not profiled; it may use cc-cad `to_fixed` / `num_to_string` and gain from S.2 already.
+  TakeoffCraft copy + paste in place is 0.5–0.9× too (not in this list; unprofiled).
+
 ## 2026-10-20 — M6.20 ModelCraft solids, intersect faces, IFC storeys, drawing axes (agent, work/m3dfix)
 
 - `crates/ui-egui/src/mcsolids.rs`: the Solids menu as modelcraft.js runs it (Union and Intersect on the selected
