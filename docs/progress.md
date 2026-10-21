@@ -2,6 +2,62 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — S.4–S.8 Speed: shared block lists, undo that moves objects, clipboards without copies (agent, work/speed2)
+
+- Profiled with perf (cpu-clock:u, frame pointers, `--profile profiling`; this WSL perf does not resolve symbols, so
+  samples were symbolised with addr2line by a script in the scratch folder). Timed against the frozen 0.5 JS in the same
+  runs (drafttime best of 9, tkactbench best of 15, mcuidiff `--bench-edit --bench-acts` best of 7), "before" = a build
+  of 817047a run alongside. The machine is the owner's desktop and other agents were building: the JS column moved by
+  up to 2× between runs, so compare within a row.
+- S.4 XATTACH: `Block.entities` is `cc_cad::Ents` (an `Arc<Vec<Entity>>` read through `Deref`, copied on the first
+  write through `DerefMut`), so a block's undo op, `define_block`'s result and every clone share one list (as M4.14's
+  `Extra`). `Extra::get` / `contains_key` (and so `remove`) compare keys in order for maps of up to 8 keys instead of
+  hashing. attach_xref maps each object in place (its layer name grows in front, no `format!`), the language catalog
+  is shared (`Lang` was copied whole by every XATTACH, UNITS, LAYOUT …). Test: `block_objects_shared_copy_on_write`.
+- S.5 DXF 2000: measured first — the 0.7× in gaps.md was from before M5.1; here it is 1.04×. `js::to_exponential`
+  without the 1100-digit expansion (as S.2's to_fixed; test against the exact path on 7k values × 13 place counts),
+  INSERT attributes borrowed, entity bases moved instead of copied: 2–6 %, inside the noise. What is left is spread over
+  the save model (building 48 %, writing 37 %, freeing 11 %); the next step is writing DXF 2000 from the typed objects.
+- S.8 whole-drawing edits: undo / redo move objects between the step and the drawing (`Doc::apply_moving`) instead of
+  copying them, so a done step need not keep its `after` objects (kept for viewports only, which the VIEWLABEL hook
+  reads); `Op::Ent` boxes its objects (an op was 752 bytes); `Doc::add_id` adds without handing a copy back; EXPLODE
+  plans without copying the selection and reserves room; MOVE / COPY / ROTATE / SCALE / MIRROR keep ids and read the
+  objects from the drawing for the preview and the change (the JS keeps references), with the transform's scale and
+  turn worked out once. Test: `undo_redo_move_objects_and_keep_every_state`.
+- S.6 TakeoffCraft copy + paste in place: the selection is checked against a set of ids (was a scan per id), the clip
+  is read back from the copy it was made from (`read_clip_owned`: lists and fields move), lists go into JSON without
+  `json!`'s serialising copy, the pasted marks' extras are read without copying each mark, the clip is lent to the
+  paste instead of copied, and marks / points are looked up in order. Test: owned and borrowed reads give the same clip.
+- S.7 ModelCraft undo: a change shares the before entry of every definition its JSON left as it was (`share_unchanged`,
+  which also gives `same_snap`'s answer), so undo finds them by identity instead of comparing a 50k-face definition's
+  geometry; definition equality checks every count first; the definitions an undo replaces are freed at the next change.
+- Parity: kdiff (seed 1, 45 scenarios + 8 scripts) 3449/3537, report identical line for line to the 817047a build's
+  (the 88 are main's); idiff `--set kit --save` 78 files 0 differences, DWG 2000–2018 and DXF 2000 78/78 each; the two
+  Carey drawings saved as DWG 2000 / 2018, DXF 2000 / R12 byte-identical to the 817047a build; tkopsdiff 61 checks 0
+  different, 262/262 status lines; mdiff 640/640 + 1247/1247 cases; tdiff all sections; mcuidiff 1200/1200 steps,
+  1243/1243 files; mcuidiff `--edit` 1304/1320 and 1241/1301, the same report as the 817047a build (its 16 / 60 are
+  stretch-go, which came with M6.21 after it).
+- Timings, ms (JS 0.5 / Rust, × the JS):
+
+  | item | before | after |
+  |---|---|---|
+  | S.4 XATTACH, Carey (21,491 objects) | 10.2 / 18.1 · 0.6× | 9.7 / 5.4 · 1.8× |
+  | S.4 XATTACH, ar1all (9,021) | 6.9 / 11.5 · 0.6× | 6.7 / 6.3 · 1.1× |
+  | S.5 DXF 2000 save, Carey | 228 / 219 · 1.04× | 228 / 214 · 1.06× |
+  | S.6 TakeoffCraft copy + paste in place (251 marks) | 0.8 / 2.1 · 0.4× | 0.6 / 0.9 · 0.7× |
+  | S.7 ModelCraft copy (50k faces) | 88 / 55 · 1.6× | 89 / 53 · 1.7× |
+  | S.7 ModelCraft undo of paste in place | 0.47 / 1.62 · 0.3× | 0.40 / 0.11 · 3.5× |
+  | S.7 ModelCraft undo of flip / flipped copy | 0.36 / 0.66 · 0.5× | 0.37 / 0.08 · 4.8× |
+  | S.8 SELECT ALL + MOVE, Carey | 35 / 31 · 1.1× | 32 / 20 · 1.6× |
+  | S.8 EXPLODE ALL, Carey | 48 / 53 · 0.9× | 45 / 29 · 1.5× |
+  | S.8 ERASE ALL + UNDO, Carey | 10.7 / 13.3 · 0.8× | 10.2 / 6.1 · 1.7× |
+  | S.8 ARRAY 2 × 1 of ALL, Carey | 84 / 46 · 1.8× | 83 / 32 · 2.6× |
+  | S.8 MATCHPROP onto ALL, Carey | 73 / 37 · 2.0× | 58 / 28 · 2.1× |
+  | S.8 EXPLODE ALL / ERASE ALL + UNDO, ar1all | 26.7 / 22.9 · 1.2×, 7.2 / 5.5 · 1.3× | 26.4 / 13.1 · 2.0×, 6.8 / 2.8 · 2.4× |
+
+  The lead's 0.8× / 0.7× / 0.5–0.9× were measured under other load; ModelCraft copy was 1.6× here before any change.
+- Not done: DXF 2000 (above); TakeoffCraft copy + paste is still under the JS; ModelCraft redo of a paste rebuilds the
+  pasted definition from its JSON (~45 ms, as `defOf(JSON.parse)` in the JS; not timed there); MOVE on ar1all 1.3×.
 ## 2026-10-21 — M6.22 ModelCraft sun shadows in the 3D view (agent, work/model621)
 
 - `crates/render/src/mesh3d.rs` + `shader3d.wgsl`: with Style › Shadows on, the view lights the model as view3d.js

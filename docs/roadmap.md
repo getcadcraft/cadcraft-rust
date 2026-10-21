@@ -1,6 +1,6 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-18 · Change: all eight engines at parity; PartCraft and DetailCraft views; wasm threads measured and not shipped (M15.1).
+Last updated 2026-10-21 · Change: DXF 2000 save speed measured again (S.5); all eight engines at parity; PartCraft and DetailCraft views; wasm threads measured and not shipped (M15.1).
 
 | Date | Change |
 |---|---|
@@ -95,7 +95,7 @@ web speed needs a profile of the decoder itself (perf is blocked here: `perf_eve
 
 - **Every engine ported so far is at exact parity** (byte-identical writers, 0-difference readers and geometry). The
   port-then-diff method (frozen JS vs `cadcraft-cli`, harnesses in `forks/tools`) works; keep it for m3d, ifc, skp.
-- **Speed is uneven.** Readers 2–4× the JS natively; DWG saves 1.1–1.4×; **DXF 2000 save 0.7× (slower)**. The cost is
+- **Speed is uneven.** Readers 2–4× the JS natively; DWG saves 1.1–1.4×; DXF 2000 save 1.0–1.1× (was 0.7× before M5.1; S.5). The cost is
   the JS-shaped dynamic value model (allocation, clones, hashed maps, number formatting), not the algorithms. M5 (a)
   adds typed fast paths where a profile shows it, keeping the dynamic model as the parity reference.
 - **Editing a big drawing** rebuilds the whole display model per edit (127 ms of the 3.4 MB drawing's 360 ms edit;

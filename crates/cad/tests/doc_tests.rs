@@ -271,3 +271,62 @@ fn block_objects_shared_copy_on_write() {
     d.undo();
     assert!(d.blocks.get(&"B".to_string()).is_none());
 }
+
+/// S.8: undo and redo move objects between the step and the drawing (no copies); every mix of add, update and
+/// remove, undone and redone in any order, gives the drawing each step had, and a squashed step too.
+#[test]
+fn undo_redo_move_objects_and_keep_every_state() {
+    // the objects by id (an undone erase comes back last, as a JS Map does: order is not compared here)
+    fn objs(d: &Doc) -> Vec<Value> {
+        let mut v: Vec<Value> = d.model().map(Entity::to_value).collect();
+        v.sort_by_key(|o| o["id"].as_u64());
+        v
+    }
+    let mut d = Doc::new();
+    let mut states = vec![objs(&d)];
+    let (a, b) = d
+        .change("ADD", |d| Ok((d.add(line())?.id.unwrap_or(0), d.add_id(e(json!({ "type": "circle", "cx": 1, "cy": 2, "r": 3 })))?)))
+        .unwrap();
+    states.push(objs(&d));
+    d.change("EDIT", |d| {
+        d.update(a, e(json!({ "type": "line", "x1": 5, "y1": 5, "x2": 6, "y2": 6 })))?;
+        d.remove(b)?;
+        d.add_id(line())?;
+        d.update(a, e(json!({ "type": "line", "x1": 7, "y1": 7, "x2": 8, "y2": 8 })))?;
+        Ok(())
+    })
+    .unwrap();
+    states.push(objs(&d));
+    let mark = d.mark();
+    d.change("MOVE", |d| d.update(a, line()).map(|_| ())).unwrap();
+    d.change("ERASE", |d| d.remove(a)).unwrap();
+    d.squash(mark, "BOTH");
+    states.push(objs(&d));
+    for _ in 0..3 {
+        for want in states.iter().rev().skip(1) {
+            d.undo();
+            assert_eq!(&objs(&d), want);
+        }
+        for want in states.iter().skip(1) {
+            d.redo();
+            assert_eq!(&objs(&d), want);
+        }
+        // part way and back
+        d.undo();
+        d.undo();
+        d.redo();
+        assert_eq!(&objs(&d), &states[2]);
+        d.redo();
+        assert_eq!(&objs(&d), &states[3]);
+    }
+    // a failed change rolls back from what the step holds
+    let before = objs(&d);
+    let r: Result<(), DocError> = d.change("BAD", |d| {
+        d.add_id(line())?;
+        let first = d.model().next().and_then(|x| x.id).unwrap_or(0);
+        d.remove(first)?;
+        Err(DocError::NotInChange)
+    });
+    assert!(r.is_err());
+    assert_eq!(objs(&d), before);
+}

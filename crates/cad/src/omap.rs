@@ -46,6 +46,11 @@ impl<K: Hash + Eq + Clone, V> OMap<K, V> {
 }
 
 impl<K: Hash + Eq + Clone, V, S: BuildHasher + Default> OMap<K, V, S> {
+    /// Room for `n` more entries (a whole-drawing edit adding many objects at once).
+    pub fn reserve(&mut self, n: usize) {
+        self.slots.reserve(n);
+        self.index.reserve(n);
+    }
     pub fn len(&self) -> usize {
         self.index.len()
     }

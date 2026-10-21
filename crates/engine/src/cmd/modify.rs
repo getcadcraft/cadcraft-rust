@@ -7,7 +7,7 @@ use cc_cad::js;
 use cc_cad_geom::edit::offset_entity;
 use cc_cad_geom::geom::{M, Prim, TAU, angle_of, dist, m_about, m_mirror, m_rotate, m_scale, m_translate, norm_angle, prim_point, prims};
 use cc_cad_geom::jsmath::JsMath;
-use cc_cad_geom::tx::tx_entity;
+use cc_cad_geom::tx::{tx_entity_sim, tx_sim};
 use cc_geom::P2;
 
 use crate::engine::{Ctx, OffsetMemo, Opts, R, Reply};
@@ -30,11 +30,12 @@ pub async fn erase(c: Ctx) -> R {
 }
 
 /// `apply(c, src, m, copy)`: one change moving (or copying) the objects through m.
-fn apply(c: &Ctx, src: &[Entity], m: &M, copy: bool) -> R {
+fn apply(c: &Ctx, src: &[u64], m: &M, copy: bool) -> R {
+    let sim = tx_sim(m);
     c.change(if copy { "COPY" } else { "MOVE" }, |d| {
-        for e in src {
-            let id = e.id.unwrap_or(0);
-            let mut t = tx_entity(d.get(id).unwrap_or(e), m);
+        for &id in src {
+            let Some(e) = d.get(id) else { continue };
+            let mut t = tx_entity_sim(e, m, &sim);
             if copy {
                 t.id = None;
                 t.extra.remove("id");
@@ -60,13 +61,17 @@ pub fn undo_inside(c: &Ctx) {
     }
 }
 
-pub(crate) fn sources(c: &Ctx, ids: &[u64]) -> Vec<Entity> {
+/// The selected objects that exist, by id: the command reads them from the drawing (which it does not change until
+/// it applies), as the JS keeps references to them, instead of copying each one.
+pub(crate) fn sources(c: &Ctx, ids: &[u64]) -> Vec<u64> {
     let d = c.doc();
-    ids.iter().filter_map(|id| d.get(*id).cloned()).collect()
+    ids.iter().copied().filter(|id| d.get(*id).is_some()).collect()
 }
 
-fn tx_all(src: &[Entity], m: &M) -> Vec<Entity> {
-    src.iter().map(|e| tx_entity(e, m)).collect()
+fn tx_all(sh: &crate::engine::Shared, src: &[u64], m: &M) -> Vec<Entity> {
+    let Ok(d) = sh.doc.try_borrow() else { return Vec::new() };
+    let sim = tx_sim(m);
+    src.iter().filter_map(|id| d.get(*id)).map(|e| tx_entity_sim(e, m, &sim)).collect()
 }
 
 pub async fn move_like(c: Ctx, copy: bool) -> R {
@@ -83,7 +88,7 @@ pub async fn move_like(c: Ctx, copy: bool) -> R {
     let Some(base) = b.point() else { return Ok(()) };
     loop {
         let s = Rc::clone(&src);
-        c.preview(Some(Rc::new(move |_, cur| tx_all(&s, &m_translate(cur.x - base.x, cur.y - base.y)))));
+        c.preview(Some(Rc::new(move |sh, cur| tx_all(sh, &s, &m_translate(cur.x - base.x, cur.y - base.y)))));
         let options = if copy { vec![c.opt("U", "Undo")] } else { Vec::new() };
         let p = c.point(c.t("cmd.mea.p2"), Opts { base: Some(base), none: true, options, ..Opts::default() }).await?;
         match p {
@@ -111,7 +116,7 @@ pub async fn rotate(c: Ctx) -> R {
     let src = Rc::new(sources(&c, &ids.0));
     let base = c.must_point(c.t("cmd.stretch.base"), Opts::default()).await?;
     let s = Rc::clone(&src);
-    c.preview(Some(Rc::new(move |_, cur| tx_all(&s, &m_about(base, &m_rotate(angle_of(base, cur)))))));
+    c.preview(Some(Rc::new(move |sh, cur| tx_all(sh, &s, &m_about(base, &m_rotate(angle_of(base, cur)))))));
     let default = Def::Num(c.st().last_rotation.unwrap_or(0.0));
     let a = c.angle(c.t("cmd.mtext.rot"), Opts { base: Some(base), default: Some(default), ..Opts::default() }).await?;
     let Reply::Num(a) = a else { return Ok(()) };
@@ -127,9 +132,9 @@ pub async fn scale(c: Ctx) -> R {
     let src = Rc::new(sources(&c, &ids.0));
     let base = c.must_point(c.t("cmd.stretch.base"), Opts::default()).await?;
     let s = Rc::clone(&src);
-    c.preview(Some(Rc::new(move |_, cur| {
+    c.preview(Some(Rc::new(move |sh, cur| {
         let f = js::max(dist(base, cur), 1e-9);
-        tx_all(&s, &m_about(base, &m_scale(f, f)))
+        tx_all(sh, &s, &m_about(base, &m_scale(f, f)))
     })));
     let r = c.distance(c.t("cmd.scale.specify_scale_factor"), Opts { base: Some(base), ..Opts::default() }).await?;
     let Reply::Num(f) = r else { return Ok(()) };
@@ -147,7 +152,7 @@ pub async fn mirror(c: Ctx) -> R {
     let src = Rc::new(sources(&c, &ids.0));
     let a = c.must_point(c.t("cmd.mirror.specify_first_point_mirror"), Opts::default()).await?;
     let s = Rc::clone(&src);
-    c.preview(Some(Rc::new(move |_, cur| if dist(a, cur) > 1e-12 { tx_all(&s, &m_mirror(a, cur)) } else { Vec::new() })));
+    c.preview(Some(Rc::new(move |sh, cur| if dist(a, cur) > 1e-12 { tx_all(sh, &s, &m_mirror(a, cur)) } else { Vec::new() })));
     let b = c.must_point(c.t("cmd.mirror.specify_second_point_mirror"), Opts { base: Some(a), ..Opts::default() }).await?;
     if dist(a, b) < 1e-12 {
         return Ok(());

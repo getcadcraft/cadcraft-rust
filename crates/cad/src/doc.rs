@@ -355,11 +355,16 @@ pub enum StyleTable {
 #[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum Op {
+    /// One object's change. The side whose object is in the drawing need not be kept: undo and redo
+    /// (`apply_moving`) move objects between the step and the drawing and never read that side, so a done step may
+    /// hold `after: None` for an object that is in the drawing (kept only for viewports, which the VIEWLABEL hook
+    /// reads), and an undone step holds `before: None` for one that is back in the drawing.
     Ent {
         space: SpaceId,
         id: u64,
-        before: Option<Entity>,
-        after: Option<Entity>,
+        // boxed: a step of a whole-drawing edit holds one op per object, and an unboxed op is 750 bytes
+        before: Option<Box<Entity>>,
+        after: Option<Box<Entity>>,
     },
     Block {
         name: String,
@@ -807,9 +812,9 @@ impl Doc {
     /// `field: {k: 'vpview', vp}`) follows its viewport's view name in the same undo step.
     fn view_label_hook(&mut self) -> Result<(), DocError> {
         let Some(p) = self.pending.as_ref() else { return Ok(()) };
-        let is_vp = |e: &Option<Entity>| e.as_ref().is_some_and(|e| matches!(e.geo, Geo::Viewport(_)));
+        let is_vp = |e: &Option<Box<Entity>>| e.as_ref().is_some_and(|e| matches!(e.geo, Geo::Viewport(_)));
         let vname =
-            |e: &Option<Entity>| e.as_ref().and_then(|e| e.extra.get("vname")).filter(|v| js::truthy(Some(v))).map(js::to_js_string);
+            |e: &Option<Box<Entity>>| e.as_ref().and_then(|e| e.extra.get("vname")).filter(|v| js::truthy(Some(v))).map(js::to_js_string);
         let mut changed: Vec<(SpaceId, u64, Option<String>, bool)> = Vec::new();
         for op in &p.ops {
             let Op::Ent { space, id, before, after } = op else { continue };
@@ -862,6 +867,25 @@ impl Doc {
         self.add_in(e, s)
     }
     pub fn add_in(&mut self, e: Entity, space: SpaceId) -> Result<Entity, DocError> {
+        let id = self.add_in_id(e, space)?;
+        Ok(self.spaces.get(&space).and_then(|m| m.get(&id)).cloned().unwrap_or_else(|| Entity::new(Geo::Other)))
+    }
+    /// Room for `n` more objects in the open space and in the change's undo step (capped: a hint, not a promise).
+    pub fn reserve(&mut self, n: usize) {
+        let n = n.min(1 << 22);
+        let s = self.space;
+        self.spaces.entry(s).or_default().reserve(n);
+        if let Some(p) = self.pending.as_mut() {
+            p.ops.reserve(n);
+        }
+    }
+    /// [`Doc::add`] → the new id only (no copy of the object: it moves into the drawing).
+    pub fn add_id(&mut self, e: Entity) -> Result<u64, DocError> {
+        let s = self.space;
+        self.add_in_id(e, s)
+    }
+    /// [`Doc::add_in`] → the new id only.
+    pub fn add_in_id(&mut self, e: Entity, space: SpaceId) -> Result<u64, DocError> {
         self.must_be_in_change()?;
         let mut ent = e;
         if ent.color.is_none() {
@@ -876,9 +900,10 @@ impl Doc {
         ent.id = Some(id);
         ent.extra.remove("id");
         self.ensure_layer(ent.layer_str());
-        self.spaces.entry(space).or_default().insert(id, ent.clone());
-        self.push(Op::Ent { space, id, before: None, after: Some(ent.clone()) })?;
-        Ok(ent)
+        let after = matches!(ent.geo, Geo::Viewport(_)).then(|| Box::new(ent.clone()));
+        self.spaces.entry(space).or_default().insert(id, ent);
+        self.push(Op::Ent { space, id, before: None, after })?;
+        Ok(id)
     }
     /// Replace entity `id` of the open space with `{ ...e, id }` (false when there is no such entity).
     pub fn update(&mut self, id: u64, e: Entity) -> Result<bool, DocError> {
@@ -893,8 +918,7 @@ impl Doc {
         Ok(self.spaces.get(&space).and_then(|m| m.get(&id)).cloned())
     }
     /// Replace entity `id` of a space with `{ ...e, id }` → false when there is no such entity. The old entity moves
-    /// into the undo op as it is (no copy); the new one is stored once and shared with the op (one clone, whose extra
-    /// keys are shared, not copied).
+    /// into the undo op as it is, the new one into the drawing (no copy; see [`Op::Ent`]).
     pub fn replace_in(&mut self, id: u64, e: Entity, space: SpaceId) -> Result<bool, DocError> {
         self.must_be_in_change()?;
         let Some(m) = self.spaces.get_mut(&space) else { return Ok(false) };
@@ -904,8 +928,10 @@ impl Doc {
         let mut after = e;
         after.id = Some(id);
         after.extra.remove("id");
-        let before = m.replace(id, after.clone());
-        self.push(Op::Ent { space, id, before, after: Some(after) })?;
+        let vp = matches!(after.geo, Geo::Viewport(_)) || m.get(&id).is_some_and(|b| matches!(b.geo, Geo::Viewport(_)));
+        let kept = vp.then(|| Box::new(after.clone()));
+        let before = m.replace(id, after).map(Box::new);
+        self.push(Op::Ent { space, id, before, after: kept })?;
         Ok(true)
     }
     pub fn remove(&mut self, id: u64) -> Result<(), DocError> {
@@ -915,7 +941,7 @@ impl Doc {
     pub fn remove_in(&mut self, id: u64, space: SpaceId) -> Result<(), DocError> {
         self.must_be_in_change()?;
         let Some(before) = self.spaces.get_mut(&space).and_then(|m| m.remove(&id)) else { return Ok(()) };
-        self.push(Op::Ent { space, id, before: Some(before), after: None })
+        self.push(Op::Ent { space, id, before: Some(Box::new(before)), after: None })
     }
     /// Add or replace a block definition (entities lose their ids; base `x || 0`, `y || 0`).
     pub fn define_block(&mut self, b: &Block) -> Result<Block, DocError> {
@@ -1076,7 +1102,7 @@ impl Doc {
             Op::Ent { space, id, before, after } => {
                 let m = self.spaces.entry(*space).or_default();
                 match if forward { after } else { before } {
-                    Some(e) => m.insert(*id, e.clone()),
+                    Some(e) => m.insert(*id, Entity::clone(e)),
                     None => {
                         m.remove(id);
                     }
@@ -1088,6 +1114,22 @@ impl Doc {
         for op in ops.iter().rev() {
             self.apply(op, false);
         }
+    }
+    /// [`Doc::apply`] for undo / redo: an object moves from the step into the drawing, and the one it replaces moves
+    /// into the step's other side (the same object, as the step and the drawing agree), so nothing is copied. While a
+    /// step is undone its `before` objects live in the drawing; while it is done, its `after` objects do.
+    fn apply_moving(&mut self, op: &mut Op, forward: bool) {
+        let Op::Ent { space, id, before, after } = op else {
+            self.apply(op, forward);
+            return;
+        };
+        let (to, from) = if forward { (after, before) } else { (before, after) };
+        let m = self.spaces.entry(*space).or_default();
+        *from = match to.take() {
+            Some(e) => m.replace(*id, *e),
+            None => m.remove(id),
+        }
+        .map(Box::new);
     }
 
     /// Undo steps recorded so far: pass to `squash` to fold everything after it into one step.
@@ -1115,17 +1157,19 @@ impl Doc {
     }
     /// Undo the last step → its label (None = nothing to undo).
     pub fn undo(&mut self) -> Option<String> {
-        let step = self.undo_stack.pop()?;
-        self.rollback(&step.ops);
+        let mut step = self.undo_stack.pop()?;
+        for op in step.ops.iter_mut().rev() {
+            self.apply_moving(op, false);
+        }
         let label = step.label.clone();
         self.redo_stack.push(step);
         self.after_history();
         Some(label)
     }
     pub fn redo(&mut self) -> Option<String> {
-        let step = self.redo_stack.pop()?;
-        for op in &step.ops {
-            self.apply(op, true);
+        let mut step = self.redo_stack.pop()?;
+        for op in &mut step.ops {
+            self.apply_moving(op, true);
         }
         let label = step.label.clone();
         self.undo_stack.push(step);

@@ -456,31 +456,37 @@ pub async fn explode(c: Ctx) -> R {
     let ids = c.select(None, false).await?;
     let mut n = 0usize;
     let mut linked: Vec<String> = Vec::new();
-    let plan: Vec<(u64, Option<String>, Option<Vec<Entity>>)> = ids
-        .0
-        .iter()
-        .map(|id| {
-            let e = c.doc().get(*id).cloned();
-            let link = match &e {
-                Some(Entity { geo: Geo::Insert(i), .. }) => link_of(&c, &i.block),
-                _ => None,
-            };
-            let parts = if link.is_some() { None } else { e.as_ref().and_then(|e| explode_entity(e, Some(&c.doc().blocks))) };
-            (*id, link, parts)
-        })
-        .collect();
+    let plan: Vec<(u64, Option<String>, Option<Vec<Entity>>)> = {
+        let d = c.doc();
+        ids.0
+            .iter()
+            .map(|id| {
+                let e = d.get(*id);
+                let link = match e {
+                    Some(Entity { geo: Geo::Insert(i), .. }) => link_of(&c, &i.block),
+                    _ => None,
+                };
+                let parts = if link.is_some() { None } else { e.and_then(|e| explode_entity(e, Some(&d.blocks))) };
+                (*id, link, parts)
+            })
+            .collect()
+    };
     c.change("EXPLODE", |d| {
-        for (id, link, parts) in &plan {
+        let (parts_n, ops_n) = plan.iter().fold((0usize, 0usize), |(a, b), (_, _, p)| {
+            p.as_ref().map_or((a, b), |p| (a.saturating_add(p.len()), b.saturating_add(p.len()).saturating_add(1)))
+        });
+        d.reserve(parts_n.max(ops_n));
+        for (id, link, parts) in plan {
             if let Some(l) = link {
-                if !linked.contains(l) {
-                    linked.push(l.clone());
+                if !linked.contains(&l) {
+                    linked.push(l);
                 }
                 continue;
             }
             let Some(parts) = parts else { continue };
-            d.remove(*id)?;
+            d.remove(id)?;
             for p in parts {
-                d.add(p.clone())?;
+                d.add_id(p)?;
             }
             n = n.saturating_add(1);
         }

@@ -1,6 +1,6 @@
 # Gaps against CadCraft 0.5
 
-Last updated 2026-10-21 · Change: ModelCraft sun shadows (M6.22); ModelCraft components that stretch (M6.21); local-time dates in every ported writer (M16.8); GeoTIFF reads capped at 1 GB (civil_raster fuzz OOM, M11.16); speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
+Last updated 2026-10-21 · Change: speed S.4–S.8 (XATTACH, whole-drawing edits and undo on Carey, TakeoffCraft copy + paste, ModelCraft undo); ModelCraft sun shadows (M6.22); ModelCraft components that stretch (M6.21); local-time dates in every ported writer (M16.8); GeoTIFF reads capped at 1 GB (civil_raster fuzz OOM, M11.16); speed S.1–S.3 (marked PDF, section sheets PDF, 3D GLB faster than 0.5); ModelCraft solids, storeys, drawing axes (M6.20); ModelCraft copy / paste, duplicate, flip, 3D text (M6.19); TakeoffCraft 3D view (M9.23); TakeoffCraft revisions (M9.22); TakeoffCraft typical groups and markups (M9.21); TakeoffCraft arcs / circles, corner drags, multi-select, clipboard (M9.20); MarkupCraft BCF, compare overlay / line-up / sets (M9.19); MarkupCraft cut-outs, spaces, legends, links, punch list (M9.18); MarkupCraft picture / signature stamps and tool chest (M9.17); MarkupCraft clipboard, Markups list, replies, sheet rename, Pages menu (M9.16); visibility states in BEDIT (M4.20); pictures (M4.19); linked drawings and XCLIP (M4.18); BimCraft library items placed from the plan (M7.15), plan grips (M7.14); UCS and view turns, POLARANG, COUNT (M4.17); sheets and viewports, named views (M4.16); clipboard, QSELECT / SELECTSIMILAR / FIND, UNITS (M4.15); CivilCraft sheets, mass haul, WL.20 / WL.23, Properties edits, lasso (M11.11–M11.14); drafting edits share each object's extra data (M4.14); drafting commands, Properties panel and plotting (M4.10–M4.12); ModelCraft panels (M6.17); per-app gaps below. Ranked; shrink as features land.
 
 1. **Drafting vs 0.5** (after M4.10–M4.12). 0.5's command table (`commands.js`, `layertools.js`, `propcmds.js`,
    `pcommands.js`, `commands3d.js`, `pictures-cmd.js`, `xclip.js`, `cloud-cad.js`, `flatview.js`: 190 commands), ranked by
@@ -28,11 +28,13 @@ Last updated 2026-10-21 · Change: ModelCraft sun shadows (M6.22); ModelCraft co
    the dimension sections and Misc; it lacks the dynamic-block Custom section, Attributes, Library, the sheet / view
    sections, Quick Properties and the point pick buttons. The Plot dialog (M4.12) lacks pictures, Open / print and
    PUBLISH. Also missing: the ribbon / menus, constraints, recovery snapshots, a DWG's own linked drawings found next to it
-   when it is opened for editing (the viewer finds them; in the editor XREF Reload takes the file); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save is
-   slower than the JS (0.7×). Whole-drawing edits (M4.14, extra data shared copy-on-write) now run 1.2–7.4× the JS on
-   the ar1all floor plan and the Carey Foodservice drawing; the slimmest margins are EXPLODE ALL (1.2×) and ERASE ALL +
-   UNDO (1.2×) on Carey, where each object still gets one geometry copy per change (its undo op and the map share the
-   extra keys, not the geometry: a polyline's points, a hatch's loops).
+   when it is opened for editing (the viewer finds them; in the editor XREF Reload takes the file); objects with a dense linetype draw continuous past 400 dashes (`DISPLAY_MAX_DASHES`); DXF 2000 save runs
+   1.0–1.1× the JS on Carey (the 0.7× was before M5.1; S.5: what is left is spread over the save model's dynamic
+   values — building them 48 %, writing 37 %, freeing 11 % — next: write DXF 2000 straight from the typed objects).
+   Whole-drawing edits on Carey (S.4, S.8: block objects shared copy-on-write, undo / redo move objects instead of
+   copying them, the MOVE family reads objects by id) run 1.5–2.6× the JS: SELECT ALL + MOVE 1.6×, EXPLODE ALL 1.5×,
+   ERASE ALL + UNDO 1.7×, XATTACH 1.8×, MATCHPROP 2.1×, ARRAY 2.6×; on ar1all MOVE is 1.3× and XATTACH 1.1× (the cost
+   left is one copy of each moved object's geometry and its layer name).
 2. **Web speed**: the browser build reads only 1.2–1.5× faster than 0.5's JS (native 2.6–4.2×). Wasm threads were built
    and measured slower (one global allocator lock; roadmap § Wasm threads); allocation measured not to be the cost; next: profile the decoder.
 3. **Viewer details** vs CadCraft 0.5: pictures are not plotted (the PDF has their frames; M4.19 draws them on screen;
@@ -72,6 +74,8 @@ Last updated 2026-10-21 · Change: ModelCraft sun shadows (M6.22); ModelCraft co
    clouds and highlights (M9.21); revisions: compare, align, find changes, move the takeoff, flags (M9.22; pixel counts
    are hayro's, not pdf.js's); the 3D view, its stack, picks and GLB (M9.23); still missing there: the sheet's picture
    on the 3D ground, the 3D view's PNG and standard views; snapping to the drawing's linework, typed lengths, 45°.
+   Copy + paste in place of 251 marks is 0.7× the JS (S.6: 2.1 → 0.9 ms against 0.6–0.8; what is left is the clip read
+   back as a project, the undo snapshot of the whole state and the quantities, all on serde values).
 8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
    parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity; the sketcher (every 0.5 sketch
    tool, relations, dimensions, live drag) and the feature tools (extrude … shell, edge / face picking, edit, delete, move,

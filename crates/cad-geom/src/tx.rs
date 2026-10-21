@@ -11,9 +11,19 @@ use crate::leader::leader_style;
 
 /// A new entity: e put through the affine m (similar transforms only, except inserts and text).
 pub fn tx_entity(e: &Entity, m: &M) -> Entity {
-    let pp = |x: f64, y: f64| m_apply(m, p(x, y));
+    tx_entity_sim(e, m, &tx_sim(m))
+}
+
+/// The scale, rotation and flip [`tx_entity`] takes from m (worked out once for many objects).
+pub fn tx_sim(m: &M) -> Sim {
     let det = m_det(m);
-    let sim = m_similar(m).unwrap_or(Sim { s: det.abs().sqrt(), rot: m[1].jatan2(m[0]), flip: det < 0.0 });
+    m_similar(m).unwrap_or(Sim { s: det.abs().sqrt(), rot: m[1].jatan2(m[0]), flip: det < 0.0 })
+}
+
+/// [`tx_entity`] with m's [`tx_sim`] given.
+pub fn tx_entity_sim(e: &Entity, m: &M, sim: &Sim) -> Entity {
+    let pp = |x: f64, y: f64| m_apply(m, p(x, y));
+    let sim = *sim;
     let mut o = e.clone();
     match &mut o.geo {
         Geo::Line(l) => {
@@ -41,14 +51,10 @@ pub fn tx_entity(e: &Entity, m: &M) -> Entity {
             (a.cx, a.cy, a.r, a.a0, a.a1) = (c.x, c.y, a.r * sim.s, norm_angle(a0), norm_angle(a1));
         }
         Geo::Poly(pl) => {
-            pl.pts = pl
-                .pts
-                .iter()
-                .map(|v| {
-                    let q = pp(v.x, v.y);
-                    Vertex::new(q.x, q.y, if sim.flip { -v.bulge() } else { v.bulge() })
-                })
-                .collect();
+            for v in &mut pl.pts {
+                let q = pp(v.x, v.y);
+                *v = Vertex::new(q.x, q.y, if sim.flip { -v.bulge() } else { v.bulge() });
+            }
         }
         Geo::Ellipse(el) => {
             let c = pp(el.cx, el.cy);
