@@ -394,6 +394,26 @@ pub enum Op {
         before: Vec<View>,
         after: Vec<View>,
     },
+    /// `setParametric`: the constraints and the parameter table, replaced together
+    Parametric {
+        before: (std::sync::Arc<Vec<crate::constraint::Con>>, Value),
+        after: (std::sync::Arc<Vec<crate::constraint::Con>>, Value),
+    },
+}
+
+/// What `Doc::change` calls before it records a change that moved constrained geometry (gcons.js `afterEdit`, given by
+/// cc-gcons): each model entity the change touched, as it was before (first op per id) → None, or the message the
+/// change is refused with (then it is rolled back and noted).
+pub type EditHook = fn(&mut Doc, &[(u64, Option<Entity>)]) -> Result<Option<String>, DocError>;
+static EDIT_HOOK: std::sync::OnceLock<EditHook> = std::sync::OnceLock::new();
+/// Install the constraint hook (once; later calls change nothing).
+pub fn install_edit_hook(h: EditHook) {
+    let _ = EDIT_HOOK.set(h);
+}
+
+/// `{ vars: [], links: [] }`
+pub fn empty_params() -> Value {
+    serde_json::json!({ "vars": [], "links": [] })
 }
 
 /// One undo step.
@@ -456,8 +476,22 @@ pub struct Doc {
     pub ucs: Option<Value>,
     /// one pane's view turn (radians)
     pub view_twist: f64,
-    /// constraints and parameters (gcons.js payload), as given to load
+    /// a file's parametric payload (gcons.js), as given to load, and its entities' CCREF keys (key → id), until
+    /// cc-gcons `finish_load` resolves them
     pub parametric: Option<Value>,
+    parametric_refs: Vec<(String, u64)>,
+    /// the constraints (gcons.js objects, key order kept) and the parameter table `{ vars, links }` (params.js):
+    /// undoable, replaced together by `set_parametric`
+    pub constraints: std::sync::Arc<Vec<crate::constraint::Con>>,
+    pub params: Value,
+    /// a parametric edit is writing a solved state: no re-solve (`doc.solving`)
+    pub solving: bool,
+    /// messages about constraints not yet shown (`doc.note` → `onNote`); the host prints and clears them
+    pub notes: Vec<String>,
+    /// the last of them (`doc.lastNote`)
+    pub last_note: Option<String>,
+    /// what resolving a file's constraints said (`doc.loadNotes`)
+    pub load_notes: Vec<String>,
     /// 'face3d' entities and `faces3d` that load took out of the 2D drawing (model3d.js split3d)
     pub faces3d: Vec<Value>,
     /// the file's dynamic-block objects (dwg-save.js)
@@ -525,6 +559,13 @@ impl Doc {
             ucs: None,
             view_twist: 0.0,
             parametric: None,
+            parametric_refs: Vec::new(),
+            constraints: std::sync::Arc::new(Vec::new()),
+            params: empty_params(),
+            solving: false,
+            notes: Vec::new(),
+            last_note: None,
+            load_notes: Vec::new(),
             faces3d: Vec::new(),
             dyn_src: None,
             unnamed_view: "Unnamed view".into(),
@@ -787,6 +828,35 @@ impl Doc {
         {
             result = Err(e);
         }
+        // constrained geometry moved: the rest follows, or the whole change is refused (gcons.js afterEdit)
+        if result.is_ok()
+            && !self.constraints.is_empty()
+            && !self.solving
+            && let Some(h) = EDIT_HOOK.get()
+            && let Some(p) = self.pending.as_ref()
+            && !p.ops.is_empty()
+        {
+            let mut before: Vec<(u64, Option<Entity>)> = Vec::new();
+            for op in &p.ops {
+                if let Op::Ent { space: MODEL, id, before: b, .. } = op
+                    && !before.iter().any(|(i, _)| i == id)
+                {
+                    before.push((*id, b.as_deref().cloned()));
+                }
+            }
+            if !before.is_empty() {
+                match h(self, &before) {
+                    Err(e) => result = Err(e),
+                    Ok(Some(msg)) => {
+                        let step = self.pending.take().unwrap_or(Step { label: label.into(), ops: Vec::new() });
+                        self.rollback(&step.ops);
+                        self.note(&msg);
+                        return result;
+                    }
+                    Ok(None) => {}
+                }
+            }
+        }
         let step = self.pending.take().unwrap_or(Step { label: label.into(), ops: Vec::new() });
         match result {
             Err(e) => {
@@ -1038,6 +1108,24 @@ impl Doc {
         }
     }
     /// Replace the named views (undoable).
+    /// `setParametric({ constraints, params })` inside a change: one undo step with the geometry.
+    pub fn set_parametric(&mut self, constraints: Vec<crate::constraint::Con>, params: Value) -> Result<(), DocError> {
+        self.must_be_in_change()?;
+        let after = std::sync::Arc::new(constraints);
+        let before =
+            (std::mem::replace(&mut self.constraints, std::sync::Arc::clone(&after)), std::mem::replace(&mut self.params, params.clone()));
+        self.push(Op::Parametric { before, after: (after, params) })
+    }
+    /// `doc.note(msg)`: a message about constraints (an edit refused, objects that followed).
+    pub fn note(&mut self, msg: &str) {
+        self.last_note = Some(msg.to_string());
+        self.notes.push(msg.to_string());
+    }
+    /// The file's parametric payload and CCREF keys `load` kept (once).
+    pub fn take_pending_parametric(&mut self) -> Option<(Value, Vec<(String, u64)>)> {
+        let raw = self.parametric.take()?;
+        Some((raw, std::mem::take(&mut self.parametric_refs)))
+    }
     pub fn set_views(&mut self, list: Vec<View>) -> Result<(), DocError> {
         self.must_be_in_change()?;
         let before = std::mem::replace(&mut self.views, list.clone());
@@ -1080,6 +1168,11 @@ impl Doc {
                 }
             }
             Op::Views { before, after } => self.views = if forward { after.clone() } else { before.clone() },
+            Op::Parametric { before, after } => {
+                let v = if forward { after } else { before };
+                self.constraints = std::sync::Arc::clone(&v.0);
+                self.params = v.1.clone();
+            }
             Op::LayerState { before, after } => {
                 let v = if forward { after } else { before };
                 self.layers.clear();
@@ -1246,12 +1339,24 @@ impl Doc {
         self.fill(&mut model, &entities);
         let parametric = get("parametric").is_some();
         let keys: Vec<u64> = model.keys().copied().collect();
+        let mut refs: Vec<(String, u64)> = Vec::new();
         for k in keys {
-            if let Some(e) = model.get_mut(&k) {
-                e.extra.remove("ccref");
+            if let Some(e) = model.get_mut(&k)
+                && let Some(r) = e.extra.remove("ccref")
+                && parametric
+            {
+                let key = js::to_js_string(&r);
+                match refs.iter_mut().find(|(x, _)| *x == key) {
+                    Some(slot) => slot.1 = k,
+                    None => refs.push((key, k)),
+                }
             }
         }
         self.parametric = if parametric { get("parametric").cloned() } else { None };
+        self.parametric_refs = refs;
+        self.constraints = std::sync::Arc::new(Vec::new());
+        self.params = empty_params();
+        self.load_notes = Vec::new();
         self.spaces.insert(MODEL, model);
         for l in list("layouts") {
             let mut map = Space::default();
@@ -1417,6 +1522,8 @@ impl Doc {
             "redo": self.redo_stack.iter().map(|s| s.label.clone()).collect::<Vec<_>>(),
             "dirty": self.dirty(),
             "viewTwist": num(self.view_twist),
+            "constraints": Value::Array(self.constraints.iter().map(crate::constraint::Con::to_value).collect()),
+            "params": self.params.clone(),
         })
     }
 }

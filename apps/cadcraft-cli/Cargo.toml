@@ -38,6 +38,7 @@ cc-io-civil.workspace = true
 cc-detail.workspace = true
 cc-io-detail.workspace = true
 cc-part.workspace = true
+cc-gcons.workspace = true
 cc-mcp.workspace = true
 serde_json.workspace = true
 # PUBLISH's PDFs logged inflated (kdiff.mjs compares them that way)

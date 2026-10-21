@@ -170,13 +170,14 @@ fn trim_plan(d: &Doc, host: &dyn Host, m: Mode, edges: Option<&IdSet>, how: &How
     Plan { refused: false, list }
 }
 
-/// Carry out a trim plan in one undo step → (objects changed, erased).
-fn apply_trim(c: &Ctx, list: &[Item]) -> R<(usize, usize)> {
+/// Carry out a trim plan in one undo step → (objects changed, erased, constraints kept).
+fn apply_trim(c: &Ctx, list: &[Item]) -> R<(usize, usize, usize)> {
     if list.is_empty() {
-        return Ok((0, 0));
+        return Ok((0, 0, 0));
     }
+    let tr = c.sh().lang.cat();
     c.change("TRIM", |d| {
-        let (mut n, mut erased) = (0usize, 0usize);
+        let (mut n, mut erased, mut kept) = (0usize, 0usize, 0usize);
         for it in list {
             let Some(eid) = it.e.id else { continue };
             if d.get(eid).is_none() {
@@ -184,24 +185,50 @@ fn apply_trim(c: &Ctx, list: &[Item]) -> R<(usize, usize)> {
             }
             let Some(out) = trim_result(&it.split, &it.gone) else { continue };
             n = n.saturating_add(1);
-            // the first piece keeps the object's id (so its constraints could stay with it)
+            // the first piece keeps the object's id, so its constraints can stay with it (ckeep.js)
+            let mut pieces: Vec<cc_gcons::ckeep::Piece> = Vec::new();
             for (i, piece) in out.iter().enumerate() {
                 let mut p = piece.clone();
                 p.id = None;
                 p.extra.remove("id");
-                if i == 0 {
+                let id = if i == 0 {
                     d.update(eid, p)?;
+                    eid
                 } else {
-                    d.add(p)?;
-                }
+                    d.add(p)?.id.unwrap_or(0)
+                };
+                let (t0, t1) = piece_range(&it.e, d.get(id));
+                pieces.push(cc_gcons::ckeep::Piece { id, t0, t1 });
             }
             if out.is_empty() {
                 d.remove(eid)?;
                 erased = erased.saturating_add(1);
             }
+            let (k, _) = cc_gcons::ckeep::trim_constraints(d, &tr, &it.e, &pieces)?;
+            kept = kept.saturating_add(k);
         }
-        Ok((n, erased))
+        Ok((n, erased, kept))
     })
+}
+
+/// commands.js `pieceRange(orig, piece)`: the original's parameters 0…1 a piece spans.
+fn piece_range(orig: &Entity, piece: Option<&Entity>) -> (f64, f64) {
+    let Some(piece) = piece else { return (0.0, 1.0) };
+    if matches!(orig.geo, Geo::Circle(_) | Geo::Poly(_)) {
+        return (0.0, 1.0);
+    }
+    let ends = match &piece.geo {
+        Geo::Line(l) => [P2::new(l.x1, l.y1), P2::new(l.x2, l.y2)],
+        Geo::Arc(a) => {
+            let c = P2::new(a.cx, a.cy);
+            [cc_cad_geom::geom::polar(c, a.a0, a.r), cc_cad_geom::geom::polar(c, a.a1, a.r)]
+        }
+        _ => {
+            // a piece of another kind: the JS reads its undefined fields (NaN parameters)
+            return (f64::NAN, f64::NAN);
+        }
+    };
+    (cc_cad_geom::edit::param_on(orig, ends[0]), cc_cad_geom::edit::param_on(orig, ends[1]))
 }
 
 /// What an extend would do: [(e, new e)].
@@ -311,12 +338,15 @@ fn run(c: &Ctx, edges: Option<&IdSet>, how: &How, do_trim: bool) -> R {
             c.print(&c.t(if is_pick { "cmd.trim.nothing" } else { "cmd.trim.nothing.path" }));
             return Ok(());
         }
-        let (n, erased) = apply_trim(c, &plan.list)?;
+        let (n, erased, kept) = apply_trim(c, &plan.list)?;
         if !is_pick {
             c.print(&c.tv("cmd.trim.done", &[("n", n.to_string())]));
         }
         if erased > 0 && !m.standard && plan.list.iter().any(|it| it.split.pieces.len() == 1) {
             c.print(&c.tv("cmd.trim.erased", &[("n", erased.to_string())]));
+        }
+        if kept > 0 {
+            c.print(&c.tv("cmd.trim.constraints", &[("n", kept.to_string())]));
         }
     } else {
         let list = {

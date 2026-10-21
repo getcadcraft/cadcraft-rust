@@ -14,6 +14,7 @@ pub mod layers;
 pub mod layout;
 pub mod libplace;
 pub mod modify;
+pub mod param;
 pub mod pictures;
 pub mod publish;
 pub mod qselect;
@@ -68,6 +69,8 @@ pub struct Memo {
     pub similar_on: Option<[bool; 5]>,
     /// UCS Previous (doc.js `ucsPrev`, this session; None = the world)
     pub ucs_prev: Vec<Option<crate::ucs::Ucs>>,
+    /// the parametric commands' memory and the constraint display (pcommands.js)
+    pub param: param::ParamMemo,
 }
 
 /// One command.
@@ -170,6 +173,34 @@ pub static COMMANDS: &[CmdDef] = &[
     def("BVHIDE", &["BVH"], |c| Box::pin(visedit::bvhide(c))),
     def("BVSHOW", &["BVSH"], |c| Box::pin(visedit::bvshow(c))),
     def("INSERT", &["I", "DDINSERT"], |c| Box::pin(block::insert(c))),
+    // ---- pcommands.js: constraints and parameters (M4.23)
+    def("GCHORIZONTAL", &[], |c| Box::pin(param::gc(c, "GCHORIZONTAL"))),
+    def("GCVERTICAL", &[], |c| Box::pin(param::gc(c, "GCVERTICAL"))),
+    def("GCPERPENDICULAR", &[], |c| Box::pin(param::gc(c, "GCPERPENDICULAR"))),
+    def("GCPARALLEL", &[], |c| Box::pin(param::gc(c, "GCPARALLEL"))),
+    def("GCTANGENT", &[], |c| Box::pin(param::gc(c, "GCTANGENT"))),
+    def("GCCOINCIDENT", &[], |c| Box::pin(param::gc(c, "GCCOINCIDENT"))),
+    def("GCCONCENTRIC", &[], |c| Box::pin(param::gc(c, "GCCONCENTRIC"))),
+    def("GCCOLLINEAR", &[], |c| Box::pin(param::gc(c, "GCCOLLINEAR"))),
+    def("GCSYMMETRIC", &[], |c| Box::pin(param::gc(c, "GCSYMMETRIC"))),
+    def("GCEQUAL", &[], |c| Box::pin(param::gc(c, "GCEQUAL"))),
+    def("GCFIX", &[], |c| Box::pin(param::gc(c, "GCFIX"))),
+    def("GEOMCONSTRAINT", &["GCON"], |c| Box::pin(param::geomconstraint(c))),
+    def("DCLINEAR", &["DCLIN"], |c| Box::pin(param::dc(c, "DCLINEAR"))),
+    def("DCHORIZONTAL", &["DCHOR"], |c| Box::pin(param::dc(c, "DCHORIZONTAL"))),
+    def("DCVERTICAL", &["DCVER"], |c| Box::pin(param::dc(c, "DCVERTICAL"))),
+    def("DCALIGNED", &["DCALI"], |c| Box::pin(param::dc(c, "DCALIGNED"))),
+    def("DCRADIUS", &["DCRAD"], |c| Box::pin(param::dc(c, "DCRADIUS"))),
+    def("DCDIAMETER", &["DCDIA"], |c| Box::pin(param::dc(c, "DCDIAMETER"))),
+    def("DCANGULAR", &["DCANG"], |c| Box::pin(param::dc(c, "DCANGULAR"))),
+    def("DCCONVERT", &[], |c| Box::pin(param::dc(c, "DCCONVERT"))),
+    def("DIMCONSTRAINT", &["DCON"], |c| Box::pin(param::dimconstraint(c))),
+    def("DELCONSTRAINT", &["DELCON"], |c| Box::pin(param::delconstraint(c))),
+    def("AUTOCONSTRAIN", &[], |c| Box::pin(param::autoconstrain_cmd(c))),
+    quiet(def("PARAMETERS", &["PAR", "PARAMETERSMANAGER", "PARAM"], |c| Box::pin(param::parameters(c)))),
+    def("-PARAMETERS", &[], |c| Box::pin(param::parameters_cl(c))),
+    def("CONSTRAINTBAR", &["CBAR"], |c| Box::pin(param::constraintbar(c))),
+    quiet(def("DCDISPLAY", &[], |c| Box::pin(param::dcdisplay(c)))),
     quiet(def("LIBRARY", &["LIB"], |c| Box::pin(block::library(c)))),
     def("LAYISO", &[], |c| Box::pin(layers::layiso(c))),
     quiet(def("LAYUNISO", &[], |c| Box::pin(layers::layuniso(c)))),

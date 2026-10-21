@@ -8,12 +8,17 @@ use serde_json::{Map, Value};
 #[derive(Clone, Debug, Default)]
 pub struct Lang {
     strings: std::sync::Arc<Map<String, Value>>,
+    cat: cc_cad::i18n::Catalog,
 }
 
 impl Lang {
     /// A catalog `{ key: text | {one, other, …} }` (anything else → an empty catalog: every key prints as itself).
     pub fn new(strings: &Value) -> Self {
-        Lang { strings: std::sync::Arc::new(strings.as_object().cloned().unwrap_or_default()) }
+        Lang { strings: std::sync::Arc::new(strings.as_object().cloned().unwrap_or_default()), cat: cc_cad::i18n::Catalog::new(strings) }
+    }
+    /// The same catalog as cc-cad's [`cc_cad::i18n::Catalog`] (the drawing's own messages, cc-gcons).
+    pub fn cat(&self) -> cc_cad::i18n::Catalog {
+        self.cat.clone()
     }
     /// `has(key)`
     pub fn has(&self, key: &str) -> bool {

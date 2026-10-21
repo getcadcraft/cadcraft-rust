@@ -10,8 +10,8 @@
 //!   paste itself (an existing block of the same name keeps this drawing's definition; anonymous ones get a free
 //!   name; layers the copy uses are added with the settings they had).
 //!
-//! Not ported: constraints riding along (gcons.js `clipConstraints`; the fork's Doc keeps `parametric` as it was read
-//! and solves nothing, so a copy carries none).
+//! Constraints among the copied objects ride along (gcons.js `clipConstraints` / `pasteConstraints`, cc-gcons): refs by
+//! index into the clip's objects; dimensional ones get new names when pasted.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -62,6 +62,8 @@ pub struct Clip {
     pub base: Option<P2>,
     /// viewports left on their sheet
     pub skipped: usize,
+    /// constraints among the copied objects (gcons.js `clipConstraints`: refs by index into `entities`)
+    pub constraints: Vec<Value>,
 }
 
 impl Clip {
@@ -83,6 +85,9 @@ impl Clip {
         }
         if self.skipped > 0 {
             m.insert("skipped".into(), self.skipped.into());
+        }
+        if !self.constraints.is_empty() {
+            m.insert("constraints".into(), Value::Array(self.constraints.clone()));
         }
         Value::Object(m)
     }
@@ -149,6 +154,7 @@ static SEQ: AtomicU64 = AtomicU64::new(0);
 /// The clipboard contents for these objects, or None (nothing to copy). `base` = a picked base point (COPYBASE).
 pub fn make_clip(doc: &Doc, ids: &[u64], base: Option<P2>) -> Option<Clip> {
     let mut ents: Vec<Entity> = Vec::new();
+    let mut ent_ids: Vec<u64> = Vec::new();
     let mut skipped = 0usize;
     for id in ids {
         let Some(e) = doc.get(*id) else { continue };
@@ -157,6 +163,7 @@ pub fn make_clip(doc: &Doc, ids: &[u64], base: Option<P2>) -> Option<Clip> {
             continue;
         }
         ents.push(plain(e));
+        ent_ids.push(*id);
     }
     if ents.is_empty() {
         return None;
@@ -204,6 +211,7 @@ pub fn make_clip(doc: &Doc, ids: &[u64], base: Option<P2>) -> Option<Clip> {
         }
         e
     };
+    let top_ids: Vec<u64> = ents.iter().zip(&ent_ids).filter(|(e, _)| keep(e)).map(|(_, id)| *id).collect();
     let top: Vec<Entity> = ents.into_iter().filter(|e| keep(e)).map(clean).collect();
     for b in &mut blocks {
         let list = std::mem::take(&mut b.entities);
@@ -249,6 +257,8 @@ pub fn make_clip(doc: &Doc, ids: &[u64], base: Option<P2>) -> Option<Clip> {
         layers,
         base,
         skipped,
+        // constraints whose objects are all in the copy (gcons.js; refs by index into `entities`)
+        constraints: cc_gcons::gcons::clip_constraints(doc, &top_ids.iter().enumerate().map(|(i, id)| (*id, i)).collect::<Vec<_>>()),
     })
 }
 
@@ -670,6 +680,11 @@ pub fn read_clip(input: &str, lang: &Lang) -> Result<Clip, String> {
         }
     };
     let skipped = o.get("skipped").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).unwrap_or(0);
+    let constraints = match o.get("constraints") {
+        None => Vec::new(),
+        Some(list) => cc_gcons::gcons::read_clip_constraints(Some(list), entities.len())
+            .map_err(|()| lang.s("clip.constraints_clipboard_not_readable"))?,
+    };
     Ok(Clip {
         id: s("id", 64),
         time: js::finite(o.get("time")).unwrap_or(0.0),
@@ -681,6 +696,7 @@ pub fn read_clip(input: &str, lang: &Lang) -> Result<Clip, String> {
         layers,
         base,
         skipped,
+        constraints,
     })
 }
 
@@ -698,6 +714,7 @@ pub struct Got {
 /// What a host's shared store holds: text from outside (another tab, the system clipboard: untrusted, read through
 /// [`read_clip`]) or a copy made in this process (another drawing of the same window: used as it is).
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Shared {
     Text(String),
     Clip(Clip),
@@ -832,6 +849,8 @@ pub struct Pasted {
     /// layers added
     pub layers: Vec<String>,
     pub note: String,
+    /// constraints that came along
+    pub constraints: usize,
 }
 
 /// Add the copy to doc's open space, moved by dx, dy (inside a doc change).
@@ -957,7 +976,14 @@ pub fn paste_clip(doc: &mut Doc, clip: &Clip, dx: f64, dy: f64, lang: &Lang) -> 
     } else {
         String::new()
     };
-    Ok(Pasted { ids, renamed, layers: added, note })
+    // constraints among the copied objects come along (model space; dimensional ones get new names)
+    let ids_opt: Vec<Option<u64>> = ids.iter().map(|i| Some(*i)).collect();
+    let constraints = if clip.constraints.is_empty() {
+        0
+    } else {
+        cc_gcons::gcons::paste_constraints(doc, &clip.constraints, &ids_opt, if moved { dx } else { 0.0 }, if moved { dy } else { 0.0 })?
+    };
+    Ok(Pasted { ids, renamed, layers: added, note, constraints })
 }
 
 #[cfg(test)]

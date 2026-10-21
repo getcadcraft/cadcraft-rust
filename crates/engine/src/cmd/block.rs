@@ -279,7 +279,7 @@ pub async fn block(c: Ctx) -> R {
     Ok(())
 }
 
-fn s_reply(r: &Reply) -> String {
+pub(crate) fn s_reply(r: &Reply) -> String {
     if let Reply::Str(s) = r { s.clone() } else { String::new() }
 }
 

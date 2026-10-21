@@ -318,6 +318,7 @@ dependencies = [
  "cc-clock",
  "cc-detail",
  "cc-engine",
+ "cc-gcons",
  "cc-geom",
  "cc-io-cad",
  "cc-io-civil",
@@ -491,6 +492,7 @@ dependencies = [
  "cc-cad",
  "cc-cad-geom",
  "cc-drawing",
+ "cc-gcons",
  "cc-geom",
  "cc-io-cad",
  "cc-part",
@@ -499,6 +501,17 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "unicode-normalization",
+]
+
+[[package]]
+name = "cc-gcons"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
+ "cc-geom",
+ "cc-part",
+ "serde_json",
 ]
 
 [[package]]
@@ -511,6 +524,7 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-cad-geom",
+ "cc-gcons",
  "cc-geom",
  "cc-io-dwg",
  "image",
@@ -771,6 +785,7 @@ dependencies = [
  "cc-detail",
  "cc-drawing",
  "cc-engine",
+ "cc-gcons",
  "cc-geom",
  "cc-io-cad",
  "cc-io-civil",

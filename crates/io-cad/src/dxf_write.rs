@@ -1,9 +1,9 @@
 //! dxf.js `writeDxf(doc)`: a `Doc` → DXF R12 (AC1009) ASCII, byte-identical to the JS writer, and its report
 //! { notes, counts, extents }.
 //!
-//! Not written (needs ports this crate does not have yet): CadCraft's constraints block (gcons.js `forFile`: the Doc
-//! keeps a file's parametric payload but does not resolve it) and the 3D model's block and 3DFACEs (model3d.js
-//! `forFile3d`: the m3d kernel). A drawing with either is written without them.
+//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC). Not
+//! written (needs ports this crate does not have yet): the 3D model's block and 3DFACEs for a model made in CadCraft
+//! (model3d.js `forFile3d`; loose faces are). A drawing with one is written without it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -99,6 +99,8 @@ struct W<'d> {
     lines: Vec<String>,
     counts: Obj,
     used: HashSet<String>,
+    /// the constraint key (gcons.js `forFile` refs) of the model object being written (`o.ref`)
+    ccref: Option<String>,
     name_map: HashMap<String, String>,
     anon: u64,
     lt_used: Vec<(String, Vec<f64>)>,
@@ -300,7 +302,8 @@ impl<'d> W<'d> {
     fn xd(&mut self, e: &V) -> R<()> {
         let eo = jsv::obj(Some(e)).cloned().unwrap_or_default();
         let x = props::props_xdata(&eo, true);
-        let cc: Vec<String> = jsv::arr(x.get("CADCRAFT")).iter().map(|it| sv(&props::cv(it).1.cloned().unwrap_or(V::Null))).collect();
+        let mut cc: Vec<String> = self.ccref.iter().map(|k| format!("CCREF:{k}")).collect();
+        cc.extend(jsv::arr(x.get("CADCRAFT")).iter().map(|it| sv(&props::cv(it).1.cloned().unwrap_or(V::Null))));
         if !cc.is_empty() {
             self.w(1001, "CADCRAFT");
             for v in cc {
@@ -926,9 +929,12 @@ impl<'d> W<'d> {
             "mleader" => {
                 self.note("mleader", 1.0);
                 let parts = cc_cad_geom::corners::explode_entity(ent, Some(&self.doc.blocks)).unwrap_or_default();
+                // `{ ...o, ref: null }`
+                let r = self.ccref.take();
                 for p in &parts {
                     self.entity(p, o, None)?;
                 }
+                self.ccref = r;
             }
             _ => self.note("other", 1.0),
         }
@@ -1115,6 +1121,7 @@ pub fn write_dxf_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_json::V
         lines: Vec::new(),
         counts: Obj::new(),
         used: HashSet::new(),
+        ccref: None,
         name_map: HashMap::new(),
         anon: 0,
         lt_used: Vec::new(),
@@ -1188,6 +1195,11 @@ pub fn write_dxf_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_json::V
     let extra_layouts: Vec<(usize, String)> = (1..doc.layouts.len()).map(|k| (k, format!("CCLAYOUT_{}", k.saturating_add(1)))).collect();
     for (_, n) in &extra_layouts {
         w.used.insert(n.clone());
+    }
+    // constraints + parameters: CCREF xdata on entities, block CADCRAFT_PARAMETRIC (gcons.js)
+    let pf = cc_gcons::gcons::for_file(doc);
+    if pf.is_some() {
+        w.used.insert(cc_gcons::gcons::PARAM_BLOCK.into());
     }
     // the 3D model (model3d.js): 3DFACEs on layer CC-3D + its exact copy in block CADCRAFT_3D
     let units = jsv::str_or_empty(jsv::from_json(&serde_json::Value::Object(doc.meta.clone())).as_obj().and_then(|m| m.get("units")));
@@ -1692,6 +1704,25 @@ pub fn write_dxf_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_json::V
         let z = V::Num(0.0);
         w.block(&name, (Some(&z), Some(&z)), &ents, None, None, None)?;
     }
+    if let Some(pf) = &pf {
+        let z = V::Num(0.0);
+        let pts = pf.points.clone();
+        let mut extra = |wr: &mut W| -> R<()> {
+            for strs in &pts {
+                wr.w(0, "POINT");
+                wr.w(8, "0");
+                wr.w(10, "0.0");
+                wr.w(20, "0.0");
+                wr.w(30, "0.0");
+                wr.w(1001, "CADCRAFT");
+                for t in strs {
+                    wr.w(1000, t.clone());
+                }
+            }
+            Ok(())
+        };
+        w.block(cc_gcons::gcons::PARAM_BLOCK, (Some(&z), Some(&z)), &[], Some(&mut extra), None, None)?;
+    }
     if let Some(m3) = &m3 {
         let z = V::Num(0.0);
         let pts = m3.points.clone();
@@ -1737,7 +1768,9 @@ pub fn write_dxf_with(doc: &Doc, cat: &Catalog) -> Result<(String, serde_json::V
     w.w(0, "SECTION");
     w.w(2, "ENTITIES");
     for (i, e) in model.iter().enumerate() {
+        w.ccref = pf.as_ref().and_then(|p| e.id.and_then(|id| p.refs.iter().find(|(x, _)| *x == id).map(|(_, k)| k.clone())));
         w.entity(e, O { top: true, paper: false }, Some(&Src::Model(i)))?;
+        w.ccref = None;
     }
     if let Some(m3) = &m3 {
         let ln = w.r12(m3.layer);

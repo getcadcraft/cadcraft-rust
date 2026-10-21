@@ -11,8 +11,10 @@
 //! and RENAME LINETYPE LTSCALE LWEIGHT, PROPERTIES (M4.11, [`props`]: propdefs.js / propexpr.js) and PLOT (M4.12).
 //! Parity with the frozen JS is checked by `forks/tools/kdiff.mjs` (`cadcraft-cli cmds`).
 //!
-//! Not ported here: constraints carried through MIRROR / TRIM (ckeep.js; the M4 Doc solves no constraints), the 3D
-//! tab's versions of MOVE / COPY / ROTATE / ERASE / ZOOM, lasso selection, dynamic-block properties (the Custom section).
+//! The parametric commands (pcommands.js: GEOMCONSTRAINT / GC*, DIMCONSTRAINT / DC*, DELCONSTRAINT, AUTOCONSTRAIN,
+//! PARAMETERS, -PARAMETERS, CONSTRAINTBAR, DCDISPLAY; M4.23) work through cc-gcons; MIRROR, TRIM and the clipboard
+//! carry constraints (ckeep.js). Not ported here: SWBOUT (swsketch.js), the 3D tab's versions of MOVE / COPY / ROTATE /
+//! ERASE / ZOOM, lasso selection, dynamic-block properties (the Custom section).
 
 #![forbid(unsafe_code)]
 #![deny(

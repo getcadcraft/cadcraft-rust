@@ -29,6 +29,7 @@
 #![deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
 pub mod color;
+pub mod constraint;
 pub mod doc;
 pub mod entity;
 pub mod i18n;

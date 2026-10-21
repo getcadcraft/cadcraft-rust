@@ -31,20 +31,35 @@ pub async fn erase(c: Ctx) -> R {
 
 /// `apply(c, src, m, copy)`: one change moving (or copying) the objects through m.
 fn apply(c: &Ctx, src: &[u64], m: &M, copy: bool) -> R {
+    apply_then(c, src, m, copy, |_, _| Ok(()))
+}
+
+/// commands.js `apply(c, src, m, copy, after)`: `after(doc, pairs)` runs inside the same change with (source id, new id)
+/// for every object (MIRROR's constraints).
+fn apply_then(
+    c: &Ctx,
+    src: &[u64],
+    m: &M,
+    copy: bool,
+    after: impl FnOnce(&mut cc_cad::Doc, &[(u64, u64)]) -> Result<(), cc_cad::DocError>,
+) -> R {
     let sim = tx_sim(m);
     c.change(if copy { "COPY" } else { "MOVE" }, |d| {
+        let mut pairs: Vec<(u64, u64)> = Vec::with_capacity(src.len());
         for &id in src {
             let Some(e) = d.get(id) else { continue };
             let mut t = tx_entity_sim(e, m, &sim);
             if copy {
                 t.id = None;
                 t.extra.remove("id");
-                d.add(t)?;
+                let n = d.add(t)?;
+                pairs.push((id, n.id.unwrap_or(0)));
             } else {
                 d.update(id, t)?;
+                pairs.push((id, id));
             }
         }
-        Ok(())
+        after(d, &pairs)
     })
 }
 
@@ -165,9 +180,23 @@ pub async fn mirror(c: Ctx) -> R {
         Reply::Opt(k) | Reply::Str(k) => k == "Y",
         _ => false,
     };
-    // constraints come along in the JS (ckeep.js); the Rust Doc keeps parametric data as given and solves nothing,
-    // so no constraint is copied or re-signed here (none in M4 documents).
-    apply(&c, &src, &m_mirror(a, b), !erase)
+    // constraints come along: onto the copies (signs and sides worked out again), or kept on the mirrored objects (ckeep.js)
+    let tr = c.sh().lang.cat();
+    let n = std::cell::Cell::new(0usize);
+    apply_then(&c, &src, &m_mirror(a, b), !erase, |d, pairs| {
+        let k = if erase {
+            let ids: Vec<u64> = pairs.iter().map(|p| p.0).collect();
+            cc_gcons::ckeep::resign_among(d, &tr, &ids)?
+        } else {
+            cc_gcons::ckeep::mirror_constraints(d, &tr, pairs)?
+        };
+        n.set(k);
+        Ok(())
+    })?;
+    if n.get() > 0 {
+        c.print(&c.tv("cmd.mirror.constraints", &[("n", n.get().to_string())]));
+    }
+    Ok(())
 }
 
 /// geom.primParam without the arc rev flag (commands.js `closestT`).

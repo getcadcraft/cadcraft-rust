@@ -19,6 +19,8 @@ workspace = true
 cc-geom.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
+# constraints and parameters (gcons.js, gsolve.js, params-doc.js, ckeep.js)
+cc-gcons.workspace = true
 # expr.js (the Properties panel's expressions): the same file in CadCraft and PartCraft 0.5, ported once in cc-part
 cc-part.workspace = true
 cc-drawing.workspace = true

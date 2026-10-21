@@ -35,6 +35,7 @@ cc-part = { path = "../crates/part" }
 cc-mcp = { path = "../crates/mcp" }
 cc-live = { path = "../crates/live" }
 cc-engine = { path = "../crates/engine" }
+cc-gcons = { path = "../crates/gcons" }
 
 [[bin]]
 name = "dwg_read"
@@ -64,6 +65,13 @@ overflow-checks = true
 [[bin]]
 name = "cad_lib_item"
 path = "fuzz_targets/cad_lib_item.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cad_parametric"
+path = "fuzz_targets/cad_parametric.rs"
 test = false
 doc = false
 bench = false

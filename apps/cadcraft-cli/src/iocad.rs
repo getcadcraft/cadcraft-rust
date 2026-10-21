@@ -58,6 +58,8 @@ pub fn import(rest: &[&str]) -> ExitCode {
     if doc {
         let mut d = Doc::new();
         d.load(&input);
+        cc_gcons::install();
+        cc_gcons::finish_load(&mut d);
         println!("{}", d.snapshot());
     } else {
         println!("{input}");
@@ -103,6 +105,8 @@ pub fn dxf_out(rest: &[&str]) -> ExitCode {
     };
     let mut d = Doc::new();
     d.load(&input);
+    cc_gcons::install();
+    cc_gcons::finish_load(&mut d);
     let (text, report) = match cc_io_cad::dxf_write::write_dxf(&d) {
         Ok(r) => r,
         Err(e) => return err("js", &e.0),
@@ -177,6 +181,8 @@ pub fn save(rest: &[&str]) -> ExitCode {
     };
     let mut d = Doc::new();
     d.load(&input);
+    cc_gcons::install();
+    cc_gcons::finish_load(&mut d);
     // --script: a cmds script's inputs run on the drawing first (idiff.mjs --sheets)
     if let Some(sf) = flag("--script") {
         let script: Value =
@@ -246,6 +252,8 @@ pub fn plot(rest: &[&str]) -> ExitCode {
     };
     let mut d = Doc::new();
     d.load(&doc_in);
+    cc_gcons::install();
+    cc_gcons::finish_load(&mut d);
     let s = |k: &str| o.get(k).and_then(Value::as_str).map(str::to_string);
     let window = o.get("window").filter(|w| w.is_object()).map(|w| {
         let g = |k: &str| w.get(k).and_then(Value::as_f64).unwrap_or(f64::NAN);

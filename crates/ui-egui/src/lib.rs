@@ -66,6 +66,7 @@ pub mod mcsolids;
 mod mcstretch;
 pub mod model3d;
 pub mod modelcraft;
+pub mod parpanel;
 pub mod partfeat;
 pub mod partpanel;
 pub mod partsketch;
@@ -262,6 +263,8 @@ pub struct UiApp {
     pub choose: Option<libdlg::ChooseDlg>,
     /// the library panel (LIBRARY, INSERT Library)
     pub lib: libdlg::LibPanel,
+    /// the Parameters panel and the constraints on the drawing (PARAMETERS, M4.23)
+    pub par: parpanel::ParPanel,
     /// the drafting editor's Quick select and Find and replace dialogs (M4.15)
     pub caddlg: qsdlg::CadDialogs,
     /// the clipboard keys go to the clipboard commands (the command line is empty and has the focus)
@@ -346,6 +349,7 @@ impl Default for UiApp {
             plot: plotdlg::PlotDlg::default(),
             choose: None,
             lib: libdlg::LibPanel::default(),
+            par: parpanel::ParPanel::default(),
             caddlg: qsdlg::CadDialogs::default(),
             clip_keys: false,
             clip_cmd: None,
@@ -1491,6 +1495,7 @@ impl UiApp {
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
             id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
+            id if id.starts_with("par.") => return parpanel::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
@@ -1535,6 +1540,13 @@ impl UiApp {
             qsdlg::open_find(self);
         }
         libdlg::sync(self);
+        if let Some(ed) = self.editor.as_ref() {
+            // PARAMETERS opens the panel; notes from edits the window made itself (grips, Properties)
+            if std::mem::take(&mut ed.hs.borrow_mut().par_open) {
+                self.par.open = true;
+            }
+            ed.eng.flush_notes();
+        }
         let Some(ed) = self.editor.as_mut() else { return };
         // MSPACE / PSPACE: the model through the viewport, and back to its sheet
         let enter = ed.hs.borrow_mut().enter_req.take();
@@ -1798,6 +1810,7 @@ impl UiApp {
         }
         plotdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
+        parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
         self.tabs(ui);
         if self.part.is_some() {
@@ -2368,9 +2381,30 @@ impl UiApp {
         {
             ed.finish_box(cc_geom::P2::new(x, y), world(p), pxu);
         }
+        // a constraint's glyph or label (gview.js hits): select it, or edit a dimensional one's value on a double click
+        let par_hit = if !ed.eng.busy() { resp.interact_pointer_pos().and_then(|p| parpanel::hit_at(self, p)) } else { None };
+        if let Some(h) = par_hit.as_ref()
+            && resp.double_clicked_by(egui::PointerButton::Primary)
+            && h.dim
+        {
+            let cid = h.cid.clone();
+            parpanel::open_edit(self, &cid);
+            self.sync_editor();
+            return;
+        }
+        if let Some(h) = par_hit
+            && resp.clicked_by(egui::PointerButton::Primary)
+        {
+            self.run_ui("par.pick", &Params { name: Some(h.cid), ..Default::default() });
+            self.sync_editor();
+            return;
+        }
+        let Some(ed) = self.editor.as_mut() else { return };
         if resp.clicked_by(egui::PointerButton::Primary)
             && let Some(p) = resp.interact_pointer_pos()
         {
+            // a click elsewhere clears the selected constraint (and picks as usual)
+            self.par.selected = None;
             ed.click(world(p), pxu);
         }
         if resp.clicked_by(egui::PointerButton::Secondary) {
@@ -2429,6 +2463,7 @@ impl UiApp {
             }
         }
         drop(doc);
+        parpanel::draw(self, &painter, &to_pos, view.zoom / ppp);
         if let Some(s) = &ed.snap {
             let c = to_pos(s.x, s.y);
             let st = egui::Stroke::new(1.5, egui::Color32::from_rgb(0x3c, 0xd0, 0x70));
@@ -2554,6 +2589,10 @@ impl UiApp {
         if esc && !elsewhere {
             ed.escape();
             ed.line.clear();
+        }
+        if del && ed.line.is_empty() && !elsewhere && self.par.selected.is_some() {
+            self.run_ui("par.remove", &Params::default());
+            return;
         }
         if del && ed.line.is_empty() && !elsewhere {
             ed.delete();

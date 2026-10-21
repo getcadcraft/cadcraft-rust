@@ -105,6 +105,8 @@ pub struct HostState {
     pub choose_req: Option<crate::libdlg::ChooseReq>,
     /// LIBRARY asked for the library panel
     pub lib_open: bool,
+    /// PARAMETERS asked for the Parameters panel
+    pub par_open: bool,
     /// INSERT, Library waits for the panel's pick
     pub lib_pick: bool,
     /// a card placed from the open panel, for the INSERT, Library it starts
@@ -347,6 +349,10 @@ impl Host for UiHost {
         self.0.borrow_mut().choose_req =
             Some(crate::libdlg::ChooseReq::Ask { title: title.into(), text: text.into(), buttons: buttons.to_vec() });
         cc_engine::Pick::Later
+    }
+    fn parameters(&mut self) -> bool {
+        self.0.borrow_mut().par_open = true;
+        true
     }
     fn open_library(&mut self) -> bool {
         self.0.borrow_mut().lib_open = true;

@@ -1,8 +1,8 @@
 //! dwg-save.js: a CadCraft drawing → the cc-dwg model → DWG through cc-io-dwg's writer (`write_dwg_opts`), in AutoCAD
 //! 2000 … 2018. `model_only` gives the model instead (dxf2000.rs writes it as an R2000 DXF).
 //!
-//! Not written here (as in dxf_write.rs): CadCraft's constraints block (gcons.js `forFile`: the Doc does not resolve a
-//! file's parametric payload) and a 3D model CadCraft saved itself (only loose 3D faces, m3d_file.rs).
+//! Constraints and parameters go out as gcons.js `forFile` writes them (CCREF xdata, block CADCRAFT_PARAMETRIC). Not
+//! written here (as in dxf_write.rs): a 3D model CadCraft saved itself (only loose 3D faces, m3d_file.rs).
 
 use cc_cad::entity::{Entity, Geo};
 use cc_cad::js;
@@ -1448,9 +1448,35 @@ pub fn build_model(doc: &Doc, opts: &SaveOpts, cat: &Catalog) -> R<Built> {
         ents.extend(attdefs);
         sv.blocks.push(V::Obj(cc_io_dwg::obj! { "name" => b.name.clone(), "base" => pn(bx, by, 0.0), "entities" => V::Arr(ents) }));
     }
+    // constraints + parameters (gcons.js): CADCRAFT xdata "CCREF:<key>" on each constrained entity, block CADCRAFT_PARAMETRIC
+    let pf = cc_gcons::gcons::for_file(doc);
+    let strings = |strs: &[String]| {
+        V::Obj(cc_io_dwg::obj! { "CADCRAFT" => V::Arr(strs.iter().map(|x| V::Arr(vec![n(1000.0), V::Str(x.clone())])).collect()) })
+    };
     let mut entities: Vec<V> = Vec::new();
     for e in &model_ents {
-        entities.extend(sv.conv(&ev(e))?);
+        let mut out = sv.conv(&ev(e))?;
+        let key = pf.as_ref().and_then(|p| e.id.and_then(|id| p.refs.iter().find(|(i, _)| *i == id).map(|(_, k)| k.clone())));
+        if let Some(key) = key
+            && let Some(V::Obj(first)) = out.first_mut()
+        {
+            let mut xd = jsv::obj(first.get("xdata")).cloned().unwrap_or_default();
+            xd.set("CADCRAFT", V::Arr(vec![V::Arr(vec![n(1000.0), V::Str(format!("CCREF:{key}"))])]));
+            first.set("xdata", V::Obj(xd));
+        }
+        entities.extend(out);
+    }
+    if let Some(pf) = &pf {
+        let pts: Vec<V> = pf
+            .points
+            .iter()
+            .map(|strs| {
+                V::Obj(cc_io_dwg::obj! { "type" => "POINT", "layer" => "0", "position" => pn(0.0, 0.0, 0.0), "xdata" => strings(strs) })
+            })
+            .collect();
+        sv.blocks.push(V::Obj(
+            cc_io_dwg::obj! { "name" => cc_gcons::gcons::PARAM_BLOCK, "base" => pn(0.0, 0.0, 0.0), "entities" => V::Arr(pts) },
+        ));
     }
     // the 3D model (model3d.js): every face as 3DFACE on layer CC-3D, and its exact copy in block CADCRAFT_3D
     let units = jsv::str_or_empty(obj_of_json(&doc.meta).get("units"));

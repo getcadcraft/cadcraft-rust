@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed 2026-10-16 · Change: drafting (M4): cc-cad, cc-cad-geom, the command engine, the DWG writer, cc-io-cad.
+Last reviewed 2026-10-21 · Change: cc-gcons (M4.23: constraints and parameters).
 
 ## Toolchain and pins
 
@@ -19,7 +19,7 @@ Last reviewed 2026-10-16 · Change: drafting (M4): cc-cad, cc-cad-geom, the comm
 | L0 | `cc-geom`, `cc-clock` (the host's UTC offset per instant: jiff natively, `Date.getTimezoneOffset` on the web; writers take a `Zone` from the host) |
 | L1 | `cc-drawing` (display model), `cc-cad` (CadCraft's editable Doc, doc.js) |
 | L2 | `cc-cad-geom` (geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch; `display` = Doc → `cc-drawing`) |
-| L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client) |
+| L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client), `cc-gcons` (CadCraft's constraints and parameters: gsolve.js, gcons.js, params-doc.js, ckeep.js; gives `cc-cad`'s `Doc::change` its constraint hook) |
 | L4 | `cc-tools`, `cc-io-cad` (CadCraft's DWG import, DXF R12 read/write, DWG save, DXF 2000; L4 because it uses `cc-io-dwg`) |
 | L5 | `cc-engine` (prompt Runner, command line, drafting commands) |
 | L6 | `cc-ui-egui`, `cc-mcp` (assistants: dispatcher, control channel, confinement, headless and live tools; docs/control-protocol.md) |

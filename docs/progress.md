@@ -2,6 +2,32 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.23 constraints and parameters (agent, work/drafting2)
+
+- New crate cc-gcons (L3): gsolve.js (the solver: damped least-norm Newton, Gram–Schmidt analysis), gcons.js (making,
+  measuring, solving after edits, files, clipboard), params-doc.js (every parameter / constraint edit one undo step,
+  over cc-part's params.js) and ckeep.js (MIRROR, TRIM). The drawing holds the constraints (cc-cad `constraint::Con`,
+  shared copy-on-write) and the parameter table; `Doc::change` calls the constraint hook before it records a change
+  (afterEdit: what moved is pinned, the rest follows, else the edit is refused and noted), as doc.js does; notes print
+  indented on the command line.
+- Commands (pcommands.js): GEOMCONSTRAINT / GCON and GCHORIZONTAL … GCFIX, DIMCONSTRAINT / DCON and DCLINEAR …
+  DCCONVERT, DELCONSTRAINT, AUTOCONSTRAIN (Settings), PARAMETERS (the window's panel; else the list), -PARAMETERS
+  (New / Edit / Rename / Delete / ?), CONSTRAINTBAR, DCDISPLAY. MIRROR, TRIM, COPYCLIP / PASTECLIP carry constraints.
+  Not here: SWBOUT (swsketch.js).
+- Files: DXF R12, DXF 2000 and DWG 2000–2018 write CCREF xdata and block CADCRAFT_PARAMETRIC (gcons.js `forFile`);
+  opening a drawing resolves them (`resolveParametric`, cc-gcons `finish_load`).
+- Window: the Parameters panel (name / expression / value rows, two-way values with a choice when several parameters
+  drive one, Add, Delete), constraint bars and dimensional constraints over the model (gview.js), a click selects one
+  (Delete removes it), a double click on a label edits its value. `par.*` commands.
+- Parity: kdiff 4 constraint scenarios (every GC / DC command and option, refusals, conflicts, redundant ones, MOVE /
+  ERASE with constraints, MIRROR copies and erase, TRIM, the clipboard, UNDO / REDO, -PARAMETERS) 244/244 records; all
+  49 scenarios 2671/2671. idiff `--constraints` (new: the JS constrains each kit drawing, both save): DXF R12, DXF 2000,
+  DWG 2000, DWG 2018 78/78 byte-identical each; the saves read back (import, doc, write, re-read) 26/26 identical
+  (`testfiles/generated/constraints`). Fuzz target `cad_parametric` (a payload with a multi-byte fixed-field key was cut
+  inside a character: fixed, regression test + seed).
+- Speed (`forks/tools/constrainttime.mjs`, AUTOCONSTRAIN on N rectangles then MOVE / DCLINEAR + -PARAMETERS): 20 lines
+  9.1–12.2× the JS, 80 lines 4.3–4.8×, 160 lines 2.8–3.6×, 320 lines 2.1–2.2× (constraints shared, not copied, per edit).
+
 ## 2026-10-21 — M4.22 LIBRARY, INSERT File and Library (agent, work/drafting2)
 
 - INSERT File (commands.js `insertFromFile`, blockcopy.js): a DWG / DXF from the picker as one block named after the

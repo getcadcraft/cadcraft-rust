@@ -139,6 +139,11 @@ pub trait Host {
         false
     }
     fn save_blob(&mut self, _name: &str, _data: &[u8], _mime: &str) {}
+    /// `host.parameters()` (PARAMETERS): open the window's Parameters panel → false when it has none (the command line
+    /// lists them).
+    fn parameters(&mut self) -> bool {
+        false
+    }
     /// `host.plotPrefs()`: the Plot dialog's last ink ("mono" | "color") and pen (mm), which PUBLISH plots with; None
     /// when the host has no Plot dialog (black, 0.25 mm).
     fn plot_prefs(&self) -> Option<(String, f64)> {
@@ -414,6 +419,16 @@ impl Shared {
     pub fn print(&self, s: &str) {
         self.host.borrow_mut().print(s);
     }
+    /// Print and clear the drawing's constraint notes (`doc.onNote` → print('  ' + m)).
+    pub fn flush_notes(&self) {
+        let notes = match self.doc.try_borrow_mut() {
+            Ok(mut d) => std::mem::take(&mut d.notes),
+            Err(_) => return,
+        };
+        for n in notes {
+            self.print(&format!("  {n}"));
+        }
+    }
     fn prompt_text(&self) -> String {
         let st = self.st.borrow();
         let Some(w) = st.waiting.as_ref() else { return String::new() };
@@ -451,6 +466,10 @@ impl std::fmt::Debug for Engine {
 impl Engine {
     pub fn new(mut doc: Doc, host: Box<dyn Host>, lang: Lang) -> Self {
         doc.unnamed_view = lang.s("field.vpview.none");
+        // constraints: the drawing's edit hook, the catalog its notes come from, a file's constraints resolved
+        cc_gcons::install();
+        cc_cad::i18n::set_catalog(lang.cat());
+        cc_gcons::finish_load(&mut doc);
         let sh = Rc::new(Shared { doc: RefCell::new(doc), host: RefCell::new(host), st: RefCell::new(State::default()), lang });
         Engine { sh, runner: Runner::default() }
     }
@@ -472,6 +491,11 @@ impl Engine {
     /// The language the command line speaks.
     pub fn lang(&self) -> &Lang {
         &self.sh.lang
+    }
+    /// Print the drawing's constraint notes (an edit the window made itself: grips, the Properties panel, the Parameters
+    /// panel).
+    pub fn flush_notes(&self) {
+        self.sh.flush_notes();
     }
     /// The running command's name.
     pub fn running(&self) -> Option<&'static str> {
@@ -530,6 +554,8 @@ impl Engine {
 
     /// The command ended (done, Esc or an error): print, fold its edits into one undo step, reset.
     fn after_poll(&mut self) {
+        // notes from changes made outside Ctx::change (the parametric edits change the drawing themselves)
+        self.sh.flush_notes();
         if self.runner.running() {
             return;
         }
@@ -1016,7 +1042,14 @@ impl Ctx {
 
     /// One change of the document (an undo step, folded into the command's when it ends).
     pub fn change<T>(&self, label: &str, f: impl FnOnce(&mut Doc) -> Result<T, cc_cad::DocError>) -> R<T> {
-        self.sh.doc.borrow_mut().change(label, f).map_err(doc_err)
+        let r = self.sh.doc.borrow_mut().change(label, f).map_err(doc_err);
+        self.flush_notes();
+        r
+    }
+    /// What the drawing said about constraints during the last changes (`doc.onNote`: printed indented, as
+    /// params-panel.js prints them).
+    pub fn flush_notes(&self) {
+        self.sh.flush_notes();
     }
     /// `c.add(e)`
     pub fn add(&self, e: Entity) -> R<Entity> {
