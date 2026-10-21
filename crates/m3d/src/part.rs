@@ -104,26 +104,28 @@ fn spline_eq(a: &Spline, b: &Spline) -> bool {
     a.closed == b.closed && jeq(a.segs, b.segs) && a.pts.len() == b.pts.len() && a.pts.iter().zip(&b.pts).all(|(p, q)| jeq_all(p, q))
 }
 
-/// `JSON.stringify(defToJSON(a)) === JSON.stringify(defToJSON(b))`, without the text.
+/// `JSON.stringify(defToJSON(a)) === JSON.stringify(defToJSON(b))`, without the text. The checks run cheapest first
+/// (every count, then the instances and splines, then the geometry): an undo of an edit that only added or moved
+/// instances of a big definition finds the difference without walking its faces.
 pub fn def_json_eq(a: &DefJson, b: &DefJson) -> bool {
     a.id == b.id
         && a.kind == b.kind
         && a.name == b.name
         && jeq(a.next, b.next)
         && a.starter == b.starter
+        && a.verts.len() == b.verts.len()
+        && a.edges.len() == b.edges.len()
+        && a.faces.len() == b.faces.len()
+        && a.insts.len() == b.insts.len()
+        && a.splines.len() == b.splines.len()
         && match (&a.dyn_, &b.dyn_) {
             (None, None) => true,
             (Some(x), Some(y)) => x.src == y.src && jeq_all(&x.size, &y.size),
             _ => false,
         }
-        && a.verts.len() == b.verts.len()
-        && a.verts.iter().zip(&b.verts).all(|((i, p), (j, q))| jeq(*i, *j) && jeq_all(p, q))
-        && a.edges.len() == b.edges.len()
-        && a.edges.iter().zip(&b.edges).all(|((i, x), (j, y))| jeq(*i, *j) && edge_eq(x, y))
-        && a.faces.len() == b.faces.len()
-        && a.faces.iter().zip(&b.faces).all(|((i, x), (j, y))| jeq(*i, *j) && face_eq(x, y))
-        && a.insts.len() == b.insts.len()
         && a.insts.iter().zip(&b.insts).all(|((i, x), (j, y))| jeq(*i, *j) && inst_eq(x, y))
-        && a.splines.len() == b.splines.len()
         && a.splines.iter().zip(&b.splines).all(|((i, x), (j, y))| i == j && spline_eq(x, y))
+        && a.verts.iter().zip(&b.verts).all(|((i, p), (j, q))| jeq(*i, *j) && jeq_all(p, q))
+        && a.edges.iter().zip(&b.edges).all(|((i, x), (j, y))| jeq(*i, *j) && edge_eq(x, y))
+        && a.faces.iter().zip(&b.faces).all(|((i, x), (j, y))| jeq(*i, *j) && face_eq(x, y))
 }

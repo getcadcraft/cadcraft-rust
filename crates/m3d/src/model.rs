@@ -263,6 +263,23 @@ pub struct Model {
     pv: Option<Preview>,
     pub uid: String,
     serial: u64,
+    /// Definitions an undo or redo put away, freed at the next change (a big one takes a millisecond to free: the
+    /// undo answers at once, as the JS's garbage collector lets it).
+    pub(crate) trash: Trash,
+}
+
+/// See [`Model::trash`]. A copy of the model starts with none.
+#[derive(Default)]
+pub(crate) struct Trash(pub(crate) Vec<OMap<String, Def>>);
+impl Clone for Trash {
+    fn clone(&self) -> Self {
+        Trash(Vec::new())
+    }
+}
+impl std::fmt::Debug for Trash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Trash({})", self.0.len())
+    }
 }
 
 impl Default for Model {
@@ -297,6 +314,7 @@ impl Model {
             pv: None,
             uid: String::new(),
             serial: 0,
+            trash: Trash::default(),
         };
         m.reset();
         m
@@ -655,6 +673,7 @@ impl Model {
     /// Run f(model) as one undo step labelled `label`. On an error the model goes back to its snapshot from before
     /// (as the JS does: see the module header) and the error is returned.
     pub fn change<R>(&mut self, label: &str, f: impl FnOnce(&mut Model) -> Res<R>) -> Res<R> {
+        self.trash.0.clear();
         let before = self.snap();
         self.editing += 1;
         let r = f(self);
@@ -667,12 +686,47 @@ impl Model {
             }
         };
         self.bump_version();
-        let after = self.snap();
-        if !same_snap(&after, &before) {
+        let mut after = self.snap();
+        if !self.share_unchanged(&before, &mut after) {
             let step = self.new_step(label, before, after);
             self.push_step(step);
         }
         Ok(r)
+    }
+    /// [`same_snap`]`(after, before)`, and each definition whose JSON the change left as it was takes the before
+    /// entry itself (in the snapshot and in its cache), so an undo or redo finds it by identity instead of comparing a
+    /// big definition's geometry again.
+    fn share_unchanged(&mut self, before: &SnapRef, after: &mut SnapRef) -> bool {
+        let (SnapRef::Snap(b), SnapRef::Snap(a)) = (before, &mut *after) else { return same_snap(after, before) };
+        let Some(a) = Rc::get_mut(a) else { return same_snap(after, before) };
+        let by_id: std::collections::HashMap<&str, &PartRef> = b.parts.iter().map(|(id, p)| (id.as_str(), p)).collect();
+        let mut all = same_str(&a.head, &b.head) && a.parts.len() == b.parts.len();
+        for (i, (id, part)) in a.parts.iter_mut().enumerate() {
+            let at = b.parts.get(i).filter(|(bid, _)| bid == id).map(|(_, p)| p).or_else(|| by_id.get(id.as_str()).copied());
+            let Some(old) = at else {
+                all = false;
+                continue;
+            };
+            if Rc::ptr_eq(old, part) {
+                continue;
+            }
+            if crate::part::same(old, part) {
+                if let Some(d) = self.defs.get_mut(id.as_str())
+                    && let Some((_, c)) = d.cache.as_mut()
+                    && Rc::ptr_eq(c, part)
+                {
+                    *c = old.clone();
+                }
+                *part = old.clone();
+            } else {
+                all = false;
+            }
+            // the order of the parts matters to same_snap: an entry found elsewhere is a difference
+            if b.parts.get(i).is_none_or(|(bid, _)| bid != id) {
+                all = false;
+            }
+        }
+        all
     }
     pub fn can_undo(&self) -> bool {
         !self.undo_stack.is_empty()

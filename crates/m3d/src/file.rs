@@ -1270,6 +1270,13 @@ impl Model {
             defs.set(id.clone(), d);
         }
         self.defs = defs;
+        // an undo / redo frees the definitions it replaced later (a few kept at most)
+        if restoring && !old.is_empty() {
+            if self.trash.0.len() >= 4 {
+                self.trash.0.clear();
+            }
+            self.trash.0.push(old);
+        }
         self.guides = guides;
         self.lights = lights;
         self.dims = dims;
