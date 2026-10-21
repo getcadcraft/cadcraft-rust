@@ -290,6 +290,12 @@ impl ModelView {
         self.style.xray = self.mode == "xray";
         self.style.hidden_line = self.mode == "hidden";
         self.style.edges = self.edges || self.mode == "wire";
+        // updateLights: with shadows the sun of the style's date, time and place lights the model and casts shadows
+        self.style.sun = self.shadows.then(|| {
+            let [month, day, hour, lat, lon, tz] = self.sun;
+            let s = cc_m3d_tools::sun::sun_position(&cc_m3d_tools::sun::When { month, day, hour, lat, lon, tz, year: 2026.0 });
+            cc_render::mesh3d::Sun3 { dir: s.dir, up: s.up }
+        });
     }
 
     /// uiToStyle's sun: [month, day, hour, lat, lon, tz], each clamped; a value that is not a number keeps the old one.
@@ -302,6 +308,7 @@ impl ModelView {
                 *slot = if k < 2 { c.trunc() } else { c };
             }
         }
+        self.apply_style();
     }
 
     /// The file's text as saveModel writes it (modelText): the model, the view (camera and style), imported images.

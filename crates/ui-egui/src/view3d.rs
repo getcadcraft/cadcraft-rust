@@ -205,7 +205,14 @@ impl egui_wgpu::CallbackTrait for Callback {
         if g.shown != Some(key)
             && let (Some((t, _)), Some(set)) = (&g.target, &g.instances)
         {
-            g.last = g.renderer.render(device, queue, t, Scene3 { meshes: &g.meshes, instances: set }, &self.cam, &self.style);
+            g.last = g.renderer.render(
+                device,
+                queue,
+                t,
+                Scene3 { meshes: &g.meshes, instances: set, bounds: Some((self.scene.min, self.scene.max)) },
+                &self.cam,
+                &self.style,
+            );
             g.shown = Some(key);
         }
         Vec::new()

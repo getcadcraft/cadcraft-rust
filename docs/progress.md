@@ -2,6 +2,30 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.22 ModelCraft sun shadows in the 3D view (agent, work/model621)
+
+- `crates/render/src/mesh3d.rs` + `shader3d.wgsl`: with Style › Shadows on, the view lights the model as view3d.js
+  `updateLights` does: the sun of the style's date, time and place (`cc-m3d-tools::sun`, already at parity) lights the
+  faces (sun 1.9 / sky 1.5 against the plain light's 1.4 / 1.9; down: sky 1.2, no sun) and casts shadows through a
+  2048² shadow map (the sun's orthographic box of ±2R around the model's box, near 0.1R, far 7R; back faces into the
+  map as three.js `shadowSide: BackSide`; bias −0.0004, normal bias 0.02 m; 3 × 3 filtered comparison taps for PCF
+  soft edges; the section cut also cuts the shadows, as `clipShadows`), and a ground 10R wide 1 mm under the model
+  catches them (three.js ShadowMaterial, opacity 0.28; one-sided, unseen from below). Wire draws no shadows.
+  `Scene3` carries the scene box; `Style3.sun` (Some with shadows) is part of the redraw key, so the view redraws only
+  when the sun moves. WebGPU-safe: a depth texture with a comparison sampler, `textureSampleCompareLevel` (no
+  derivatives), a depth-only pass with an empty colour target list.
+- `modelcraft.rs`: `apply_style` works out the sun; `set_sun` (the sun's date / time / place fields) applies it.
+- Tests: `mesh3d::tests::sun_frame_centres_the_box`, `the_sun_casts_a_shadow_headless` (a cube above a plate: the plate
+  under its shadow is darker than in the sun, rendered on the GPU), `mcact::tests::shadows_put_the_sun_in_the_view_style`.
+- Parity: nothing saved changes (the style was kept and saved since M6.17); mcuidiff seeds 1–2 × 40 steps: 800 / 800
+  status lines, 828 / 828 files identical.
+- Timing (`cadcraft-shot bench m3d-50k-faces.modelcraft --orbit 75,75,2,160 --frames 40`, 1400 × 900, the camera
+  moving every frame, frame = UI + 3D + read back, RTX on workstation11a, median of 40, 3 runs each): shadows off 32.4–
+  32.9 ms, on 38.5–39.2 ms (+6 ms for the shadow pass and the ground). The bench gained `--run ID=NAME` and `--orbit`.
+- Screenshots: `forks/lead/shots/model621/m622-house-off.png`, `m622-house-shadows.png` (21 June 15:00, the default
+  sun), `m622-house-morning.png` (20 March 8:30: the house's long shadow to the west).
+- Spec gap kept from three.js: a lone face whose front faces the sun casts no shadow (only back faces go into the map).
+
 ## 2026-10-21 — M6.21 ModelCraft components that stretch (agent, work/m3dfix → work/model621)
 
 - `crates/ui-egui/src/mcstretch.rs`: Entity info's Stretch this copy… (the dialog with the copy's width, depth and

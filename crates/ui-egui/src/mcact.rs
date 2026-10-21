@@ -1058,6 +1058,20 @@ mod tests {
     }
 
     #[test]
+    fn shadows_put_the_sun_in_the_view_style() {
+        let mut v = boxes();
+        assert!(v.style.sun.is_none());
+        v.act("shadows:on").unwrap();
+        let s = v.style.sun.expect("the sun");
+        assert!(s.up, "21 June 15:00 at 40 N: up");
+        assert!(s.dir[2] > 0.5 && s.dir[0] < 0.0, "high in the south-west: {:?}", s.dir);
+        v.act("sun:6,21,23,40,-105,-7").unwrap();
+        assert!(!v.style.sun.expect("still on").up, "no sun at 11 pm");
+        v.act("shadows:off").unwrap();
+        assert!(v.style.sun.is_none());
+    }
+
+    #[test]
     fn parse_helpers() {
         assert_eq!(parse_path("").unwrap(), Vec::<f64>::new());
         assert_eq!(parse_path("3/5").unwrap(), vec![3.0, 5.0]);

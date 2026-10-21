@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M6.22: ModelCraft sun shadows in the 3D view (shadow map + shadow-catching ground, as view3d.js); +6 ms a frame on the 50k-face model.
 - 2026-10-21 M6.21: ModelCraft components that stretch (Stretch this copy… dialog, part rules per axis with a repeated part's spacing); mcuidiff --edit full sweep 7,040/7,040 status lines and 6,651/6,651 saved files identical to 0.5; stretching 6–8× faster than 0.5.
 - 2026-10-21 M16.8: dates 0.5 writes in local time are local in the port too (zip dates, KISS, LandXML, MarkupCraft lists) through cc-clock (jiff); mkuidiff / mkdiff / todiff / cvuidiff / cvdiff / dcuidiff / tkopsdiff 0 differences under UTC, Denver, Kolkata, Auckland and at DST changes.
 - 2026-10-21 M11.16: GeoTIFF reads capped at 1 GB of cells (was 3.2 GB): civil_raster fuzz OOM fixed, regression test + seed.

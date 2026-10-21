@@ -497,7 +497,9 @@ fn demo3d(args: &[String]) -> Result<(), String> {
 }
 
 fn bench(args: &[String]) -> Result<(), String> {
-    let Some(src) = args.get(1) else { return Err("usage: cadcraft-shot bench <file|--sample> [--frames N]".into()) };
+    let Some(src) = args.get(1) else {
+        return Err("usage: cadcraft-shot bench <file|--sample> [--frames N] [--run ID=NAME]… [--orbit cx,cy,cz,r]".into());
+    };
     let frames: usize = arg(args, "--frames").and_then(|s| s.parse().ok()).unwrap_or(30);
     let (w, h) = size(args);
     let mut app = UiApp::default();
@@ -512,6 +514,17 @@ fn bench(args: &[String]) -> Result<(), String> {
         app.run("space.select", &Params { index: Some(i), ..Default::default() })?;
     }
     let mut hs = harness(app, w, h);
+    // --run ID=NAME (any number, before the first frame): e.g. model.edit=shadows:on
+    for (k, v) in args.iter().enumerate() {
+        if v == "--run"
+            && let Some(x) = args.get(k + 1)
+        {
+            let (id, name) = x.split_once('=').map_or((x.as_str(), None), |(a, b)| (a, Some(b.to_string())));
+            hs.state_mut().run(id, &Params { name, ..Default::default() })?;
+        }
+    }
+    // --orbit cx,cy,cz,r: each frame moves the 3D camera around that point (ModelCraft) instead of zooming
+    let orbit: Option<Vec<f64>> = arg(args, "--orbit").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect());
     let t = Instant::now();
     hs.step();
     hs.render()?;
@@ -519,8 +532,14 @@ fn bench(args: &[String]) -> Result<(), String> {
     let mut times = Vec::with_capacity(frames);
     let mut ui_times = Vec::with_capacity(frames);
     for i in 0..frames {
-        let z = if i % 2 == 0 { 1.15 } else { 1.0 / 1.1 };
-        hs.state_mut().run("view.zoom", &Params { factor: Some(z), ..Default::default() })?;
+        if let Some(&[cx, cy, cz, r]) = orbit.as_deref() {
+            let a = i as f64 * 0.15;
+            let cam = format!("cam:{},{},{},{cx},{cy},{cz}", cx + r * a.cos(), cy + r * a.sin(), cz + r * 0.6);
+            hs.state_mut().run("model.edit", &Params { name: Some(cam), ..Default::default() })?;
+        } else {
+            let z = if i % 2 == 0 { 1.15 } else { 1.0 / 1.1 };
+            hs.state_mut().run("view.zoom", &Params { factor: Some(z), ..Default::default() })?;
+        }
         let t = Instant::now();
         hs.step();
         hs.render()?;

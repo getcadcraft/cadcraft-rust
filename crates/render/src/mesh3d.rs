@@ -330,7 +330,7 @@ impl MeshData {
 
 const VSTRIDE: u64 = 28; // pos 12 + normal 12 + colour 4
 const ISTRIDE: u64 = 128; // m 64 + normal matrix 48 + tint 16
-const FRAME: u64 = 160;
+const FRAME: u64 = 256;
 
 /// A mesh on the GPU.
 #[derive(Debug)]
@@ -395,7 +395,22 @@ pub struct Style3 {
     pub back: [f32; 3],
     /// a section cut (world): normal and offset; what lies where n · p > d is not drawn
     pub section: Option<([f64; 3], f64)>,
+    /// sun shadows (view3d.js with `style.shadows`): the sun lights the faces and casts shadows on them and on a
+    /// ground under the model; None = the fixed light, no shadows
+    pub sun: Option<Sun3>,
 }
+
+/// The sun of view3d.js `updateLights` with shadows on: the direction towards it (world, unit) and whether it is up.
+/// Down, it gives no light and the shadows fall straight down on the ground (three.js's shadow mask ignores the
+/// light's intensity).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Sun3 {
+    pub dir: [f64; 3],
+    pub up: bool,
+}
+
+/// view3d.js's shadow map: 2048 × 2048 texels.
+pub const SHADOW_SIZE: u32 = 2048;
 
 impl Default for Style3 {
     fn default() -> Self {
@@ -408,6 +423,7 @@ impl Default for Style3 {
             edge: [0.08, 0.09, 0.1, 1.0],
             back: [0.62, 0.66, 0.74],
             section: None,
+            sun: None,
         }
     }
 }
@@ -468,8 +484,14 @@ pub struct Renderer3 {
     face: wgpu::RenderPipeline,
     face_xray: wgpu::RenderPipeline,
     edge: wgpu::RenderPipeline,
+    /// faces into the shadow map (depth only, back faces as three.js's `shadowSide: BackSide`)
+    shadow: wgpu::RenderPipeline,
+    /// the ground that catches shadows (three.js ShadowMaterial, opacity 0.28)
+    ground: wgpu::RenderPipeline,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
+    shadow_view: wgpu::TextureView,
+    shadow_bind: wgpu::BindGroup,
 }
 
 impl std::fmt::Debug for Renderer3 {
@@ -533,6 +555,8 @@ impl InstanceSet {
 pub struct Scene3<'a> {
     pub meshes: &'a [GpuMesh],
     pub instances: &'a InstanceSet,
+    /// the box of what is drawn (world): where the sun's shadow map and the ground go
+    pub bounds: Option<([f64; 3], [f64; 3])>,
 }
 
 /// What one frame drew.
@@ -574,8 +598,61 @@ impl Renderer3 {
             layout: &bgl,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: frame.as_entire_binding() }],
         });
+        // the shadow map and its comparison sampler (group 1 of the main pass)
+        let sbgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cc3 shadow map"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+        let shadow_tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("cc3 shadow map"),
+            size: wgpu::Extent3d { width: SHADOW_SIZE, height: SHADOW_SIZE, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let shadow_view = shadow_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("cc3 shadow map"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let shadow_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cc3 shadow map"),
+            layout: &sbgl,
+            entries: &[
+                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&shadow_view) },
+                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&shadow_sampler) },
+            ],
+        });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("cc3"),
+            bind_group_layouts: &[Some(&bgl), Some(&sbgl)],
+            immediate_size: 0,
+        });
+        let shadow_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cc3 shadow"),
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
@@ -656,7 +733,76 @@ impl Renderer3 {
             multiview_mask: None,
             cache: None,
         });
-        Renderer3 { face, face_xray, edge, frame, bind }
+        let shadow = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cc3 shadow"),
+            layout: Some(&shadow_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_shadow"),
+                compilation_options: Default::default(),
+                buffers: &[
+                    Some(wgpu::VertexBufferLayout {
+                        array_stride: VSTRIDE,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &vert_attrs,
+                    }),
+                    Some(inst.clone()),
+                ],
+            },
+            // a fragment stage only for the section cut (three.js `clipShadows`): no colour targets
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_shadow"),
+                compilation_options: Default::default(),
+                targets: &[],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Front),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let ground = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cc3 ground"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_ground"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_ground"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: TARGET_FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            // one-sided (PlaneGeometry facing +Z): not seen from below
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: depth(false, wgpu::CompareFunction::Greater),
+            multisample: ms,
+            multiview_mask: None,
+            cache: None,
+        });
+        Renderer3 { face, face_xray, edge, shadow, ground, frame, bind, shadow_view, shadow_bind }
     }
 
     /// Draw `instances` of `meshes` seen by `cam` into `target`; returns what was drawn. The camera's size should be
@@ -673,11 +819,19 @@ impl Renderer3 {
         let meshes = scene.meshes;
         let set = scene.instances;
         let pv = cam.frame_matrix(set.origin);
-        let shade = if style.hidden_line { [1.0, 0.0, 1.0, 0.0] } else { [0.45, 0.6, if style.xray { 0.45 } else { 1.0 }, 0.0] };
+        // view3d.js updateLights: without shadows a fixed light (sun 1.4, sky 1.9); with them the sun (1.9 when up, else
+        // 0) and the sky (1.5 up, 1.2 down). The plain light's 0.45 ambient + 0.6 diffuse stand for 1.9 and 1.4.
+        let shadows = style.sun.filter(|_| style.faces);
+        let (ambient, diffuse, light) = match style.sun {
+            Some(s) if s.up => (0.45 * 1.5 / 1.9, 0.6 * 1.9 / 1.4, s.dir),
+            Some(_) => (0.45 * 1.2 / 1.9, 0.0, [0.0, 0.0, 1.0]),
+            None => (0.45, 0.6, [0.35, -0.45, 0.82]),
+        };
+        let shade = if style.hidden_line { [1.0, 0.0, 1.0, 0.0] } else { [ambient, diffuse, if style.xray { 0.45 } else { 1.0 }, 0.0] };
         // edges win over their faces by a depth nudge that is a fixed fraction of the depth range near the eye
         let nudge = if cam.persp { 2e-6 } else { 1e-5 };
         let mut fb: Vec<f32> = pv.to_vec();
-        fb.extend_from_slice(&[0.35, -0.45, 0.82, 0.0]);
+        fb.extend_from_slice(&[light[0] as f32, light[1] as f32, light[2] as f32, if shadows.is_some() { 1.0 } else { 0.0 }]);
         fb.extend_from_slice(&[style.back[0], style.back[1], style.back[2], 0.25]);
         fb.extend_from_slice(&style.edge);
         fb.extend_from_slice(&[shade[0], shade[1], shade[2], nudge]);
@@ -696,12 +850,50 @@ impl Renderer3 {
         } else {
             fb.extend_from_slice(&[0.0; 4]);
         }
+        let lit = shadows.map(|s| sun_frame(if s.up { s.dir } else { [0.0, 0.0, 1.0] }, scene.bounds, set.origin));
+        match &lit {
+            Some(l) => {
+                fb.extend_from_slice(&l.lpv);
+                fb.extend_from_slice(&l.ground);
+            }
+            None => fb.extend_from_slice(&[0.0; 20]),
+        }
+        // three.js shadow.bias −0.0004 (depth units), normalBias 0.02 (m), one texel, ShadowMaterial opacity 0.28
+        fb.extend_from_slice(&[-0.0004, 0.02, 1.0 / SHADOW_SIZE as f32, 0.28]);
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);
         let (inst_buf, ranges) = (&set.buf, &set.ranges);
 
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("cc3") });
         let mut stats = Stats3 { instances: set.count, ..Stats3::default() };
+        if lit.is_some() {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("cc3 shadow"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let Some(inst_buf) = &inst_buf {
+                pass.set_pipeline(&self.shadow);
+                pass.set_bind_group(0, &self.bind, &[]);
+                pass.set_vertex_buffer(1, inst_buf.slice(..));
+                for (mi, r) in ranges {
+                    let Some(mesh) = meshes.get(*mi) else { continue };
+                    if let (Some(v), Some(i)) = (&mesh.verts, &mesh.idx) {
+                        pass.set_vertex_buffer(0, v.slice(..));
+                        pass.set_index_buffer(i.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..mesh.triangles * 3, 0, r.clone());
+                        stats.draw_calls += 1;
+                    }
+                }
+            }
+        }
         {
             let bg = style.background;
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -729,8 +921,15 @@ impl Renderer3 {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            pass.set_bind_group(0, &self.bind, &[]);
+            pass.set_bind_group(1, &self.shadow_bind, &[]);
+            if lit.is_some() {
+                // the ground first, writing no depth: whatever stands on it covers it
+                pass.set_pipeline(&self.ground);
+                pass.draw(0..6, 0..1);
+                stats.draw_calls += 1;
+            }
             if let Some(inst_buf) = &inst_buf {
-                pass.set_bind_group(0, &self.bind, &[]);
                 pass.set_vertex_buffer(1, inst_buf.slice(..));
                 if style.faces {
                     pass.set_pipeline(if style.xray { &self.face_xray } else { &self.face });
@@ -761,6 +960,58 @@ impl Renderer3 {
         }
         queue.submit([enc.finish()]);
         stats
+    }
+}
+
+/// The sun's shadow camera and the ground (view3d.js updateLights), relative to the scene's origin.
+struct SunFrame {
+    /// world (relative to the origin) → the shadow map's clip space (x, y in −1…1, depth 0…1 from near to far)
+    lpv: [f32; 16],
+    /// the ground's centre (relative to the origin) and half its side
+    ground: [f32; 4],
+}
+
+/// The box's centre c and R = max(half its diagonal, 2) (no box: c = 0, R = 10); the light at c + dir · 3R looking at
+/// c, an orthographic box of ±2R, near 0.1R, far 7R; the ground 10R wide at the box's bottom − 1 mm.
+fn sun_frame(dir: [f64; 3], bounds: Option<([f64; 3], [f64; 3])>, origin: [f64; 3]) -> SunFrame {
+    let bounds = bounds.filter(|(lo, hi)| lo.iter().chain(hi).all(|v| v.is_finite()));
+    let (c, r, zg) = match bounds {
+        Some((lo, hi)) => {
+            ([(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0], (len3(sub3(hi, lo)) / 2.0).max(2.0), lo[2] - 1e-3)
+        }
+        None => ([0.0; 3], 10.0, 0.0),
+    };
+    let d = norm3(dir);
+    let eye = [c[0] + d[0] * r * 3.0 - origin[0], c[1] + d[1] * r * 3.0 - origin[1], c[2] + d[2] * r * 3.0 - origin[2]];
+    let fwd = [-d[0], -d[1], -d[2]];
+    let up0 = if d[2].abs() > 0.99 { [0.0, 1.0, 0.0] } else { [0.0, 0.0, 1.0] };
+    let right = norm3(cross3(fwd, up0));
+    let up = cross3(right, fwd);
+    let (near, far, half) = (r * 0.1, r * 7.0, r * 2.0);
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (sx, sz) = (1.0 / half, 1.0 / (far - near));
+    // rows: x = right·(p − eye)/half, y = up·(p − eye)/half, z = (fwd·(p − eye) − near)/(far − near), w = 1
+    let m = [
+        right[0] * sx,
+        up[0] * sx,
+        fwd[0] * sz,
+        0.0,
+        right[1] * sx,
+        up[1] * sx,
+        fwd[1] * sz,
+        0.0,
+        right[2] * sx,
+        up[2] * sx,
+        fwd[2] * sz,
+        0.0,
+        -dot(right, eye) * sx,
+        -dot(up, eye) * sx,
+        (-dot(fwd, eye) - near) * sz,
+        1.0,
+    ];
+    SunFrame {
+        lpv: m.map(|v| v as f32),
+        ground: [(c[0] - origin[0]) as f32, (c[1] - origin[1]) as f32, (zg - origin[2]) as f32, (r * 5.0) as f32],
     }
 }
 
@@ -990,6 +1241,81 @@ mod tests {
     }
 
     #[test]
+    fn sun_frame_centres_the_box() {
+        let (lo, hi) = ([10.0, 20.0, 0.0], [14.0, 24.0, 3.0]);
+        let f = sun_frame([0.3, -0.4, 0.866], Some((lo, hi)), [12.0, 22.0, 1.5]);
+        let m = f.lpv.map(f64::from);
+        let ap = |p: [f64; 3]| {
+            let c = |r: usize| m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r];
+            [c(0), c(1), c(2)]
+        };
+        let c = ap([0.0, 0.0, 0.0]);
+        assert!(c[0].abs() < 1e-6 && c[1].abs() < 1e-6 && c[2] > 0.0 && c[2] < 1.0, "{c:?}");
+        // a point towards the sun is nearer (smaller depth)
+        let n = ap([0.3, -0.4, 0.866]);
+        assert!(n[2] < c[2]);
+        // the ground: under the box's bottom, 10 R wide
+        let r = (16.0f64 + 16.0 + 9.0).sqrt() / 2.0;
+        assert!((f64::from(f.ground[2]) - (-1.5 - 1e-3)).abs() < 1e-5);
+        assert!((f64::from(f.ground[3]) - r.max(2.0) * 5.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn the_sun_casts_a_shadow_headless() {
+        let Some((device, queue)) = device() else {
+            eprintln!("no GPU adapter: skipped");
+            return;
+        };
+        // a 10 m plate and a 1 m cube standing 2 m above its middle; the sun along (1, 0, 1): the shadow falls 2–3 m
+        // towards -x of the cube
+        let plate = {
+            let q = [[-5.0, -5.0, 0.0], [5.0, -5.0, 0.0], [5.0, 5.0, 0.0], [-5.0, 5.0, 0.0]];
+            let mut t = Vec::new();
+            for i in [0, 1, 2, 0, 2, 3] {
+                t.extend_from_slice(&q[i]);
+            }
+            MeshData::from_triangles(&t, &[[200, 200, 200, 255]; 2], &[])
+        };
+        let (t, e) = cube([-0.5, -0.5, 2.0]);
+        let boxm = MeshData::from_triangles(&t, &vec![[200u8, 200, 200, 255]; t.len() / 9], &e);
+        let meshes = [GpuMesh::upload(&device, &plate), GpuMesh::upload(&device, &boxm)];
+        let target = Target3::new(&device, 64, 64);
+        let mut cam = Cam3 {
+            eye: [0.0, -0.01, 30.0],
+            target: [0.0, 0.0, 0.0],
+            persp: false,
+            width: 64.0,
+            height: 64.0,
+            near: 0.1,
+            far: 100.0,
+            ..Cam3::default()
+        };
+        cam.fit([-5.0, -5.0, 0.0], [5.0, 5.0, 3.0], None);
+        let r = Renderer3::new(&device);
+        let inst = [Instance3 { mesh: 0, m: IDENT, tint: None, hidden: false }, Instance3 { mesh: 1, m: IDENT, tint: None, hidden: false }];
+        let set = InstanceSet::new(&device, &meshes, &inst, [0.0, 0.0, 1.5]);
+        let bounds = Some(([-5.0, -5.0, 0.0], [5.0, 5.0, 3.0]));
+        let s = std::f64::consts::FRAC_1_SQRT_2;
+        let style = Style3 { edges: false, sun: Some(Sun3 { dir: [s, 0.0, s], up: true }), ..Style3::default() };
+        r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &set, bounds }, &cam, &style);
+        let px = read_back(&device, &queue, &target).unwrap();
+        let screen = |p: [f64; 3]| {
+            let m = mmul(&cam.proj(), &mmul(&cam.view_rot(), &translation([-cam.eye[0], -cam.eye[1], -cam.eye[2]])));
+            let c = |r: usize| m[r] * p[0] + m[4 + r] * p[1] + m[8 + r] * p[2] + m[12 + r];
+            let (x, y, w) = (c(0), c(1), c(3));
+            (((x / w) * 0.5 + 0.5) * 64.0, (0.5 - (y / w) * 0.5) * 64.0)
+        };
+        let at = |p: [f64; 3]| {
+            let (x, y) = screen(p);
+            let i = ((y as usize).min(63) * 64 + (x as usize).min(63)) * 4;
+            px[i]
+        };
+        let shadow = at([-3.0, 0.0, 0.0]);
+        let lit = at([2.5, 0.0, 0.0]);
+        assert!(lit > shadow + 30, "lit {lit} vs shadow {shadow}");
+    }
+
+    #[test]
     fn draws_a_cube_headless() {
         let Some((device, queue)) = device() else {
             eprintln!("no GPU adapter: skipped");
@@ -1012,7 +1338,7 @@ mod tests {
         let r = Renderer3::new(&device);
         let meshes = [mesh];
         let set = InstanceSet::new(&device, &meshes, &[Instance3 { mesh: 0, m: IDENT, tint: None, hidden: false }], c);
-        let st = r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &set }, &cam, &Style3::default());
+        let st = r.render(&device, &queue, &target, Scene3 { meshes: &meshes, instances: &set, bounds: None }, &cam, &Style3::default());
         assert_eq!(st.triangles, 12);
         assert_eq!(st.segments, 12);
         let px = read_back(&device, &queue, &target).unwrap();
