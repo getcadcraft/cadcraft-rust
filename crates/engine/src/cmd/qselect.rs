@@ -817,7 +817,7 @@ pub fn typed_value(kind: PropKind, raw: &str, lunits: f64) -> QsVal {
 }
 
 /// `parseInt(s, 10)`
-fn parse_int(s: &str) -> f64 {
+pub fn parse_int(s: &str) -> f64 {
     let t = js::trim(s);
     let (neg, rest) = match t.strip_prefix('-') {
         Some(r) => (true, r),

@@ -47,6 +47,7 @@ pub mod document;
 pub mod edit;
 pub mod hub;
 pub mod ifc3d;
+pub mod libdlg;
 pub mod markupbcf;
 pub mod markupchest;
 pub mod markupcompare;
@@ -257,6 +258,10 @@ pub struct UiApp {
     pub cadprops: cadprops::CadProps,
     /// the drafting editor's Plot dialog (M4.12)
     pub plot: plotdlg::PlotDlg,
+    /// INSERT, File's "Insert from" dialog / a question with buttons
+    pub choose: Option<libdlg::ChooseDlg>,
+    /// the library panel (LIBRARY, INSERT Library)
+    pub lib: libdlg::LibPanel,
     /// the drafting editor's Quick select and Find and replace dialogs (M4.15)
     pub caddlg: qsdlg::CadDialogs,
     /// the clipboard keys go to the clipboard commands (the command line is empty and has the focus)
@@ -339,6 +344,8 @@ impl Default for UiApp {
             editor: None,
             cadprops: cadprops::CadProps::default(),
             plot: plotdlg::PlotDlg::default(),
+            choose: None,
+            lib: libdlg::LibPanel::default(),
             caddlg: qsdlg::CadDialogs::default(),
             clip_keys: false,
             clip_cmd: None,
@@ -1483,6 +1490,7 @@ impl UiApp {
             id if id.starts_with("hub.") => return hub::run(self, id, params),
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
+            id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
@@ -1526,6 +1534,7 @@ impl UiApp {
         if find_req {
             qsdlg::open_find(self);
         }
+        libdlg::sync(self);
         let Some(ed) = self.editor.as_mut() else { return };
         // MSPACE / PSPACE: the model through the viewport, and back to its sheet
         let enter = ed.hs.borrow_mut().enter_req.take();
@@ -1788,6 +1797,7 @@ impl UiApp {
             cadprops::panel(self, ui);
         }
         plotdlg::window(self, &ctx);
+        libdlg::window(self, &ctx);
         qsdlg::window(self, &ctx);
         self.tabs(ui);
         if self.part.is_some() {

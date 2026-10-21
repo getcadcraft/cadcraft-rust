@@ -56,6 +56,8 @@ struct Stub {
     /// the script's `files`: what the pickers hand over, in order (kdiff.mjs's stub pickDrawing / pickPictures)
     drawings: std::collections::VecDeque<Option<cc_engine::PickedDrawing>>,
     pictures: std::collections::VecDeque<Vec<cc_engine::PickedFile>>,
+    /// the script's `files.library`: what the library panel hands INSERT L ({ item, slug } or null), in order
+    library: std::collections::VecDeque<Option<(Value, Option<String>)>>,
 }
 
 /// Standard base64 (the script's picture bytes) → bytes; None on anything else.
@@ -282,6 +284,15 @@ impl Host for Stub {
         self.log.borrow_mut().events.push(json!(["pickPictures", multiple]));
         cc_engine::Pick::Now(self.pictures.pop_front().unwrap_or_default())
     }
+    // the library panel, as kdiff.mjs's stub has it (M4.22)
+    fn open_library(&mut self) -> bool {
+        self.log.borrow_mut().events.push(json!(["openLibrary"]));
+        true
+    }
+    fn library(&mut self) -> cc_engine::Pick<Option<(Value, Option<String>)>> {
+        self.log.borrow_mut().events.push(json!(["library"]));
+        cc_engine::Pick::Now(self.library.pop_front().flatten())
+    }
 }
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
@@ -318,6 +329,18 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
     let log = Rc::new(RefCell::new(Log { cursor: Some(P2::new(0.0, 0.0)), ..Log::default() }));
     let spaces: Sheets = Rc::default();
     let (drawings, pictures) = files_of(script);
+    let library = script
+        .get("files")
+        .and_then(|f| f.get("library"))
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .map(|p| {
+                    p.get("item").filter(|i| !i.is_null()).map(|i| (i.clone(), p.get("slug").and_then(Value::as_str).map(str::to_string)))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let stub = Stub {
         selection: Vec::new(),
         log: Rc::clone(&log),
@@ -327,6 +350,7 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         polar_inc: 90.0,
         drawings,
         pictures,
+        library,
     };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();

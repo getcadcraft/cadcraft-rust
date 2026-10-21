@@ -191,8 +191,13 @@ fn attdef_text(d: &Value) -> Entity {
 
 /// attrs.js `defaultAttrs(blk)`: each variable definition's default.
 pub fn default_attrs(blk: Option<&Block>) -> Obj {
+    default_attrs_of(blk.and_then(|b| b.attdefs.as_ref()).map_or(&[][..], Vec::as_slice))
+}
+
+/// [`default_attrs`] from the attribute definitions alone.
+fn default_attrs_of(defs: &[Value]) -> Obj {
     let mut out = Obj::new();
-    for d in blk.and_then(|b| b.attdefs.as_ref()).map_or(&[][..], Vec::as_slice) {
+    for d in defs {
         if js::truthy(d.get("constant")) {
             continue;
         }
@@ -368,12 +373,22 @@ fn trim_end_colons(s: &str) -> &str {
 
 /// `placeBlock`: preview, S / R options, then each attribute value the block asks for → the new insert.
 pub async fn place_block(c: &Ctx, name: &str) -> R<Option<Entity>> {
-    let blk = c.doc().blocks.get(&name.to_string()).cloned();
+    place_block_with(c, name, None, None).await
+}
+
+/// `placeBlock(c, name, { scale, attrs })`: `scale` (INSERT File's unit scale) before the last one used, `attrs` over
+/// the block's defaults (a library item's fields).
+pub async fn place_block_with(c: &Ctx, name: &str, scale: Option<f64>, attrs: Option<Obj>) -> R<Option<Entity>> {
+    // only the definitions are needed (a whole drawing brought in as a block can hold many thousand objects)
+    let defs = c.doc().blocks.get(&name.to_string()).and_then(|b| b.attdefs.clone()).unwrap_or_default();
     let (mut sc, mut rot) = {
         let st = c.st();
-        (st.memo.last_insert_scale.unwrap_or(1.0), st.memo.last_insert_rot.unwrap_or(0.0))
+        (scale.or(st.memo.last_insert_scale).unwrap_or(1.0), st.memo.last_insert_rot.unwrap_or(0.0))
     };
-    let mut values = default_attrs(blk.as_ref());
+    let mut values = default_attrs_of(&defs);
+    for (k, v) in attrs.unwrap_or_default() {
+        values.insert(k, v);
+    }
     let nm = name.to_string();
     loop {
         {
@@ -412,7 +427,6 @@ pub async fn place_block(c: &Ctx, name: &str) -> R<Option<Entity>> {
             _ => return Ok(None),
         };
         c.preview(None);
-        let defs = blk.as_ref().and_then(|b| b.attdefs.clone()).unwrap_or_default();
         for d in &defs {
             if js::truthy(d.get("constant")) || js::truthy(d.get("preset")) {
                 continue;
@@ -458,11 +472,15 @@ pub async fn insert(c: Ctx) -> R {
         }
         let low = name.to_lowercase();
         if low == "f" || low == "file" {
-            c.print(&c.t("cmd.library.opening_another_drawing_needs"));
+            let Some((n, sc)) = insert_from_file(&c).await? else { return Ok(()) };
+            c.st().memo.last_block = Some(n.clone());
+            place_block_with(&c, &n, sc, None).await?;
             return Ok(());
         }
         if low == "l" || low == "lib" || low == "library" {
-            c.print(&c.t("cmd.library.library_needs_browser"));
+            let Some((n, attrs)) = library_block(&c).await? else { return Ok(()) };
+            c.st().memo.last_block = Some(n.clone());
+            place_block_with(&c, &n, None, Some(attrs)).await?;
             return Ok(());
         }
         let mut list = names.iter().take(30).cloned().collect::<Vec<_>>().join(", ");
@@ -476,6 +494,201 @@ pub async fn insert(c: Ctx) -> R {
     };
     c.st().memo.last_block = Some(name.clone());
     place_block(&c, &name).await?;
+    Ok(())
+}
+
+/// INSERT, File (commands.js `insertFromFile`): a whole DWG / DXF as one block, or one of its blocks (nested ones come
+/// too) → (the block to place, the unit scale when it is not 1).
+async fn insert_from_file(c: &Ctx) -> R<Option<(String, Option<f64>)>> {
+    use crate::cmd::blockcopy::{Which, apply_copy, plan_copy};
+    let Some(got) = c.pick_drawing(c.t("cmd.library.opening_another_drawing_needs")).await? else {
+        c.print(&c.t("cmd.library.opening_another_drawing_needs"));
+        return Ok(None);
+    };
+    let Some(got) = got else { return Ok(None) };
+    let file_name = got.file_name.clone();
+    let src = got.drawing;
+    let mut block_names: Vec<String> = src
+        .blocks
+        .iter()
+        .map(|b| b.name.clone())
+        .filter(|n| {
+            !n.starts_with('*')
+                && !(n.len() > 9
+                    && n.get(..9).is_some_and(|p| p.eq_ignore_ascii_case("CCLAYOUT_"))
+                    && n.get(9..).is_some_and(|d| d.chars().all(|ch| ch.is_ascii_digit())))
+        })
+        .collect();
+    block_names.sort_by(|a, b| crate::cmd::qselect::locale_cmp(a, b));
+    let choice: Option<Option<String>> = match c.choose_block(&file_name, &block_names).await? {
+        Some(answer) => answer.map(Some),
+        None => {
+            let k = if block_names.is_empty() {
+                "W".to_string()
+            } else {
+                let options = vec![c.opt("W", &c.t("cmd.library.whole_drawing")), c.opt("B", &c.t("opt.block"))];
+                match c
+                    .keyword(
+                        c.t("cmd.library.insert_whole_drawing_one"),
+                        Opts { options, default: Some(Def::Str("W".into())), ..Opts::default() },
+                    )
+                    .await?
+                {
+                    Reply::Opt(o) | Reply::Str(o) => o,
+                    _ => String::new(),
+                }
+            };
+            if k == "B" {
+                let mut list = block_names.iter().take(40).cloned().collect::<Vec<_>>().join(", ");
+                if block_names.len() > 40 {
+                    list.push_str(&format!(" … ({})", block_names.len()));
+                }
+                c.print(&c.tv("cmd.insert.blocks_in", &[("file", file_name.clone()), ("list", list)]));
+                loop {
+                    let r = c.string(c.tv("cmd.insert.name_from", &[("file", file_name.clone())]), Opts::default()).await?;
+                    let bn = js::trim(&s_reply(&r)).to_string();
+                    if bn.is_empty() {
+                        return Ok(None);
+                    }
+                    let hit = block_names
+                        .iter()
+                        .find(|n| **n == bn)
+                        .or_else(|| block_names.iter().find(|n| n.to_lowercase() == bn.to_lowercase()));
+                    if let Some(h) = hit {
+                        break Some(Some(h.clone()));
+                    }
+                    c.print(&c.tv("cmd.insert.noblock_in", &[("name", bn), ("file", file_name.clone())]));
+                }
+            } else {
+                Some(None)
+            }
+        }
+    };
+    // Some(None) = the whole drawing, Some(Some(name)) = one block, None = cancelled
+    let Some(choice) = choice else { return Ok(None) };
+    let choice = choice.filter(|n| n != crate::engine::WHOLE);
+    let lg = lang_of(c);
+    let plan = match &choice {
+        Some(b) => plan_copy(&c.doc(), &src, Which::Block(b), &lg),
+        None => plan_copy(&c.doc(), &src, Which::Whole(&file_name), &lg),
+    };
+    let plan = match plan {
+        Ok(p) => p,
+        Err(e) => return Err(crate::prompt::CmdError::Msg(e)),
+    };
+    let mut keep = false;
+    if !plan.clashes.is_empty() {
+        let mut list = plan.clashes.iter().take(8).cloned().collect::<Vec<_>>().join(", ");
+        if plan.clashes.len() > 8 {
+            list.push(' ');
+            list.push_str(&c.tv("cmd.and_more", &[("n", (plan.clashes.len().saturating_sub(8)).to_string())]));
+        }
+        let text = format!(
+            "{} {}",
+            c.tv("cmd.insert.clash", &[("n", plan.clashes.len().to_string()), ("list", list)]),
+            c.t("cmd.insert.clash_ask")
+        );
+        let buttons = vec![
+            ("cancel".to_string(), c.t("opt.cancel")),
+            ("keep".to_string(), c.t("cmd.library.keep_existing")),
+            ("rename".to_string(), c.t("opt.rename")),
+        ];
+        match c.choose(&c.t("cmd.library.block_names_already_used"), &text, &buttons).await? {
+            Some(k) => {
+                // a dialog closed without a button: `onClash = undefined` renames, as the JS falls through
+                if k.as_deref() == Some("cancel") {
+                    return Ok(None);
+                }
+                keep = k.as_deref() == Some("keep");
+            }
+            None => {
+                c.print(&text);
+                let options = vec![c.opt("K", &c.t("cmd.library.keep_existing")), c.opt("R", &c.t("opt.rename"))];
+                let k = c
+                    .keyword(
+                        c.t("cmd.library.block_names_already_used"),
+                        Opts { options, default: Some(Def::Str("R".into())), ..Opts::default() },
+                    )
+                    .await?;
+                keep = matches!(&k, Reply::Opt(o) | Reply::Str(o) if o == "K");
+            }
+        }
+    }
+    let mut src = src;
+    let r = c.change("INSERT", |d| apply_copy(d, &mut src, &plan, keep))?;
+    let rname = r.name.clone().unwrap_or_default();
+    let renamed: Vec<String> = r
+        .renamed
+        .iter()
+        .filter(|(a, _)| !a.starts_with('*'))
+        .map(|(a, b)| c.tv("cmd.renamed_as", &[("from", a.clone()), ("to", b.clone())]))
+        .collect();
+    let what = if r.copied > 0 {
+        c.tv("cmd.insert.brought_in", &[("n", r.copied.to_string()), ("file", file_name.clone())])
+    } else {
+        c.tv("cmd.insert.using_own", &[("name", rname.clone())])
+    };
+    if r.renamed.is_empty() {
+        c.print(&c.tv("cmd.insert.result", &[("what", what)]));
+    } else {
+        c.print(&c.tv("cmd.insert.result.renamed", &[("what", what), ("list", renamed.join(", "))]));
+    }
+    if !r.layers.is_empty() {
+        let mut list = r.layers.iter().take(12).cloned().collect::<Vec<_>>().join(", ");
+        if r.layers.len() > 12 {
+            list.push_str(" …");
+        }
+        c.print(&c.tv("cmd.insert.layers_added", &[("n", r.layers.len().to_string()), ("list", list)]));
+    }
+    if !plan.note.is_empty() {
+        c.print(&plan.note);
+    }
+    Ok(Some((rname, if plan.scale != 1.0 { Some(plan.scale) } else { None })))
+}
+
+/// INSERT, Library (commands.js `libraryBlock`): the host's library panel hands back an item; it becomes a LIB_ block
+/// → (its name, the reference's starting attributes).
+async fn library_block(c: &Ctx) -> R<Option<(String, Obj)>> {
+    use crate::cmd::libplace::{ensure_library_block, library_attrs, next_number};
+    let Some(pick) = c.library().await? else {
+        c.print(&c.t("cmd.library.library_needs_browser"));
+        return Ok(None);
+    };
+    let Some((item, slug)) = pick.filter(|(i, _)| js::truthy(Some(i))) else { return Ok(None) };
+    let lg = lang_of(c);
+    let r = c.change("INSERT", |d| ensure_library_block(d, &item, slug.as_deref(), &lg))?;
+    let r = match r {
+        Ok(r) => r,
+        // libplace.js throws: the engine prints "Error: …"
+        Err(why) => return Err(crate::prompt::CmdError::Msg(why)),
+    };
+    let item_name = item.get("name").map(js::to_js_string).unwrap_or_else(|| "undefined".into());
+    if !r.reused {
+        if r.skipped > 0 {
+            c.print(&c.tv("cmd.library.made.skipped", &[("name", r.name.clone()), ("item", item_name), ("n", r.skipped.to_string())]));
+        } else {
+            c.print(&c.tv("cmd.library.made", &[("name", r.name.clone()), ("item", item_name)]));
+        }
+    }
+    if r.units.is_empty() {
+        c.print(&c.t("cmd.library.drawing_has_no_units"));
+    }
+    let attrs = {
+        let d = c.doc();
+        library_attrs(d.blocks.get(&r.name), &next_number(&d))
+    };
+    Ok(Some((r.name, attrs)))
+}
+
+fn lang_of(c: &Ctx) -> crate::lang::Lang {
+    c.sh().lang.clone()
+}
+
+/// LIBRARY: the host's library panel (place items from it), or "needs the browser".
+pub async fn library(c: Ctx) -> R {
+    if !c.sh().host.borrow_mut().open_library() {
+        c.print(&c.t("cmd.library.library_needs_browser"));
+    }
     Ok(())
 }
 

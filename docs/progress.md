@@ -2,6 +2,24 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.22 LIBRARY, INSERT File and Library (agent, work/drafting2)
+
+- INSERT File (commands.js `insertFromFile`, blockcopy.js): a DWG / DXF from the picker as one block named after the
+  file (its INSBASE as base) or one of its blocks; nested and anonymous blocks come along, names already used are kept
+  or renamed "Name (2)" (the window asks with Cancel / Keep existing / Rename; the command line asks K / R), layers
+  the copied objects use come with their settings, the unit scale goes into the placement. The window's "Insert from
+  <file>" dialog lists the blocks under "The whole drawing" with a filter (`choose.*` commands).
+- LIBRARY and INSERT Library (libplace.js): a library item (`*.item.json`, format 1) becomes a `LIB_<slug>_v<n>` block
+  in the drawing's units with the item number, quantity and library fields as attributes; the same uuid@version is
+  reused. The Library panel (`lib.*`): Files… reads an item file (8 MB at most), a card per item with Place, the
+  category filter, and the drawing's library credits (list, CSV). LibraryCraft, other feeds and the Standard parts
+  need getcadcraft.com's library or stdlib.js: the panel says so. Item JSON is fuzzed (`cad_lib_item`).
+- Speed: placing no longer copies the block (only its attribute definitions), and the other drawing's objects move
+  into the new blocks instead of being copied. INSERT File, the drawing into itself: Carey 25.3 ms JS → 16.4 ms (1.5×),
+  ar1all 2.4×, kitchen 4.2× (drafttime.mjs).
+- Parity: kdiff INSERT scenarios (BLOCK…PURGE, INSERT File whole / one block / clashes keep and rename / units / nested
+  and anonymous, LIBRARY and INSERT Library reused / renamed / numbered / no units / refused) 162/162 and 31/31 records.
+
 ## 2026-10-21 — M4.21 PUBLISH, pictures in plotted PDFs (agent, work/drafting2)
 
 - PUBLISH / -PUBLISH (layertools.js): All or Some sheets (names typed, unknown ones listed) plotted into one PDF, a page

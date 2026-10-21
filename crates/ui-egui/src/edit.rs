@@ -101,6 +101,14 @@ pub struct HostState {
     pub pick_req: Option<PickReq>,
     /// the Plot dialog's ink ("mono" | "color") and pen (PUBLISH plots with them)
     pub plot_prefs: Option<(String, f64)>,
+    /// INSERT, File asked the window to choose a block / a question asked for a button
+    pub choose_req: Option<crate::libdlg::ChooseReq>,
+    /// LIBRARY asked for the library panel
+    pub lib_open: bool,
+    /// INSERT, Library waits for the panel's pick
+    pub lib_pick: bool,
+    /// a card placed from the open panel, for the INSERT, Library it starts
+    pub lib_queued: Option<serde_json::Value>,
 }
 
 /// What a command asked the window's picker for.
@@ -330,6 +338,27 @@ impl Host for UiHost {
     }
     fn plot_prefs(&self) -> Option<(String, f64)> {
         self.0.borrow().plot_prefs.clone()
+    }
+    fn choose_block(&mut self, file_name: &str, names: &[String]) -> cc_engine::Pick<Option<String>> {
+        self.0.borrow_mut().choose_req = Some(crate::libdlg::ChooseReq::Block { file: file_name.to_string(), names: names.to_vec() });
+        cc_engine::Pick::Later
+    }
+    fn choose(&mut self, title: &str, text: &str, buttons: &[(String, String)]) -> cc_engine::Pick<Option<String>> {
+        self.0.borrow_mut().choose_req =
+            Some(crate::libdlg::ChooseReq::Ask { title: title.into(), text: text.into(), buttons: buttons.to_vec() });
+        cc_engine::Pick::Later
+    }
+    fn open_library(&mut self) -> bool {
+        self.0.borrow_mut().lib_open = true;
+        true
+    }
+    fn library(&mut self) -> cc_engine::Pick<Option<(serde_json::Value, Option<String>)>> {
+        let mut h = self.0.borrow_mut();
+        if let Some(item) = h.lib_queued.take() {
+            return cc_engine::Pick::Now(Some((item, None)));
+        }
+        h.lib_pick = true;
+        cc_engine::Pick::Later
     }
     fn save_blob(&mut self, name: &str, data: &[u8], _mime: &str) {
         self.0.borrow_mut().blob = Some((name.to_string(), data.to_vec()));

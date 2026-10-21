@@ -111,9 +111,12 @@ mod web {
                                 let slot = Arc::clone(&pick_slot);
                                 let ctx = pick_ctx.clone();
                                 let pictures = kind == "pictures";
+                                let library = kind == "library";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if pictures {
                                         rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
+                                    } else if library {
+                                        rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])
                                     } else {
                                         rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
                                     };

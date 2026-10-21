@@ -162,7 +162,28 @@ pub trait Host {
     fn pick_pictures(&mut self, _multiple: bool) -> Pick<Vec<PickedFile>> {
         Pick::Unsupported
     }
+    /// `host.chooseBlock(fileName, names)` (INSERT, File): the window's "Insert from <file>" dialog → [`WHOLE`], a
+    /// block name or None (cancelled); later through [`Engine::deliver_choice`].
+    fn choose_block(&mut self, _file_name: &str, _names: &[String]) -> Pick<Option<String>> {
+        Pick::Unsupported
+    }
+    /// `host.openLibrary()` (LIBRARY): open the library panel → false when the host has none.
+    fn open_library(&mut self) -> bool {
+        false
+    }
+    /// `host.library()` (INSERT, Library): the panel picks an item (and its slug); later through
+    /// [`Engine::deliver_library_item`].
+    fn library(&mut self) -> Pick<Option<(serde_json::Value, Option<String>)>> {
+        Pick::Unsupported
+    }
+    /// `host.choose({ title, text, buttons: [[key, label], …] })`: a question in a dialog → the key pressed.
+    fn choose(&mut self, _title: &str, _text: &str, _buttons: &[(String, String)]) -> Pick<Option<String>> {
+        Pick::Unsupported
+    }
 }
+
+/// What `choose_block` answers for "the whole drawing" (cadcraft.js's `'\u0000whole'` option).
+pub const WHOLE: &str = "\u{0}whole";
 
 /// How a host answers a request for a file.
 #[derive(Clone, Debug, PartialEq)]
@@ -286,6 +307,10 @@ pub enum Reply {
     Drawing(Option<PickedDrawing>),
     /// the files a picker that answered later delivered
     Files(Vec<PickedFile>),
+    /// a dialog's answer (`host.chooseBlock` / `host.choose`): None = cancelled
+    Choice(Option<String>),
+    /// the library panel's pick (`host.library()`): the item and its slug, None = closed
+    Item(Option<(serde_json::Value, Option<String>)>),
 }
 impl Reply {
     pub fn point(&self) -> Option<P2> {
@@ -443,6 +468,10 @@ impl Engine {
     }
     pub fn state(&self) -> Ref<'_, State> {
         self.sh.st.borrow()
+    }
+    /// The language the command line speaks.
+    pub fn lang(&self) -> &Lang {
+        &self.sh.lang
     }
     /// The running command's name.
     pub fn running(&self) -> Option<&'static str> {
@@ -697,6 +726,18 @@ impl Engine {
             self.resolve(Reply::Drawing(d));
         }
     }
+    /// The answer of a dialog that answered [`Pick::Later`] (`choose_block`, `choose`; None = cancelled).
+    pub fn deliver_choice(&mut self, k: Option<String>) {
+        if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
+            self.resolve(Reply::Choice(k));
+        }
+    }
+    /// The library item the panel handed over (None: closed without placing).
+    pub fn deliver_library_item(&mut self, it: Option<(serde_json::Value, Option<String>)>) {
+        if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
+            self.resolve(Reply::Item(it));
+        }
+    }
     /// The files a picker that answered [`Pick::Later`] has read (empty = cancelled).
     pub fn deliver_files(&mut self, f: Vec<PickedFile>) {
         if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
@@ -921,6 +962,42 @@ impl Ctx {
             Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
                 Reply::Files(f) => Ok(Some(f)),
                 _ => Ok(Some(Vec::new())),
+            },
+        }
+    }
+
+    /// `await c.host.chooseBlock(fileName, names)` (INSERT, File): Some(answer) when the host has the dialog, None when
+    /// not (the command line asks); the answer is [`WHOLE`] for the whole drawing, a block name, or None (cancelled).
+    pub async fn choose_block(&self, file_name: &str, names: &[String]) -> R<Option<Option<String>>> {
+        let p = self.sh.host.borrow_mut().choose_block(file_name, names);
+        self.dialog_answer(p, self.sh.lang.t("app.insertf.title", &[("file", file_name.to_string())])).await
+    }
+    /// `await c.host.choose({ title, text, buttons })`: the key of the button pressed (None: closed), or None when the
+    /// host has no such dialog.
+    pub async fn choose(&self, title: &str, text: &str, buttons: &[(String, String)]) -> R<Option<Option<String>>> {
+        let p = self.sh.host.borrow_mut().choose(title, text, buttons);
+        self.dialog_answer(p, title.to_string()).await
+    }
+    /// `await c.host.library()` (INSERT, Library): Some(pick) when the host has a library panel, None when not.
+    pub async fn library(&self) -> R<Option<Option<(serde_json::Value, Option<String>)>>> {
+        let p = self.sh.host.borrow_mut().library();
+        match p {
+            Pick::Unsupported => Ok(None),
+            Pick::Now(k) => Ok(Some(k)),
+            Pick::Later => match self.ask(Kind::File, self.sh.lang.t("lib.panel.library", &[]), Opts::default()).await? {
+                Reply::Item(k) => Ok(Some(k)),
+                _ => Ok(Some(None)),
+            },
+        }
+    }
+    /// The dialog's answer; `prompt` shows on the command line while it is open.
+    async fn dialog_answer(&self, p: Pick<Option<String>>, prompt: String) -> R<Option<Option<String>>> {
+        match p {
+            Pick::Unsupported => Ok(None),
+            Pick::Now(k) => Ok(Some(k)),
+            Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
+                Reply::Choice(k) => Ok(Some(k)),
+                _ => Ok(Some(None)),
             },
         }
     }

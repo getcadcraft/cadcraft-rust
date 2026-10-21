@@ -27,6 +27,8 @@ cc-io-cad.workspace = true
 cc-tools.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# libplace.js slugify (NFKD, accents dropped)
+unicode-normalization = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # PUBLISH: the sheets' display lists made in parallel (M4.21)

@@ -2,6 +2,7 @@
 
 pub mod arrange;
 pub mod block;
+pub mod blockcopy;
 pub mod clipcmd;
 pub mod corner;
 pub mod dim;
@@ -11,6 +12,7 @@ pub mod hatch;
 pub mod inquiry;
 pub mod layers;
 pub mod layout;
+pub mod libplace;
 pub mod modify;
 pub mod pictures;
 pub mod publish;
@@ -168,6 +170,7 @@ pub static COMMANDS: &[CmdDef] = &[
     def("BVHIDE", &["BVH"], |c| Box::pin(visedit::bvhide(c))),
     def("BVSHOW", &["BVSH"], |c| Box::pin(visedit::bvshow(c))),
     def("INSERT", &["I", "DDINSERT"], |c| Box::pin(block::insert(c))),
+    quiet(def("LIBRARY", &["LIB"], |c| Box::pin(block::library(c)))),
     def("LAYISO", &[], |c| Box::pin(layers::layiso(c))),
     quiet(def("LAYUNISO", &[], |c| Box::pin(layers::layuniso(c)))),
     def("LAYOFF", &[], |c| Box::pin(layers::by_pick(c, "LAYOFF", false, "layoff"))),
