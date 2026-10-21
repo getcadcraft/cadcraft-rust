@@ -446,7 +446,7 @@ impl W {
             "INSERT" => {
                 self.head("INSERT", e, owner, paper);
                 self.w(100, "AcDbBlockReference");
-                let atts = jsv::arr(g("attribs")).to_vec();
+                let atts = jsv::arr(g("attribs"));
                 if !atts.is_empty() {
                     self.w(66, "1");
                 }
@@ -463,7 +463,7 @@ impl W {
                 self.xdata(e);
                 if !atts.is_empty() {
                     let ih = hex(self.seed.saturating_sub(1));
-                    for a in &atts {
+                    for a in atts {
                         let mut a2 = jsv::obj(Some(a)).cloned().unwrap_or_default();
                         let layer = if jsv::truthy(a2.get("layer")) { a2.get("layer").cloned() } else { g("layer").cloned() };
                         a2.set("layer", layer.unwrap_or(V::Null));

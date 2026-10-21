@@ -370,25 +370,49 @@ fn fixed_from(neg: bool, ip: &str, fp: &str, f: usize) -> String {
     out
 }
 
-/// `x.toExponential(f)`: f + 1 significant digits, the exact value rounded half up.
+/// `x.toExponential(f)`: f + 1 significant digits, the exact value rounded half up. As [`to_fixed`]: Rust's correctly
+/// rounded `{:.(f+25)e}` decides, and only a tail that reads exactly 5000…0 goes the exact way.
 pub fn to_exponential(x: f64, f: usize) -> String {
+    const EXTRA: usize = 25;
+    if !x.is_finite() || x == 0.0 || f > 100 {
+        return to_exponential_exact(x, f);
+    }
+    let s = format!("{:.*e}", f.saturating_add(EXTRA), x.abs());
+    let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
+    let all: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+    if all.get(f.saturating_add(1)) == Some(&b'5') && all.get(f.saturating_add(2)..).is_some_and(|r| r.iter().all(|&c| c == b'0')) {
+        return to_exponential_exact(x, f);
+    }
+    exponential_from(x < 0.0, &all, exp.parse().unwrap_or(0), f)
+}
+
+/// [`to_exponential`] from the exact decimal expansion.
+pub fn to_exponential_exact(x: f64, f: usize) -> String {
     if x.is_nan() {
         return "NaN".into();
     }
     if x.is_infinite() {
         return if x > 0.0 { "Infinity".into() } else { "-Infinity".into() };
     }
+    if x == 0.0 {
+        return exponential_from(false, &[], 0, f);
+    }
+    let s = format!("{:.1100e}", x.abs());
+    let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
+    let all: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+    exponential_from(x < 0.0, &all, exp.parse().unwrap_or(0), f)
+}
+
+/// The text of `toExponential(f)` from the significant digits of |x| (long enough to decide) and its exponent; no
+/// digits = zero.
+fn exponential_from(neg: bool, all: &[u8], e: i64, f: usize) -> String {
     let mut out = String::new();
-    if x < 0.0 {
+    if neg {
         out.push('-');
     }
-    let (mut digits, mut e) = if x == 0.0 {
+    let (mut digits, mut e) = if all.is_empty() {
         (vec![b'0'; f.saturating_add(1)], 0i64)
     } else {
-        let s = format!("{:.1100e}", x.abs());
-        let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
-        let all: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
-        let e: i64 = exp.parse().unwrap_or(0);
         let mut d: Vec<u8> = all.iter().copied().take(f.saturating_add(1)).collect();
         let next = all.get(f.saturating_add(1)).copied().unwrap_or(b'0');
         let mut e = e;
@@ -696,6 +720,13 @@ mod tests {
         for x in vals {
             for f in [0usize, 1, 2, 3, 4, 5, 6, 8, 9, 12, 17, 20, 30] {
                 assert_eq!(to_fixed(x, f), to_fixed_exact(x, f), "{x:e} toFixed({f})");
+                assert_eq!(to_exponential(x, f), to_exponential_exact(x, f), "{x:e} toExponential({f})");
+            }
+        }
+        for x in [0.125, 2.5, 1.5e-7, 0.000_123_45, 9.5, 99.5, 1.000_000_000_000_000_2] {
+            for f in 0..=20usize {
+                assert_eq!(to_exponential(x, f), to_exponential_exact(x, f), "{x:e} toExponential({f})");
+                assert_eq!(to_exponential(-x, f), to_exponential_exact(-x, f), "-{x:e} toExponential({f})");
             }
         }
     }

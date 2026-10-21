@@ -334,7 +334,8 @@ impl Sv<'_> {
         if self.vkey == "2000" && !jsv::nullish(g("tr")) {
             self.note("tr2000", 1.0);
         }
-        let mut b = Obj::new();
+        // room for what the entity adds after (type, its geometry), without regrowing
+        let mut b = Obj::with_capacity(12);
         b.set("layer", jsv::orv(g("layer"), s("0")));
         let c = self.color(g("color"));
         b.set("color", c);
@@ -363,10 +364,12 @@ impl Sv<'_> {
             && !x.is_empty()
         {
             let have = first.get("xdata").and_then(|v| jsv::obj(Some(v))).cloned();
-            let mut add = x.clone();
-            if let (Some(V::Arr(hc)), Some(V::Arr(ac))) = (have.as_ref().and_then(|h| h.get("CADCRAFT")), x.get("CADCRAFT")) {
-                let mut both = hc.clone();
-                both.extend(ac.iter().cloned());
+            let both = match (have.as_ref().and_then(|h| h.get("CADCRAFT")), x.get("CADCRAFT")) {
+                (Some(V::Arr(hc)), Some(V::Arr(ac))) => Some(hc.iter().chain(ac.iter()).cloned().collect::<Vec<V>>()),
+                _ => None,
+            };
+            let mut add = x;
+            if let Some(both) = both {
                 add.set("CADCRAFT", V::Arr(both));
             }
             let mut merged = have.unwrap_or_default();
@@ -385,26 +388,27 @@ impl Sv<'_> {
         let mut base = self.base(e);
         let z = jsv::fin(g("z")).unwrap_or(0.0);
         let typ = jsv::to_str(g("type"));
-        let mk = |base: &Obj, t: &str| {
-            let mut o = base.clone();
+        // each arm runs alone: the base moves into its object
+        let mk = |base: &mut Obj, t: &str| {
+            let mut o = std::mem::take(base);
             o.set("type", t);
             o
         };
         Ok(match typ.as_str() {
             "line" => {
-                let mut o = mk(&base, "LINE");
+                let mut o = mk(&mut base, "LINE");
                 o.set("start", p3(g("x1"), g("y1"), jsv::fin(g("z1")).unwrap_or(0.0)));
                 o.set("end", p3(g("x2"), g("y2"), jsv::fin(g("z2")).unwrap_or(0.0)));
                 vec![V::Obj(o)]
             }
             "circle" => {
-                let mut o = mk(&base, "CIRCLE");
+                let mut o = mk(&mut base, "CIRCLE");
                 o.set("center", p3(g("cx"), g("cy"), z));
                 o.set_opt("radius", g("r").cloned());
                 vec![V::Obj(o)]
             }
             "arc" => {
-                let mut o = mk(&base, "ARC");
+                let mut o = mk(&mut base, "ARC");
                 o.set("center", p3(g("cx"), g("cy"), z));
                 o.set_opt("radius", g("r").cloned());
                 o.set_opt("startAngle", g("a0").cloned());
@@ -412,7 +416,7 @@ impl Sv<'_> {
                 vec![V::Obj(o)]
             }
             "point" => {
-                let mut o = mk(&base, "POINT");
+                let mut o = mk(&mut base, "POINT");
                 o.set("position", p3(g("x"), g("y"), z));
                 vec![V::Obj(o)]
             }
@@ -422,7 +426,7 @@ impl Sv<'_> {
                 if !(nn > 0.0) || jsv::fin(g("x")).is_none() || jsv::fin(g("y")).is_none() {
                     return Ok(Vec::new());
                 }
-                let mut o = mk(&base, if t == "xline" { "XLINE" } else { "RAY" });
+                let mut o = mk(&mut base, if t == "xline" { "XLINE" } else { "RAY" });
                 o.set("start", p3(g("x"), g("y"), z));
                 o.set("direction", pn(dx / nn, dy / nn, 0.0));
                 vec![V::Obj(o)]
@@ -446,7 +450,7 @@ impl Sv<'_> {
                         V::Obj(o)
                     })
                     .collect();
-                let mut o = mk(&base, "LWPOLYLINE");
+                let mut o = mk(&mut base, "LWPOLYLINE");
                 o.set("vertices", V::Arr(vertices));
                 o.set("closed", jsv::truthy(g("closed")));
                 if gw != 0.0 && !each {
@@ -458,7 +462,7 @@ impl Sv<'_> {
                 vec![V::Obj(o)]
             }
             "ellipse" => {
-                let mut o = mk(&base, "ELLIPSE");
+                let mut o = mk(&mut base, "ELLIPSE");
                 o.set("center", p3(g("cx"), g("cy"), z));
                 o.set("majorAxis", p3(g("mx"), g("my"), 0.0));
                 o.set_opt("ratio", g("ratio").cloned());
@@ -1183,9 +1187,9 @@ fn picture_placement(ins: &cc_cad::entity::Insert, block: &Block) -> Option<Pic>
 /// attrs.js `worldAttribs(e, blk)` (as dynamic values).
 fn world_attribs(ins: &cc_cad::entity::Insert, blk: &Block) -> Vec<V> {
     let m = insert_matrix(ins, blk);
-    let defs: Vec<serde_json::Value> = blk.attdefs.as_deref().unwrap_or(&[]).to_vec();
+    let defs: &[serde_json::Value] = blk.attdefs.as_deref().unwrap_or(&[]);
     let mut attrs = ins.attrs.clone().unwrap_or_default();
-    for d in &defs {
+    for d in defs {
         if cc_cad::js::truthy(d.get("constant")) {
             let tag = d.get("tag").map(cc_cad::js::to_js_string).unwrap_or_else(|| "undefined".into());
             attrs.remove(&tag);
@@ -1194,7 +1198,7 @@ fn world_attribs(ins: &cc_cad::entity::Insert, blk: &Block) -> Vec<V> {
     let mut e2 = ins.clone();
     e2.attrs = Some(attrs);
     let mut b2 = Block::new(&blk.name, blk.base, Vec::new());
-    b2.attdefs = Some(defs.into_iter().filter(|d| !cc_cad::js::truthy(d.get("constant"))).collect());
+    b2.attdefs = Some(defs.iter().filter(|d| !cc_cad::js::truthy(d.get("constant"))).cloned().collect());
     cc_cad_geom::geom::attr_texts(&e2, Some(&b2), true)
         .into_iter()
         .map(|t| {
