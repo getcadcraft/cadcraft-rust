@@ -134,6 +134,8 @@ impl ModelView {
         let model = &self.tools.host.model;
         if model.context(&self.tools.host.path).is_none() {
             self.tools.host.path.clear();
+            // the page reset the path, not the tools: nothing was "closed" (sync_ctx would select the group left)
+            self.seen_path.clear();
         }
         let ctx = cc_m3d_tools::tools::ctx_of(model, &self.tools.host.path);
         let def = model.def(&ctx.def);
@@ -1055,6 +1057,22 @@ mod tests {
         v.act("units:m").unwrap();
         v.act("select-all").unwrap();
         v
+    }
+
+    #[test]
+    fn an_undo_that_drops_the_open_group_selects_nothing() {
+        // found by mcuidiff --lights (capilla seed 5): open a group, undo the step that made it; the next frame's
+        // sync_ctx took the reset path for a close and selected the group (0.5 selects nothing)
+        let mut v = boxes();
+        v.act("select-all").unwrap();
+        v.act("make-group").unwrap();
+        let iid = v.tools.host.sel.first().map(|s| s.id).unwrap();
+        v.act(&format!("open:{}", crate::mcact::ns(iid))).unwrap();
+        v.act("select-none").unwrap();
+        v.act("undo").unwrap();
+        assert!(v.tools.host.path.is_empty());
+        v.sync_ctx();
+        assert!(v.tools.host.sel.is_empty(), "{:?}", v.tools.host.sel);
     }
 
     #[test]

@@ -14,7 +14,7 @@ use crate::theme::Tokens;
 
 /// A one-line text box that hands back what was typed when it loses focus (Enter, Tab or a click elsewhere); Esc puts
 /// the old text back. `id` keeps the typed text between frames.
-fn text_box(ui: &mut egui::Ui, boxes: &mut HashMap<String, String>, id: &str, current: &str, width: f32) -> Option<String> {
+pub(crate) fn text_box(ui: &mut egui::Ui, boxes: &mut HashMap<String, String>, id: &str, current: &str, width: f32) -> Option<String> {
     let buf = boxes.entry(id.to_string()).or_insert_with(|| current.to_string());
     let r = ui.add(egui::TextEdit::singleline(buf).desired_width(width).id_salt(("mcbox", id)));
     if r.lost_focus() {
@@ -115,6 +115,7 @@ impl ModelView {
             self.tree_section(ui, t, &mut boxes, &mut acts);
             self.comps_section(ui, t, &mut acts);
             self.paint_sections(ui, t, &mut acts);
+            self.lights_section(ui, t, &mut boxes, &mut acts);
             self.tags_section(ui, t, &mut boxes, &mut acts);
             self.style_section(ui, t, &mut acts);
             self.scenes_section(ui, t, &mut boxes, &mut acts);

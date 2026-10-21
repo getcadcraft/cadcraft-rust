@@ -110,6 +110,7 @@ impl ModelView {
     /// After a pointer event: Subtract's picks.
     pub fn after_pointer(&mut self) {
         self.poll_subtract();
+        self.poll_light_placed();
     }
 
     // ---- intersect faces ----

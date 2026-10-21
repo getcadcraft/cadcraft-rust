@@ -125,6 +125,8 @@ pub struct ModelView {
     pub(crate) sub_cutter: Option<Option<f64>>,
     /// the Stretch this copy dialog (mcstretch.rs)
     pub stretch_dlg: Option<crate::mcstretch::StretchDlg>,
+    /// the lamp picked in the Lights panel (mclights.rs)
+    pub sel_light: Option<f64>,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -193,6 +195,7 @@ impl ModelView {
             storeys_dlg: None,
             sub_cutter: None,
             stretch_dlg: None,
+            sel_light: None,
         };
         v.fit();
         Ok(v)
@@ -433,7 +436,13 @@ impl ModelView {
         }
         // presses that start in the view
         if inside && let Some(p) = pos {
-            if pressed[0] {
+            if pressed[0]
+                && self.tools.name == "select"
+                && let Some(id) = self.light_at(f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y))
+            {
+                // a click on a lamp's mark picks the lamp before the tools see it
+                let _ = self.act(&format!("light-sel:{}", crate::mcact::ns(id)));
+            } else if pressed[0] {
                 self.place_guard();
                 self.held = Some(egui::PointerButton::Primary);
                 let e = self.ev(p, rect, mods);
@@ -666,6 +675,8 @@ impl ModelView {
         let painter = ui.painter_at(rect);
         let cam = &self.tools.host.cam;
         let to = |p: P3| -> Option<Pos2> { cam.project(p).map(|q| Pos2::new(rect.min.x + q[0] as f32, rect.min.y + q[1] as f32)) };
+        // the lamps' marks (view.drawExtra)
+        self.light_marks(&painter, &to, t);
         let sel_col = Color32::from_rgb(0x2a, 0x6c, 0xf0);
         // the selection and the hover, in the open context
         let ctx = cc_m3d_tools::tools::ctx_of(&self.tools.host.model, &self.tools.host.path);

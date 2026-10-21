@@ -60,7 +60,7 @@ impl ModelView {
                 self.stretch_dlg = None;
                 Ok(())
             }
-            _ => return None,
+            _ => return self.lights_act(name, arg),
         };
         Some(r)
     }

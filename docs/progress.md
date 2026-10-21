@@ -2,6 +2,32 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.24 ModelCraft Lights panel and lamp editor (agent, work/model621)
+
+- `crates/ui-egui/src/mclights.rs`: modelcraft.js "Lights" — Lamp, Spotlight and Light panel start the Light tool
+  (cc-m3d-tools' tools.js port: a click places it off the face toward the eye; a spotlight's second click aims it),
+  and the page's lightPlaced picks it ("Added Lamp 1."); the list switches each lamp on or off and picks one; the
+  editor changes the picked lamp — brightness (Number() of the text, so not a number gives cleanLight's default),
+  colour and the Warm / Neutral / Daylight presets, beam (spotlights), width and depth (panels) or bulb size, red /
+  green / height — one undo step each ("Change a light"), and Delete the light. The view draws each lamp's mark
+  (view.drawExtra: a disc in the lamp's colour with eight rays, a spotlight's aim, a panel's outline, dashed when off,
+  thicker and blue when picked) and a click on a mark with Select picks the lamp before the tools see it
+  ("Lamp 1: change it under Lights."). Lamps are saved in the file as before (cc-m3d, M6.17).
+- Fix found by the new walk (not lights): an undo that drops the open group reset the path, and the next frame's
+  `sync_ctx` took it for the tools closing the group and selected it (0.5 selects nothing): `after_history` now
+  resets what sync_ctx compares with. Regression test `mcact::tests::an_undo_that_drops_the_open_group_selects_nothing`.
+- Harness (`forks/tools/mcuidiff.mjs --edit --lights`): the page's Lights code DOM-free (lightName, changeLight,
+  renderLights' check, lightPlaced); a JS throw out of the page's handler with the same words the app shows counts as
+  the same (0.5's status keeps its old words then; the app says the error).
+- Parity, the full sweep (`--edit --lights --seeds 8 --steps 80`, 11 inputs): 7,040 / 7,040 status lines the same,
+  6,704 / 6,704 saved files byte-identical (light-add 160, light-len 83, light-pick 61, light-on 59, light-sel 51,
+  light-lumens 40, light-preset 32, light-color 31, light-angle 30, light-del 20, with the M6.19–M6.21 walk); the 0.5
+  throw counted once, Place of a purged definition avoided 4 times.
+- Rust test: `mclights::tests::a_lamp_is_placed_changed_and_deleted`.
+- Screenshot: `forks/lead/shots/model621/m624-lights.png` (a lamp, a spotlight with its aim and a light panel picked;
+  the Lights panel with its editor).
+- Plain English where 0.5 has no key: none.
+
 ## 2026-10-21 — M6.23 ModelCraft material textures drawn by code (agent, work/model621)
 
 - `crates/m3d-tools/src/matlib.rs`: 0.5's `render/textures.js` (mulberry32, the hashed tileable value noise, fbm /
