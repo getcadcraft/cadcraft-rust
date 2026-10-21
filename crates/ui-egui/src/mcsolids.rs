@@ -390,6 +390,7 @@ impl ModelView {
             }
         }
         self.stretch_dialogs(ctx, act);
+        self.render_dialog(ctx, act);
     }
 }
 

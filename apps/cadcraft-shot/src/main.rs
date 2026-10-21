@@ -242,6 +242,8 @@ fn shot(args: &[String]) -> Result<(), String> {
                 let until = Instant::now() + std::time::Duration::from_millis(ms);
                 while Instant::now() < until {
                     hs.run_steps(1);
+                    // drawn too, as the app's frames are: GPU work in paint callbacks (a rendered picture) goes on
+                    hs.render()?;
                     std::thread::sleep(std::time::Duration::from_millis(20));
                 }
             }

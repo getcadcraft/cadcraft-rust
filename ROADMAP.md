@@ -127,6 +127,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M6.25: ModelCraft Render a picture… — Fast (GPU accumulation: jittered camera, sun disc and sky light shadow-mapped, lamps, ACES) and High quality (compute path tracer over a box tree); cleanSettings 3,000/3,000 as 0.5.
 - 2026-10-21 M6.24: ModelCraft Lights panel and lamp editor (the Light tool, lamp marks picked in the view); mcuidiff --edit --lights 7,040/7,040 status lines, 6,704/6,704 files identical to 0.5; an undo dropping the open group no longer selects it.
 - 2026-10-21 M6.23: ModelCraft material textures drawn by code (textures.js ported, texdiff 180/180 byte-identical, 1.1× the JS) in the 3D view and the Materials swatches.
 - 2026-10-21 S.4–S.8: block lists shared copy-on-write, undo / redo that move objects, clipboards without copies: Carey XATTACH 0.6× → 1.8× the JS, SELECT ALL + MOVE 1.1× → 1.6×, EXPLODE ALL 0.9× → 1.5×, ERASE ALL + UNDO 0.8× → 1.7×; ModelCraft undo 0.3–0.5× → 3.5–4.8×; TakeoffCraft copy + paste in place 0.4× → 0.7×; DXF 2000 save 1.0× (unchanged); kdiff / idiff / tkopsdiff / mdiff / tdiff / mcuidiff as before.

@@ -2,6 +2,52 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.25 ModelCraft Render a picture… (Fast and High quality) (agent, work/model621)
+
+- `crates/ui-egui/src/mcrender.rs`: render-ui.js's dialog with render-mc.js's adapter — Mode (Fast / High quality,
+  its note and time limit), Size (the view's, twice the view's, Full HD, 4K, Square, with their pixels), Quality
+  (16 / 64 / 256 passes or samples), Sky (clear, overcast, dusk, white studio; night when the sun is down), the sun
+  (the model's date and time from Style, or this picture's own month, day and time), Brightness (−3…+3 stops), Ground
+  under the model, Draw edges (Fast), and a look per colour on screen (matte, satin, glossy, metal, polished metal,
+  glass, frosted glass; library materials and their textures bring their own). Render ⇄ Stop, the picture filling in
+  every four passes, the status words of 0.5 (progress, done with pixels / passes / seconds, stopped, time limit,
+  "It is night…"), Save PNG ("<file> render.png"). Opened from the palette's Render a picture….
+- `cc-render::still` + `still.wgsl` / `still_post.wgsl` (Fast, render-core.js): each pass jitters the camera under a
+  pixel (halton 2, 3), the sun inside a 1.5° disc and one sky light over the hemisphere (looks.js sunDisc /
+  hemisphere), both shadow-mapped (2048², ±1.6R, PCF compare), every lamp at a point of its bulb or panel (lampAt);
+  GGX + Lambert faces (rough, metal from the look), glass alpha-blended with the dome's reflection, the dome as
+  background and image light, a matte ground disc (150R) fogging into the horizon from 10R to 120R; passes summed in
+  Rgba16Float, then ACES filmic (three.js's fit) and sRGB once.
+- `cc-render::pt` + `pt.wgsl` / `pt_post.wgsl` (High quality, render-pt.js): the scene baked to world triangles (cut
+  by the section on the CPU, as bakeItems; ground disc 60R), a box tree (binned SAH, 4 a leaf, iterative), a compute
+  shader adding one sample a pixel: camera ray jittered in the pixel, up to 6 bounces (10 through glass), diffuse +
+  GGX sampling, the sun and every lamp sampled with shadow rays (glass lets them through, tinted), the dome lighting
+  what escapes (intensity 1, white studio 1.2), Russian roulette after 3. Textured materials read their texture.
+- `cc-m3d-tools::looks` (looks.js): QUALITY, SIZES, SKIES, NIGHT, LOOKS, MODES, MINUTES, cleanSettings, lookFor,
+  sizeFor, colorKey, lampCandela. `cadcraft-cli m3dtools --render-settings FILE`.
+- Parity: cleanSettings (`forks/tools/texdiff.mjs --settings`, 3,000 hostile objects): 3,000 / 3,000 the same. Pictures are
+  pixels: compared by eye (screenshots below), not byte for byte (three.js's shaders are not ported line by line).
+- Differences from 0.5, kept: glass in High quality is thin (light goes straight through, tinted; 0.5's
+  three-gpu-pathtracer bends it through solids); lamps cast no shadows in Fast (0.5: the 4 brightest do) and their
+  glowing bulbs are not drawn; imported pictures (`img:` paints) render in their average colour.
+- Timings (`cadcraft-shot … render-set / render-go --wait / render-status`, the dialog's own "Done …" seconds, 64
+  passes or samples at the view's size, RTX on workstation11a; headless frames add a full UI draw and 20 ms each, so
+  these are upper bounds; 0.5's WebGL renderer was not timed here — no browser with WebGL on this machine):
+
+  | model | pixels | Fast | High quality |
+  |---|---|---:|---:|
+  | house (textured, 81 faces) | 926 × 826 | 3.8 s (with its 3 textures drawn) | 3.1 s |
+  | capilla (render corpus) | 930 × 826 | 1.2 s | 2.1 s |
+  | m3d-50k-faces | 1008 × 826 | 2.0 s | 3.1 s |
+- Screenshots: `forks/lead/shots/model621/m625-render-fast.png` (the dialog with a Fast picture),
+  `m625-render-hq.png` (High quality settings and picture), `m625-house-hq.png` (the saved PNG). `cadcraft-shot
+  --wait` now draws each frame too, so GPU work in paint callbacks (a picture rendering) goes on while it waits.
+- Plain English where 0.5 has no key: the time limit's "N min" (0.5 asks for `render.minutes`, which its catalog
+  lacks); month names (0.5 asks the browser's locale); `render-status` is a scripting name only.
+- Tests: `still::gpu_tests::a_cube_in_the_sun_renders_headless`, `pt::gpu_tests::a_cube_path_traced_headless`,
+  `pt::tests::the_tree_holds_every_triangle_once`, `still::tests::halton_and_the_sky_samples`,
+  `looks::tests::settings_are_cleaned_as_the_js`, `mcrender::tests::the_dialog_cleans_its_settings_and_starts_a_job`.
+
 ## 2026-10-21 — M6.24 ModelCraft Lights panel and lamp editor (agent, work/model621)
 
 - `crates/ui-egui/src/mclights.rs`: modelcraft.js "Lights" — Lamp, Spotlight and Light panel start the Light tool

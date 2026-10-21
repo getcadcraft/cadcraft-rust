@@ -521,8 +521,8 @@ impl std::fmt::Debug for Renderer3 {
 #[derive(Debug)]
 pub struct InstanceSet {
     pub origin: [f64; 3],
-    buf: Option<wgpu::Buffer>,
-    ranges: Vec<(usize, std::ops::Range<u32>)>,
+    pub(crate) buf: Option<wgpu::Buffer>,
+    pub(crate) ranges: Vec<(usize, std::ops::Range<u32>)>,
     pub count: u32,
 }
 
@@ -534,13 +534,19 @@ pub fn relative(m: &[f64; 16], origin: [f64; 3], mesh_origin: [f64; 3]) -> [f32;
 impl InstanceSet {
     /// Upload `instances` of `meshes`, relative to `origin` (the scene's box centre is a good one).
     pub fn new(device: &wgpu::Device, meshes: &[GpuMesh], instances: &[Instance3], origin: [f64; 3]) -> InstanceSet {
-        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < meshes.len() && !i.hidden).collect();
+        let origins: Vec<[f64; 3]> = meshes.iter().map(|m| m.origin).collect();
+        InstanceSet::with_origins(device, &origins, instances, origin)
+    }
+
+    /// The same for meshes given by their origins only (the still renderer's own meshes).
+    pub fn with_origins(device: &wgpu::Device, origins: &[[f64; 3]], instances: &[Instance3], origin: [f64; 3]) -> InstanceSet {
+        let mut order: Vec<&Instance3> = instances.iter().filter(|i| i.mesh < origins.len() && !i.hidden).collect();
         order.sort_by_key(|i| i.mesh);
         let mut ib: Vec<u8> = Vec::with_capacity(order.len() * ISTRIDE as usize);
         let mut ranges: Vec<(usize, std::ops::Range<u32>)> = Vec::new();
         for (k, inst) in order.iter().enumerate() {
-            let Some(mesh) = meshes.get(inst.mesh) else { continue };
-            let m = relative(&inst.m, origin, mesh.origin);
+            let Some(mesh_origin) = origins.get(inst.mesh) else { continue };
+            let m = relative(&inst.m, origin, *mesh_origin);
             let nm = normal_matrix(&inst.m);
             for v in m.iter().chain(nm.iter()) {
                 ib.extend_from_slice(&v.to_le_bytes());
@@ -864,43 +870,7 @@ impl Renderer3 {
 
     /// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
     pub fn set_texture(&self, queue: &wgpu::Queue, layer: u32, rgba: &[u8]) {
-        let n = TEX_SIZE as usize;
-        if layer >= TEX_LAYERS || rgba.len() != n * n * 4 {
-            return;
-        }
-        let mut level = rgba.to_vec();
-        let mut side = n;
-        for mip in 0..TEX_MIPS {
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.textures,
-                    mip_level: mip,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &level,
-                wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(side as u32 * 4), rows_per_image: Some(side as u32) },
-                wgpu::Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 },
-            );
-            if side == 1 {
-                break;
-            }
-            let half = side / 2;
-            let mut next = vec![0u8; half * half * 4];
-            for y in 0..half {
-                for x in 0..half {
-                    for c in 0..4 {
-                        let px = |xx: usize, yy: usize| u32::from(level.get((yy * side + xx) * 4 + c).copied().unwrap_or(0));
-                        let s = px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) + px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1);
-                        if let Some(o) = next.get_mut((y * half + x) * 4 + c) {
-                            *o = ((s + 2) / 4) as u8;
-                        }
-                    }
-                }
-            }
-            level = next;
-            side = half;
-        }
+        write_texture_layer(queue, &self.textures, layer, rgba);
     }
 
     /// Draw `instances` of `meshes` seen by `cam` into `target`; returns what was drawn. The camera's size should be
@@ -1207,6 +1177,53 @@ impl Blit {
     }
 }
 
+/// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
+pub fn write_texture_layer(queue: &wgpu::Queue, textures: &wgpu::Texture, layer: u32, rgba: &[u8]) {
+    let n = TEX_SIZE as usize;
+    if layer >= TEX_LAYERS || rgba.len() != n * n * 4 {
+        return;
+    }
+    let mut level = rgba.to_vec();
+    let mut side = n;
+    for mip in 0..TEX_MIPS {
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: textures,
+                mip_level: mip,
+                origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &level,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(side as u32 * 4), rows_per_image: Some(side as u32) },
+            wgpu::Extent3d { width: side as u32, height: side as u32, depth_or_array_layers: 1 },
+        );
+        if side == 1 {
+            break;
+        }
+        let half = side / 2;
+        let mut next = vec![0u8; half * half * 4];
+        for y in 0..half {
+            for x in 0..half {
+                for c in 0..4 {
+                    let px = |xx: usize, yy: usize| u32::from(level.get((yy * side + xx) * 4 + c).copied().unwrap_or(0));
+                    let s = px(2 * x, 2 * y) + px(2 * x + 1, 2 * y) + px(2 * x, 2 * y + 1) + px(2 * x + 1, 2 * y + 1);
+                    if let Some(o) = next.get_mut((y * half + x) * 4 + c) {
+                        *o = ((s + 2) / 4) as u8;
+                    }
+                }
+            }
+        }
+        level = next;
+        side = half;
+    }
+}
+
+/// The inverse transpose of a transform's 3×3 part in f64 (three columns), outward kept for mirrored transforms.
+pub(crate) fn normal_matrix_f64(m: &[f64; 16]) -> [f64; 9] {
+    let n = normal_matrix(m);
+    [n[0], n[1], n[2], n[4], n[5], n[6], n[8], n[9], n[10]].map(f64::from)
+}
+
 /// The inverse transpose of a transform's 3×3 part (normals), as three padded columns.
 fn normal_matrix(m: &[f64; 16]) -> [f32; 12] {
     let a = [m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]];
@@ -1243,7 +1260,11 @@ fn normal_matrix(m: &[f64; 16]) -> [f32; 12] {
 
 /// Read a target's colour back as tightly packed RGBA rows (headless tests, screenshots, benchmarks).
 pub fn read_back(device: &wgpu::Device, queue: &wgpu::Queue, target: &Target3) -> Result<Vec<u8>, String> {
-    let (w, h) = (target.width, target.height);
+    read_texture(device, queue, &target.color, target.width, target.height)
+}
+
+/// Read an RGBA8 texture (COPY_SRC) back as tightly packed rows.
+pub fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, texture: &wgpu::Texture, w: u32, h: u32) -> Result<Vec<u8>, String> {
     let row = w * 4;
     let padded = row.div_ceil(256) * 256;
     let buf = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1254,7 +1275,7 @@ pub fn read_back(device: &wgpu::Device, queue: &wgpu::Queue, target: &Target3) -
     });
     let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("cc3 read back") });
     enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo { texture: &target.color, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
         wgpu::TexelCopyBufferInfo {
             buffer: &buf,
             layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },

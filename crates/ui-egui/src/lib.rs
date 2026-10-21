@@ -60,6 +60,7 @@ pub mod mclights;
 pub mod mcmats;
 pub mod mcpanels;
 pub mod mcprint;
+mod mcrender;
 pub mod mcsolids;
 mod mcstretch;
 pub mod model3d;

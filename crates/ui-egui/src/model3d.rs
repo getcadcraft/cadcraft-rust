@@ -18,7 +18,7 @@ pub const FRONT_MODEL: [u8; 4] = [0xc9, 0xc3, 0xb5, 255];
 pub const BACK_PAPER: [f32; 3] = [0xa9 as f32 / 255.0, 0xba as f32 / 255.0, 0xcb as f32 / 255.0];
 pub const BACK_MODEL: [f32; 3] = [0x5d as f32 / 255.0, 0x71 as f32 / 255.0, 0x86 as f32 / 255.0];
 
-fn hex_rgba(s: &str) -> Option<[u8; 4]> {
+pub(crate) fn hex_rgba(s: &str) -> Option<[u8; 4]> {
     let h = s.strip_prefix('#')?;
     if h.len() != 6 {
         return None;
@@ -47,6 +47,11 @@ fn rel(p: [f64; 3], o: [f64; 3]) -> [f32; 3] {
 
 /// One definition's faces and edges as a mesh; faces without paint take `dflt` (a placement's paint) or `front`.
 pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4]) -> MeshData {
+    def_mesh_with(def, dflt, front, &mut |_| {})
+}
+
+/// [`def_mesh`], telling `per_vertex` each vertex's paint (the face's own, else the placement's) as it is stored.
+pub fn def_mesh_with(def: &Def, dflt: Option<&str>, front: [u8; 4], per_vertex: &mut dyn FnMut(Option<&str>)) -> MeshData {
     let fill = dflt.and_then(paint_rgba).unwrap_or(front);
     let smooth = cc_m3d::edges::smooth_normals(def);
     // the definition's own origin: the middle of its vertices' box (positions are f32 relative to it)
@@ -87,6 +92,7 @@ pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4]) -> MeshData {
                         m.positions.push(rel(def.v(v), origin));
                         m.normals.push([q[0] as f32, q[1] as f32, q[2] as f32]);
                         m.colors.push(c);
+                        per_vertex(paint);
                         match tex {
                             Some((layer, size)) => {
                                 let uv = cc_m3d_tools::matlib::planar_uv(def.v(v), n, [0.0, 0.0, 1.0]);

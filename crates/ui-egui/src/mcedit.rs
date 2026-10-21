@@ -465,6 +465,9 @@ pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
     if ui.button(mt("ui.export.storeys", &[])).clicked() {
         act = Some("storeys".into());
     }
+    if ui.button(mt("ui.export.render", &[])).clicked() {
+        act = Some("render".into());
+    }
     act
 }
 

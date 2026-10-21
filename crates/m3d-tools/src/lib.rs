@@ -39,6 +39,7 @@ pub mod i18n;
 pub mod infer;
 pub mod js;
 pub mod jsre;
+pub mod looks;
 pub mod matlib;
 pub mod outj;
 pub mod overlay;

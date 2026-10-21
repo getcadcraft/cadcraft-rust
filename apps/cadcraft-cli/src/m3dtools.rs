@@ -120,6 +120,17 @@ fn texture(id: &str, size: Option<&str>, square: bool, swatch: bool, out: Option
 pub fn m3dtools(rest: &[&str]) -> ExitCode {
     let flag = |k: &str| rest.iter().position(|a| *a == k);
     let value_of = |k: &str| flag(k).and_then(|i| rest.get(i + 1)).copied();
+    if let Some(file) = value_of("--render-settings") {
+        // looks.js cleanSettings over a JSON array of anything (texdiff.mjs --settings)
+        let v = match read_json(file) {
+            Ok(v) => v,
+            Err(c) => return c,
+        };
+        let out: Vec<serde_json::Value> =
+            v.as_array().map(|a| a.iter().map(|o| cc_m3d_tools::looks::clean_settings(o).to_json()).collect()).unwrap_or_default();
+        println!("{}", serde_json::Value::Array(out));
+        return ExitCode::SUCCESS;
+    }
     if let Some(id) = value_of("--texture") {
         return texture(id, value_of("--size"), flag("--square").is_some(), flag("--swatch").is_some(), value_of("--out"));
     }

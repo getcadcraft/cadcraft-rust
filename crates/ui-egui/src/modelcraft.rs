@@ -127,6 +127,9 @@ pub struct ModelView {
     pub stretch_dlg: Option<crate::mcstretch::StretchDlg>,
     /// the lamp picked in the Lights panel (mclights.rs)
     pub sel_light: Option<f64>,
+    /// Render a picture…: the dialog and the settings it keeps while the app runs (mcrender.rs)
+    pub render_dlg: Option<crate::mcrender::RenderDlg>,
+    pub render_settings: cc_m3d_tools::looks::Settings,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -196,6 +199,8 @@ impl ModelView {
             sub_cutter: None,
             stretch_dlg: None,
             sel_light: None,
+            render_dlg: None,
+            render_settings: cc_m3d_tools::looks::Settings::default(),
         };
         v.fit();
         Ok(v)
@@ -237,7 +242,7 @@ impl ModelView {
         self.built = key;
     }
 
-    fn now(&self) -> f64 {
+    pub(crate) fn now(&self) -> f64 {
         self.clock.elapsed().as_secs_f64() * 1000.0
     }
 

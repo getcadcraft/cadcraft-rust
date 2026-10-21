@@ -22,6 +22,8 @@
 )]
 
 pub mod mesh3d;
+pub mod pt;
+pub mod still;
 
 use std::ops::Range;
 
