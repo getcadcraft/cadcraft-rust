@@ -47,6 +47,20 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("part.suppress", "Suppress / unsuppress", "", "{name: feature id or name} → one undo step"),
     ("part.select", "Select a feature", "", "{name: feature id or name | \"\"} → the feature shown in the history panel"),
     ("part.face", "Pick a face", "", "{name: face name (\"f2.end\") | \"\"} → the face selected and described"),
+    (
+        "part.measure",
+        "Measure",
+        "M",
+        "{name: toggle|on|off|mass|clear|copy|escape|rows|density:<g/cm³>} → measure-ui.js (rows: the card in the status line)",
+    ),
+    ("part.measure.at", "Measure: pick by name", "", "{name: snap:<i> | edge:<i> | face:<name>[~x,y,z] | body~x,y,z}"),
+    ("part.measure.click", "Measure: click in the view", "", "{name: x,y[,shift] (view pixels)}"),
+    (
+        "part.section",
+        "Section view",
+        "X",
+        "{name: toggle|off|front|top|right|face|at:<mm>|flip:on/off|caps:on/off|pick|click:x,y|facename:<name>|escape}",
+    ),
 ];
 
 /// A word of PartCraft's own catalog (`lang/en.json`; the key when missing).
@@ -148,6 +162,10 @@ pub struct PartView {
     bg_again: bool,
     /// big rebuilds go to a thread (set from `BACKGROUND_REBUILDS` when the part is put in the window)
     pub background: bool,
+    /// the Measure tool and Mass properties (measure-ui.js)
+    pub measure: crate::partmeasure::Measure,
+    /// the live section view (section-ui.js)
+    pub section: crate::partmeasure::Section,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -233,6 +251,8 @@ impl PartView {
             generation: 0,
             bg_again: false,
             background: false,
+            measure: crate::partmeasure::Measure::default(),
+            section: crate::partmeasure::Section::default(),
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -420,6 +440,8 @@ impl PartView {
         if self.mode == Mode::Sketch && self.editing.is_some() {
             self.last_solve = self.solve_open();
         }
+        self.measure_refresh();
+        self.apply_section();
     }
 
     fn editing_index(&self) -> Option<usize> {
@@ -1742,7 +1764,7 @@ pub fn face_words(part: &Value, name: &str) -> String {
 }
 
 /// Möller–Trumbore: the ray parameter where o + t·d meets triangle abc (both sides), if it does in front.
-fn ray_tri(o: [f64; 3], d: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
+pub(crate) fn ray_tri(o: [f64; 3], d: [f64; 3], a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<f64> {
     let sub = |p: [f64; 3], q: [f64; 3]| [p[0] - q[0], p[1] - q[1], p[2] - q[2]];
     let cross = |p: [f64; 3], q: [f64; 3]| [p[1] * q[2] - p[2] * q[1], p[2] * q[0] - p[0] * q[2], p[0] * q[1] - p[1] * q[0]];
     let dot = |p: [f64; 3], q: [f64; 3]| p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
@@ -2128,6 +2150,15 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         return Ok(());
     }
     let pv = app.part.as_mut().ok_or_else(|| format!("{id}: open a part first"))?;
+    // partcraft.js `run(cmd)`: a tool closes Measure (views, exports, undo / redo and save leave it open)
+    if pv.measure.active
+        && matches!(
+            id,
+            "part.new" | "part.sketch" | "part.sketch.exit" | "part.feature" | "part.pick.done" | "part.delete" | "part.sk.construction"
+        )
+    {
+        pv.measure_stop();
+    }
     match id {
         "part.save" => {
             let (file, bytes) = pv.save_bytes();
@@ -2244,6 +2275,7 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             pv.note =
                 format!("{} commands {:.1} ms; {} rebuilds {:.1} ms", pv.cmd_ms.1, pv.cmd_ms.0, pv.rebuild_total.1, pv.rebuild_total.0);
         }
+        "part.measure" | "part.measure.at" | "part.measure.click" | "part.section" => pv.measure_cmd(id, &name)?,
         id if id.starts_with("part.sk.") => sketch_cmd(pv, id, &name)?,
         other => return Err(format!("unknown command {other}")),
     }

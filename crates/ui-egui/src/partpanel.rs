@@ -27,9 +27,9 @@ fn show_num(v: f64) -> String {
 }
 
 /// What a widget asked for this frame (run after the panels let go of the view).
-type Cmd = Option<(&'static str, Params)>;
+pub(crate) type Cmd = Option<(&'static str, Params)>;
 
-fn cmd(id: &'static str, name: impl Into<String>) -> Cmd {
+pub(crate) fn cmd(id: &'static str, name: impl Into<String>) -> Cmd {
     Some((id, Params { name: Some(name.into()), ..Default::default() }))
 }
 
@@ -164,6 +164,7 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
         view.push(Tool::new(format!("view:{v}"), ic, tr(&format!("ui.tb.view.{v}"))));
     }
     view.push(Tool::new("edges", "bounding-box", cc_part::i18n::t0("app.fillet.edges")).on(pv.view.style.edges));
+    view.push(Tool::new("menu:views", "box", tr("ui.tb.views")).tip(tr("views.menu.title")).on(pv.measure.active || pv.section.active));
     vec![
         ToolGroup {
             label: tr("ui.tb.group.file"),
@@ -216,6 +217,9 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
                         ui.close();
                     }
                 });
+            }
+            "menu:views" => {
+                egui::Popup::menu(&resp).show(|ui| crate::partmeasure::views_menu(ui, pv, act));
             }
             _ if !resp.clicked() => {}
             "new" => *act = cmd("part.new", ""),
@@ -1115,8 +1119,22 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
             pv.retint();
         }
     }
-    if resp.clicked_by(egui::PointerButton::Primary) {
+    pv.measure.ppp = ppp;
+    if pv.measure.active && resp.hovered() && ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO || i.modifiers.shift) {
         let shift = ui.input(|i| i.modifiers.shift);
+        crate::partmeasure::hover(pv, px, shift);
+    }
+    let shift_now = ui.input(|i| i.modifiers.shift);
+    if resp.clicked_by(egui::PointerButton::Primary) && pv.section.active && pv.section.picking {
+        if let Some((x, y)) = px {
+            *act = cmd("part.section", format!("click:{x},{y}"));
+        }
+    } else if resp.clicked_by(egui::PointerButton::Primary) && pv.measure.active {
+        if let Some((x, y)) = px {
+            *act = cmd("part.measure.click", if shift_now { format!("{x},{y},shift") } else { format!("{x},{y}") });
+        }
+    } else if resp.clicked_by(egui::PointerButton::Primary) {
+        let shift = shift_now;
         let edge = px.and_then(|(x, y)| pv.edge_at(x, y, 6.0 * ppp));
         let name = match (edge, pv.hover) {
             (Some(e), _) => pv.edges().get(e).map(|_| format!("#{e}")).map(|n| ("part.edge", n)),
@@ -1127,7 +1145,16 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
             *act = cmd(id, if shift && !n.is_empty() { format!("+{n}") } else { n });
         }
     }
-    if resp.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if !typing && pv.mode == Mode::Model && ui.input(|i| i.key_pressed(egui::Key::M) && !i.modifiers.any()) {
+        *act = cmd("part.measure", "toggle");
+    }
+    if !typing && pv.mode == Mode::Model && ui.input(|i| i.key_pressed(egui::Key::X) && !i.modifiers.any()) {
+        *act = cmd("part.section", "toggle");
+    }
+    if !typing && (pv.measure.active || pv.section.active) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        *act = if pv.measure.active { cmd("part.measure", "escape") } else { cmd("part.section", "escape") };
+    } else if resp.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         if pv.mode == Mode::Pick {
             *act = cmd("part.pick.done", "");
         } else {
@@ -1164,8 +1191,10 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
             }
         }
     }
+    crate::partmeasure::overlay(ui, rect, pv, t, ppp);
+    crate::partmeasure::cards(ui, rect, pv, t, act);
     // the hovered face's words beside the pointer
-    if let (Some(p), Some(f)) = (pos, pv.hover.and_then(|i| pv.face(i))) {
+    if let (Some(p), Some(f)) = (pos.filter(|_| !pv.measure.active), pv.hover.and_then(|i| pv.face(i))) {
         let words = pv.face_words(jv::s(f, "name"));
         let font = egui::FontId::proportional(12.0);
         let galley = ui.painter().layout_no_wrap(words, font, t.text_strong);
