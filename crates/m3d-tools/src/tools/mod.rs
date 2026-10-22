@@ -173,6 +173,9 @@ pub struct Host {
     scene_gen: u64,
     model_gen: u64,
     cache: LocalCache,
+    /// edges the page adds to the scene after the model's (CadCraft's 3D tab: the 2D drawing's lines on the ground, soft
+    /// so they snap but are never picked; ws3d-core.js `th.scene()`), with the key they were made for
+    extra: Option<(u64, Rc<crate::scene::Local>)>,
 }
 
 impl Host {
@@ -195,7 +198,17 @@ impl Host {
             scene_gen: u64::MAX,
             model_gen: 0,
             cache: LocalCache::new(),
+            extra: None,
         }
+    }
+    /// The key of the extra edges in the scene (None: none).
+    pub fn extra_key(&self) -> Option<u64> {
+        self.extra.as_ref().map(|e| e.0)
+    }
+    /// Edges added to the scene after the model's, placed at the root with no matrix (see `extra`).
+    pub fn set_extra(&mut self, e: Option<(u64, Rc<crate::scene::Local>)>) {
+        self.extra = e;
+        self.scene = None;
     }
     /// A different model (another tab): the scene cache starts over.
     pub fn set_model(&mut self, m: Model) {
@@ -216,7 +229,12 @@ impl Host {
         {
             return s.clone();
         }
-        let s = Rc::new(Scene::of(&self.model, &mut self.cache));
+        let mut sc = Scene::of(&self.model, &mut self.cache);
+        if let Some((_, l)) = &self.extra {
+            let keep = sc.keep;
+            sc.insts.push(crate::scene::Placed::new("", IDENT, &[], l.clone(), keep));
+        }
+        let s = Rc::new(sc);
         self.scene = Some(s.clone());
         self.scene_gen = self.model_gen;
         s

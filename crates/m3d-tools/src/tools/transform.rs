@@ -122,6 +122,10 @@ pub struct MoveTool {
     result: Option<Vec<Sel>>,
 }
 impl MoveTool {
+    /// The base point once picked (`tool.p0`).
+    pub fn p0(&self) -> Option<P3> {
+        self.p0
+    }
     pub fn new(name: &str) -> MoveTool {
         MoveTool {
             b: Base::new(name),
@@ -405,6 +409,10 @@ pub struct RotateTool {
     skip: Option<Moving>,
 }
 impl RotateTool {
+    /// The centre once picked (`tool.c`).
+    pub fn center(&self) -> P3 {
+        self.c
+    }
     pub fn new(name: &str) -> RotateTool {
         RotateTool {
             b: Base::new(name),

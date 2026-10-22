@@ -658,6 +658,10 @@ pub struct PushTool {
     amend: Option<Amend>,
 }
 impl PushTool {
+    /// The face being pushed or pulled (`tool.fid`).
+    pub fn fid(&self) -> Option<f64> {
+        self.fid
+    }
     pub fn new(name: &str) -> PushTool {
         PushTool {
             b: Base::new(name),

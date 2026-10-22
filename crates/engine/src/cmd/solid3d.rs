@@ -22,31 +22,458 @@ use cc_cad::entity::Entity;
 
 const TAU: f64 = std::f64::consts::PI * 2.0;
 
-/// commands3d.js `need3d(c)`: no 3D tab in this host.
-async fn need3d(c: Ctx) -> R {
+#[path = "bool3d.rs"]
+pub mod bool3d;
+
+/// commands3d.js `in3d(c)`: the 3D tab shows.
+fn in3d(c: &Ctx) -> bool {
+    c.sh().in3d()
+}
+
+/// commands3d.js `need3d(c)`: the 3D tab, opened when needed (false in a host without one).
+fn need3d(c: &Ctx) -> bool {
+    if in3d(c) || c.sh().open3d() {
+        return true;
+    }
     c.print(&c.t("cmd3d.needs_3d_tab_which"));
+    false
+}
+
+/// A question whose clicks go to the 3D tab's tool (`{ raw: true, ws: 'tool' }`).
+async fn ask_tool(c: &Ctx, prompt: String) -> R<Reply> {
+    c.string(prompt, Opts { ws_tool: true, ..Opts::default() }).await
+}
+
+/// `drive(c, ws, tool, prompt, {copy, angle})`: clicks and typed values go to a ModelCraft tool until it has made its
+/// edit (true) or Enter / Esc (false).
+async fn drive(c: &Ctx, tool: &str, prompt: String, copy: bool, angle: bool) -> R<bool> {
+    c.sh().with_ws(|ws, d| ws.begin(d, tool, copy));
+    let r = drive_loop(c, prompt, angle).await;
+    c.sh().with_ws(|ws, d| ws.end(d));
+    r
+}
+async fn drive_loop(c: &Ctx, prompt: String, angle: bool) -> R<bool> {
+    loop {
+        let v = ask_tool(c, prompt.clone()).await?;
+        if v == Reply::Done3d {
+            return Ok(true);
+        }
+        let typed = match &v {
+            Reply::Str(s) => js::trim(s).to_string(),
+            _ => String::new(),
+        };
+        if typed.is_empty() {
+            return Ok(false);
+        }
+        let ok = c.sh().with_ws(|ws, d| ws.value(d, &typed, angle)).unwrap_or(Ok(false)).map_err(CmdError::Msg)?;
+        if !ok {
+            // commands3d.js names the typed text `t`, so its i18n call throws for ROTATE (spec gap kept for parity)
+            if angle {
+                return Err(CmdError::Msg("t is not a function".into()));
+            }
+            c.print("Type a distance (drawing units), <dx,dy,dz>, or click.");
+        }
+        if c.sh().with_ws(|ws, _| ws.consume_done()).unwrap_or(false) {
+            return Ok(true);
+        }
+    }
+}
+
+/// `select3d(c, ws, what)`: the 3D selection, or ask for one: clicks select (window, crossing, Shift) until Enter.
+async fn select3d(c: &Ctx, what: &str) -> R<bool> {
+    if c.sh().with_ws(|ws, _| !ws.tools.host.sel.is_empty()).unwrap_or(false) {
+        return Ok(true);
+    }
+    c.sh().with_ws(|ws, d| ws.set_tool(d, "select"));
+    loop {
+        let v = ask_tool(c, c.tv("cmd3d.select_in_3d", &[("what", what.to_string())])).await?;
+        if v == Reply::Done3d {
+            continue;
+        }
+        let typed = match &v {
+            Reply::Str(s) => js::trim(s).to_string(),
+            _ => String::new(),
+        };
+        if typed.is_empty() {
+            break;
+        }
+        if typed.to_uppercase() == "ALL" {
+            let n = c.sh().with_ws(|ws, _| ws.select_all()).unwrap_or(0);
+            c.print(&format!("{n} found"));
+        }
+    }
+    if c.sh().with_ws(|ws, _| ws.tools.host.sel.is_empty()).unwrap_or(true) {
+        c.print(&c.t("cmd3d.nothing_selected"));
+        return Ok(false);
+    }
+    Ok(true)
+}
+
+pub async fn presspull(c: Ctx) -> R {
+    if !need3d(&c) {
+        return Ok(());
+    }
+    if drive(&c, "push", c.t("cmd3d.presspull.click_face_push_pull"), false, false).await? {
+        c.print(&c.t("cmd3d.presspull.pushed_pulled_one_face"));
+    }
     Ok(())
 }
-pub async fn presspull(c: Ctx) -> R {
-    need3d(c).await
-}
+
 pub async fn orbit3d(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    c.sh().with_ws(|ws, d| {
+        ws.driving = Some(("orbit".into(), false));
+        ws.done = false;
+        ws.recorded = false;
+        ws.set_tool(d, "orbit");
+    });
+    let r = async {
+        loop {
+            let v = ask_tool(&c, c.t("cmd3d.3dorbit.drag_orbit_press_enter")).await?;
+            let empty = match &v {
+                Reply::Str(s) => js::trim(s).is_empty(),
+                Reply::Done3d => false,
+                _ => true,
+            };
+            if empty {
+                return Ok(());
+            }
+        }
+    }
+    .await;
+    c.sh().with_ws(|ws, d| ws.end(d));
+    r
 }
+
+/// VIEW's options and what they do.
+const VIEW_KEYS: [(&str, &str, &str); 10] = [
+    ("I", "opt.iso", "iso"),
+    ("T", "opt.top", "top"),
+    ("BO", "opt.bottom", "bottom"),
+    ("F", "opt.front", "front"),
+    ("BA", "opt.back", "back"),
+    ("L", "opt.left", "left"),
+    ("R", "opt.right", "right"),
+    ("P", "opt.perspective", "persp"),
+    ("PA", "opt.parallel", "parallel"),
+    ("E", "opt.extents", "extents"),
+];
+
 pub async fn view(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    let opts: Vec<Opt> = VIEW_KEYS.iter().map(|(k, l, _)| c.opt(k, &c.t(l))).collect();
+    let v = c.keyword(c.t("cmd3d.view.choose_view"), Opts { options: opts.clone(), ..Opts::default() }).await?;
+    let Reply::Opt(k) = v else { return Ok(()) };
+    let Some((_, _, name)) = VIEW_KEYS.iter().find(|x| x.0 == k) else { return Ok(()) };
+    c.sh().with_ws(|ws, d| ws.view(d, name));
+    let label = opts.iter().find(|o| o.key == k).map(|o| o.label.clone()).unwrap_or_default();
+    let key = if k == "P" || k == "PA" {
+        "cmd3d.view.projection"
+    } else if k == "E" {
+        "cmd3d.view.extents_done"
+    } else {
+        "cmd3d.view.view_done"
+    };
+    c.print(&c.tv(key, &[("label", label)]));
+    Ok(())
 }
+
+/// VSCURRENT's options: key, label (catalog key), style.
+const VS_KEYS: [(&str, &str, &str); 5] = [
+    ("S", "opt.shaded", "shaded"),
+    ("E", "cmd3d.view.shaded_edges", "edges"),
+    ("H", "cmd3d.view.hidden_line", "hidden"),
+    ("W", "opt.wireframe", "wire"),
+    ("X", "opt.xray", "xray"),
+];
+
 pub async fn vscurrent(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    let opts: Vec<Opt> = VS_KEYS.iter().map(|(k, l, _)| c.opt(k, &c.t(l))).collect();
+    let v = c.keyword(c.t("cmd3d.vscurrent.visual_style"), Opts { options: opts, ..Opts::default() }).await?;
+    let Reply::Opt(k) = v else { return Ok(()) };
+    let Some((_, _, style)) = VS_KEYS.iter().find(|x| x.0 == k) else { return Ok(()) };
+    c.sh().with_ws(|ws, _| ws.set_style(style));
+    c.print(&c.tv("cmd3d.vscurrent.set", &[("style", c.t(&format!("model3d.style.{style}")))]));
+    Ok(())
 }
+
+// ---- booleans (boolean3d.js on cc-manifold)
+
+/// `pickSolids(c, ws, what)`: the solids picked on the 3D tab (instances of the top level), after asking when nothing
+/// is selected.
+async fn pick_solids(c: &Ctx, what: &str) -> R<Option<Vec<f64>>> {
+    c.sh().with_ws(|ws, _| {
+        if !ws.tools.host.path.is_empty() {
+            ws.tools.host.path = Vec::new();
+            ws.tools.host.sel = Vec::new();
+        }
+    });
+    if !select3d(c, what).await? {
+        return Ok(None);
+    }
+    let ids: Vec<f64> = c.sh().with_ws(|ws, _| ws.tools.host.sel.iter().filter(|s| s.t == "i").map(|s| s.id).collect()).unwrap_or_default();
+    if ids.is_empty() {
+        c.print(&c.t("cmd.bool.solids"));
+        return Ok(None);
+    }
+    Ok(Some(ids))
+}
+
+fn run_boolean(c: &Ctx, op: &str, a: &[f64], b: &[f64]) {
+    let tv = t2(c);
+    let r = c.sh().with_ws(|ws, d| {
+        let r = ws.tcall(d, |t| Ok(bool3d::boolean_solids(&mut t.host.model, op, a, b, &tv)));
+        r.unwrap_or_else(|| Err(String::new())).map(|iid| {
+            let k = m3::k_of(d);
+            (iid, volume_of(c, &ws.tools.host.model, &[iid], k))
+        })
+    });
+    match r {
+        Some(Ok((_, v))) => {
+            c.sh().with_ws(|ws, _| ws.clear_sel());
+            let n = a.len().saturating_add(b.len()).to_string();
+            c.print(&c.tv(&format!("cmd.bool.done.{op}"), &[("n", n), ("volume", v)]));
+        }
+        Some(Err(m)) => c.print(&m),
+        None => {}
+    }
+}
+
+/// `volumeText` of a model in hand (`k`: meters per drawing unit).
+fn volume_of(c: &Ctx, m: &Model, iids: &[f64], k: f64) -> String {
+    let s: f64 = m3::solid_volumes(m).iter().filter(|(iid, _)| iids.contains(iid)).map(|(_, v)| v.unwrap_or(0.0)).sum();
+    let v = s / (k * k * k);
+    c.tv("cmd3d.volume", &[("n", js::num_to_string(v)), ("v", fmt(v))])
+}
+
 pub async fn union(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    if let Some(a) = pick_solids(&c, &c.t("cmd.bool.what.union")).await? {
+        run_boolean(&c, "union", &a, &[]);
+    }
+    Ok(())
 }
 pub async fn intersect(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    if let Some(a) = pick_solids(&c, &c.t("cmd.bool.what.intersect")).await? {
+        run_boolean(&c, "intersect", &a, &[]);
+    }
+    Ok(())
 }
 pub async fn subtract(c: Ctx) -> R {
-    need3d(c).await
+    if !need3d(&c) {
+        return Ok(());
+    }
+    let Some(a) = pick_solids(&c, &c.t("cmd.bool.what.from")).await? else { return Ok(()) };
+    c.sh().with_ws(|ws, _| ws.clear_sel());
+    let Some(b) = pick_solids(&c, &c.t("cmd.bool.what.away")).await? else { return Ok(()) };
+    let keep: Vec<f64> = a.iter().filter(|x| !b.contains(x)).copied().collect();
+    if keep.is_empty() {
+        c.print(&c.t("cmd.bool.same"));
+        return Ok(());
+    }
+    run_boolean(&c, "subtract", &keep, &b);
+    Ok(())
+}
+
+// ---- 2D commands that act on the 3D selection while the 3D tab is open (commands3d.js `wrap`)
+
+/// The 3D tab's version of a command, while the tab shows.
+pub fn wrap3d(sh: &crate::engine::Shared, name: &str) -> Option<fn(Ctx) -> crate::prompt::CmdFuture> {
+    if !sh.in3d() {
+        return None;
+    }
+    Some(match name {
+        "MOVE" => |c| Box::pin(move3d(c)),
+        "COPY" => |c| Box::pin(copy3d(c)),
+        "ROTATE" => |c| Box::pin(rotate3d(c)),
+        "ERASE" => |c| Box::pin(erase3d(c)),
+        "ZOOM" => |c| Box::pin(zoom3d(c)),
+        "SELECTALL" => |c| Box::pin(selectall3d(c)),
+        "DESELECT" => |c| Box::pin(deselect3d(c)),
+        "COPYCLIP" => |c| Box::pin(clip2d(c, "COPYCLIP")),
+        "CUTCLIP" => |c| Box::pin(clip2d(c, "CUTCLIP")),
+        "COPYBASE" => |c| Box::pin(clip2d(c, "COPYBASE")),
+        "PASTECLIP" => |c| Box::pin(clip2d(c, "PASTECLIP")),
+        "PASTEORIG" => |c| Box::pin(clip2d(c, "PASTEORIG")),
+        "DUPLICATE" => |c| Box::pin(clip2d(c, "DUPLICATE")),
+        _ => return None,
+    })
+}
+
+async fn move3d(c: Ctx) -> R {
+    if !select3d(&c, &c.t("cmd3d.edit3d.what_move")).await? {
+        return Ok(());
+    }
+    if drive(&c, "move", c.t("cmd3d.edit3d.move_prompt"), false, false).await? {
+        c.print(&c.t("cmd3d.edit3d.moved"));
+    }
+    Ok(())
+}
+async fn copy3d(c: Ctx) -> R {
+    if !select3d(&c, &c.t("cmd3d.edit3d.what_copy")).await? {
+        return Ok(());
+    }
+    if drive(&c, "move", c.t("cmd3d.edit3d.copy_prompt"), true, false).await? {
+        c.print(&c.t("cmd3d.edit3d.copied_type_3x_right"));
+    }
+    Ok(())
+}
+async fn rotate3d(c: Ctx) -> R {
+    if !select3d(&c, &c.t("cmd3d.edit3d.what_rotate")).await? {
+        return Ok(());
+    }
+    if drive(&c, "rotate", c.t("cmd3d.edit3d.click_center_face_turn"), false, true).await? {
+        c.print(&c.t("cmd3d.edit3d.rotated"));
+    }
+    Ok(())
+}
+async fn erase3d(c: Ctx) -> R {
+    if !select3d(&c, &c.t("cmd3d.edit3d.what_erase")).await? {
+        return Ok(());
+    }
+    let n = c.sh().with_ws(|ws, d| ws.erase_sel(d)).unwrap_or(0);
+    c.print(&c.tv("cmd3d.edit3d.erased", &[("n", n.to_string())]));
+    Ok(())
+}
+async fn zoom3d(c: Ctx) -> R {
+    let v = c
+        .keyword(
+            c.t("cmd3d.edit3d.zoom_extents"),
+            Opts {
+                options: vec![c.opt("E", &c.t("opt.extents")), c.opt("W", &c.t("opt.window"))],
+                default: Some(Def::Str("E".into())),
+                ..Opts::default()
+            },
+        )
+        .await?;
+    if v == Reply::Null {
+        return Ok(());
+    }
+    c.sh().with_ws(|ws, d| ws.fit(d, None));
+    c.print(&c.t("cmd3d.edit3d.zoomed_everything_3d_tab"));
+    Ok(())
+}
+async fn selectall3d(c: Ctx) -> R {
+    let n = c.sh().with_ws(|ws, _| ws.select_all()).unwrap_or(0);
+    c.print(&c.tv("cmd3d.edit3d.selected", &[("n", n.to_string())]));
+    Ok(())
+}
+async fn deselect3d(c: Ctx) -> R {
+    c.sh().with_ws(|ws, _| ws.clear_sel());
+    Ok(())
+}
+async fn clip2d(c: Ctx, name: &str) -> R {
+    c.print(&c.tv("cmd3d.edit3d.clipboard_2d", &[("name", name.to_string())]));
+    Ok(())
+}
+
+// ---- drawing units (model3d.js setUnits)
+
+/// `setUnits(doc, units)`: change the drawing's units. Without solids it is a setting (not undone); with solids the 3D
+/// model is scaled by the ratio of meters per unit so it stays on the drawing, and the units and the scaling are one
+/// undo step. → (scaled, ratio)
+pub fn set_units(sh: &crate::engine::Shared, units: &str) -> (bool, f64) {
+    let faces = sh.t("model3d.faces_file");
+    let label = sh.t("model3d.drawing_units");
+    let before = {
+        let d = sh.doc.borrow();
+        d.meta.get("units").filter(|v| js::truthy(Some(v))).map(js::to_js_string).unwrap_or_default()
+    };
+    let after = units.to_string();
+    let ratio = m3::m_per_unit(&after) / m3::m_per_unit(&before);
+    if before == after {
+        return (false, 1.0);
+    }
+    // the model in hand: the 3D tab's, else the drawing's
+    let has_ws = sh.ws3d.borrow().is_some();
+    let empty = if has_ws {
+        sh.with_ws(|ws, _| m3::is_empty(&ws.tools.host.model)).unwrap_or(true)
+    } else {
+        m3::is_empty(&m3::model_of(&sh.doc.borrow(), &faces))
+    };
+    if empty || (ratio - 1.0).abs() < 1e-12 {
+        let mut d = sh.doc.borrow_mut();
+        d.meta.insert("units".into(), serde_json::Value::String(after.clone()));
+        d.version = d.version.wrapping_add(1);
+        drop(d);
+        sh.with_ws(|ws, _| ws.tools.host.model.units = m3::display_unit(&after).to_string());
+        return (false, ratio);
+    }
+    let scale = |m: &mut Model| -> cc_m3d::Res<()> {
+        m.change(&label, |mm| {
+            // every vertex and every placement's offset × ratio (placements stay rigid; a uniform scale commutes with them)
+            for d in mm.defs.values_mut() {
+                for p in d.verts.values_mut() {
+                    p[0] *= ratio;
+                    p[1] *= ratio;
+                    p[2] *= ratio;
+                }
+                for inst in d.insts.values_mut() {
+                    inst.m[12] *= ratio;
+                    inst.m[13] *= ratio;
+                    inst.m[14] *= ratio;
+                }
+                d.cache = None;
+            }
+            for g in mm.guides.values_mut() {
+                match g {
+                    cc_m3d::model::Guide::Line { p, .. } | cc_m3d::model::Guide::Point { p } => {
+                        *p = [p[0] * ratio, p[1] * ratio, p[2] * ratio]
+                    }
+                }
+            }
+            Ok(())
+        })
+    };
+    let rec = |d: &mut Doc, m: &mut Model| {
+        let step = m.undo_stack.pop();
+        m.undo_stack.clear();
+        m.redo_stack.clear();
+        let Some(step) = step else { return };
+        let (b, a) = (step.b.s(), step.a.s());
+        let bref = d.m3d.clone().filter(|x| **x == *b).unwrap_or_else(|| std::sync::Arc::from(b.as_str()));
+        if !d.meta.contains_key("units") {
+            // `before` is `doc.meta.units || ''`: an undo leaves '' there
+            d.meta.insert("units".into(), serde_json::Value::String(String::new()));
+        }
+        let mut patch = cc_cad::Obj::new();
+        patch.insert("units".into(), serde_json::Value::String(after.clone()));
+        let _ = d.change("UNITS", |dd| {
+            dd.set_meta(&patch)?;
+            dd.record_m3d(&label, Some(bref), std::sync::Arc::from(a.as_str()))
+        });
+        // `m.syncUnits()` after the step: the model in hand speaks the new unit; the step keeps the old one
+        m.units = m3::display_unit(&after).to_string();
+        d.m3d = Some(std::sync::Arc::from(m.snapshot().as_str()));
+    };
+    if has_ws {
+        sh.with_ws(|ws, d| {
+            let m = &mut ws.tools.host.model;
+            m.undo_stack.clear();
+            if scale(m).is_ok() {
+                rec(d, m);
+            }
+            ws.sync_to(d);
+        });
+    } else {
+        let mut m = m3::model_of(&sh.doc.borrow(), &faces);
+        if scale(&mut m).is_ok() {
+            rec(&mut sh.doc.borrow_mut(), &mut m);
+        }
+    }
+    (true, ratio)
 }
 
 fn faces_name(c: &Ctx) -> String {
@@ -118,9 +545,7 @@ fn record(d: &mut Doc, label: &str, m: &mut Model, before: &str) -> Result<(), c
 /// `volumeText(m3, iids)`
 fn volume_text(c: &Ctx, m: &Model, iids: &[f64]) -> String {
     let k = m3::k_of(&c.doc());
-    let s: f64 = m3::solid_volumes(m).iter().filter(|(iid, _)| iids.contains(iid)).map(|(_, v)| v.unwrap_or(0.0)).sum();
-    let v = s / (k * k * k);
-    c.tv("cmd3d.volume", &[("n", js::num_to_string(v)), ("v", fmt(v))])
+    volume_of(c, m, iids, k)
 }
 
 fn t1(c: &Ctx) -> impl Fn(&str) -> String + '_ {
@@ -139,9 +564,10 @@ fn outline(c: &Ctx, e: &cc_cad::entity::Entity) -> Result<Vec<[f64; 2]>, String>
 }
 
 /// A height: typed (drawing units, negative = down). Null = Enter; Opt = an option.
-async fn ask_height(c: &Ctx, label: String, options: Vec<Opt>) -> R<Reply> {
+async fn ask_height(c: &Ctx, rings: Vec<Vec<[f64; 2]>>, z0: f64, label: String, options: Vec<Opt>) -> R<Reply> {
+    let height = Some(crate::ws3d::HeightSpec { rings, z0, base: None });
     loop {
-        let v = c.number(label.clone(), Opts { options: options.clone(), ..Opts::default() }).await?;
+        let v = c.number(label.clone(), Opts { options: options.clone(), height: height.clone(), ..Opts::default() }).await?;
         match v {
             Reply::Opt(_) => return Ok(v),
             Reply::Num(h) => {
@@ -208,7 +634,8 @@ pub async fn extrude(c: Ctx) -> R {
     loop {
         let dlabel = if del { c.t("cmd3d.extrude.keep_originals") } else { c.t("cmd3d.extrude.delete_originals") };
         let options = vec![c.opt("D", &dlabel), c.opt("T", &c.t("opt.taper")), c.opt("P", &c.t("opt.path"))];
-        let v = ask_height(&c, c.t("cmd3d.extrude.specify_height_extrusion"), options).await?;
+        let rings: Vec<Vec<[f64; 2]>> = shapes.iter().map(|s| s.ring.clone()).collect();
+        let v = ask_height(&c, rings, 0.0, c.t("cmd3d.extrude.specify_height_extrusion"), options).await?;
         match v {
             Reply::Null => return Ok(()),
             Reply::Opt(o) if o == "T" => {
@@ -274,7 +701,7 @@ pub async fn extrude(c: Ctx) -> R {
         let parts = [
             c.tv("cmd3d.extrude.made", &[("n", n.clone()), ("h", fmt(h)), ("vol", volume_text(&c, &m, &iids))]),
             if del { c.t("cmd3d.extrude.deleted_2d") } else { String::new() },
-            c.tv("cmd3d.open_3d_tab", &[("n", n)]),
+            if in3d(&c) { String::new() } else { c.tv("cmd3d.open_3d_tab", &[("n", n)]) },
         ];
         c.print(&parts.iter().filter(|s| !s.is_empty()).cloned().collect::<Vec<_>>().join(" "));
     }
@@ -376,11 +803,8 @@ async fn sweep_shapes(c: &Ctx, shapes: &[Shape], del: bool) -> R {
     }
     if !made.is_empty() {
         let iids: Vec<f64> = made.iter().map(|x| x.1).collect();
-        c.print(&format!(
-            "{} {}",
-            c.tv("cmd.sweep.done", &[("n", made.len().to_string()), ("volume", volume_text(c, &m, &iids))]),
-            c.t("cmd.shape3d.see")
-        ));
+        let see = if in3d(c) { String::new() } else { format!(" {}", c.t("cmd.shape3d.see")) };
+        c.print(&format!("{}{see}", c.tv("cmd.sweep.done", &[("n", made.len().to_string()), ("volume", volume_text(c, &m, &iids))])));
     }
     keep(c, m);
     Ok(())
@@ -446,13 +870,13 @@ pub async fn revolve(c: Ctx) -> R {
     }
     if !made.is_empty() {
         let iids: Vec<f64> = made.iter().map(|x| x.1).collect();
+        let see = if in3d(&c) { String::new() } else { format!(" {}", c.t("cmd.shape3d.see")) };
         c.print(&format!(
-            "{} {}",
+            "{}{see}",
             c.tv(
                 "cmd.revolve.done",
                 &[("n", made.len().to_string()), ("deg", fmt(th * 180.0 / std::f64::consts::PI)), ("volume", volume_text(&c, &m, &iids))]
-            ),
-            c.t("cmd.shape3d.see")
+            )
         ));
     }
     keep(&c, m);
@@ -464,11 +888,30 @@ pub async fn revolve(c: Ctx) -> R {
 struct Base {
     a: [f64; 2],
     b: [f64; 2],
+    /// the first corner's z (a point picked on the 3D tab), else 0
+    z0: f64,
+}
+
+impl Base {
+    fn ring(&self) -> Vec<[f64; 2]> {
+        vec![self.a, [self.b[0], self.a[1]], self.b, [self.a[0], self.b[1]]]
+    }
+}
+
+/// The z of the point just answered (`Number.isFinite(p.z) ? p.z : 0`).
+fn z_of(c: &Ctx) -> f64 {
+    c.st().z3.filter(|z| z.is_finite()).unwrap_or(0.0)
+}
+
+/// `" " + t('cmd3d.open_3d_tab')` unless the 3D tab shows.
+fn see_tab(c: &Ctx) -> String {
+    if in3d(c) { String::new() } else { format!(" {}", c.tv("cmd3d.open_3d_tab", &[("n", "1".into())])) }
 }
 
 /// `baseCorners(c)`
 async fn base_corners(c: &Ctx) -> R<Option<Base>> {
     let Reply::Point(a, _) = c.point(c.t("cmd3d.revolve.specify_first_corner"), Opts::default()).await? else { return Ok(None) };
+    let z0 = z_of(c);
     c.preview(Some(std::rc::Rc::new(move |_, cur| {
         let v = |x: f64, y: f64| cc_cad::entity::Vertex { x, y, b: None, extra: Default::default() };
         vec![Entity::new(Geo::Poly(cc_cad::entity::Poly {
@@ -483,7 +926,7 @@ async fn base_corners(c: &Ctx) -> R<Option<Base>> {
         c.print(&c.t("cmd3d.revolve.base_has_no_area"));
         return Ok(None);
     }
-    Ok(Some(Base { a: [a.x, a.y], b: [b.x, b.y] }))
+    Ok(Some(Base { a: [a.x, a.y], b: [b.x, b.y], z0 }))
 }
 
 /// `m3.change(label, fn)` with no change open: a step of its own, labelled as the model's change.
@@ -496,11 +939,11 @@ fn change3d(c: &Ctx, label: &str, f: impl FnOnce(&mut Model) -> Result<f64, Stri
 
 pub async fn box3d(c: Ctx) -> R {
     let Some(base) = base_corners(&c).await? else { return Ok(()) };
-    let Reply::Num(h) = ask_height(&c, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
+    let Reply::Num(h) = ask_height(&c, vec![base.ring()], base.z0, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
     let k = m3::k_of(&c.doc());
     let (m, iid) = {
         let t = t1(&c);
-        change3d(&c, "Box", |m| m3::make_box(m, [base.a[0] * k, base.a[1] * k], [base.b[0] * k, base.b[1] * k], 0.0, h * k, &t))?
+        change3d(&c, "Box", |m| m3::make_box(m, [base.a[0] * k, base.a[1] * k], [base.b[0] * k, base.b[1] * k], base.z0 * k, h * k, &t))?
     };
     let vars = [
         ("x", fmt((base.b[0] - base.a[0]).abs())),
@@ -508,30 +951,29 @@ pub async fn box3d(c: Ctx) -> R {
         ("z", fmt(h.abs())),
         ("vol", volume_text(&c, &m, &[iid])),
     ];
-    c.print(&format!("{} {}", c.tv("cmd3d.box.made", &vars), c.tv("cmd3d.open_3d_tab", &[("n", "1".into())])));
+    c.print(&format!("{}{}", c.tv("cmd3d.box.made", &vars), see_tab(&c)));
     keep(&c, m);
     Ok(())
 }
 
 pub async fn wedge(c: Ctx) -> R {
     let Some(base) = base_corners(&c).await? else { return Ok(()) };
-    let Reply::Num(h) = ask_height(&c, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
+    let Reply::Num(h) = ask_height(&c, vec![base.ring()], base.z0, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
     let k = m3::k_of(&c.doc());
     let (m, iid) = {
         let t = t1(&c);
-        change3d(&c, "Wedge", |m| m3::make_wedge(m, [base.a[0] * k, base.a[1] * k], [base.b[0] * k, base.b[1] * k], 0.0, h * k, &t))?
+        change3d(&c, "Wedge", |m| {
+            m3::make_wedge(m, [base.a[0] * k, base.a[1] * k], [base.b[0] * k, base.b[1] * k], base.z0 * k, h * k, &t)
+        })?
     };
-    c.print(&format!(
-        "{} {}",
-        c.tv("cmd3d.wedge.made", &[("vol", volume_text(&c, &m, &[iid]))]),
-        c.tv("cmd3d.open_3d_tab", &[("n", "1".into())])
-    ));
+    c.print(&format!("{}{}", c.tv("cmd3d.wedge.made", &[("vol", volume_text(&c, &m, &[iid]))]), see_tab(&c)));
     keep(&c, m);
     Ok(())
 }
 
 pub async fn cylinder(c: Ctx) -> R {
     let Reply::Point(ctr, _) = c.point(c.t("cmd3d.cylinder.specify_center_point_base"), Opts::default()).await? else { return Ok(()) };
+    let z0 = z_of(&c);
     c.preview(Some(std::rc::Rc::new(move |_, cur| vec![Entity::new(circle_g(ctr.x, ctr.y, js::hypot(cur.x - ctr.x, cur.y - ctr.y)))])));
     let r = c.distance(c.t("cmd3d.cylinder.specify_base_radius"), Opts { base: Some(ctr), ..Opts::default() }).await?;
     c.preview(None);
@@ -543,16 +985,22 @@ pub async fn cylinder(c: Ctx) -> R {
         }
         _ => return Ok(()),
     };
-    let Reply::Num(h) = ask_height(&c, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
+    let ring: Vec<[f64; 2]> = (0..48)
+        .map(|i| {
+            let a = (f64::from(i) / 48.0) * std::f64::consts::PI * 2.0;
+            [ctr.x + r * a.jcos(), ctr.y + r * a.jsin()]
+        })
+        .collect();
+    let Reply::Num(h) = ask_height(&c, vec![ring], z0, c.t("cmd3d.specify_height"), Vec::new()).await? else { return Ok(()) };
     let k = m3::k_of(&c.doc());
     let (m, iid) = {
         let t = t1(&c);
-        change3d(&c, "Cylinder", |m| m3::make_cylinder(m, [ctr.x * k, ctr.y * k], r * k, 0.0, h * k, &t))?
+        change3d(&c, "Cylinder", |m| m3::make_cylinder(m, [ctr.x * k, ctr.y * k], r * k, z0 * k, h * k, &t))?
     };
     c.print(&format!(
-        "{} {}",
+        "{}{}",
         c.tv("cmd3d.cylinder.made", &[("r", fmt(r)), ("h", fmt(h.abs())), ("vol", volume_text(&c, &m, &[iid]))]),
-        c.tv("cmd3d.open_3d_tab", &[("n", "1".into())])
+        see_tab(&c)
     ));
     keep(&c, m);
     Ok(())

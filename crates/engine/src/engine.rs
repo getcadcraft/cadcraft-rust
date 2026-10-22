@@ -185,6 +185,13 @@ pub trait Host {
     fn choose(&mut self, _title: &str, _text: &str, _buttons: &[(String, String)]) -> Pick<Option<String>> {
         Pick::Unsupported
     }
+    /// `host.open3d()` (commands3d.js `need3d`): switch to the 3D tab (the engine makes and shows the workspace,
+    /// [`crate::ws3d`]) → false when this host has no 3D tab.
+    fn open3d(&mut self) -> bool {
+        false
+    }
+    /// `host.cursor = p`: the 3D tab moves the cursor the commands see (a point on the ground under the pointer).
+    fn set_cursor(&mut self, _p: P2) {}
 }
 
 /// What `choose_block` answers for "the whole drawing" (cadcraft.js's `'\u0000whole'` option).
@@ -316,6 +323,8 @@ pub enum Reply {
     Choice(Option<String>),
     /// the library panel's pick (`host.library()`): the item and its slug, None = closed
     Item(Option<(serde_json::Value, Option<String>)>),
+    /// `{ done3d: true }`: the 3D tab's tool made its edit (ws3d-core.js `check`)
+    Done3d,
 }
 impl Reply {
     pub fn point(&self) -> Option<P2> {
@@ -346,6 +355,10 @@ pub struct Opts {
     pub empty: bool,
     /// a dragged path answers Path (TRIM / EXTEND)
     pub path: bool,
+    /// `ws: 'tool'`: clicks on the 3D tab go to its ModelCraft tool (ws3d-core.js inputMode)
+    pub ws_tool: bool,
+    /// `height: {rings, z0}`: on the 3D tab a click gives the height along Z under the cursor
+    pub height: Option<crate::ws3d::HeightSpec>,
 }
 
 /// Rubber-band entities for a cursor position.
@@ -399,6 +412,10 @@ pub struct State {
     pub memo: crate::cmd::Memo,
     /// the engine's clipboard (`E.clipboard`; the host's shared store sits behind it)
     pub clipboard: crate::clip::Clipboard,
+    /// the z of the last point answered on the 3D tab (`p.z`; None: a 2D point)
+    pub z3: Option<f64>,
+    /// the points the running command was given on the 3D tab, with their z (a base point's z)
+    pub z3_pts: Vec<(P2, f64)>,
 }
 
 /// What the engine and its commands share.
@@ -407,6 +424,8 @@ pub struct Shared {
     pub host: RefCell<Box<dyn Host>>,
     pub st: RefCell<State>,
     pub lang: Lang,
+    /// the 3D tab's workspace (ws3d-core.js), made the first time the tab opens
+    pub ws3d: RefCell<Option<Box<crate::ws3d::Ws3d>>>,
 }
 
 impl Shared {
@@ -453,8 +472,8 @@ fn def_reply(d: &Option<Def>) -> Reply {
 
 /// The command line.
 pub struct Engine {
-    sh: Rc<Shared>,
-    runner: Runner,
+    pub(crate) sh: Rc<Shared>,
+    pub(crate) runner: Runner,
 }
 
 impl std::fmt::Debug for Engine {
@@ -470,7 +489,13 @@ impl Engine {
         cc_gcons::install();
         cc_cad::i18n::set_catalog(lang.cat());
         cc_gcons::finish_load(&mut doc);
-        let sh = Rc::new(Shared { doc: RefCell::new(doc), host: RefCell::new(host), st: RefCell::new(State::default()), lang });
+        let sh = Rc::new(Shared {
+            doc: RefCell::new(doc),
+            host: RefCell::new(host),
+            st: RefCell::new(State::default()),
+            lang,
+            ws3d: RefCell::new(None),
+        });
         Engine { sh, runner: Runner::default() }
     }
     pub fn doc(&self) -> Ref<'_, Doc> {
@@ -521,7 +546,7 @@ impl Engine {
         self.sh.st.borrow_mut().drag_path = pts;
     }
 
-    fn ctx(&self) -> Ctx {
+    pub(crate) fn ctx(&self) -> Ctx {
         Ctx { sh: Rc::clone(&self.sh), pr: self.runner.prompter.clone() }
     }
 
@@ -548,7 +573,13 @@ impl Engine {
         self.sh.host.borrow_mut().on_command(Some(c.name));
         let echo = self.sh.tv("cmd.echo", &[("name", c.name.to_string())]);
         self.sh.print(&echo);
-        self.runner.start((c.run)(self.ctx()));
+        // commands3d.js `wrap`: on the 3D tab MOVE, COPY, ROTATE, ERASE, ZOOM, SELECTALL, DESELECT and the clipboard
+        // commands work on the 3D selection
+        let fut = match crate::cmd::solid3d::wrap3d(&self.sh, c.name) {
+            Some(f) => f(self.ctx()),
+            None => (c.run)(self.ctx()),
+        };
+        self.runner.start(fut);
         self.after_poll();
     }
 
@@ -577,6 +608,7 @@ impl Engine {
             st.reply = None;
             st.base = None;
             st.preview_fn = None;
+            st.z3_pts.clear();
         }
         let mut h = self.sh.host.borrow_mut();
         if !keep {
@@ -587,10 +619,15 @@ impl Engine {
         h.on_command(None);
     }
 
-    fn resolve(&mut self, v: Reply) {
+    pub(crate) fn resolve(&mut self, v: Reply) {
+        self.resolve_z(v, None);
+    }
+    /// Answer the waiting question; `z` = the z of a point picked on the 3D tab.
+    pub(crate) fn resolve_z(&mut self, v: Reply, z: Option<f64>) {
         {
             let mut st = self.sh.st.borrow_mut();
             let Some(w) = st.waiting.take() else { return };
+            st.z3 = z;
             if let Reply::Point(p, _) = &v
                 && w.kind == Kind::Point
             {
@@ -602,7 +639,7 @@ impl Engine {
         self.after_poll();
     }
 
-    fn waiting_info(&self) -> Option<(Kind, Opts, IdSet)> {
+    pub(crate) fn waiting_info(&self) -> Option<(Kind, Opts, IdSet)> {
         let st = self.sh.st.borrow();
         st.waiting.as_ref().map(|w| (w.kind.clone(), w.opts.clone(), w.set.clone()))
     }
@@ -735,7 +772,7 @@ impl Engine {
     }
 
     /// Change the selection being built by the waiting "Select objects" → a copy of it.
-    fn with_set(&self, f: impl FnOnce(&mut IdSet)) -> IdSet {
+    pub(crate) fn with_set(&self, f: impl FnOnce(&mut IdSet)) -> IdSet {
         let mut st = self.sh.st.borrow_mut();
         match st.waiting.as_mut() {
             Some(w) => {

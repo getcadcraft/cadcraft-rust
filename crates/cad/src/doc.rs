@@ -510,6 +510,8 @@ pub struct Doc {
     /// the 3D model as its JSON snapshot (model3d.js `doc.model3d.snapshot()`), once something made or read one: None
     /// = still what the file brought (`faces3d`, `model3d_text`); undoable through `Op::M3d`
     pub m3d: Option<std::sync::Arc<str>>,
+    /// how many 3D edits were recorded (`Model3D.onRecord`: the 3D tab learns a tool or a command made one)
+    pub m3d_records: u64,
     /// the file's dynamic-block objects (dwg-save.js)
     pub dyn_src: Option<Value>,
     /// what a view label shows for a viewport with no view name (commands.js `field.vpview.none`; the engine sets
@@ -587,6 +589,7 @@ impl Doc {
             model3d_text: None,
             view3d: None,
             m3d: None,
+            m3d_records: 0,
             dyn_src: None,
             unnamed_view: "Unnamed view".into(),
             pictures: crate::pictures::Pictures::new(),
@@ -1140,6 +1143,7 @@ impl Doc {
     /// or a change of its own.
     pub fn record_m3d(&mut self, label: &str, before: Option<std::sync::Arc<str>>, after: std::sync::Arc<str>) -> Result<(), DocError> {
         self.m3d = Some(std::sync::Arc::clone(&after));
+        self.m3d_records = self.m3d_records.wrapping_add(1);
         if self.pending.is_some() {
             return self.push(Op::M3d { before, after: Some(after) });
         }

@@ -13,8 +13,9 @@
 //!
 //! The parametric commands (pcommands.js: GEOMCONSTRAINT / GC*, DIMCONSTRAINT / DC*, DELCONSTRAINT, AUTOCONSTRAIN,
 //! PARAMETERS, -PARAMETERS, CONSTRAINTBAR, DCDISPLAY; M4.23) work through cc-gcons; MIRROR, TRIM and the clipboard
-//! carry constraints (ckeep.js). Not ported here: SWBOUT (swsketch.js), the 3D tab's versions of MOVE / COPY / ROTATE /
-//! ERASE / ZOOM, lasso selection, dynamic-block properties (the Custom section).
+//! carry constraints (ckeep.js). The 3D tab ([`ws3d`], ws3d-core.js: ModelCraft's tools on the drawing's 3D model) runs
+//! PRESSPULL, 3DORBIT, VIEW, VSCURRENT, the booleans and the 3D versions of MOVE / COPY / ROTATE / ERASE / ZOOM (M4.25).
+//! Not ported here: SWBOUT (swsketch.js), lasso selection, dynamic-block properties (the Custom section).
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -39,6 +40,7 @@ pub mod prompt;
 pub mod props;
 pub mod tancircle;
 pub mod ucs;
+pub mod ws3d;
 
 pub use engine::{Ctx, Engine, Host, IdSet, Opts, Pick, PickedDrawing, PickedFile, Reply, Sel, Tan};
 pub use lang::Lang;

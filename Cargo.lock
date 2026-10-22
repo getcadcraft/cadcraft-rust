@@ -497,6 +497,8 @@ dependencies = [
  "cc-io-cad",
  "cc-io-m3d",
  "cc-m3d",
+ "cc-m3d-tools",
+ "cc-manifold",
  "cc-part",
  "cc-tools",
  "rayon",

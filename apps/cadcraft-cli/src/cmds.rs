@@ -58,6 +58,8 @@ struct Stub {
     pictures: std::collections::VecDeque<Vec<cc_engine::PickedFile>>,
     /// the script's `files.library`: what the library panel hands INSERT L ({ item, slug } or null), in order
     library: std::collections::VecDeque<Option<(Value, Option<String>)>>,
+    /// the script's `tab3d: true`: the stub has a 3D tab (`host.open3d`, M4.25)
+    tab3d: bool,
 }
 
 /// Standard base64 (the script's picture bytes) → bytes; None on anything else.
@@ -300,6 +302,60 @@ impl Host for Stub {
         self.log.borrow_mut().events.push(json!(["library"]));
         cc_engine::Pick::Now(self.library.pop_front().flatten())
     }
+    // the 3D tab (kdiff-cad3d.mjs's stub opens a Workspace3D; M4.25)
+    fn open3d(&mut self) -> bool {
+        if self.tab3d {
+            self.log.borrow_mut().events.push(json!(["open3d"]));
+        }
+        self.tab3d
+    }
+    fn set_cursor(&mut self, p: P2) {
+        self.log.borrow_mut().cursor = Some(p);
+    }
+}
+
+/// FNV-1a (64-bit) of bytes, as hex: a saved DWG in the records (kdiff-cad3d.mjs hashes the JS bytes the same way).
+fn fnv64(b: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for x in b {
+        h ^= u64::from(*x);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// A 3D-tab pointer event from a script: `{kind, x, y, shift, ctrl, alt, time}`.
+fn ev3_of(v: &Value) -> cc_engine::ws3d::Ev3 {
+    let n = |k: &str| v.get(k).and_then(Value::as_f64);
+    let b = |k: &str| v.get(k).and_then(Value::as_bool).unwrap_or(false);
+    cc_engine::ws3d::Ev3 {
+        x: n("x").unwrap_or(0.0),
+        y: n("y").unwrap_or(0.0),
+        shift: b("shift"),
+        ctrl: b("ctrl"),
+        alt: b("alt"),
+        time: n("time"),
+    }
+}
+
+/// The 3D tab's state for the records (kdiff-cad3d.mjs `wsState`).
+fn ws_state(eng: &Engine) -> Option<Value> {
+    eng.with_ws3d(|ws, _| {
+        let c = &ws.tools.host.cam;
+        let h = &ws.tools.host;
+        json!({
+            "active": ws.active, "style": ws.style_key, "eye": c.eye, "target": c.target, "persp": c.persp, "fov": c.fov,
+            "path": h.path, "sel": h.sel.iter().map(|s| json!({"t": s.t, "id": s.id})).collect::<Vec<_>>(),
+            "tool": ws.tools.name, "busy": ws.tools.busy(),
+            "overlay": h.overlay.as_ref().map_or(Value::Null, cc_m3d_tools::overlay::Overlay::to_json),
+            "tip": h.tip, "hover2d": ws.hover2d,
+        })
+    })
+}
+
+/// `Number(x.toPrecision(6))`
+fn precision6(x: f64) -> f64 {
+    format!("{x:.5e}").parse::<f64>().unwrap_or(x)
 }
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
@@ -358,6 +414,7 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         drawings,
         pictures,
         library,
+        tab3d: script.get("tab3d").and_then(Value::as_bool).unwrap_or(false),
     };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();
@@ -411,6 +468,57 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
             ret = Value::Bool(eng.path(&pts));
         } else if inp.get("escape").is_some() {
             ret = Value::Bool(eng.escape());
+        } else if inp.get("open3d").is_some() {
+            // the 3D tab clicked (cadcraft.js open3d)
+            ret = Value::Bool(eng.open3d());
+        } else if inp.get("hide3d").is_some() {
+            eng.hide3d();
+        } else if let Some(w) = inp.get("ws") {
+            let e = ev3_of(w);
+            match w.get("kind").and_then(Value::as_str).unwrap_or("click") {
+                "down" => eng.ws_down(e),
+                "move" => eng.ws_move(e),
+                "up" => eng.ws_up(e),
+                _ => eng.ws_click(e),
+            }
+        } else if let Some(k) = inp.get("wsKey").and_then(Value::as_str) {
+            ret = Value::Bool(eng.ws_key(k, false));
+        } else if let Some(a) = inp.get("wsOrbit").and_then(Value::as_array) {
+            let g = |i: usize| a.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+            eng.with_ws3d(|ws, _| ws.tools.host.cam.orbit(g(0), g(1)));
+        } else if let Some(a) = inp.get("wsZoom").and_then(Value::as_array) {
+            // the wheel on the 3D view: [factor, x, y]
+            let g = |i: usize| a.get(i).and_then(Value::as_f64).unwrap_or(0.0);
+            eng.with_ws3d(|ws, _| ws.tools.host.cam.zoom_at(g(0), Some(g(1)), Some(g(2)), None));
+        } else if let Some(u) = inp.get("units").and_then(Value::as_str) {
+            // props.js unitsSelect: the Properties panel's drawing units
+            let (scaled, ratio) = cc_engine::cmd::solid3d::set_units(eng.shared(), u);
+            let lang = eng.lang().clone();
+            let name = lang.s(&format!("props.units.{}", if u.is_empty() { "none" } else { u }));
+            let status = lang.t(if scaled { "props.units.set.scaled" } else { "props.units.set" }, &[("units", name.clone())]);
+            log.borrow_mut().events.push(json!(["status", status]));
+            if scaled {
+                let m = lang.t("props.units.set.3d", &[("units", name), ("k", cc_cad::js::num_to_string(precision6(ratio)))]);
+                eng.host_mut().print(&m);
+            }
+        } else if let Some(v) = inp.get("save").and_then(Value::as_str) {
+            let d = eng.doc().clone();
+            let opts = cc_io_cad::dwg_save::SaveOpts {
+                version: v.to_string(),
+                created_ms: Some(1_760_184_000_000.0),
+                guid_sequence: true,
+                ..cc_io_cad::dwg_save::SaveOpts::default()
+            };
+            let ev = match v {
+                "dxf2000" => cc_io_cad::dxf2000::write_dxf2000(&d).map(|(t, _)| t).map_err(|e| e.0),
+                "dxf12" => cc_io_cad::dxf_write::write_dxf(&d).map(|(t, _)| t).map_err(|e| e.0),
+                _ => cc_io_cad::dwg_save::save_dwg(&d, &opts).map(|s| fnv64(&s.bytes)).map_err(|e| e.0),
+            };
+            let e = match ev {
+                Ok(t) => json!(["save", v, t]),
+                Err(m) => json!(["save", v, {"error": m}]),
+            };
+            log.borrow_mut().events.push(e);
         }
         if timing {
             let ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -437,6 +545,21 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
             "events": std::mem::take(&mut l.events),
             "ret": ret,
         });
+        drop(l);
+        let mut rec = rec;
+        // M4.25: the 3D tab, once it was opened (and its model is the drawing's model)
+        if let (Some(w), Some(o)) = (ws_state(&eng), rec.as_object_mut()) {
+            o.insert("ws".into(), w);
+            let m = eng
+                .with_ws3d(|ws, _| (!cc_io_cad::m3dmodel::is_empty(&ws.tools.host.model)).then(|| ws.tools.host.model.snapshot()))
+                .flatten();
+            if let Some(snap) = o.get_mut("snap").and_then(Value::as_object_mut) {
+                match m {
+                    Some(m) => snap.insert("m3d".into(), Value::String(m)),
+                    None => snap.remove("m3d"),
+                };
+            }
+        }
         out.push(rec);
     }
     let doc = eng.doc().clone();

@@ -30,6 +30,9 @@ cc-tools.workspace = true
 # the 3D commands (commands3d.js, M4.24): ModelCraft's kernel and its GLB / OBJ / STL writers
 cc-m3d.workspace = true
 cc-io-m3d.workspace = true
+# the 3D tab (ws3d-core.js, M4.25): ModelCraft's tools, camera and inference; the booleans (boolean3d.js)
+cc-m3d-tools.workspace = true
+cc-manifold.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 # libplace.js slugify (NFKD, accents dropped)
