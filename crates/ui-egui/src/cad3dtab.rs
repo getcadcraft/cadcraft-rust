@@ -155,7 +155,7 @@ fn build(ws: &mut Ws3d, doc: &cc_cad::Doc, id: u64, dark: bool, ink: Color32, w:
         }
         let key = (def.id.clone(), color.unwrap_or("").to_string());
         let mi = *index.entry(key).or_insert_with(|| {
-            meshes.push(crate::model3d::def_mesh(def, color, front));
+            meshes.push(crate::model3d::def_mesh(def, color, front, &crate::model3d::ImgLayers::default()));
             meshes.len() - 1
         });
         for (_, p) in def.verts.iter() {

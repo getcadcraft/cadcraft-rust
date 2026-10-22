@@ -24,6 +24,8 @@ pub struct Scene3D {
     pub cloud: Option<CloudLayer>,
     /// texture layers this scene brings itself (CivilCraft's map drape): (layer, TEX_SIZE² RGBA), uploaded with it
     pub textures: Arc<Vec<(u32, Vec<u8>)>>,
+    /// pictures as texture layers: (layer, key of the picture, TEX_SIZE² RGBA)
+    pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
 }
 
 /// A point cloud in a 3D scene: its points and colours (shared, not copied) and how they are drawn.
@@ -52,6 +54,7 @@ impl Scene3D {
             picker: Arc::default(),
             cloud: None,
             textures: Arc::default(),
+            images: Vec::new(),
         }
     }
     /// Hide some instances (a storey, a class): not drawn, not picked.
@@ -174,6 +177,8 @@ pub struct Gpu3 {
     inst_version: u64,
     /// material texture layers uploaded so far
     tex_loaded: u64,
+    /// the picture in each picture layer (layer → key)
+    img_keys: std::collections::HashMap<u32, u64>,
     /// what the target shows now: (scene id, version, camera, style)
     shown: Option<(u64, u64, Cam3, Style3)>,
     pub last: Stats3,
@@ -194,6 +199,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         instances: None,
         inst_version: u64::MAX,
         tex_loaded: 0,
+        img_keys: std::collections::HashMap::new(),
         shown: None,
         last: Stats3::default(),
         points: cc_render::points3::Points3::new(&rs.device),
@@ -244,11 +250,22 @@ impl egui_wgpu::CallbackTrait for Callback {
                     }
                 }
             }
-            // the scene's own layers (a map drape): uploaded now; a library material there is drawn again when needed
+            // the scene's own layers (a map drape): uploaded now; a library material or a picture there is drawn again when needed
             for (layer, rgba) in self.scene.textures.iter() {
                 g.renderer.set_texture(queue, *layer, rgba);
+                g.img_keys.remove(layer);
                 if *layer < 64 {
                     g.tex_loaded &= !(1u64 << layer);
+                }
+            }
+            // imported pictures, into their layers when the picture there changed
+            for (layer, key, px) in &self.scene.images {
+                if g.img_keys.get(layer) != Some(key) {
+                    g.renderer.set_texture(queue, *layer, px);
+                    g.img_keys.insert(*layer, *key);
+                    if *layer < 64 {
+                        g.tex_loaded &= !(1u64 << layer);
+                    }
                 }
             }
             g.scene = self.scene.id;

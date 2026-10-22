@@ -34,6 +34,129 @@ fn paint_rgba(c: &str) -> Option<[u8; 4]> {
     hex_rgba(&hex)
 }
 
+/// The texture array's layers for imported pictures (`img:` paints): after the library materials' layers.
+pub const IMG_LAYER0: usize = cc_m3d_tools::matlib::TEXTURED.len();
+
+/// One imported picture as a texture layer: its image id, a key of its data, its pixels (TEX_SIZE², rows from v = 0).
+#[derive(Clone, Debug)]
+pub struct ImgTex {
+    pub id: String,
+    pub key: u64,
+    pub rgba: std::sync::Arc<Vec<u8>>,
+}
+
+/// The pictures a scene shows as textures, in layer order from [`IMG_LAYER0`].
+#[derive(Clone, Debug, Default)]
+pub struct ImgLayers {
+    pub list: Vec<ImgTex>,
+}
+
+impl ImgLayers {
+    /// The layer of an image id, if it has one.
+    pub fn layer(&self, id: &str) -> Option<f32> {
+        self.list.iter().position(|t| t.id == id).map(|k| (IMG_LAYER0 + k) as f32)
+    }
+    /// (layer, key, pixels) for the renderers.
+    pub fn layers(&self) -> Vec<(u32, u64, std::sync::Arc<Vec<u8>>)> {
+        self.list.iter().enumerate().map(|(k, t)| ((IMG_LAYER0 + k) as u32, t.key, t.rgba.clone())).collect()
+    }
+}
+
+/// Decoded pictures kept between scenes: image id → (key of its data, its texture, or None when it cannot be read).
+pub type ImgCache = HashMap<String, (u64, Option<std::sync::Arc<Vec<u8>>>)>;
+
+fn data_key(im: &cc_m3d::model::Image) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    im.mime.hash(&mut h);
+    im.data.len().hash(&mut h);
+    im.data.get(..256.min(im.data.len())).unwrap_or("").hash(&mut h);
+    im.data.get(im.data.len().saturating_sub(256)..).unwrap_or("").hash(&mut h);
+    h.finish()
+}
+
+/// A picture's pixels resampled to the texture layer's square (box filter), rows flipped so v = 0 is the bottom row,
+/// as three.js uploads an Image (flipY).
+pub fn picture_layer(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
+    let n = cc_render::mesh3d::TEX_SIZE as usize;
+    let (w, h) = (w as usize, h as usize);
+    if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+        return None;
+    }
+    let mut out = vec![0u8; n * n * 4];
+    for ty in 0..n {
+        // texel row ty (v = ty / n) samples the picture's row from the bottom
+        let (y0, y1) = ((n - 1 - ty) * h / n, ((n - ty) * h).div_ceil(n).max((n - 1 - ty) * h / n + 1).min(h));
+        for tx in 0..n {
+            let (x0, x1) = (tx * w / n, ((tx + 1) * w).div_ceil(n).max(tx * w / n + 1).min(w));
+            let mut s = [0u32; 4];
+            let mut cnt = 0u32;
+            for y in y0..y1 {
+                for x in x0..x1 {
+                    let o = (y * w + x) * 4;
+                    if let Some(p) = rgba.get(o..o + 4) {
+                        for (a, b) in s.iter_mut().zip(p) {
+                            *a += u32::from(*b);
+                        }
+                        cnt += 1;
+                    }
+                }
+            }
+            let cnt = cnt.max(1);
+            if let Some(d) = out.get_mut((ty * n + tx) * 4..(ty * n + tx) * 4 + 4) {
+                for (a, b) in d.iter_mut().zip(s) {
+                    *a = ((b + cnt / 2) / cnt) as u8;
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// The pictures the shown model paints with (faces and placements), first seen first, each decoded once (`cache`);
+/// as many as the texture array has room for (the rest show their average colour).
+pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
+    if model.images.is_empty() {
+        return ImgLayers::default();
+    }
+    let mut ids: Vec<String> = Vec::new();
+    let mut see = |c: Option<&str>| {
+        if let Some(c) = c.filter(|c| cc_m3d::paint::is_image_paint(c)) {
+            let id = cc_m3d::paint::image_id(c);
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    };
+    for d in model.defs.values() {
+        for (_, f) in d.faces.iter() {
+            see(f.color.as_deref());
+        }
+        for (_, i) in d.insts.iter() {
+            see(i.color.as_deref());
+        }
+    }
+    let room = (cc_render::mesh3d::TEX_LAYERS as usize).saturating_sub(IMG_LAYER0);
+    let mut list = Vec::new();
+    for id in ids {
+        if list.len() >= room {
+            break;
+        }
+        let Some(im) = model.images.get(&id) else { continue };
+        let key = data_key(im);
+        let fresh = cache.get(&id).is_none_or(|(k, _)| *k != key);
+        if fresh {
+            let url = format!("data:{};base64,{}", im.mime, im.data);
+            let px = cc_io_markup::picture::decode_rgba(&url).and_then(|(w, h, p)| picture_layer(w, h, &p)).map(std::sync::Arc::new);
+            cache.insert(id.clone(), (key, px));
+        }
+        if let Some((_, Some(px))) = cache.get(&id) {
+            list.push(ImgTex { id, key, rgba: px.clone() });
+        }
+    }
+    ImgLayers { list }
+}
+
 fn grow(lo: &mut [f64; 3], hi: &mut [f64; 3], p: [f64; 3]) {
     for ((l, h), v) in lo.iter_mut().zip(hi.iter_mut()).zip(p) {
         *l = l.min(v);
@@ -46,12 +169,18 @@ fn rel(p: [f64; 3], o: [f64; 3]) -> [f32; 3] {
 }
 
 /// One definition's faces and edges as a mesh; faces without paint take `dflt` (a placement's paint) or `front`.
-pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4]) -> MeshData {
-    def_mesh_with(def, dflt, front, &mut |_| {})
+pub fn def_mesh(def: &Def, dflt: Option<&str>, front: [u8; 4], imgs: &ImgLayers) -> MeshData {
+    def_mesh_with(def, dflt, front, imgs, &mut |_| {})
 }
 
 /// [`def_mesh`], telling `per_vertex` each vertex's paint (the face's own, else the placement's) as it is stored.
-pub fn def_mesh_with(def: &Def, dflt: Option<&str>, front: [u8; 4], per_vertex: &mut dyn FnMut(Option<&str>)) -> MeshData {
+pub fn def_mesh_with(
+    def: &Def,
+    dflt: Option<&str>,
+    front: [u8; 4],
+    imgs: &ImgLayers,
+    per_vertex: &mut dyn FnMut(Option<&str>),
+) -> MeshData {
     let fill = dflt.and_then(paint_rgba).unwrap_or(front);
     let smooth = cc_m3d::edges::smooth_normals(def);
     // the definition's own origin: the middle of its vertices' box (positions are f32 relative to it)
@@ -71,7 +200,12 @@ pub fn def_mesh_with(def: &Def, dflt: Option<&str>, front: [u8; 4], per_vertex: 
         // a library material with a texture (view3d.js: the face's paint, else its placement's): planarUV in metres over
         // the tile's size, less a whole number of tiles per face (f32 keeps the fraction far from the origin)
         let paint = f.color.as_deref().filter(|c| !c.is_empty()).or(dflt);
-        let tex = paint.and_then(|p| p.strip_prefix("mat:")).and_then(|id| {
+        // an imported picture (view3d.js: 'img:<id>'): UVs from the paint's own placement (imageUV), in pictures
+        let tex = paint.and_then(|p| {
+            if cc_m3d::paint::is_image_paint(p) {
+                return Some((imgs.layer(&cc_m3d::paint::image_id(p))?, [0.0, 0.0]));
+            }
+            let id = p.strip_prefix("mat:")?;
             let layer = cc_m3d_tools::matlib::TEXTURED.iter().position(|x| *x == id)?;
             Some((layer as f32, cc_m3d_tools::matlib::tex_spec(id)?.size))
         });
@@ -95,8 +229,13 @@ pub fn def_mesh_with(def: &Def, dflt: Option<&str>, front: [u8; 4], per_vertex: 
                         per_vertex(paint);
                         match tex {
                             Some((layer, size)) => {
-                                let uv = cc_m3d_tools::matlib::planar_uv(def.v(v), n, [0.0, 0.0, 1.0]);
-                                let (u, w) = (uv[0] / size[0], uv[1] / size[1]);
+                                let (u, w) = if size[0] == 0.0 {
+                                    let uv = paint.and_then(|p| cc_m3d::paint::image_uv(p, def.v(v)).ok()).unwrap_or([0.0, 0.0]);
+                                    (uv[0], uv[1])
+                                } else {
+                                    let uv = cc_m3d_tools::matlib::planar_uv(def.v(v), n, [0.0, 0.0, 1.0]);
+                                    (uv[0] / size[0], uv[1] / size[1])
+                                };
                                 let o = *tile0.get_or_insert([u.floor(), w.floor()]);
                                 m.tex.resize(m.positions.len() - 1, [0.0, 0.0, -1.0]);
                                 m.tex.push([(u - o[0]) as f32, (w - o[1]) as f32, layer]);
@@ -122,8 +261,9 @@ pub fn def_mesh_with(def: &Def, dflt: Option<&str>, front: [u8; 4], per_vertex: 
 }
 
 /// The whole model as a scene: one mesh per (definition, placement colour), one instance per placement shown.
-pub fn scene_of(model: &Model, id: u64, dark: bool) -> Scene3D {
+pub fn scene_of(model: &Model, id: u64, dark: bool, cache: &mut ImgCache) -> Scene3D {
     let front = if dark { FRONT_MODEL } else { FRONT_PAPER };
+    let imgs = img_layers(model, cache);
     let mut meshes: Vec<MeshData> = Vec::new();
     let mut index: HashMap<(String, String), usize> = HashMap::new();
     let mut instances: Vec<Instance3> = Vec::new();
@@ -135,7 +275,7 @@ pub fn scene_of(model: &Model, id: u64, dark: bool) -> Scene3D {
         }
         let key = (def.id.clone(), color.unwrap_or("").to_string());
         let mi = *index.entry(key).or_insert_with(|| {
-            meshes.push(def_mesh(def, color, front));
+            meshes.push(def_mesh(def, color, front, &imgs));
             meshes.len() - 1
         });
         for (_, p) in def.verts.iter() {
@@ -154,7 +294,9 @@ pub fn scene_of(model: &Model, id: u64, dark: bool) -> Scene3D {
         lo = [-5.0, -5.0, 0.0];
         hi = [5.0, 5.0, 3.0];
     }
-    Scene3D::new(id, meshes, instances, lo, hi)
+    let mut s = Scene3D::new(id, meshes, instances, lo, hi);
+    s.images = imgs.layers();
+    s
 }
 
 /// A sample model made in code (no file): a small building with a door and two windows pushed in, a porch slab and a
@@ -230,7 +372,7 @@ mod tests {
             Ok(())
         });
         assert!(r.is_ok(), "{r:?}");
-        let s = scene_of(&model, 1, false);
+        let s = scene_of(&model, 1, false, &mut ImgCache::new());
         let m = &s.meshes[0];
         assert_eq!(m.tex.len(), m.positions.len());
         // brick-red is layer 0, its tile 0.9 × 0.6 m: the plate is two tiles each way
@@ -252,7 +394,7 @@ mod tests {
             Ok(())
         });
         assert!(r.is_ok(), "{r:?}");
-        let s = scene_of(&model, 1, false);
+        let s = scene_of(&model, 1, false, &mut ImgCache::new());
         assert_eq!(s.instances.len(), 1);
         let m = &s.meshes[0];
         assert_eq!(m.indices.len() / 3, 12, "six faces, two triangles each");
@@ -264,7 +406,7 @@ mod tests {
     #[test]
     fn the_sample_model_has_a_building_and_four_posts() {
         let model = sample_model();
-        let s = scene_of(&model, 1, false);
+        let s = scene_of(&model, 1, false, &mut ImgCache::new());
         assert_eq!(s.instances.len(), 5, "the root and four posts");
         assert_eq!(s.meshes.len(), 2, "one mesh per definition: the posts share theirs");
         assert!(s.meshes[0].indices.len() / 3 > 12, "openings pushed in");

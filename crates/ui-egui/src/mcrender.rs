@@ -50,6 +50,8 @@ pub struct JobInput {
     pub looks: Vec<Vec<[u8; 4]>>,
     pub instances: Vec<Instance3>,
     pub origin: [f64; 3],
+    /// imported pictures: (layer, key, TEX_SIZE² RGBA)
+    pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
 }
 
 /// A render under way, shared by the dialog and the GPU callback.
@@ -172,6 +174,13 @@ impl egui_wgpu::CallbackTrait for StillCallback {
                                 Gpu::Hq(x) => x.set_texture(queue, layer as u32, &t.albedo),
                             }
                         }
+                    }
+                }
+                // imported pictures
+                for (layer, _, px) in &inp.images {
+                    match &r {
+                        Gpu::Fast(x) => x.set_texture(queue, *layer, px),
+                        Gpu::Hq(x) => x.set_texture(queue, *layer, px),
                     }
                 }
                 slot.r = Some((r, inp.still));
@@ -304,6 +313,9 @@ impl ModelView {
         let mut lo = [f64::INFINITY; 3];
         let mut hi = [f64::NEG_INFINITY; 3];
         let front = crate::model3d::hex_rgba(DEFAULT_FACE).unwrap_or([230, 227, 220, 255]);
+        // imported pictures as textures (render-mc.js: their own material, roughness 0.7)
+        let mut cache = self.img_cache.clone();
+        let imgs = crate::model3d::img_layers(model, &mut cache);
         let look_of = |key: &str| -> [u8; 4] {
             let q = |x: f64| (x.clamp(0.0, 1.0) * 255.0).round() as u8;
             if let Some(id) = key.strip_prefix("mat:")
@@ -326,7 +338,8 @@ impl ModelView {
             let key = (def.id.clone(), color.unwrap_or("").to_string());
             let mi = *index.entry(key).or_insert_with(|| {
                 let mut per: Vec<[u8; 4]> = Vec::new();
-                let mesh = crate::model3d::def_mesh_with(def, color, front, &mut |paint| per.push(look_of(&Self::render_key(paint))));
+                let mesh =
+                    crate::model3d::def_mesh_with(def, color, front, &imgs, &mut |paint| per.push(look_of(&Self::render_key(paint))));
                 meshes.push(mesh);
                 mlooks.push(per);
                 meshes.len() - 1
@@ -398,7 +411,7 @@ impl ModelView {
             lamps,
         };
         let origin = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
-        Some(JobInput { still, meshes, looks: mlooks, instances, origin })
+        Some(JobInput { still, meshes, looks: mlooks, instances, origin, images: imgs.layers() })
     }
 
     /// The render actions; None when `name` is not one of them.

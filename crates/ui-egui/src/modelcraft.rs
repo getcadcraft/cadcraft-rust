@@ -127,6 +127,8 @@ pub struct ModelView {
     pub render_settings: cc_m3d_tools::looks::Settings,
     /// the scenes playing (Play): when the next one comes, ms on the view's clock
     pub playing: Option<f64>,
+    /// imported pictures decoded for the view and renders (model3d.rs)
+    pub(crate) img_cache: model3d::ImgCache,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -157,7 +159,8 @@ fn kind_color(kind: &str, t: &Tokens) -> Color32 {
 impl ModelView {
     pub fn new(model: Model, name: &str, dark: bool) -> Result<ModelView, String> {
         let tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
-        let scene = model3d::scene_of(&tools.host.model, 1, dark);
+        let mut img_cache = model3d::ImgCache::new();
+        let scene = model3d::scene_of(&tools.host.model, 1, dark, &mut img_cache);
         let built = (tools.host.model.version(), tools.host.model_gen());
         let mut v = ModelView {
             tools,
@@ -199,6 +202,7 @@ impl ModelView {
             render_dlg: None,
             render_settings: cc_m3d_tools::looks::Settings::default(),
             playing: None,
+            img_cache,
         };
         v.fit();
         Ok(v)
@@ -236,7 +240,7 @@ impl ModelView {
             return;
         }
         self.seq = self.seq.wrapping_add(1);
-        self.scene = model3d::scene_of(&self.tools.host.model, self.seq, self.dark);
+        self.scene = model3d::scene_of(&self.tools.host.model, self.seq, self.dark, &mut self.img_cache);
         self.built = key;
     }
 
