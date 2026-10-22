@@ -63,18 +63,18 @@ fn obj(pairs: Vec<(&str, Value)>) -> Value {
 }
 
 impl PartView {
-    fn result_status(&self, id: &str) -> Option<&str> {
+    pub(crate) fn result_status(&self, id: &str) -> Option<&str> {
         self.regen.results.get(id).and_then(|r| r.get("status")).and_then(Value::as_str)
     }
 
     /// The feature's build error in words, if it failed (partcraft.js `app.feature.error`).
-    fn error_words(&self, id: &str) -> Option<String> {
+    pub(crate) fn error_words(&self, id: &str) -> Option<String> {
         let r = self.regen.results.get(id).filter(|r| jv::is_str(r.get("status"), "error"))?;
         let f = P::feature_by_id(&self.part, id)?;
         Some(trv("app.feature.error", &[("name", jv::s(f, "name").to_string()), ("error", jv::s(r, "message").to_string())]))
     }
 
-    fn named(&self) -> bool {
+    pub(crate) fn named(&self) -> bool {
         self.regen.faces.is_some()
     }
 
@@ -115,11 +115,7 @@ impl PartView {
             "revolve" => ("revolve", obj(vec![("op", "add".into())])),
             "revolve-cut" => ("revolve", obj(vec![("op", "cut".into())])),
             "hole" | "lpattern" | "cpattern" | "mirror" | "fillet" | "chamfer" | "shell" => (cmd, obj(vec![])),
-            other => {
-                return Err(format!(
-                    "part.feature: unknown tool {other} (extrude, cut-extrude, revolve, revolve-cut, hole, lpattern, cpattern, mirror, fillet, chamfer, shell)"
-                ));
-            }
+            other => return self.more_feature(other),
         };
         self.new_feature(ty, props);
         Ok(())
@@ -546,7 +542,14 @@ impl PartView {
 
     /// A number typed into a feature's field (partcraft.js `numInput` with a params key): a plain number goes through
     /// the field's own change (one undo step with the field's label), anything else through the parameters.
-    fn typed_number(&mut self, id: &str, field: &str, raw: &str, min: Option<f64>, max: Option<f64>) -> Result<Option<f64>, String> {
+    pub(crate) fn typed_number(
+        &mut self,
+        id: &str,
+        field: &str,
+        raw: &str,
+        min: Option<f64>,
+        max: Option<f64>,
+    ) -> Result<Option<f64>, String> {
         let key = format!("{id}.{field}");
         let s = raw.trim();
         if s.is_empty() {
@@ -596,7 +599,12 @@ impl PartView {
     /// cboreDepth, spacing, count, dir, seed:<id> (on/off), body (mirror: whole body on/off), plane, r, t, outward,
     /// drop:<i> (a picked edge / face off the list), name.
     pub fn set_field(&mut self, spec: &str) -> Result<(), String> {
-        let (target, value) = spec.split_once('=').ok_or_else(|| format!("part.set: \"{spec}\" is not feature:field=value"))?;
+        // the Remove buttons of a list send "fid:drop:<i>" with no value
+        let (target, value) = match spec.split_once('=') {
+            Some(tv) => tv,
+            None if spec.contains(":drop:") => (spec, ""),
+            None => return Err(format!("part.set: \"{spec}\" is not feature:field=value")),
+        };
         let (fkey, field) = target.split_once(':').ok_or_else(|| format!("part.set: \"{spec}\" is not feature:field=value"))?;
         let id = self.feature_id(fkey.trim()).ok_or_else(|| format!("part.set: no feature {fkey}"))?;
         let f = P::feature_by_id(&self.part, &id).cloned().ok_or("part.set: the feature is gone")?;
@@ -807,7 +815,7 @@ impl PartView {
                     }
                 })?;
             }
-            _ => return Err(format!("part.set: a {ty} has no field {field} here")),
+            _ => return self.set_design_field(&id, &f, field, &value),
         }
         Ok(())
     }

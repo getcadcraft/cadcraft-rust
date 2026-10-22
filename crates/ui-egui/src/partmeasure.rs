@@ -257,9 +257,9 @@ impl PartView {
     }
 
     /// A pick made by name (the parity harness and agents): `snap:i` (the i-th snap candidate), `edge:i`,
-    /// `face:NAME~x,y,z` (the point on it; face names hold `@`), `body~x,y,z`.
+    /// `face:NAME|x,y,z` (the point on it; face names hold `@` and `~`), `body|x,y,z`.
     pub fn measure_named(&mut self, spec: &str) -> Result<MPick, String> {
-        let (what, at_pt) = match spec.split_once('~') {
+        let (what, at_pt) = match spec.split_once('|') {
             Some((w, a)) => (w, Some(a)),
             None => (spec, None),
         };
@@ -267,7 +267,7 @@ impl PartView {
             let v: Vec<f64> = s.unwrap_or("").split(',').map(|x| x.trim().parse::<f64>().unwrap_or(f64::NAN)).collect();
             match v.as_slice() {
                 [a, b, c] if v.iter().all(|x| x.is_finite()) => Ok([*a, *b, *c]),
-                _ => Err(format!("part.measure.at: a point x,y,z after ~, not {}", s.unwrap_or(""))),
+                _ => Err(format!("part.measure.at: a point x,y,z after |, not {}", s.unwrap_or(""))),
             }
         };
         let (kind, arg) = what.split_once(':').unwrap_or((what, ""));
@@ -296,7 +296,7 @@ impl PartView {
                 Ok(MPick { kind: "face".into(), index: Some(i), local, edge: None, at, mass: None })
             }
             "body" => Ok(MPick { kind: "body".into(), index: None, local: point(at_pt)?, edge: None, at: None, mass: None }),
-            _ => Err(format!("part.measure.at: snap:<n>, edge:<n>, face:<name>~x,y,z or body~x,y,z, not {spec}")),
+            _ => Err(format!("part.measure.at: snap:<n>, edge:<n>, face:<name>|x,y,z or body|x,y,z, not {spec}")),
         }
     }
 
@@ -1035,7 +1035,7 @@ mod tests {
         assert!(pv.measure_resolve(x, y, true).is_some_and(|p| p.kind == "body"));
         assert!(pv.measure_resolve(-50.0, -50.0, false).is_none());
         // hostile names are errors, not panics
-        for bad in ["snap:999999", "edge:-1", "face:nope", "body~1,2", "body~nan,1,1", "x"] {
+        for bad in ["snap:999999", "edge:-1", "face:nope", "body|1,2", "body|nan,1,1", "x"] {
             assert!(app.run("part.measure.at", &Params { name: Some(bad.into()), ..Default::default() }).is_err(), "{bad}");
         }
         run(&mut app, "part.measure", "escape");

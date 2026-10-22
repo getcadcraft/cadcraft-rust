@@ -34,7 +34,14 @@ pub(crate) fn cmd(id: &'static str, name: impl Into<String>) -> Cmd {
 }
 
 /// A text field that commits on Enter or when it loses focus (Esc keeps the old text): the typed text, if changed.
-fn field(ui: &mut egui::Ui, edits: &mut HashMap<String, String>, key: &str, shown: &str, width: f32, hint: &str) -> Option<String> {
+pub(crate) fn field(
+    ui: &mut egui::Ui,
+    edits: &mut HashMap<String, String>,
+    key: &str,
+    shown: &str,
+    width: f32,
+    hint: &str,
+) -> Option<String> {
     let mut text = edits.get(key).cloned().unwrap_or_else(|| shown.to_string());
     let resp = ui.add_sized([width, 18.0], crate::shell::field(&mut text).id_salt(("pc-field", key))).on_hover_text(hint);
     if resp.has_focus() {
@@ -208,13 +215,19 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
             }
             "menu:more" => {
                 egui::Popup::menu(&resp).show(|ui| {
-                    if ui
-                        .add(crate::shell::Btn::new(tr("ui.tb.fmore.revolve_cut")))
-                        .on_hover_text(tr("ui.tb.fmore.revolve_cut.title"))
-                        .clicked()
-                    {
-                        *act = cmd("part.feature", "revolve-cut");
-                        ui.close();
+                    for (c, key) in crate::partdesign::MORE_MENU {
+                        match c {
+                            None => {
+                                ui.separator();
+                                ui.label(RichText::new(tr(key)).small().color(t.text_dim));
+                            }
+                            Some(c) => {
+                                if ui.add(crate::shell::Btn::new(tr(key))).on_hover_text(tr(&format!("{key}.title"))).clicked() {
+                                    *act = cmd("part.feature", *c);
+                                    ui.close();
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -349,7 +362,7 @@ fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     facts(ui, pv, t);
 }
 
-fn combo(ui: &mut egui::Ui, id: String, label: &str, cur: &str, opts: &[(String, String)]) -> Option<String> {
+pub(crate) fn combo(ui: &mut egui::Ui, id: String, label: &str, cur: &str, opts: &[(String, String)]) -> Option<String> {
     let shown = opts.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
     let mut out = None;
     ui.label(label);
@@ -364,7 +377,7 @@ fn combo(ui: &mut egui::Ui, id: String, label: &str, cur: &str, opts: &[(String,
     out
 }
 
-fn num_row(ui: &mut egui::Ui, pv: &mut PartView, id: &str, field_name: &str, label: &str, act: &mut Cmd) {
+pub(crate) fn num_row(ui: &mut egui::Ui, pv: &mut PartView, id: &str, field_name: &str, label: &str, act: &mut Cmd) {
     let Some(f) = P::feature_by_id(&pv.part, id) else { return };
     let v = jv::n(f, field_name);
     let key = format!("{id}.{field_name}");
@@ -380,7 +393,7 @@ fn num_row(ui: &mut egui::Ui, pv: &mut PartView, id: &str, field_name: &str, lab
     ui.end_row();
 }
 
-fn check_row(ui: &mut egui::Ui, on: bool, label: &str) -> Option<bool> {
+pub(crate) fn check_row(ui: &mut egui::Ui, on: bool, label: &str) -> Option<bool> {
     let mut v = on;
     let r = ui.checkbox(&mut v, label).changed().then_some(v);
     ui.end_row();
@@ -415,7 +428,7 @@ fn dims_block(ui: &mut egui::Ui, pv: &mut PartView, sid: &str, title_key: &str, 
     });
 }
 
-fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t: &Tokens, act: &mut Cmd) {
+pub(crate) fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t: &Tokens, act: &mut Cmd) {
     let id = jv::s(f, "id").to_string();
     ui.label(RichText::new(tr(if key == "edges" { "app.refs.edges_note" } else { "app.refs.faces_note" })).small().color(t.text_dim));
     let items = jv::arr(f.get(key));
@@ -776,6 +789,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
                 ref_list(ui, pv, f, "faces", t, act);
             }
         }
+        _ if crate::partdesign::design_panel(ui, pv, f, t, act) => {}
         _ => {
             // the other feature types: their numbers through the parameters (params-part.js targets)
             let targets = PP::targets(&pv.part);
@@ -795,6 +809,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
             });
         }
     }
+    crate::partdesign::design_extra(ui, pv, f, t, act);
     if ty != "sketch"
         && let Some(sid) = f.get("sketch").and_then(Value::as_str)
     {
@@ -1135,11 +1150,29 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
         }
     } else if resp.clicked_by(egui::PointerButton::Primary) {
         let shift = shift_now;
-        let edge = px.and_then(|(x, y)| pv.edge_at(x, y, 6.0 * ppp));
-        let name = match (edge, pv.hover) {
-            (Some(e), _) => pv.edges().get(e).map(|_| format!("#{e}")).map(|n| ("part.edge", n)),
-            (None, Some(f)) => pv.face(f).map(|r| ("part.face", jv::s(r, "name").to_string())),
-            _ => Some(("part.face", String::new())),
+        let region = pv.slot.as_ref().is_some_and(|sl| sl.kind == "region") && pv.mode == Mode::Model;
+        let hit = px.and_then(|(x, y)| pv.face_hit(x, y));
+        let rf = px.and_then(|(x, y)| pv.ref_at(x, y, 6.0 * ppp, hit.is_some()));
+        let edge = px.and_then(|(x, y)| pv.edge_seg_at(x, y, 6.0 * ppp));
+        let name = if region {
+            match px.map(|(x, y)| pv.region_at(x, y)) {
+                Some(Ok(q)) => Some(("part.region", format!("{},{}", q[0], q[1]))),
+                Some(Err(e)) => {
+                    pv.note = e;
+                    None
+                }
+                None => None,
+            }
+        } else if let (Some(r), Mode::Model) = (rf, pv.mode) {
+            Some(("part.ref", r))
+        } else {
+            match (edge, hit) {
+                (Some((e, k)), _) => Some(("part.edge", format!("#{e}|{k}"))),
+                (None, Some((Some(f), p, _))) => {
+                    pv.face(f).map(|r| ("part.face", format!("{}|{},{},{}", jv::s(r, "name"), p[0], p[1], p[2])))
+                }
+                _ => Some(("part.face", String::new())),
+            }
         };
         if let Some((id, n)) = name {
             *act = cmd(id, if shift && !n.is_empty() { format!("+{n}") } else { n });
@@ -1152,7 +1185,9 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
     if !typing && pv.mode == Mode::Model && ui.input(|i| i.key_pressed(egui::Key::X) && !i.modifiers.any()) {
         *act = cmd("part.section", "toggle");
     }
-    if !typing && (pv.measure.active || pv.section.active) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+    if !typing && pv.slot.is_some() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        *act = cmd("part.slot", "cancel");
+    } else if !typing && (pv.measure.active || pv.section.active) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         *act = if pv.measure.active { cmd("part.measure", "escape") } else { cmd("part.section", "escape") };
     } else if resp.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         if pv.mode == Mode::Pick {
@@ -1191,6 +1226,7 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
             }
         }
     }
+    crate::partdesign::draw_refs(ui, rect, pv, t, ppp);
     crate::partmeasure::overlay(ui, rect, pv, t, ppp);
     crate::partmeasure::cards(ui, rect, pv, t, act);
     // the hovered face's words beside the pointer

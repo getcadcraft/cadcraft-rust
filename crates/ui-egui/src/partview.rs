@@ -53,7 +53,7 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "M",
         "{name: toggle|on|off|mass|clear|copy|escape|rows|density:<g/cm³>} → measure-ui.js (rows: the card in the status line)",
     ),
-    ("part.measure.at", "Measure: pick by name", "", "{name: snap:<i> | edge:<i> | face:<name>[~x,y,z] | body~x,y,z}"),
+    ("part.measure.at", "Measure: pick by name", "", "{name: snap:<i> | edge:<i> | face:<name>[|x,y,z] | body|x,y,z}"),
     ("part.measure.click", "Measure: click in the view", "", "{name: x,y[,shift] (view pixels)}"),
     (
         "part.section",
@@ -166,6 +166,8 @@ pub struct PartView {
     pub measure: crate::partmeasure::Measure,
     /// the live section view (section-ui.js)
     pub section: crate::partmeasure::Section,
+    /// a Design panel's Pick button waiting for a click in the view (design-ui.js `slot`)
+    pub slot: Option<crate::partdesign::Slot>,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -253,6 +255,7 @@ impl PartView {
             background: false,
             measure: crate::partmeasure::Measure::default(),
             section: crate::partmeasure::Section::default(),
+            slot: None,
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -2209,6 +2212,38 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 None => (false, name.clone()),
             };
             let face = id == "part.face";
+            // "name|x,y,z" (a face: the point clicked) / "#i|k" (an edge: its k-th segment, the one under the pointer)
+            let (key, extra) = match key.split_once('|') {
+                Some((k, e)) => (k.to_string(), Some(e.to_string())),
+                None => (key, None),
+            };
+            if pv.mode == Mode::Model && pv.slot.is_some() {
+                let hit = if key.is_empty() {
+                    None
+                } else if face {
+                    let i = pv
+                        .faces()
+                        .iter()
+                        .position(|f| jv::is_str(f.get("name"), &key))
+                        .ok_or_else(|| format!("part.face: no face {key}"))?;
+                    let p = match &extra {
+                        Some(e) => crate::partdesign::parse_p3(e).ok_or_else(|| format!("part.face: x,y,z after |, not {e}"))?,
+                        None => pv.face(i).and_then(|f| f.get("at")).map_or([f64::NAN; 3], p3),
+                    };
+                    Some(crate::partdesign::Hit::Face(i, p))
+                } else {
+                    let i = if let Some(n) = key.strip_prefix('#') {
+                        n.parse::<usize>().ok().filter(|&i| i < pv.edges().len()).ok_or_else(|| format!("part.edge: no edge {key}"))?
+                    } else {
+                        pv.edges().iter().position(|e| jv::is_str(e.get("key"), &key)).ok_or_else(|| format!("part.edge: no edge {key}"))?
+                    };
+                    let seg = extra.as_deref().and_then(|k| k.parse::<usize>().ok()).and_then(|k| pv.edge_segment(i, k));
+                    Some(crate::partdesign::Hit::Edge(i, seg))
+                };
+                pv.slot_pick(hit);
+                pv.tab = "props";
+                return Ok(());
+            }
             if key.is_empty() {
                 pv.pick_none();
             } else {
@@ -2276,6 +2311,16 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 format!("{} commands {:.1} ms; {} rebuilds {:.1} ms", pv.cmd_ms.1, pv.cmd_ms.0, pv.rebuild_total.1, pv.rebuild_total.0);
         }
         "part.measure" | "part.measure.at" | "part.measure.click" | "part.section" => pv.measure_cmd(id, &name)?,
+        "part.slot" => pv.slot_arm(&name)?,
+        "part.region" => pv.region_cmd(&name)?,
+        "part.ref" => {
+            let fid = pv.feature_id(&name).ok_or_else(|| format!("part.ref: no feature {name}"))?;
+            pv.ref_clicked(&fid);
+        }
+        "part.sketch.on" => {
+            let fid = pv.feature_id(&name).ok_or_else(|| format!("part.sketch.on: no feature {name}"))?;
+            pv.start_sketch_on(jv::obj(vec![("kind", "ref".into()), ("feature", fid.into())]));
+        }
         id if id.starts_with("part.sk.") => sketch_cmd(pv, id, &name)?,
         other => return Err(format!("unknown command {other}")),
     }
