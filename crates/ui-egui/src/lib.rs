@@ -90,6 +90,7 @@ pub mod mclights;
 pub mod mcmats;
 pub mod mcpanels;
 pub mod mcprint;
+mod mcrecord;
 mod mcrender;
 pub mod mcsolids;
 mod mcstarter;

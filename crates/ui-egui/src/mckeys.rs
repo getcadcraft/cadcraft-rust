@@ -77,6 +77,10 @@ impl ModelView {
                 self.finish_anim();
                 Ok(())
             }
+            "scene-record" => {
+                self.record_scenes();
+                Ok(())
+            }
             // the Views menu: a standard view, Perspective, Presentation view, section planes and cuts
             "view" => {
                 if !matches!(arg, "iso" | "top" | "front" | "right" | "back" | "left" | "bottom") {
@@ -182,6 +186,11 @@ impl ModelView {
             return true;
         }
         if k == "Escape" {
+            // Esc stops an animation being recorded (and nothing else)
+            if let Some(r) = self.recording.as_mut() {
+                r.stop = true;
+                return true;
+            }
             self.stop_play();
             if self.tools.escape().unwrap_or(false) {
             } else if self.tools.name != "select" {

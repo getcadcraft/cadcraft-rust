@@ -179,6 +179,8 @@ pub struct Gpu3 {
     tex_loaded: u64,
     /// the picture in each picture layer (layer → key)
     img_keys: std::collections::HashMap<u32, u64>,
+    /// a frame being read back
+    reading: Option<Reading>,
     /// what the target shows now: (scene id, version, camera, style)
     shown: Option<(u64, u64, Cam3, Style3)>,
     pub last: Stats3,
@@ -200,6 +202,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         inst_version: u64::MAX,
         tex_loaded: 0,
         img_keys: std::collections::HashMap::new(),
+        reading: None,
         shown: None,
         last: Stats3::default(),
         points: cc_render::points3::Points3::new(&rs.device),
@@ -215,6 +218,26 @@ struct Callback {
     style: Style3,
     /// target size in physical pixels
     px: (u32, u32),
+    /// a frame wanted back (scene recording)
+    capture: Option<Arc<std::sync::Mutex<Capture>>>,
+}
+
+/// Frames of the 3D view read back (ModelCraft's scene recording): set `want` and a later frame's picture (the view as
+/// rendered, RGBA rows top to bottom) lands in `frame`; `failed` when the GPU cannot give it back.
+#[derive(Debug, Default)]
+pub struct Capture {
+    pub want: bool,
+    pub frame: Option<(u32, u32, Vec<u8>)>,
+    pub failed: bool,
+}
+
+/// A read back under way: the buffer, the size, the padded row, whether it is mapped (or failed).
+struct Reading {
+    buf: egui_wgpu::wgpu::Buffer,
+    w: u32,
+    h: u32,
+    padded: u32,
+    done: Arc<std::sync::atomic::AtomicU8>,
 }
 
 impl egui_wgpu::CallbackTrait for Callback {
@@ -312,6 +335,9 @@ impl egui_wgpu::CallbackTrait for Callback {
             g.shown = Some(key);
             g.shown_cloud = ckey;
         }
+        if let Some(cap) = &self.capture {
+            capture(device, queue, g, cap);
+        }
         Vec::new()
     }
 
@@ -322,6 +348,70 @@ impl egui_wgpu::CallbackTrait for Callback {
         pass.set_viewport(vp.left_px as f32, vp.top_px as f32, vp.width_px as f32, vp.height_px as f32, 0.0, 1.0);
         g.blit.draw(pass, bind);
     }
+}
+
+/// The read back of a recorded frame: a finished one goes to `cap.frame`; a wanted one starts (one at a time, never
+/// blocking: the buffer is mapped asynchronously, as WebGPU needs).
+fn capture(device: &egui_wgpu::wgpu::Device, queue: &egui_wgpu::wgpu::Queue, g: &mut Gpu3, cap: &Arc<std::sync::Mutex<Capture>>) {
+    use egui_wgpu::wgpu;
+    use std::sync::atomic::Ordering;
+    let mut c = cap.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = device.poll(wgpu::PollType::Poll);
+    if let Some(r) = &g.reading {
+        match r.done.load(Ordering::Acquire) {
+            1 => {
+                let slice = r.buf.slice(..);
+                let rows = slice.get_mapped_range().map(|data| {
+                    let row = (r.w * 4) as usize;
+                    let mut out = Vec::with_capacity(row * r.h as usize);
+                    for y in 0..r.h as usize {
+                        let start = y * r.padded as usize;
+                        out.extend_from_slice(data.get(start..start + row).unwrap_or(&[]));
+                    }
+                    out
+                });
+                r.buf.unmap();
+                match rows {
+                    Ok(px) if px.len() == (r.w * r.h * 4) as usize => c.frame = Some((r.w, r.h, px)),
+                    _ => c.failed = true,
+                }
+                g.reading = None;
+            }
+            2 => {
+                c.failed = true;
+                g.reading = None;
+            }
+            _ => return,
+        }
+    }
+    if !c.want || c.frame.is_some() {
+        return;
+    }
+    let Some((t, _)) = &g.target else { return };
+    let (w, h) = (t.width, t.height);
+    let padded = (w * 4).div_ceil(256) * 256;
+    let buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("cc3 capture"),
+        size: u64::from(padded) * u64::from(h),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("cc3 capture") });
+    enc.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo { texture: &t.color, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &buf,
+            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
+        },
+        wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+    );
+    queue.submit([enc.finish()]);
+    let done = Arc::new(std::sync::atomic::AtomicU8::new(0));
+    let d2 = done.clone();
+    buf.slice(..).map_async(wgpu::MapMode::Read, move |r| d2.store(if r.is_ok() { 1 } else { 2 }, Ordering::Release));
+    g.reading = Some(Reading { buf, w, h, padded, done });
+    c.want = false;
 }
 
 /// The camera and style of one 3D view (UI state).
@@ -373,8 +463,20 @@ pub fn show(ui: &mut egui::Ui, rect: Rect, scene: &Scene3D, view: &mut View3) ->
 
 /// Draw `scene` into `rect` with a camera sized in physical pixels (no input handling: the caller moves the camera).
 pub fn paint(ui: &egui::Ui, rect: Rect, scene: &Scene3D, cam: &Cam3, style: &Style3) {
+    paint_capture(ui, rect, scene, cam, style, None);
+}
+
+/// [`paint`], reading a frame back when `capture` wants one.
+pub fn paint_capture(
+    ui: &egui::Ui,
+    rect: Rect,
+    scene: &Scene3D,
+    cam: &Cam3,
+    style: &Style3,
+    capture: Option<Arc<std::sync::Mutex<Capture>>>,
+) {
     let px = ((cam.width.round() as u32).max(1), (cam.height.round() as u32).max(1));
-    let cb = Callback { scene: scene.clone(), cam: *cam, style: *style, px };
+    let cb = Callback { scene: scene.clone(), cam: *cam, style: *style, px, capture };
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, cb));
 }
 

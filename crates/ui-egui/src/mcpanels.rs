@@ -913,6 +913,14 @@ impl ModelView {
                     {
                         acts.push("scene-play".into());
                     }
+                    let rec = self.recording_now();
+                    if ui
+                        .selectable_label(rec, format!("● {}", mt("ui.scenes.record", &[])))
+                        .on_hover_text(mt("ui.scenes.record.title", &[]))
+                        .clicked()
+                    {
+                        acts.push("scene-record".into());
+                    }
                 }
             });
             if scenes.is_empty() {

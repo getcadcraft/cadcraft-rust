@@ -887,6 +887,7 @@ dependencies = [
  "cc-recovery",
  "cc-render",
  "cc-takeoff",
+ "cc-video",
  "egui",
  "egui-wgpu",
  "image",

@@ -148,6 +148,8 @@ pub struct ModelView {
     cam_zoom: Option<(f64, f64)>,
     /// imported pictures decoded for the view and renders (model3d.rs)
     pub(crate) img_cache: model3d::ImgCache,
+    /// the scenes being recorded as a film (mcrecord.rs)
+    pub recording: Option<Box<crate::mcrecord::Recording>>,
     /// Presentation view (Shift+P): only the model on screen
     pub presenting: bool,
 }
@@ -228,6 +230,7 @@ impl ModelView {
             keys: "sketchup".into(),
             cam_zoom: None,
             img_cache,
+            recording: None,
             presenting: false,
         };
         v.fit();
@@ -433,6 +436,7 @@ impl ModelView {
         self.after_pointer();
         self.step_play(ui);
         self.step_anim(ui);
+        self.step_record(ui.ctx());
         self.rebuild();
         let c = &self.tools.host.cam;
         let cam = Cam3 {
@@ -446,13 +450,15 @@ impl ModelView {
             far: c.far,
         };
         // 0.7: the view on the page's sheet colour (tokens.css --sheet, both spaces), as every other 3D view here;
-        // only the screen: exports and prints keep the style's own
+        // only the screen: exports and prints keep the style's own, and so does a film being recorded
         let mut style = self.style;
-        let c = t.canvas_bg;
-        style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
-        view3d::paint(ui, rect, &self.scene, &cam, &style);
-        // presentation view: no tool marks, no selection
-        if !self.presenting {
+        if self.recording.is_none() {
+            let c = t.canvas_bg;
+            style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
+        }
+        view3d::paint_capture(ui, rect, &self.scene, &cam, &style, self.recording.as_ref().map(|r| r.cap.clone()));
+        // presentation view (and a film being recorded, as 0.5 records in it): no tool marks, no selection
+        if !self.presenting && self.recording.is_none() {
             self.overlay(ui, rect, t);
         }
         self.take_tool_message();
