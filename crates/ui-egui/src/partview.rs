@@ -2152,6 +2152,22 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         install(app, PartView::new_part());
         return Ok(());
     }
+    if id == "part.edit" {
+        let clip = app.part_clip.take();
+        let pv = app.part.as_mut().ok_or_else(|| format!("{id}: open a part first"))?;
+        if pv.measure.active {
+            pv.measure_stop();
+        }
+        let r = pv.edit_act(&name, clip.clone());
+        app.part_clip = match r {
+            Ok(c) => c,
+            Err(e) => {
+                app.part_clip = clip;
+                return Err(e);
+            }
+        };
+        return Ok(());
+    }
     let pv = app.part.as_mut().ok_or_else(|| format!("{id}: open a part first"))?;
     // partcraft.js `run(cmd)`: a tool closes Measure (views, exports, undo / redo and save leave it open)
     if pv.measure.active

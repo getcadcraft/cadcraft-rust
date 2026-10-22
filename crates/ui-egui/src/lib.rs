@@ -111,6 +111,7 @@ pub mod panes;
 pub mod paneview;
 pub mod parpanel;
 pub mod partdesign;
+pub mod partedit;
 pub mod partfeat;
 pub mod partmeasure;
 pub mod partpanel;
@@ -453,6 +454,8 @@ pub struct UiApp {
     pub detail: Option<detailview::DetailView>,
     /// an open PartCraft part (partview.rs)
     pub part: Option<partview::PartView>,
+    /// PartCraft's clipboard (clipboard.js clip): kept from one part to the next
+    pub part_clip: Option<serde_json::Value>,
     /// CadCraft Studio's start screen (hub.rs): recent files, language
     pub hub: hub::Hub,
     /// BimCraft's editing and Draw on the IFC view (bimedit.rs, bimplan.rs)
@@ -546,6 +549,7 @@ impl Default for UiApp {
             civil: None,
             detail: None,
             part: None,
+            part_clip: None,
             hub: hub::Hub::default(),
             bimh: bimedit::Host::default(),
             ribbon: ribbon::Bar::default(),

@@ -62,7 +62,31 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let mut act: Cmd = None;
     let dark = app.preset.is_dark();
+    let clip = app.part_clip.clone();
     let Some(pv) = app.part.as_mut() else { return };
+    // Ctrl+X / C / V / Shift+V / D: the Edit menu (partcraft.js keydown → run)
+    let typing = ui.ctx().memory(|m| m.focused().is_some());
+    if !typing {
+        let k = ui.input(|i| {
+            let c = i.modifiers.command;
+            if !c {
+                None
+            } else if i.key_pressed(egui::Key::X) {
+                Some("cut")
+            } else if i.key_pressed(egui::Key::C) {
+                Some("copy")
+            } else if i.key_pressed(egui::Key::V) {
+                Some(if i.modifiers.shift { "paste-in-place" } else { "paste" })
+            } else if i.key_pressed(egui::Key::D) {
+                Some("duplicate")
+            } else {
+                None
+            }
+        });
+        if let Some(k) = k {
+            act = cmd("part.edit", k);
+        }
+    }
     if pv.poll_rebuild() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
@@ -75,7 +99,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         let groups = crate::partsketchui::sketch_groups(pv);
         egui::Panel::top("part_bar")
             .frame(egui::Frame::new().fill(t.app_bar))
-            .show(ui, |ui| crate::partsketchui::sketch_toolbar(ui, pv, &t, &mut act, &groups));
+            .show(ui, |ui| crate::partsketchui::sketch_toolbar(ui, pv, &t, clip.as_ref(), &mut act, &groups));
     } else {
         // 0.7's toolbar (the sketch's own bar stays a row while a sketch is open)
         let groups = tool_groups(pv);
@@ -83,7 +107,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         egui::Panel::top("part_bar")
             .exact_size(h)
             .frame(egui::Frame::new().fill(t.app_bar))
-            .show(ui, |ui| tool_bar(ui, pv, &t, &mut act, &groups));
+            .show(ui, |ui| tool_bar(ui, pv, &t, clip.as_ref(), &mut act, &groups));
     }
     // 0.7's docks: a grip over each side panel, the body inset
     let frame = crate::shell::panel_frame(&t);
@@ -188,13 +212,14 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             tools: vec![
                 Tool::new("undo", "arrow-counterclockwise", tr("ui.tb.edit.undo")).tip(tr("ui.tb.edit.undo.title")).enabled(pv.can_undo()),
                 Tool::new("redo", "arrow-clockwise", tr("ui.tb.edit.redo")).tip(tr("ui.tb.edit.redo.title")).enabled(pv.can_redo()),
+                Tool::new("menu:edit", "three-dots", tr("ui.tb.more")).tip(tr("ui.tb.edit.more.title")),
             ],
         },
         ToolGroup { label: tr("ui.tb.group.view"), tools: view },
     ]
 }
 
-fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
+fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Value>, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
     for (id, resp) in crate::shell::toolbar(ui, t, t.app("partcraft"), "pc-tb", groups) {
         match id.as_str() {
             "menu:export" => {
@@ -231,6 +256,9 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
                     }
                 });
             }
+            "menu:edit" => {
+                egui::Popup::menu(&resp).show(|ui| edit_menu(ui, pv, clip, act));
+            }
             "menu:views" => {
                 egui::Popup::menu(&resp).show(|ui| crate::partmeasure::views_menu(ui, pv, act));
             }
@@ -252,6 +280,25 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
                     *act = cmd("part.feature", *c);
                 }
             }
+        }
+    }
+}
+
+/// The Edit group's More menu (ui.inc `data-edit-menu`): each item enabled as partcraft.js `editState` says.
+pub(crate) fn edit_menu(ui: &mut egui::Ui, pv: &PartView, clip: Option<&Value>, act: &mut Cmd) {
+    for (c, key, k) in crate::partedit::EDIT_MENU {
+        if *c == "select-all" {
+            ui.separator();
+        }
+        let st = pv.edit_state(c, clip);
+        let b = ui.add_enabled(st.is_ok(), egui::Button::new(tr(key)).shortcut_text(*k));
+        let b = match st {
+            Err(why) => b.on_disabled_hover_text(why),
+            Ok(()) => b,
+        };
+        if b.clicked() {
+            *act = cmd("part.edit", *c);
+            ui.close();
         }
     }
 }

@@ -52,6 +52,7 @@ pub const TOOLS: &[(&str, &str)] = &[
     ("slot", "ui.tb.sketchmenu.tool_slot"),
     ("lpattern", "ui.tb.sketchmenu.tool_lpattern"),
     ("cpattern", "ui.tb.sketchmenu.tool_cpattern"),
+    ("project", "ui.tb.sketchmenu.tool_project"),
 ];
 
 fn t(key: &str, vars: &[(&str, i18n::F)]) -> String {
@@ -1019,8 +1020,22 @@ impl SketchEd {
             }
             "offset" => self.offset_click(host, x, y),
             "project" => {
-                // Spec gap: projecting a model edge needs the exact kernel's edge records (0.5 says the same without it)
-                host.set_note(&tr("ui.sketch.hint.project"));
+                // partcraft.js pickEdge: the model edge under the pointer (the mesh kernel names its edges)
+                let rec = host.sketch_pick_edge(self.to_sketch(x, y), self.view.2);
+                let (Some(rec), Some(frame)) = (rec, host.current_frame()) else {
+                    if let Some(w) = tool_hint(self, &tl) {
+                        host.set_note(&w);
+                    }
+                    return;
+                };
+                let fj = frame.to_json();
+                self.run_tool(
+                    host,
+                    &tr("ui.sketch.op.project"),
+                    |sk| TL::project_edge(sk, &fj, Some(&rec)),
+                    |r| t("ui.sketch.project.done", &[("kind", i18n::F::S(jv::s(r, "kind").to_string()))]),
+                    |r| cc_part::js::idx(jv::n(r, "dropped")).unwrap_or(0),
+                );
             }
             "mirror" => self.mirror_click(host, x, y),
             "polygon" => {

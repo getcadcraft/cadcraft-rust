@@ -127,11 +127,22 @@ pub fn sketch_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
         },
         ToolGroup { label: tr("ui.tb.aria"), tools: draw },
         ToolGroup { label: tr("form.tb.modify"), tools: modify },
+        ToolGroup {
+            label: tr("ui.tb.group.edit"),
+            tools: vec![Tool::new("menu:edit", "three-dots", tr("ui.tb.more")).tip(tr("ui.tb.edit.more.title"))],
+        },
     ]
 }
 
 /// The sketch bar as 0.7's toolbar (from [`sketch_groups`]), the sketch's name and solve state on a row under it.
-pub fn sketch_toolbar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
+pub fn sketch_toolbar(
+    ui: &mut egui::Ui,
+    pv: &mut PartView,
+    t: &Tokens,
+    clip: Option<&serde_json::Value>,
+    act: &mut Cmd,
+    groups: &[crate::shell::ToolGroup],
+) {
     for (id, resp) in crate::shell::toolbar(ui, t, t.app("partcraft"), "pc-sk", groups) {
         match id.as_str() {
             "menu:more" => {
@@ -143,6 +154,9 @@ pub fn sketch_toolbar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mu
                         }
                     }
                 });
+            }
+            "menu:edit" => {
+                egui::Popup::menu(&resp).show(|ui| crate::partpanel::edit_menu(ui, pv, clip, act));
             }
             _ if !resp.clicked() => {}
             "exit" => *act = cmd("part.sketch.exit", ""),
