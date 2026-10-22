@@ -877,6 +877,14 @@ impl ToolImpl for PushTool {
         use crate::outj::{num, opt_num};
         serde_json::json!({"fid": opt_num(self.fid), "d": num(self.d), "last": opt_num(self.last), "stopped": self.stopped})
     }
+    /// `finish()` (modelcraft.js finishTransform: Enter in the modeler keys ends a push under way).
+    fn call(&mut self, t: &mut Tools, name: &str, _args: &[Json]) -> Res<Option<Json>> {
+        if name != "finish" {
+            return Ok(None);
+        }
+        self.finish(t)?;
+        Ok(Some(Json::Null))
+    }
 }
 impl ClickTool for PushTool {
     fn hover(&mut self, t: &mut Tools, ev: &Ev) -> Res<()> {

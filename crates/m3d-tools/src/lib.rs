@@ -34,6 +34,7 @@ pub mod camera;
 pub mod catalog;
 pub mod collide;
 pub mod dynamic;
+pub mod entourage;
 pub mod fuzzdrive;
 pub mod i18n;
 pub mod infer;

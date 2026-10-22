@@ -571,6 +571,11 @@ impl ToolImpl for RotateTool {
         Ok(Ret::True)
     }
     fn call(&mut self, t: &mut Tools, name: &str, args: &[Json]) -> Res<Option<Json>> {
+        if name == "finish" {
+            // modelcraft.js finishTransform: Enter in the modeler keys ends a turn or a scale under way
+            self.finish(t)?;
+            return Ok(Some(Json::Null));
+        }
         if name != "startAt" {
             return Ok(None);
         }
@@ -981,6 +986,11 @@ impl ToolImpl for ScaleTool {
         Ok(Ret::True)
     }
     fn call(&mut self, t: &mut Tools, name: &str, args: &[Json]) -> Res<Option<Json>> {
+        if name == "finish" {
+            // modelcraft.js finishTransform: Enter in the modeler keys ends a turn or a scale under way
+            self.finish(t)?;
+            return Ok(Some(Json::Null));
+        }
         if name != "startAt" {
             return Ok(None);
         }
