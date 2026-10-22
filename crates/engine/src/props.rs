@@ -849,6 +849,7 @@ fn type_defs(key: &str, c: &PCtx) -> Vec<Def> {
                     .title("props.dyn.title")
                     .when(Box::new(|e, c| !is_dynamic(c.doc, e))),
             );
+            v.extend(dynamic_defs(c));
             v
         }
         "hatch" => {
@@ -945,7 +946,8 @@ fn type_defs(key: &str, c: &PCtx) -> Vec<Def> {
                 "color",
                 Box::new(|e, _| PVal::V(e.get("bg").cloned().unwrap_or_else(|| Value::String("none".into())))),
             )
-            .set(Box::new(|e, v, _| Ok(put(e, "bg", if v.as_str() == Some("none") { None } else { Some(v.clone()) }, &Value::Null))));
+            // `put(e, 'bg', …)` with put's default 0: "by block" (0) drops the key too (propdefs.js)
+            .set(Box::new(|e, v, _| Ok(put(e, "bg", if v.as_str() == Some("none") { None } else { Some(v.clone()) }, &num(0.0)))));
             bg.none = true;
             v.push(bg);
             v.push(
@@ -1124,6 +1126,171 @@ fn is_dynamic(doc: &Doc, e: &Obj) -> bool {
         return true;
     }
     d.get("of").map(|of| s_of(Some(of))).and_then(|of| doc.blocks.get(&of)).is_some()
+}
+
+/// `dynDef(doc, e)`: the dynamic block definition a reference shows (its own block, or the one its copy is of).
+fn dyn_def_name(doc: &Doc, e: &Obj) -> Option<String> {
+    let b = doc.blocks.get(&s_of(e.get("block")))?;
+    let d = b.dyn_.as_ref().filter(|d| js::truthy(Some(d)))?;
+    if js::truthy(d.get("def")) {
+        return Some(b.name.clone());
+    }
+    let of = s_of(d.get("of"));
+    doc.blocks.get(&of).map(|x| x.name.clone())
+}
+
+/// dyn-blocks.js `visibilityOf(doc, ref)`: (label, states, current state).
+pub fn visibility_of(doc: &Doc, e: &Obj) -> Option<(String, Vec<String>, Option<String>)> {
+    if e.get("type").and_then(Value::as_str) != Some("insert") {
+        return None;
+    }
+    let def = doc.blocks.get(&dyn_def_name(doc, e)?)?;
+    let vis = def.dyn_.as_ref()?.get("vis").filter(|v| js::truthy(Some(v)))?;
+    let states: Vec<String> = vis.get("states").and_then(Value::as_array)?.iter().map(|s| s_of(s.get("name"))).collect();
+    if states.is_empty() {
+        return None;
+    }
+    let label = [vis.get("label"), vis.get("name")].into_iter().find(|v| js::truthy(*v)).map(|v| s_of(v)).unwrap_or_default();
+    let current = e.get("dyn").and_then(|d| d.get("state")).filter(|v| !v.is_null()).map(|v| s_of(Some(v)));
+    Some((label, states, current))
+}
+
+/// propdefs.js `dynamicDefs(ctx)`: Properties › Custom for a dynamic block reference — the visibility state as a list,
+/// then the parameter values the file holds, read-only.
+fn dynamic_defs(c: &PCtx) -> Vec<Def> {
+    let mut out = Vec::new();
+    let Some(e0) = c.ents.first().map(Entity::to_obj) else { return out };
+    let Some(def0) = dyn_def_name(c.doc, &e0) else { return out };
+    let same = {
+        let d0 = def0.clone();
+        move |e: &Obj, c: &PCtx| dyn_def_name(c.doc, e).as_deref() == Some(d0.as_str())
+    };
+    if let Some((label, states, _)) = visibility_of(c.doc, &e0) {
+        let lab = if label.is_empty() { c.lang.s("props.f.dyn.vis") } else { label };
+        let same2 = same.clone();
+        out.push(
+            Def::new(
+                "dyn.vis",
+                "custom",
+                "choice",
+                Box::new(|e, c| PVal::V(Value::String(visibility_of(c.doc, e).and_then(|v| v.2).unwrap_or_default()))),
+            )
+            .label(lab)
+            .title("props.f.dyn.vis.title")
+            .when(Box::new(move |e, c| same2(e, c) && visibility_of(c.doc, e).is_some()))
+            .choices(Box::new(move |_| states.iter().map(|n| (Value::String(n.clone()), n.clone())).collect()))
+            // the change itself is apply_value's (dyn-blocks.js setVisibility inside the PROPERTIES step)
+            .set(Box::new(|e, _, _| Ok(e.clone()))),
+        );
+    }
+    let params: Vec<Value> = c
+        .doc
+        .blocks
+        .get(&def0)
+        .and_then(|b| b.dyn_.as_ref())
+        .and_then(|d| d.get("params"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let values: Vec<Value> = e0.get("dyn").and_then(|d| d.get("values")).and_then(Value::as_array).cloned().unwrap_or_default();
+    for v in values {
+        let kind = s_of(v.get("kind"));
+        if kind == "visibility" {
+            continue;
+        }
+        let node = v.get("node").cloned().unwrap_or(Value::Null);
+        // `new Map(params.map((p) => [p.node, p]))`: the last parameter of a node wins
+        let p = params.iter().rev().find(|p| p.get("node").unwrap_or(&Value::Null) == &node);
+        let name = p
+            .and_then(|p| p.get("name"))
+            .filter(|n| js::truthy(Some(n)))
+            .map_or_else(|| c.lang.s(&format!("props.dyn.kind.{kind}")), |n| s_of(Some(n)));
+        let key = format!("dyn.{}", s_of(Some(&node)));
+        let pick = {
+            let node = node.clone();
+            move |e: &Obj| -> Option<Value> {
+                e.get("dyn")
+                    .and_then(|d| d.get("values"))
+                    .and_then(Value::as_array)?
+                    .iter()
+                    .find(|x| x.get("node").unwrap_or(&Value::Null) == &node)
+                    .cloned()
+            }
+        };
+        let fin = |k: &str| v.get(k).and_then(Value::as_f64).is_some_and(f64::is_finite);
+        let base = |d: Def| -> Def {
+            let s = same.clone();
+            d.title("props.dyn.ro.title").when(Box::new(move |e, c| s(e, c)))
+        };
+        if kind == "linear" && fin("distance") {
+            let pk = pick.clone();
+            out.push(base(
+                Def::new(
+                    &key,
+                    "custom",
+                    "ro-len",
+                    Box::new(move |e, _| {
+                        pk(e).and_then(|x| x.get("distance").filter(|d| !d.is_null()).cloned()).map_or(PVal::Varies, PVal::V)
+                    }),
+                )
+                .label(name),
+            ));
+        } else if kind == "alignment" && fin("angle") {
+            let pk = pick.clone();
+            out.push(base(
+                Def::new(
+                    &key,
+                    "custom",
+                    "ro",
+                    Box::new(move |e, _| match pk(e) {
+                        Some(x) => {
+                            let a = deg(norm_angle(js::to_number_opt(x.get("angle"))));
+                            PVal::V(Value::String(format!("{}°", js::num_to_string(js::to_fixed(a, 4).parse::<f64>().unwrap_or(f64::NAN)))))
+                        }
+                        None => PVal::Varies,
+                    }),
+                )
+                .label(name),
+            ));
+        } else if kind == "flip" && v.get("flipped").is_some() {
+            let pk = pick.clone();
+            out.push(base(
+                Def::new(
+                    &key,
+                    "custom",
+                    "ro",
+                    Box::new(move |e, c| match pk(e) {
+                        Some(x) => PVal::V(Value::String(c.lang.s(if js::truthy(x.get("flipped")) {
+                            "props.dyn.flipped"
+                        } else {
+                            "props.dyn.not_flipped"
+                        }))),
+                        None => PVal::Varies,
+                    }),
+                )
+                .label(name),
+            ));
+        } else if (kind == "point" || kind == "basepoint") && js::truthy(v.get("point")) {
+            for a in ["x", "y"] {
+                let pk = pick.clone();
+                let lab = format!("{name} {}", c.lang.s(&format!("props.f.{a}")));
+                out.push(base(
+                    Def::new(
+                        &format!("{key}.{a}"),
+                        "custom",
+                        "ro-len",
+                        Box::new(move |e, _| {
+                            pk(e)
+                                .and_then(|x| x.get("point").and_then(|p| p.get(a)).filter(|d| !d.is_null()).cloned())
+                                .map_or(PVal::Varies, PVal::V)
+                        }),
+                    )
+                    .label(lab),
+                ));
+            }
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -1560,6 +1727,37 @@ pub fn apply_value(doc: &mut Doc, key: &str, group: &str, ids: &[u64], v: &Value
                 Ok(next) => plan.push((id, ent_of(&next))),
             }
         }
+    }
+    if key == "dyn.vis" {
+        // dyn-blocks.js setVisibility per reference, inside the one PROPERTIES step (a refusal rolls it all back)
+        let want = match v {
+            Value::String(s) => s.clone(),
+            other => js::to_js_string(other),
+        };
+        let ids: Vec<u64> = plan.iter().map(|(id, _)| *id).collect();
+        let mut err: Option<String> = None;
+        let mut changed = 0usize;
+        let _ = doc.change("PROPERTIES", |d| {
+            for id in ids {
+                let Some(cur) = d.get(id).map(Entity::to_obj) else { continue };
+                if visibility_of(d, &cur).and_then(|x| x.2).as_deref() == Some(want.as_str()) {
+                    continue;
+                }
+                let space = d.space;
+                match crate::cmd::visedit::set_visibility_checked(d, id, &want, space)? {
+                    Ok(()) => changed = changed.saturating_add(1),
+                    Err(code) => {
+                        err = Some(lang.s(&format!("props.dyn.err.{code}")));
+                        return Err(cc_cad::DocError::Failed(String::new()));
+                    }
+                }
+            }
+            Ok(())
+        });
+        return match err {
+            Some(e) => Applied { ok: false, changed: 0, locked, error: Some(e) },
+            None => Applied { ok: true, changed, locked, error: None },
+        };
     }
     let changed = plan.len();
     let _ = doc.change("PROPERTIES", |d| {

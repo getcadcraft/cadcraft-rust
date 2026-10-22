@@ -24,6 +24,11 @@ fn run(script: &Value) -> Vec<Value> {
     let steps = script.get("steps").and_then(Value::as_array).unwrap_or(&empty);
     let mut out = Vec::new();
     for st in steps {
+        // M4.31: the open space first (-1 = the model, else a sheet's index)
+        if let Some(sp) = st.get("space").and_then(Value::as_i64) {
+            let id = usize::try_from(sp).ok().and_then(|i| doc.layouts.get(i)).map_or(cc_cad::MODEL, |l| l.space);
+            doc.set_space_id(id);
+        }
         let ids: Vec<u64> =
             st.get("sel").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
         let vertex = st.get("vertex").and_then(Value::as_i64).unwrap_or(0);
@@ -81,12 +86,81 @@ fn run(script: &Value) -> Vec<Value> {
                 json!({ "ok": r.ok, "changed": r.changed, "locked": r.locked, "error": r.error })
             }
         };
+        let extra = st.get("extra").map_or(Value::Null, |x| extra_op(&mut doc, x, &gkey, &gids, vertex, &lang));
+        let attrs = match ids.as_slice() {
+            [one] => doc.get(*one).cloned().map_or(Value::Null, |e| {
+                let (rows, lib) = cc_engine::propextra::attribute_rows(&doc, &e);
+                json!({
+                    "rows": rows.iter().map(|r| json!({ "tag": r.tag, "value": r.value, "invisible": r.invisible, "constant": r.constant, "locked": r.locked })).collect::<Vec<_>>(),
+                    "lib": lib.map(|(a, b)| json!([a, b])),
+                })
+            }),
+            _ => Value::Null,
+        };
         let labels: Vec<Value> = groups.iter().map(|g| json!({ "key": g.key, "n": g.ids.len(), "label": group_label(g, &lang) })).collect();
         let model: Vec<Value> = doc.model().map(cc_cad::Entity::to_value).collect();
         let undo: Vec<String> = doc.undo_stack.iter().map(|s| s.label.clone()).collect();
-        out.push(json!({ "groups": labels, "group": gkey, "defs": defs_v, "applied": applied, "model": model, "undo": undo }));
+        let mut rec = json!({ "groups": labels, "group": gkey, "defs": defs_v, "applied": applied, "model": model, "undo": undo });
+        if script.get("more").and_then(Value::as_bool) == Some(true) {
+            let layouts: Vec<Value> = doc
+                .layouts
+                .iter()
+                .map(|l| {
+                    let ents: Vec<Value> =
+                        doc.space_map(l.space).map(|m| m.values().map(cc_cad::Entity::to_value).collect()).unwrap_or_default();
+                    json!({ "name": l.name, "paper": l.paper, "entities": ents })
+                })
+                .collect();
+            let blocks: Vec<Value> = doc.blocks.values().map(|b| json!({ "name": b.name, "n": b.entities.len(), "dyn": b.dyn_ })).collect();
+            let layers: Vec<Value> = doc
+                .layers
+                .values()
+                .map(|l| json!({ "name": l.name, "on": l.on, "frozen": l.frozen, "linetype": l.linetype, "lineweight": l.lineweight }))
+                .collect();
+            if let Value::Object(m) = &mut rec {
+                m.insert("extra".into(), extra);
+                m.insert("attrs".into(), attrs);
+                m.insert("layouts".into(), Value::Array(layouts));
+                m.insert("blocks".into(), Value::Array(blocks));
+                m.insert("layers".into(), Value::Array(layers));
+                m.insert("meta".into(), Value::Object(doc.meta.clone()));
+                m.insert("current".into(), doc.current.to_value());
+                m.insert(
+                    "space".into(),
+                    json!(doc.layouts.iter().position(|l| l.space == doc.space).map_or(-1, |i| i64::try_from(i).unwrap_or(-1))),
+                );
+            }
+        }
+        out.push(rec);
     }
     out
+}
+
+/// M4.31: the panel's rows that are not object fields (cc-engine `propextra`), as props.js does them.
+fn extra_op(doc: &mut Doc, x: &Value, gkey: &str, gids: &[u64], vertex: i64, lang: &Lang) -> Value {
+    let s = |k: &str| x.get(k).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_string)).unwrap_or_default();
+    let id = x.get("id").and_then(Value::as_u64).unwrap_or(0);
+    let r: Result<Value, String> = match s("op").as_str() {
+        "attr" => cc_engine::propextra::set_attribute(doc, id, &s("tag"), &s("value")).map(|m| json!(m)),
+        "attdef" => cc_engine::propextra::set_attdef(doc, id, &s("key"), &s("value")).map(|b| json!(b)),
+        "vpscale" => cc_engine::propextra::set_viewport_scale(doc, id, &s("choice")).map(|b| json!(b)),
+        "rename" => cc_engine::propextra::rename_sheet(doc, &s("name"), lang).map(|b| json!(b)),
+        "paper" => {
+            let portrait = x.get("portrait").and_then(Value::as_bool).unwrap_or(false);
+            cc_engine::propextra::set_sheet_paper(doc, &s("key"), portrait, lang).map(|m| json!(m))
+        }
+        "delete" => cc_engine::propextra::delete_sheet(doc, lang).map(|m| json!(m)),
+        "current" => cc_engine::propextra::set_current(doc, &s("key"), x.get("value").unwrap_or(&Value::Null), lang).map(|m| json!(m)),
+        "pick" => {
+            let p = (x.get("x").and_then(Value::as_f64).unwrap_or(0.0), x.get("y").and_then(Value::as_f64).unwrap_or(0.0));
+            Ok(json!(cc_engine::propextra::pick_point(doc, gkey, gids, &s("pt"), p, vertex, lang)))
+        }
+        other => Err(format!("no op {other}")),
+    };
+    match r {
+        Ok(v) => json!({ "ok": v }),
+        Err(e) => json!({ "err": e }),
+    }
 }
 
 pub fn props(rest: &[&str]) -> ExitCode {

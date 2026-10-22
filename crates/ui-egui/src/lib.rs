@@ -1552,6 +1552,7 @@ impl UiApp {
             qsdlg::open_find(self);
         }
         libdlg::sync(self);
+        cadprops::sync(self);
         if let Some(ed) = self.editor.as_ref() {
             // PARAMETERS opens the panel; notes from edits the window made itself (grips, Properties)
             if std::mem::take(&mut ed.hs.borrow_mut().par_open) {
@@ -1821,6 +1822,7 @@ impl UiApp {
             cadprops::panel(self, ui);
         }
         plotdlg::window(self, &ctx);
+        cadprops::quick_window(self, &ctx);
         libdlg::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);

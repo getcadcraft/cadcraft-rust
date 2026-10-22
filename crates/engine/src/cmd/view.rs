@@ -129,6 +129,15 @@ pub async fn qpmode(c: Ctx) -> R {
     Ok(())
 }
 
+/// _PROPPICK (hidden): the Properties panel's pick button beside a point — asks for the point, with snaps, and hands
+/// it to the panel (propcmds.js).
+pub async fn prop_pick(c: Ctx) -> R {
+    let what = c.sh().host.borrow().prop_pick_label().unwrap_or_default();
+    let p = c.must_point(c.tv("props.pick.prompt", &[("what", what)]), crate::engine::Opts::default()).await?;
+    c.sh().host.borrow_mut().prop_picked(p);
+    Ok(())
+}
+
 /// PLOT (PRINT, PUBLISH, EXPORTPDF): the Plot dialog (the window's own; elsewhere plotting needs the app).
 pub async fn plot(c: Ctx) -> R {
     let has = c.sh().host.borrow_mut().plot();

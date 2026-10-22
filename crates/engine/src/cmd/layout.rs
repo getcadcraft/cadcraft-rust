@@ -59,6 +59,16 @@ pub fn aim_viewport(doc: &Doc, unit: &str, w: f64, h: f64, win: &Bounds) -> (f64
     ((win.min_x + win.max_x) / 2.0, (win.min_y + win.max_y) / 2.0, best_scale(doc, unit, s_fit))
 }
 
+/// `aimViewport(…, { exact: true })`: the scale that fits exactly.
+pub fn aim_viewport_exact(doc: &Doc, unit: &str, w: f64, h: f64, win: &Bounds) -> (f64, f64, f64) {
+    if !valid_bounds(win) {
+        return (0.0, 0.0, s_of(doc, unit, 1.0));
+    }
+    let bw = js::max(win.max_x - win.min_x, 1e-9);
+    let bh = js::max(win.max_y - win.min_y, 1e-9);
+    ((win.min_x + win.max_x) / 2.0, (win.min_y + win.max_y) / 2.0, js::min(w / bw, h / bh))
+}
+
 /// `defaultPaper(doc)`: Tabloid for imperial drawings, else ISO A3.
 pub fn default_paper(doc: &Doc) -> &'static cc_io_cad::plot::PaperDef {
     let key = if cc_io_cad::plot::is_imperial(doc) { "ansi-b" } else { "iso-a3" };

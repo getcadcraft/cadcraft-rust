@@ -57,6 +57,12 @@ pub trait Host {
     }
     /// `host.props.open()` / `.close()` (PROPERTIES / PROPERTIESCLOSE)
     fn props(&mut self, _open: bool) {}
+    /// `host.props.pickLabel()` (_PROPPICK): what the panel's pick button asks for ("Start point"); None = no panel.
+    fn prop_pick_label(&self) -> Option<String> {
+        None
+    }
+    /// `host.props.picked(p)` (_PROPPICK): the point picked for the panel.
+    fn prop_picked(&mut self, _p: P2) {}
     /// `host.props.toggleQuick()` (QPMODE)
     fn quick_props(&mut self) {}
     /// `host.plot(c)`: open the Plot dialog → false when the host has none (PLOT then says plotting needs the browser).

@@ -1,13 +1,17 @@
 //! CadCraft's Properties panel for the drafting editor (props.js on cc-engine's propdefs / propexpr port): the group
-//! picker when several kinds of object are selected ("All (12)", "Line (8)"), then the fields of the group by section
-//! — layer, colour, linetype, lineweight, transparency and the rest of General, then Geometry, Text, Pattern,
-//! dimension style … Each change is ONE undo step through the `props.set` command (`name` = "key=value"); number
-//! fields read units, feet and inches and `=expressions` as 0.5 does; a refused entry shows its reason and changes
-//! nothing. Opened by PROPERTIES (Ctrl+1), folded by PROPERTIESCLOSE; with nothing selected it shows what new
-//! objects get (the current layer, colour, linetype, lineweight).
+//! picker when several kinds of object are selected ("All (12)", "Line (8)"), Quick select and Select objects, then
+//! the fields of the group in foldable sections — General, Geometry (a pick button beside every point: `_PROPPICK`),
+//! Custom (a dynamic block's visibility state and parameter values), Text, Pattern, the dimension sections, Misc —
+//! and for one object its extra rows: a viewport's scale (Fit all, Show all, Window…), an attribute definition's tag,
+//! prompt, default and modes, a reference's Attributes and its Library licence and credit. Each change is ONE undo
+//! step through a `props.*` command; number fields read units, feet and inches and `=expressions` as 0.5 does; a
+//! refused entry shows its reason and changes nothing. With nothing selected: the sheet (name, paper, orientation,
+//! Plot…, Delete sheet), what new objects get (layer, colour, linetype, lineweight, text height, length format,
+//! linetype scale, the current layer's linetype and lineweight, new dimensions), the View (centre, height, width:
+//! typing moves the view) and Misc. Quick Properties (QPMODE) shows the most-used fields by the pointer.
 //!
-//! Not here (yet): Quick Properties by the cursor (QPMODE), the point pick buttons (_PROPPICK), the Attributes and
-//! Library sections, the sheet and view sections, the vertex browser's arrows beyond previous / next.
+//! Not here (yet): choosing which fields show
+//! (P.12's gear), the PICKADD and Auto-hide buttons.
 
 use cc_engine::props::{PCtx, PVal, ReadCtx, apply_value, defs_for, edit_text, group_label, groups_of, read_value};
 use egui::RichText;
@@ -27,6 +31,14 @@ pub struct CadProps {
     pub note: String,
     /// the selection the panel last showed (a new selection drops the edits and the vertex)
     seen: Vec<u64>,
+    /// folded sections (props.js prefs.closed)
+    pub closed: std::collections::HashSet<String>,
+    /// Quick Properties on (QPMODE), the selection it was closed for, where it opened (screen)
+    pub quick: bool,
+    quick_dismissed: Vec<u64>,
+    quick_at: Option<(Vec<u64>, egui::Pos2)>,
+    /// _PROPPICK running for: (group, object ids, point name, vertex)
+    pending_pick: Option<(String, Vec<u64>, String, i64)>,
 }
 
 /// UI commands of the panel.
@@ -47,6 +59,45 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: \"<key>=<value>\"} → sets the field on every object of the group (one undo step); number fields read text as typed (12'6\", 900mm, =2*45); choices take the value; colour: \"\" by layer, 0 by block, 1–255, #rrggbb",
     ),
+    (
+        "props.attr",
+        "Properties: an attribute",
+        "",
+        "{name: \"<TAG>=<value>\"} → the one selected reference's attribute (one undo step ATTRIBUTE)",
+    ),
+    (
+        "props.attdef",
+        "Properties: an attribute definition",
+        "",
+        "{name: \"tag|prompt|def|invisible|constant|preset=<value>\"} → the one selected attribute definition (one undo step)",
+    ),
+    (
+        "props.vpscale",
+        "Properties: viewport scale",
+        "",
+        "{name: \"<n>\" (1:n) | \"fit\" (Fit all) | \"showall\" (Show all)} → the one selected viewport",
+    ),
+    (
+        "props.sheet",
+        "Properties: the sheet",
+        "",
+        "{name: \"name=<text>\" | \"paper=<key>\" | \"orient=landscape|portrait\" | \"delete\"} → the open sheet (one undo step each)",
+    ),
+    (
+        "props.current",
+        "Properties: what new objects get",
+        "",
+        "{name: \"layer|color|lt|lw|th|lunits|luprec|ltscale|laylt|laylw|dim.txt|dim.asz|dim.dec|dim.scale=<value>\"} → nothing selected: the settings for new objects (numbers read as typed)",
+    ),
+    ("props.view", "Properties: the view", "", "{name: \"cx|cy|h|w=<length>\"} → moves the view (its centre, height, width)"),
+    (
+        "props.pick",
+        "Properties: pick a point",
+        "",
+        "{name: \"start|end|center|pos|ins|vertex|…\"} → asks for that point of the selected objects (_PROPPICK)",
+    ),
+    ("props.quick", "Quick Properties on / off", "", "{} → the most-used fields by the pointer when you select (QPMODE)"),
+    ("props.fold", "Properties: fold a section", "", "{name: section key} → folds or unfolds it"),
 ];
 
 fn lang() -> cc_engine::Lang {
@@ -107,6 +158,26 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             let spec = params.name.clone().ok_or("props.set: name = \"<key>=<value>\" is required")?;
             let (key, raw) = spec.split_once('=').ok_or("props.set: name = \"<key>=<value>\"")?;
             set_field(app, key, raw)?;
+        }
+        "props.attr" | "props.attdef" | "props.vpscale" => one_object(app, id, params.name.as_deref().unwrap_or(""))?,
+        "props.sheet" => sheet(app, params.name.as_deref().unwrap_or(""))?,
+        "props.current" => {
+            let spec = params.name.clone().ok_or("props.current: name = \"<key>=<value>\" is required")?;
+            let (key, raw) = spec.split_once('=').ok_or("props.current: name = \"<key>=<value>\"")?;
+            current(app, key, raw)?;
+        }
+        "props.view" => {
+            let spec = params.name.clone().ok_or("props.view: name = \"<key>=<length>\" is required")?;
+            let (key, raw) = spec.split_once('=').ok_or("props.view: name = \"<key>=<length>\"")?;
+            view(app, key, raw)?;
+        }
+        "props.pick" => start_pick(app, params.name.as_deref().unwrap_or(""))?,
+        "props.quick" => toggle_quick(app),
+        "props.fold" => {
+            let k = params.name.clone().unwrap_or_default();
+            if !app.cadprops.closed.remove(&k) {
+                app.cadprops.closed.insert(k);
+            }
         }
         other => return Err(format!("unknown command {other}")),
     }
@@ -239,17 +310,252 @@ fn js_num(x: f64) -> String {
     cc_cad::js::num_to_string(x)
 }
 
-/// The choices a select field offers: (value text for `props.set`, label).
-fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> Vec<(String, String)> {
-    match d.kind {
+fn value_key(kind: &str, v: &Value) -> String {
+    match (kind, v) {
+        (_, Value::Null) => String::new(),
+        (_, Value::Bool(b)) => b.to_string(),
+        _ => cc_engine::props::value_text(v),
+    }
+}
+
+fn status(app: &mut UiApp, s: String) {
+    app.cadprops.note.clone_from(&s);
+    app.message = s;
+}
+
+/// The one selected object (the extra rows are for one object only).
+fn single(app: &UiApp) -> Option<u64> {
+    let ed = app.editor.as_ref()?;
+    let sel = ed.hs.borrow().selection.clone();
+    let d = ed.eng.doc();
+    let ids: Vec<u64> = sel.into_iter().filter(|id| d.get(*id).is_some()).collect();
+    match ids.as_slice() {
+        [one] => Some(*one),
+        _ => None,
+    }
+}
+
+/// props.attr / props.attdef / props.vpscale on the one selected object.
+fn one_object(app: &mut UiApp, id: &str, spec: &str) -> Result<(), String> {
+    let oid = single(app).ok_or(format!("{id}: select one object"))?;
+    let lang = lang();
+    let msg = {
+        let ed = app.editor.as_mut().ok_or("no drawing is open for editing")?;
+        let mut doc = ed.eng.doc_mut();
+        match id {
+            "props.attr" => {
+                let (tag, v) = spec.split_once('=').ok_or("props.attr: name = \"<TAG>=<value>\"")?;
+                cc_engine::propextra::set_attribute(&mut doc, oid, tag, v)?
+            }
+            "props.attdef" => {
+                let (k, v) = spec.split_once('=').ok_or("props.attdef: name = \"<field>=<value>\"")?;
+                cc_engine::propextra::set_attdef(&mut doc, oid, k, v)?;
+                None
+            }
+            _ => {
+                cc_engine::propextra::set_viewport_scale(&mut doc, oid, spec)?;
+                None
+            }
+        }
+    };
+    let _ = &lang;
+    app.sync_editor();
+    if let Some(m) = msg {
+        status(app, m);
+    }
+    Ok(())
+}
+
+/// props.sheet: the open sheet's name, paper, orientation, or delete it.
+fn sheet(app: &mut UiApp, spec: &str) -> Result<(), String> {
+    let lang = lang();
+    let r = {
+        let ed = app.editor.as_mut().ok_or("no drawing is open for editing")?;
+        let mut doc = ed.eng.doc_mut();
+        let (k, v) = spec.split_once('=').unwrap_or((spec, ""));
+        let portrait_now = doc.layout().is_some_and(|l| l.h().unwrap_or(0.0) > l.w().unwrap_or(0.0));
+        match k {
+            "name" => cc_engine::propextra::rename_sheet(&mut doc, v, &lang).map(|_| None),
+            "paper" => cc_engine::propextra::set_sheet_paper(&mut doc, v, portrait_now, &lang),
+            "orient" => {
+                let key = doc.layout().and_then(|l| l.key()).unwrap_or("").to_string();
+                cc_engine::propextra::set_sheet_paper(&mut doc, &key, v == "portrait", &lang)
+            }
+            "delete" => cc_engine::propextra::delete_sheet(&mut doc, &lang).map(Some),
+            _ => return Err("props.sheet: name = name=… | paper=… | orient=… | delete".into()),
+        }
+    };
+    app.sync_editor();
+    match r {
+        Ok(Some(m)) => status(app, m),
+        Ok(None) => {}
+        Err(e) => {
+            status(app, e.clone());
+            return Err(e);
+        }
+    }
+    Ok(())
+}
+
+/// A typed number read as props.js `read` does (units, feet and inches, =expressions).
+fn read_num(app: &UiApp, kind: &str, raw: &str, gt0: bool, min: Option<f64>, max: Option<f64>) -> Result<f64, String> {
+    let ed = app.editor.as_ref().ok_or("no drawing is open for editing")?;
+    let doc = ed.eng.doc();
+    let rc = ReadCtx {
+        lunits: doc.meta.get("lunits").and_then(Value::as_f64),
+        units: doc.meta.get("units").and_then(Value::as_str).unwrap_or("").to_string(),
+        paper: doc.layout().and_then(|l| l.unit()).map(str::to_string),
+        gt0,
+        min,
+        max,
+    };
+    read_value(raw, kind, &rc, &lang())
+}
+
+/// props.current: what new objects get.
+fn current(app: &mut UiApp, key: &str, raw: &str) -> Result<(), String> {
+    let lang = lang();
+    let v: Value = match key {
+        "th" | "dim.txt" => cc_cad::num(read_num(app, "len", raw, true, None, None)?),
+        "dim.asz" => cc_cad::num(read_num(app, "len", raw, false, Some(0.0), None)?),
+        "dim.dec" => cc_cad::num(read_num(app, "int", raw, false, Some(0.0), Some(8.0))?),
+        "ltscale" | "dim.scale" => cc_cad::num(read_num(app, "num", raw, true, None, None)?),
+        "lunits" | "luprec" => cc_cad::num(raw.trim().parse::<f64>().map_err(|_| format!("props.current: {key} = a number"))?),
+        "color" => control_value("color", raw),
+        "lt" | "laylt" => control_value("lt", raw),
+        "lw" | "laylw" => control_value("lw", raw),
+        _ => Value::String(raw.to_string()),
+    };
+    let r = {
+        let ed = app.editor.as_mut().ok_or("no drawing is open for editing")?;
+        let mut doc = ed.eng.doc_mut();
+        cc_engine::propextra::set_current(&mut doc, key, &v, &lang)?
+    };
+    app.sync_editor();
+    if let Some(m) = r {
+        status(app, m);
+    }
+    Ok(())
+}
+
+/// The view on screen: centre and size in drawing units.
+fn view_now(app: &UiApp) -> Option<(f64, f64, f64, f64)> {
+    let b = app.editor.as_ref()?.hs.borrow().view_box?;
+    Some(((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0, b.max_x - b.min_x, b.max_y - b.min_y))
+}
+
+/// props.view: typing the view's centre, height or width moves it (props.js goTo).
+fn view(app: &mut UiApp, key: &str, raw: &str) -> Result<(), String> {
+    let (cx, cy, vw, vh) = view_now(app).ok_or("props.view: the view is not on screen yet")?;
+    let gt0 = matches!(key, "h" | "w");
+    let v = read_num(app, "len", raw, gt0, None, None)?;
+    let aspect = if vh > 0.0 { vw / vh } else { 1.0 };
+    let (x, y, w, h) = match key {
+        "cx" => (v, cy, vw, vh),
+        "cy" => (cx, v, vw, vh),
+        "h" => (cx, cy, v * aspect, v),
+        "w" => (cx, cy, v, v / aspect),
+        _ => return Err("props.view: name = cx|cy|h|w=<length>".into()),
+    };
+    if let Some(ed) = app.editor.as_ref() {
+        ed.hs.borrow_mut().zoom.push(crate::edit::Zoom::Window(
+            cc_geom::P2::new(x - w / 2.0, y - h / 2.0),
+            cc_geom::P2::new(x + w / 2.0, y + h / 2.0),
+            true,
+        ));
+    }
+    app.sync_editor();
+    Ok(())
+}
+
+/// props.pick: the pick button beside a point — `_PROPPICK` asks for it.
+fn start_pick(app: &mut UiApp, pt: &str) -> Result<(), String> {
+    let lang = lang();
+    let (gkey, gids) = group_now(app).ok_or("props.pick: nothing is selected")?;
+    let has = {
+        let ed = app.editor.as_ref().ok_or("no drawing is open for editing")?;
+        let doc = ed.eng.doc();
+        let ents: Vec<cc_cad::Entity> = gids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+        let c = PCtx { doc: &doc, ents: &ents, vertex: app.cadprops.vertex, lang: &lang };
+        defs_for(&gkey, &c).iter().any(|d| d.pt.is_some_and(|(n, _)| n == pt))
+    };
+    if !has {
+        return Err(format!("props.pick: the group has no point {pt}"));
+    }
+    let label = point_label(pt, &lang);
+    app.cadprops.pending_pick = Some((gkey, gids, pt.to_string(), app.cadprops.vertex));
+    if let Some(ed) = app.editor.as_ref() {
+        ed.hs.borrow_mut().prop_pick_label = Some(label);
+    }
+    app.run_ui_pub("cmd.line", &Params { name: Some("_PROPPICK".into()), ..Default::default() });
+    Ok(())
+}
+
+/// propdefs.js `pointLabel(name)`.
+fn point_label(name: &str, l: &cc_engine::Lang) -> String {
+    let k = match name {
+        "start" | "end" | "center" | "pos" | "ins" | "vertex" | "origin" | "arrow" | "vcenter" | "vview" | "dimp1" | "dimp2" | "dimc"
+        | "dimloc" => format!("props.pt.{name}"),
+        _ => "props.pt.pos".into(),
+    };
+    l.s(&k)
+}
+
+fn toggle_quick(app: &mut UiApp) {
+    app.cadprops.quick = !app.cadprops.quick;
+    app.cadprops.quick_dismissed.clear();
+    app.cadprops.quick_at = None;
+    let m = lang().s(if app.cadprops.quick { "props.qp.on" } else { "props.qp.off" });
+    status(app, m);
+}
+
+/// After every input: QPMODE's toggle, and the point _PROPPICK picked.
+pub fn sync(app: &mut UiApp) {
+    let Some(ed) = app.editor.as_ref() else { return };
+    let (qp, picked) = {
+        let mut h = ed.hs.borrow_mut();
+        (std::mem::take(&mut h.qp_toggle), h.prop_picked.take())
+    };
+    if qp {
+        toggle_quick(app);
+    }
+    if let Some(p) = picked
+        && let Some((g, ids, pt, vertex)) = app.cadprops.pending_pick.take()
+    {
+        let lang = lang();
+        let err = app.editor.as_mut().and_then(|ed| {
+            let mut doc = ed.eng.doc_mut();
+            cc_engine::propextra::pick_point(&mut doc, &g, &ids, &pt, (p.x, p.y), vertex, &lang)
+        });
+        if let Some(e) = err {
+            status(app, e);
+        }
+    }
+}
+
+/// The group the panel shows: (key, ids).
+fn group_now(app: &UiApp) -> Option<(String, Vec<u64>)> {
+    let ed = app.editor.as_ref()?;
+    let sel = ed.hs.borrow().selection.clone();
+    let doc = ed.eng.doc();
+    let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+    let l = lang();
+    let groups = groups_of(&ents, &l);
+    let g = app.cadprops.group.as_ref().and_then(|k| groups.iter().find(|g| &g.key == k)).or(groups.first())?;
+    Some((g.key.clone(), g.ids.clone()))
+}
+
+/// The choices a select of this kind offers: (value text for the command, label).
+fn kind_choices(kind: &str, none: bool, doc: &cc_cad::Doc, l: &cc_engine::Lang) -> Vec<(String, String)> {
+    match kind {
         "layer" => {
-            let mut v: Vec<String> = c.doc.layers.keys().cloned().collect();
+            let mut v: Vec<String> = doc.layers.keys().cloned().collect();
             v.sort();
             v.into_iter().map(|n| (n.clone(), n)).collect()
         }
         "color" => {
             let mut v = Vec::new();
-            if d.none {
+            if none {
                 v.push(("none".to_string(), l.s("props.color.none")));
             }
             v.push((String::new(), l.s("props.color.bylayer")));
@@ -265,7 +571,7 @@ fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> V
                 ("ByBlock".into(), l.s("lt.byblock")),
                 ("Continuous".into(), l.s("lt.continuous")),
             ];
-            for n in c.doc.linetypes.keys() {
+            for n in doc.linetypes.keys() {
                 if !n.eq_ignore_ascii_case("continuous") {
                     v.push((n.clone(), n.clone()));
                 }
@@ -296,6 +602,14 @@ fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> V
             ("ByBlock".into(), l.s("props.mat.byblock")),
             ("Global".into(), l.s("props.mat.global")),
         ],
+        _ => Vec::new(),
+    }
+}
+
+/// The choices a field offers.
+fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> Vec<(String, String)> {
+    match d.kind {
+        "layer" | "color" | "lt" | "lw" | "tr" | "mat" => kind_choices(d.kind, d.none, c.doc, l),
         _ => d
             .choices
             .as_ref()
@@ -304,23 +618,250 @@ fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> V
     }
 }
 
-fn value_key(kind: &str, v: &Value) -> String {
-    match (kind, v) {
-        (_, Value::Null) => String::new(),
-        (_, Value::Bool(b)) => b.to_string(),
-        _ => cc_engine::props::value_text(v),
+// ------------------------------------------------------------------------------------------------- widgets
+
+/// A small icon button drawn on a 20 × 20 grid (the UI font has no such glyphs): "pick" (a crosshair), "funnel"
+/// (Quick select), "cursor" (Select objects).
+fn icon_button(ui: &mut egui::Ui, icon: &str, tip: &str, color: egui::Color32) -> bool {
+    let (rect, r) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
+    let r = r.on_hover_text(tip);
+    if r.hovered() {
+        ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
     }
+    let k = rect.width() / 20.0;
+    let at = |x: f32, y: f32| rect.min + egui::vec2(x * k, y * k);
+    let st = egui::Stroke::new(1.3, color);
+    let p = ui.painter();
+    match icon {
+        "pick" => {
+            p.circle_stroke(at(10.0, 10.0), 5.0 * k, st);
+            p.line_segment([at(10.0, 2.0), at(10.0, 7.0)], st);
+            p.line_segment([at(10.0, 13.0), at(10.0, 18.0)], st);
+            p.line_segment([at(2.0, 10.0), at(7.0, 10.0)], st);
+            p.line_segment([at(13.0, 10.0), at(18.0, 10.0)], st);
+        }
+        "funnel" => {
+            p.add(egui::Shape::closed_line(
+                vec![at(3.0, 4.0), at(17.0, 4.0), at(11.5, 10.5), at(11.5, 16.0), at(8.5, 17.5), at(8.5, 10.5)],
+                st,
+            ));
+        }
+        _ => {
+            p.add(egui::Shape::closed_line(
+                vec![at(5.0, 3.0), at(15.0, 12.0), at(10.5, 12.5), at(13.0, 17.5), at(11.0, 18.5), at(8.5, 13.5), at(5.0, 16.5)],
+                st,
+            ));
+        }
+    }
+    r.clicked()
+}
+
+/// A label column of fixed width, then the control in what is left of the row.
+fn row(ui: &mut egui::Ui, t: &crate::theme::Tokens, label: &str, tip: Option<String>, add: impl FnOnce(&mut egui::Ui, egui::Id, f32)) {
+    ui.horizontal(|ui| {
+        let lab = ui
+            .allocate_ui_with_layout(egui::vec2(104.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.set_min_width(104.0);
+                ui.add(egui::Label::new(RichText::new(label).color(t.text)).truncate())
+            })
+            .inner;
+        if let Some(tip) = tip {
+            lab.clone().on_hover_text(tip);
+        }
+        let w = (ui.available_width() - 8.0).max(40.0);
+        add(ui, lab.id, w);
+    });
+}
+
+/// A text / number field: Enter (or leaving a multi-line one) hands back the text when it changed; Esc puts the value
+/// back. `full` is the text shown while editing (full precision).
+#[allow(clippy::too_many_arguments)]
+fn text_field(
+    ui: &mut egui::Ui,
+    edits: &mut std::collections::HashMap<String, String>,
+    key: &str,
+    shown: &str,
+    full: Option<String>,
+    hint: &str,
+    multi: bool,
+    enabled: bool,
+    w: f32,
+    lab: egui::Id,
+) -> Option<String> {
+    let editing = edits.contains_key(key);
+    let mut buf = edits.get(key).cloned().unwrap_or_else(|| shown.to_string());
+    let te = if multi { egui::TextEdit::multiline(&mut buf).desired_rows(2) } else { egui::TextEdit::singleline(&mut buf) };
+    let r = ui.add(te.desired_width(w).hint_text(hint).interactive(enabled)).labelled_by(lab);
+    if r.gained_focus()
+        && !editing
+        && let Some(f) = full
+    {
+        buf = f;
+    }
+    if r.has_focus() || r.changed() {
+        edits.insert(key.to_string(), buf.clone());
+    }
+    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let esc = ui.input(|i| i.key_pressed(egui::Key::Escape));
+    let commit = !esc && (enter || (r.lost_focus() && multi));
+    if r.lost_focus() {
+        edits.remove(key);
+    }
+    (commit && enabled && buf != shown).then_some(buf)
+}
+
+/// A select: the label shown, the choices → the value picked.
+fn combo(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    current: &str,
+    choices: &[(String, String)],
+    key: Option<&str>,
+    w: f32,
+    enabled: bool,
+) -> Option<String> {
+    let mut out = None;
+    ui.add_enabled_ui(enabled, |ui| {
+        egui::ComboBox::new(egui::IdSalt::new(id), "").width((w - 16.0).max(30.0)).selected_text(current).show_ui(ui, |ui| {
+            for (k, lab) in choices {
+                if ui.selectable_label(key.is_some_and(|x| k.eq_ignore_ascii_case(x)), lab).clicked() {
+                    out = Some(k.clone());
+                }
+            }
+        });
+    });
+    out
+}
+
+/// What one field row does when it is used.
+enum Act {
+    Set(String, String),
+    Vertex(i64),
+    Pick(String),
+}
+
+/// One descriptor's row (proppanel.js `field`), with the point sub-heading and its pick button before an X field.
+#[allow(clippy::too_many_arguments)]
+fn field_rows(
+    ui: &mut egui::Ui,
+    t: &crate::theme::Tokens,
+    l: &cc_engine::Lang,
+    d: &cc_engine::props::Def,
+    c: &PCtx,
+    edits: &mut std::collections::HashMap<String, String>,
+    prefix: &str,
+    vertex: i64,
+    pick: bool,
+    acts: &mut Vec<Act>,
+) {
+    if pick && let Some((name, "x")) = d.pt {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(point_label(name, l)).color(t.text_dim).small());
+            if icon_button(ui, "pick", &l.t("props.pick.title", &[("what", point_label(name, l).to_lowercase())]), t.text) {
+                acts.push(Act::Pick(name.to_string()));
+            }
+        });
+    }
+    let v = cc_engine::props::value_of(d, c);
+    let label = d.label.clone().unwrap_or_else(|| d.key.clone());
+    let varies = v == PVal::Varies;
+    let val = match &v {
+        PVal::V(x) => x.clone(),
+        PVal::Varies => Value::Null,
+    };
+    let ro = d.set.is_none();
+    let doc = c.doc;
+    let ekey = format!("{prefix}{}", d.key);
+    row(ui, t, &label, d.title.map(|k| l.s(k)), |ui, lab, w| match d.kind {
+        "ro" | "ro-len" | "ro-area" => {
+            let txt = if varies { l.s("props.varies") } else { show(d.kind, &val, doc) };
+            ui.label(RichText::new(txt).color(t.text_dim)).labelled_by(lab);
+        }
+        "bool" => {
+            let mut on = val.as_bool().unwrap_or(false);
+            let r = ui.checkbox(&mut on, if varies { l.s("props.varies") } else { String::new() }).labelled_by(lab);
+            if r.changed() && !ro {
+                acts.push(Act::Set(d.key.clone(), on.to_string()));
+            }
+        }
+        "vertex" => {
+            let n = val.as_f64().unwrap_or(1.0);
+            let total =
+                c.ents.first().map(cc_cad::Entity::to_obj).and_then(|o| o.get("pts").and_then(Value::as_array).map(Vec::len)).unwrap_or(0);
+            if ui.small_button("◀").on_hover_text(l.s("props.vertex.prev")).clicked() {
+                acts.push(Act::Vertex(vertex.saturating_sub(1).max(0)));
+            }
+            ui.label(format!("{} {}", js_num(n), l.t("props.vertex.of", &[("n", total.to_string())])));
+            if ui.small_button("▶").on_hover_text(l.s("props.vertex.next")).clicked() {
+                let last = i64::try_from(total).unwrap_or(1).saturating_sub(1).max(0);
+                acts.push(Act::Vertex(vertex.saturating_add(1).min(last)));
+            }
+        }
+        "len" | "ang" | "num" | "int" | "area" | "text" | "textarea" => {
+            let shown = if varies {
+                String::new()
+            } else if matches!(d.kind, "text" | "textarea") {
+                cc_engine::props::value_text(&val)
+            } else {
+                show(d.kind, &val, doc)
+            };
+            let full = matches!(d.kind, "len" | "ang" | "num" | "int" | "area").then(|| val.as_f64().map(edit_text)).flatten();
+            let hint = if varies { l.s("props.varies") } else { String::new() };
+            if let Some(txt) = text_field(ui, edits, &ekey, &shown, full, &hint, d.kind == "textarea", !ro, w, lab) {
+                acts.push(Act::Set(d.key.clone(), txt));
+            }
+        }
+        _ => {
+            let choices = select_choices(d, c, l);
+            let key = value_key(d.kind, &val);
+            let current = if varies {
+                l.s("props.varies")
+            } else if d.kind == "color" {
+                color_label(&val, l)
+            } else {
+                choices.iter().find(|(k, _)| k.eq_ignore_ascii_case(&key)).map_or_else(|| key.clone(), |(_, lab)| lab.clone())
+            };
+            if let Some(k) = combo(ui, ("props_sel", &ekey), &current, &choices, (!varies).then_some(key.as_str()), w, !ro) {
+                acts.push(Act::Set(d.key.clone(), k));
+            }
+        }
+    });
+}
+
+/// A foldable section header that remembers whether it is open → open?
+fn section(
+    ui: &mut egui::Ui,
+    t: &crate::theme::Tokens,
+    closed: &std::collections::HashSet<String>,
+    key: &str,
+    label: &str,
+    folds: &mut Vec<String>,
+) -> bool {
+    let open = !closed.contains(key);
+    ui.add_space(3.0);
+    let r = ui
+        .add(egui::Button::new(RichText::new(format!("{} {label}", if open { "▾" } else { "▸" })).strong().color(t.text_dim)).frame(false));
+    if r.clicked() {
+        folds.push(key.to_string());
+    }
+    open
+}
+
+/// Everything the panel asks for after drawing (applied once egui is done with the frame).
+#[derive(Default)]
+struct Asks {
+    acts: Vec<Act>,
+    group: Option<String>,
+    close: bool,
+    folds: Vec<String>,
+    run: Vec<(String, String)>,
 }
 
 /// The panel (a right-hand side panel while a drawing is open for editing).
 pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let l = lang();
-    let mut act: Option<(String, String)> = None;
-    let mut pick_group: Option<String> = None;
-    let mut vertex_to: Option<i64> = None;
-    let mut close = false;
-    let mut pick_units: Option<String> = None;
+    let mut asks = Asks::default();
     let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
     egui::Panel::right("cad_props").default_size(270.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
         let Some(ed) = app.editor.as_ref() else { return };
@@ -332,49 +873,41 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
             app.cadprops.note.clear();
         }
         let doc = ed.eng.doc();
+        let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+        let head = if ents.is_empty() {
+            match doc.layout() {
+                Some(lay) => l.t("props.sheet.h", &[("name", lay.name.clone())]),
+                None => l.s("props.current"),
+            }
+        } else if ents.len() == 1 {
+            ents.first().map(|e| type_name(e, &l)).unwrap_or_default()
+        } else {
+            l.t("props.n.objects", &[("n", ents.len().to_string())])
+        };
         ui.horizontal(|ui| {
-            ui.label(RichText::new(l.s("props.title")).strong().color(t.text_strong));
+            ui.label(RichText::new(head).strong().color(t.text_strong));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.small_button("×").on_hover_text("PROPERTIESCLOSE").clicked() {
-                    close = true;
+                    asks.close = true;
+                }
+                if icon_button(ui, "cursor", &l.s("props.btn.select"), t.text) {
+                    asks.run.push(("cmd.line".into(), "SELECT".into()));
+                }
+                if icon_button(ui, "funnel", &l.s("props.btn.qselect"), t.text) {
+                    asks.run.push(("cmd.line".into(), "QSELECT".into()));
                 }
             });
         });
         ui.separator();
-        let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+        if !app.cadprops.note.is_empty() {
+            ui.label(RichText::new(&app.cadprops.note).color(egui::Color32::from_rgb(0xe0, 0x80, 0x60)));
+        }
+        let closed = app.cadprops.closed.clone();
         if ents.is_empty() {
-            // nothing selected: what new objects get
-            ui.label(RichText::new(l.s("props.sec.current")).color(t.text_dim));
-            let cur = &doc.current;
-            egui::Grid::new("props_current").num_columns(2).striped(false).show(ui, |ui| {
-                ui.label(l.s("props.f.layer"));
-                ui.label(&cur.layer);
-                ui.end_row();
-                ui.label(l.s("props.f.color"));
-                ui.label(color_label(&cur.color.to_value(), &l));
-                ui.end_row();
-                ui.label(l.s("props.f.lt"));
-                ui.label(cur.linetype.clone().unwrap_or_else(|| l.s("lt.bylayer")));
-                ui.end_row();
-                ui.label(l.s("props.f.lw"));
-                ui.label(cur.lineweight.map_or_else(|| l.s("lt.bylayer"), |w| l.t("lw.mm", &[("mm", cc_cad::js::to_fixed(w, 2))])));
-                ui.end_row();
-                // props.js unitsSelect: what one drawing unit stands for (with solids, the 3D model follows)
-                let cur_u = doc.meta.get("units").filter(|v| cc_cad::js::truthy(Some(v))).map(cc_cad::js::to_js_string).unwrap_or_default();
-                let name = |u: &str| l.s(&format!("props.units.{}", if u.is_empty() { "none" } else { u }));
-                let lab = ui.label(l.s("props.cur.units")).on_hover_text(l.s("props.cur.units.title"));
-                egui::ComboBox::new("props_units", "")
-                    .selected_text(if UNITS.contains(&cur_u.as_str()) { name(&cur_u) } else { cur_u.clone() })
-                    .show_ui(ui, |ui| {
-                        for u in UNITS {
-                            if ui.selectable_label(u == cur_u, name(u)).clicked() && u != cur_u {
-                                pick_units = Some(u.to_string());
-                            }
-                        }
-                    })
-                    .response
-                    .labelled_by(lab.id);
-                ui.end_row();
+            let edits = &mut app.cadprops.edits;
+            let vb = ed.hs.borrow().view_box;
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                none_selected(ui, &t, &l, &doc, vb, edits, &closed, &mut asks);
             });
             return;
         }
@@ -391,142 +924,526 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
             egui::ComboBox::new("props_group", "").selected_text(cur_label).show_ui(ui, |ui| {
                 for g in &groups {
                     if ui.selectable_label(g.key == gkey, group_label(g, &l)).clicked() {
-                        pick_group = Some(g.key.clone());
+                        asks.group = Some(g.key.clone());
                     }
                 }
             });
-        } else if let Some(g) = groups.first() {
-            ui.label(RichText::new(group_label(g, &l)).color(t.text));
         }
         let gids: Vec<u64> = groups.iter().find(|g| g.key == gkey).map(|g| g.ids.clone()).unwrap_or_default();
         let gents: Vec<cc_cad::Entity> = gids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
-        let c = PCtx { doc: &doc, ents: &gents, vertex: app.cadprops.vertex, lang: &l };
+        let vertex = app.cadprops.vertex;
+        let c = PCtx { doc: &doc, ents: &gents, vertex, lang: &l };
         let defs = defs_for(&gkey, &c);
-        if !app.cadprops.note.is_empty() {
-            ui.label(RichText::new(&app.cadprops.note).color(egui::Color32::from_rgb(0xe0, 0x80, 0x60)));
-        }
+        let one = (gents.len() == 1).then(|| gents.first().cloned()).flatten();
+        let edits = &mut app.cadprops.edits;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            let mut sec = "";
-            for d in &defs {
-                if d.sec != sec {
-                    sec = d.sec;
-                    ui.add_space(4.0);
-                    ui.label(RichText::new(l.s(&format!("props.sec.{sec}"))).strong().color(t.text_dim));
+            for key in ALL_SECTIONS {
+                let ds: Vec<&cc_engine::props::Def> = defs.iter().filter(|d| d.sec == key).collect();
+                let extra = one.as_ref().is_some_and(|e| has_extra(&doc, e, key));
+                if ds.is_empty() && !extra {
+                    continue;
                 }
-                let v = cc_engine::props::value_of(d, &c);
-                let label = d.label.clone().unwrap_or_else(|| d.key.clone());
-                ui.horizontal(|ui| {
-                    let lab = ui.add_sized([104.0, 18.0], egui::Label::new(RichText::new(&label).color(t.text)).truncate());
-                    if let Some(tip) = d.title {
-                        lab.clone().on_hover_text(l.s(tip));
+                if !section(ui, &t, &closed, key, &l.s(&format!("props.sec.{key}")), &mut asks.folds) {
+                    continue;
+                }
+                if let Some(e) = one.as_ref() {
+                    extra_rows(ui, &t, &l, &doc, e, key, true, edits, &mut asks);
+                }
+                for d in ds {
+                    field_rows(ui, &t, &l, d, &c, edits, "p:", vertex, true, &mut asks.acts);
+                }
+                if let Some(e) = one.as_ref() {
+                    extra_rows(ui, &t, &l, &doc, e, key, false, edits, &mut asks);
+                }
+            }
+            if gkey == "all" {
+                let parts: Vec<String> =
+                    groups.iter().filter(|g| g.key != "all").map(|g| format!("{} {}", g.ids.len(), g.label.to_lowercase())).collect();
+                ui.label(RichText::new(parts.join(", ")).small().color(t.text_dim));
+            }
+        });
+    });
+    apply(app, asks);
+}
+
+/// Quick Properties' window (drawn whether or not the panel is open).
+pub fn quick_window(app: &mut UiApp, ctx: &egui::Context) {
+    let mut asks = Asks::default();
+    quick(app, ctx, &mut asks);
+    apply(app, asks);
+}
+
+/// doc.js `typeName(e)`: what one object is called ("Line", "Block reference").
+fn type_name(e: &cc_cad::Entity, l: &cc_engine::Lang) -> String {
+    groups_of(std::slice::from_ref(e), l).into_iter().find(|g| g.key != "all").map(|g| g.label).unwrap_or_default()
+}
+
+/// The order sections show in (props.js ALL_SECTIONS, with the sheet and the current settings for nothing selected).
+const ALL_SECTIONS: [&str; 13] =
+    ["general", "geometry", "custom", "text", "lines", "fit", "units", "alt", "tol", "pattern", "misc", "attrs", "library"];
+
+fn has_extra(doc: &cc_cad::Doc, e: &cc_cad::Entity, sec: &str) -> bool {
+    match sec {
+        "geometry" | "misc" if matches!(e.geo, cc_cad::Geo::Viewport(_)) && doc.layout().is_some() => true,
+        "text" => is_attdef(e),
+        "attrs" => !cc_engine::propextra::attribute_rows(doc, e).0.is_empty(),
+        "library" => cc_engine::propextra::attribute_rows(doc, e).1.is_some(),
+        "misc" => {
+            e.typ() == "dim"
+                && e.get("block").is_some_and(|b| cc_cad::js::truthy(Some(b)))
+                && e.get("kind").is_some_and(|b| cc_cad::js::truthy(Some(b)))
+        }
+        _ => false,
+    }
+}
+
+fn is_attdef(e: &cc_cad::Entity) -> bool {
+    matches!(e.geo, cc_cad::Geo::Text(_)) && e.get("attdef").and_then(|a| a.get("tag")).is_some_and(Value::is_string)
+}
+
+/// props.js `extrasFor(e)`: one object's extra rows in a section (`before`: rows that come before the fields).
+#[allow(clippy::too_many_arguments)]
+fn extra_rows(
+    ui: &mut egui::Ui,
+    t: &crate::theme::Tokens,
+    l: &cc_engine::Lang,
+    doc: &cc_cad::Doc,
+    e: &cc_cad::Entity,
+    sec: &str,
+    before: bool,
+    edits: &mut std::collections::HashMap<String, String>,
+    asks: &mut Asks,
+) {
+    if let cc_cad::Geo::Viewport(vp) = &e.geo
+        && let Some(lay) = doc.layout()
+    {
+        let unit = lay.unit().unwrap_or("mm").to_string();
+        let locked = e.get("locked").is_some_and(|v| cc_cad::js::truthy(Some(v)));
+        let lock_tip = locked.then(|| l.s("props.err.vplocked"));
+        if sec == "geometry" && before {
+            let list = cc_io_cad::plot::scale_list(doc);
+            let cur_n = cc_io_cad::plot::n_of(doc, &unit, vp.s);
+            let known = list.iter().find(|s| (s.n - cur_n).abs() < 1e-6 * cur_n);
+            let current = known.map_or_else(|| cc_io_cad::plot::scale_label(doc, &unit, vp.s), |s| s.label.clone());
+            let mut choices: Vec<(String, String)> = list.iter().map(|s| (js_num(s.n), s.label.clone())).collect();
+            choices.push(("fit".into(), l.s("props.vp.fitall")));
+            row(ui, t, &l.s("props.vp.scale"), lock_tip.clone(), |ui, _, w| {
+                if let Some(k) = combo(ui, "props_vpscale", &current, &choices, known.map(|s| js_num(s.n)).as_deref(), w, !locked) {
+                    asks.run.push(("props.vpscale".into(), k));
+                }
+            });
+        }
+        if sec == "misc" && !before {
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(!locked, |ui| {
+                    if ui.link(l.s("props.vp.showall")).clicked() {
+                        asks.run.push(("props.vpscale".into(), "showall".into()));
                     }
-                    let varies = v == PVal::Varies;
-                    let val = match &v {
-                        PVal::V(x) => x.clone(),
-                        PVal::Varies => Value::Null,
+                    if ui.link(l.s("props.vp.window")).clicked() {
+                        asks.run.push(("cmd.line".into(), "VPVIEW".into()));
+                    }
+                });
+            });
+            let unit_name = l.s(if unit == "in" { "props.unit.in" } else { "props.unit.mm" });
+            let model = doc
+                .meta
+                .get("units")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map_or_else(|| l.t("props.vp.nounits", &[("unit", unit_name.clone())]), str::to_string);
+            ui.label(RichText::new(l.t("props.vp.units", &[("model", model), ("paper", unit_name)])).small().color(t.text_dim));
+        }
+    }
+    if sec == "text" && before && is_attdef(e) {
+        let a = e.get("attdef").cloned().unwrap_or(Value::Null);
+        let s = |k: &str| a.get(k).map(cc_cad::js::to_js_string).unwrap_or_default();
+        ui.label(RichText::new(l.s("props.att.modes")).small().color(t.text_dim));
+        for (k, key) in [("tag", "props.att.tag"), ("prompt", "props.att.prompt"), ("def", "props.att.def")] {
+            let shown = s(k);
+            row(ui, t, &l.s(key), None, |ui, lab, w| {
+                if let Some(v) = text_field(ui, edits, &format!("attdef:{k}"), &shown, None, "", false, true, w, lab) {
+                    asks.run.push(("props.attdef".into(), format!("{k}={v}")));
+                }
+            });
+        }
+        ui.horizontal_wrapped(|ui| {
+            for (k, key) in [("invisible", "opt.invisible"), ("constant", "opt.constant"), ("preset", "opt.preset")] {
+                let mut on = a.get(k).is_some_and(|v| cc_cad::js::truthy(Some(v)));
+                if ui.checkbox(&mut on, l.s(key)).changed() {
+                    asks.run.push(("props.attdef".into(), format!("{k}={on}")));
+                }
+            }
+        });
+    }
+    if sec == "attrs" && !before {
+        let (rows, _) = cc_engine::propextra::attribute_rows(doc, e);
+        for a in rows {
+            let mut label = a.tag.clone();
+            if a.invisible {
+                label.push(' ');
+                label.push_str(&l.s("props.att.hidden"));
+            }
+            row(ui, t, &label, Some(a.tag.clone()), |ui, lab, w| {
+                if a.locked {
+                    ui.label(RichText::new(if a.value.is_empty() { "–".to_string() } else { a.value.clone() }).color(t.text_dim))
+                        .labelled_by(lab);
+                } else if let Some(v) = text_field(ui, edits, &format!("attr:{}", a.tag), &a.value, None, "", false, true, w, lab) {
+                    asks.run.push(("props.attr".into(), format!("{}={v}", a.tag)));
+                }
+            });
+        }
+    }
+    if sec == "library"
+        && !before
+        && let (_, Some((licence, credit))) = cc_engine::propextra::attribute_rows(doc, e)
+    {
+        {
+            row(ui, t, &l.s("props.lib.license"), None, |ui, _, _| {
+                ui.label(if licence.is_empty() { "–".to_string() } else { licence });
+            });
+            if !credit.is_empty() {
+                ui.label(RichText::new(credit).small().color(t.text_dim));
+            }
+            if ui.link(l.s("props.lib.updates")).clicked() {
+                asks.run.push(("lib.open".into(), String::new()));
+            }
+        }
+    }
+    if sec == "misc" && !before && e.typ() == "dim" && has_extra(doc, e, "misc") && !matches!(e.geo, cc_cad::Geo::Viewport(_)) {
+        ui.label(RichText::new(l.s("props.dim.imported")).small().color(t.text_dim));
+    }
+}
+
+/// props.js `renderNone()`: nothing selected — the sheet, what new objects get, the View, Misc.
+#[allow(clippy::too_many_arguments)]
+fn none_selected(
+    ui: &mut egui::Ui,
+    t: &crate::theme::Tokens,
+    l: &cc_engine::Lang,
+    doc: &cc_cad::Doc,
+    vb: Option<cc_cad_geom::geom::Bounds>,
+    edits: &mut std::collections::HashMap<String, String>,
+    closed: &std::collections::HashSet<String>,
+    asks: &mut Asks,
+) {
+    let lay = doc.layout();
+    let unit_name = |u: &str| l.s(if u == "in" { "props.unit.in" } else { "props.unit.mm" });
+    if let Some(lay) = lay
+        && section(ui, t, closed, "sheet", &l.s("props.sec.sheet"), &mut asks.folds)
+    {
+        row(ui, t, &l.s("props.sheet.name"), None, |ui, lab, w| {
+            if let Some(v) = text_field(ui, edits, "sheet:name", &lay.name, None, "", false, true, w, lab) {
+                asks.run.push(("props.sheet".into(), format!("name={v}")));
+            }
+        });
+        let key = lay.key().unwrap_or("");
+        let std = cc_io_cad::plot::paper_by_key(key);
+        let mut papers: Vec<(String, String)> = Vec::new();
+        if std.is_none() {
+            let n = |k: &str| lay.paper.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+            papers.push((
+                String::new(),
+                l.t("props.sheet.custom", &[("w", fmt4(n("w"))), ("h", fmt4(n("h"))), ("unit", lay.unit().unwrap_or("").to_string())]),
+            ));
+        }
+        for p in cc_io_cad::plot::PAPERS.iter() {
+            papers.push((p.key.to_string(), p.label.to_string()));
+        }
+        let cur = papers.iter().find(|(k, _)| k == key || (std.is_none() && k.is_empty())).map(|x| x.1.clone()).unwrap_or_default();
+        row(ui, t, &l.s("props.sheet.paper"), None, |ui, _, w| {
+            if let Some(k) = combo(ui, "props_sheet_paper", &cur, &papers, Some(if std.is_some() { key } else { "" }), w, true) {
+                asks.run.push(("props.sheet".into(), format!("paper={k}")));
+            }
+        });
+        let portrait = lay.h().unwrap_or(0.0) > lay.w().unwrap_or(0.0);
+        let orients = [("landscape".to_string(), l.s("props.sheet.landscape")), ("portrait".to_string(), l.s("props.sheet.portrait"))];
+        let cur = if portrait { l.s("props.sheet.portrait") } else { l.s("props.sheet.landscape") };
+        row(ui, t, &l.s("props.sheet.orient"), None, |ui, _, w| {
+            if let Some(k) = combo(ui, "props_sheet_orient", &cur, &orients, Some(if portrait { "portrait" } else { "landscape" }), w, true)
+            {
+                asks.run.push(("props.sheet".into(), format!("orient={k}")));
+            }
+        });
+        ui.horizontal(|ui| {
+            if ui.button(l.s("props.sheet.plot")).clicked() {
+                asks.run.push(("cmd.line".into(), "PLOT".into()));
+            }
+            if ui.link(RichText::new(l.s("props.sheet.delete")).color(egui::Color32::from_rgb(0xe0, 0x60, 0x50))).clicked() {
+                asks.run.push(("props.sheet".into(), "delete".into()));
+            }
+        });
+    }
+    let mut more: Vec<(String, String)> = Vec::new();
+    if section(ui, t, closed, "current", &l.s("props.sec.current"), &mut asks.folds) {
+        let c = &doc.current;
+        let mut sel = |ui: &mut egui::Ui, key: &str, label: String, kind: &str, val: Value, cur_label: String| {
+            let choices = kind_choices(kind, false, doc, l);
+            let k = value_key(kind, &val);
+            row(ui, t, &label, None, |ui, _, w| {
+                if let Some(v) = combo(ui, ("props_cur", key), &cur_label, &choices, Some(k.as_str()), w, true) {
+                    asks.run.push(("props.current".into(), format!("{key}={v}")));
+                }
+            });
+        };
+        sel(ui, "layer", l.s("props.f.layer"), "layer", Value::String(c.layer.clone()), c.layer.clone());
+        sel(ui, "color", l.s("props.f.color"), "color", c.color.to_value(), color_label(&c.color.to_value(), l));
+        let lt = c.linetype.clone().map_or(Value::Null, Value::String);
+        sel(ui, "lt", l.s("props.lt"), "lt", lt.clone(), c.linetype.clone().unwrap_or_else(|| l.s("lt.bylayer")));
+        let lw = c.lineweight.map_or(Value::Null, cc_cad::num);
+        let lw_label = c.lineweight.map_or_else(
+            || l.s("lt.bylayer"),
+            |w| {
+                if w == -2.0 {
+                    l.s("lt.byblock")
+                } else if w == -3.0 {
+                    l.s("lw.default")
+                } else {
+                    l.t("lw.mm", &[("mm", cc_cad::js::to_fixed(w, 2))])
+                }
+            },
+        );
+        sel(ui, "lw", l.s("props.lw"), "lw", lw, lw_label);
+        let mut num_row = |ui: &mut egui::Ui, key: &str, label: String, kind: &str, v: f64, tip: Option<String>| {
+            let shown = show(kind, &cc_cad::num(v), doc);
+            row(ui, t, &label, tip, |ui, lab, w| {
+                if let Some(txt) = text_field(ui, edits, &format!("cur:{key}"), &shown, Some(edit_text(v)), "", false, true, w, lab) {
+                    asks.run.push(("props.current".into(), format!("{key}={txt}")));
+                }
+            });
+        };
+        num_row(ui, "th", l.s("props.cur.textheight"), "len", c.text_height, None);
+        if lay.is_none() {
+            // props.js unitsSelect: what one drawing unit stands for (with solids, the 3D model follows)
+            let cur_u = doc.meta.get("units").filter(|v| cc_cad::js::truthy(Some(v))).map(cc_cad::js::to_js_string).unwrap_or_default();
+            let uname = |u: &str| l.s(&format!("props.units.{}", if u.is_empty() { "none" } else { u }));
+            let mut units: Vec<(String, String)> = Vec::new();
+            if !UNITS.contains(&cur_u.as_str()) {
+                units.push((cur_u.clone(), cur_u.clone()));
+            }
+            units.extend(UNITS.iter().map(|u| ((*u).to_string(), uname(u))));
+            let ucur = if UNITS.contains(&cur_u.as_str()) { uname(&cur_u) } else { cur_u.clone() };
+            row(ui, t, &l.s("props.cur.units"), Some(l.s("props.cur.units.title")), |ui, _, w| {
+                if let Some(v) = combo(ui, "props_cur_units", &ucur, &units, Some(cur_u.as_str()), w, true)
+                    && v != cur_u
+                {
+                    more.push(("props.units".into(), v));
+                }
+            });
+            let (code, prec) = cc_cad_geom::units::units_of(Some(&doc.meta));
+            let formats: Vec<(String, String)> =
+                [1, 2, 3, 4, 5].iter().map(|k| (k.to_string(), cc_engine::cmd::units::length_format_name(l, *k))).collect();
+            let fcur = cc_engine::cmd::units::length_format_name(l, code);
+            row(ui, t, &l.s("props.lunits"), Some(l.s("props.lunits.title")), |ui, _, w| {
+                if let Some(v) = combo(ui, "props_cur_lunits", &fcur, &formats, Some(&code.to_string()), w, true) {
+                    more.push(("props.current".into(), format!("lunits={v}")));
+                }
+            });
+            let frac = code == 4 || code == 5;
+            let precs: Vec<(String, String)> = (0..=8)
+                .map(|n: i32| {
+                    let lab = if frac {
+                        if n > 0 { format!("1/{}", 2i64.pow(n.unsigned_abs())) } else { "1".into() }
+                    } else if n > 0 {
+                        format!("0.{}1", "0".repeat(usize::try_from(n - 1).unwrap_or(0)))
+                    } else {
+                        "0".into()
                     };
-                    let ro = d.set.is_none();
-                    // what is left of the row after the label, kept off the panel's right edge
-                    let w = (ui.available_width() - 8.0).max(40.0);
-                    match d.kind {
-                        "ro" | "ro-len" | "ro-area" => {
-                            let txt = if varies { l.s("props.varies") } else { show(d.kind, &val, &doc) };
-                            ui.label(RichText::new(txt).color(t.text_dim)).labelled_by(lab.id);
-                        }
-                        "bool" => {
-                            let mut on = val.as_bool().unwrap_or(false);
-                            let r = ui.checkbox(&mut on, if varies { l.s("props.varies") } else { String::new() }).labelled_by(lab.id);
-                            if r.changed() && !ro {
-                                act = Some((d.key.clone(), on.to_string()));
-                            }
-                        }
-                        "vertex" => {
-                            let n = val.as_f64().unwrap_or(1.0);
-                            if ui.small_button("◀").clicked() {
-                                vertex_to = Some(app.cadprops.vertex.saturating_sub(1).max(0));
-                            }
-                            ui.label(js_num(n));
-                            if ui.small_button("▶").clicked() {
-                                vertex_to = Some(app.cadprops.vertex.saturating_add(1));
-                            }
-                        }
-                        "len" | "ang" | "num" | "int" | "area" | "text" | "textarea" => {
-                            let shown = if varies {
-                                String::new()
-                            } else if matches!(d.kind, "text" | "textarea") {
-                                cc_engine::props::value_text(&val)
-                            } else {
-                                show(d.kind, &val, &doc)
-                            };
-                            let editing = app.cadprops.edits.contains_key(&d.key);
-                            let mut buf = app.cadprops.edits.get(&d.key).cloned().unwrap_or_else(|| shown.clone());
-                            let te = if d.kind == "textarea" {
-                                egui::TextEdit::multiline(&mut buf).desired_rows(2)
-                            } else {
-                                egui::TextEdit::singleline(&mut buf)
-                            };
-                            let te =
-                                te.desired_width(w).hint_text(if varies { l.s("props.varies") } else { String::new() }).interactive(!ro);
-                            let r = ui.add(te).labelled_by(lab.id);
-                            if r.gained_focus() && !editing && matches!(d.kind, "len" | "ang" | "num" | "int" | "area") {
-                                // full precision while editing (propexpr.js editText)
-                                buf = val.as_f64().map(edit_text).unwrap_or(buf);
-                            }
-                            if r.has_focus() || r.changed() {
-                                app.cadprops.edits.insert(d.key.clone(), buf.clone());
-                            }
-                            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                            let commit = enter || (r.lost_focus() && d.kind == "textarea");
-                            if commit && !ro && buf != shown {
-                                act = Some((d.key.clone(), buf.clone()));
-                            }
-                            if r.lost_focus() {
-                                app.cadprops.edits.remove(&d.key);
-                            }
-                        }
-                        _ => {
-                            // selects: layer, colour, linetype, lineweight, transparency, material, choices
-                            let choices = select_choices(d, &c, &l);
-                            let key = value_key(d.kind, &val);
-                            let current = if varies {
-                                l.s("props.varies")
-                            } else if d.kind == "color" {
-                                color_label(&val, &l)
-                            } else {
-                                choices
-                                    .iter()
-                                    .find(|(k, _)| k.eq_ignore_ascii_case(&key))
-                                    .map_or_else(|| key.clone(), |(_, lab)| lab.clone())
-                            };
-                            egui::ComboBox::new(("props_sel", &d.key), "").width((w - 16.0).max(30.0)).selected_text(current).show_ui(
-                                ui,
-                                |ui| {
-                                    for (k, lab) in &choices {
-                                        if ui.selectable_label(!varies && k.eq_ignore_ascii_case(&key), lab).clicked() && !ro {
-                                            act = Some((d.key.clone(), k.clone()));
-                                        }
-                                    }
-                                },
-                            );
+                    (n.to_string(), lab)
+                })
+                .collect();
+            let pcur = precs.iter().find(|(k, _)| *k == prec.to_string()).map(|x| x.1.clone()).unwrap_or_default();
+            row(ui, t, &l.s("props.luprec"), None, |ui, _, w| {
+                if let Some(v) = combo(ui, "props_cur_luprec", &pcur, &precs, Some(&prec.to_string()), w, true) {
+                    more.push(("props.current".into(), format!("luprec={v}")));
+                }
+            });
+            let lts = doc.meta.get("ltscale").and_then(Value::as_f64).filter(|v| *v > 0.0).unwrap_or(1.0);
+            num_row(ui, "ltscale", l.s("props.ltscale"), "num", lts, Some(l.s("props.ltscale.title")));
+        }
+        ui.label(RichText::new(l.t("props.layer.sub", &[("layer", c.layer.clone())])).small().color(t.text_dim));
+        let layer = doc.layers.get(&c.layer);
+        let llt = layer.and_then(|x| x.linetype.clone()).unwrap_or_else(|| "Continuous".into());
+        let llw = layer.and_then(|x| x.lineweight).unwrap_or(-3.0);
+        let mut sel2 = |ui: &mut egui::Ui, key: &str, label: String, kind: &str, val: Value, cur_label: String| {
+            let choices: Vec<(String, String)> =
+                kind_choices(kind, false, doc, l).into_iter().filter(|(k, _)| !k.is_empty() && k != "ByBlock" && k != "-2").collect();
+            let k = value_key(kind, &val);
+            row(ui, t, &label, None, |ui, _, w| {
+                if let Some(v) = combo(ui, ("props_lay", key), &cur_label, &choices, Some(k.as_str()), w, true) {
+                    asks.run.push(("props.current".into(), format!("{key}={v}")));
+                }
+            });
+        };
+        sel2(ui, "laylt", l.s("props.lt"), "lt", Value::String(llt.clone()), llt.clone());
+        let llw_label = if llw == -3.0 { l.s("lw.default") } else { l.t("lw.mm", &[("mm", cc_cad::js::to_fixed(llw, 2))]) };
+        sel2(ui, "laylw", l.s("props.lw"), "lw", cc_cad::num(llw), llw_label);
+        ui.label(RichText::new(l.s("props.cur.newdims")).small().color(t.text_dim));
+        let dim = |k: &str, d: f64| c.dim.get(k).and_then(Value::as_f64).unwrap_or(d);
+        let lunit = dim("lunit", 2.0);
+        let mut num_row2 = |ui: &mut egui::Ui, key: &str, label: String, kind: &str, v: f64, tip: Option<String>| {
+            let shown = show(kind, &cc_cad::num(v), doc);
+            row(ui, t, &label, tip, |ui, lab, w| {
+                if let Some(txt) = text_field(ui, edits, &format!("cur:{key}"), &shown, Some(edit_text(v)), "", false, true, w, lab) {
+                    asks.run.push(("props.current".into(), format!("{key}={txt}")));
+                }
+            });
+        };
+        num_row2(ui, "dim.txt", l.s("props.dim.txt"), "len", dim("txt", 2.5), None);
+        num_row2(ui, "dim.asz", l.s("props.dim.asz"), "len", dim("asz", 2.5), None);
+        let dec_label = if lunit == 4.0 || lunit == 5.0 { l.s("props.dim.frac") } else { l.s("props.dim.dec") };
+        num_row2(ui, "dim.dec", dec_label, "int", dim("dec", 4.0), None);
+        num_row2(ui, "dim.scale", l.s("props.dim.scale"), "num", dim("scale", 1.0), Some(l.s("props.dim.scale.title")));
+        let note = match lay {
+            Some(lay) => l.t("props.cur.onsheet", &[("unit", unit_name(lay.unit().unwrap_or("mm")))]),
+            None => l.s("props.cur.hint"),
+        };
+        ui.label(RichText::new(note).small().color(t.text_dim));
+    }
+    asks.run.append(&mut more);
+    if section(ui, t, closed, "view", &l.s("props.sec.view"), &mut asks.folds)
+        && let Some(b) = vb
+    {
+        let (cx, cy, vw, vh) = ((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0, b.max_x - b.min_x, b.max_y - b.min_y);
+        for (key, label, v) in [("cx", "props.view.cx", cx), ("cy", "props.view.cy", cy)] {
+            let shown = show("len", &cc_cad::num(v), doc);
+            row(ui, t, &l.s(label), None, |ui, lab, w| {
+                if let Some(txt) = text_field(ui, edits, &format!("view:{key}"), &shown, Some(edit_text(v)), "", false, true, w, lab) {
+                    asks.run.push(("props.view".into(), format!("{key}={txt}")));
+                }
+            });
+        }
+        row(ui, t, &l.s("props.view.cz"), None, |ui, _, _| {
+            ui.label(RichText::new(show("len", &cc_cad::num(0.0), doc)).color(t.text_dim));
+        });
+        for (key, label, v) in [("h", "props.view.h", vh), ("w", "props.view.w", vw)] {
+            let shown = show("len", &cc_cad::num(v), doc);
+            row(ui, t, &l.s(label), None, |ui, lab, w| {
+                if let Some(txt) = text_field(ui, edits, &format!("view:{key}"), &shown, Some(edit_text(v)), "", false, true, w, lab) {
+                    asks.run.push(("props.view".into(), format!("{key}={txt}")));
+                }
+            });
+        }
+    }
+    if section(ui, t, closed, "misc", &l.s("props.sec.misc"), &mut asks.folds) {
+        row(ui, t, &l.s("props.misc.ucs"), None, |ui, _, _| {
+            ui.label(l.s("props.misc.world"));
+        });
+        row(ui, t, &l.s("props.misc.annoscale"), Some(l.s("props.misc.annoscale.title")), |ui, _, _| {
+            ui.label("1:1");
+        });
+    }
+}
+
+/// props.js `QP_DEFAULT`: the fields Quick Properties shows per type.
+fn qp_keys(key: &str) -> &'static [&'static str] {
+    match key {
+        "line" => &["layer", "color", "len", "ang"],
+        "circle" => &["layer", "color", "r", "area"],
+        "arc" => &["layer", "color", "r", "sweep", "arclen"],
+        "ellipse" => &["layer", "color", "major", "minor"],
+        "poly" => &["layer", "color", "closed", "gw", "plen", "area"],
+        "text" => &["layer", "color", "s", "h", "rot", "just"],
+        "insert" => &["layer", "color", "block", "rot", "us"],
+        "hatch" => &["layer", "color", "pattern", "pscale", "pangle"],
+        "dim" => &["layer", "color", "dimstyle", "measured", "dim.text", "dim.dec"],
+        "mleader" => &["layer", "color", "s", "h"],
+        "point" => &["layer", "color", "pos.x", "pos.y"],
+        "viewport" => &["layer", "on", "locked", "vw", "vh"],
+        _ => &["layer", "color", "lt"],
+    }
+}
+
+/// Quick Properties (P.10): the most-used fields by the pointer when objects are selected and no command runs.
+fn quick(app: &mut UiApp, ctx: &egui::Context, asks: &mut Asks) {
+    let Some(ed) = app.editor.as_ref() else { return };
+    let sel = ed.hs.borrow().selection.clone();
+    if !app.cadprops.quick || sel.is_empty() || ed.eng.running().is_some() || app.cadprops.quick_dismissed == sel {
+        app.cadprops.quick_at = None;
+        return;
+    }
+    let t = app.tokens;
+    let l = lang();
+    let doc = ed.eng.doc();
+    let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+    if ents.is_empty() {
+        return;
+    }
+    let groups = groups_of(&ents, &l);
+    let Some(g) = app.cadprops.group.as_ref().and_then(|k| groups.iter().find(|g| &g.key == k)).or(groups.first()) else { return };
+    let gents: Vec<cc_cad::Entity> = g.ids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+    let c = PCtx { doc: &doc, ents: &gents, vertex: app.cadprops.vertex, lang: &l };
+    let all = defs_for(&g.key, &c);
+    let defs: Vec<&cc_engine::props::Def> = qp_keys(&g.key).iter().filter_map(|k| all.iter().find(|d| d.key == *k)).collect();
+    // beside the pointer where the selection was made
+    let at = match &app.cadprops.quick_at {
+        Some((s, p)) if *s == sel => *p,
+        _ => {
+            // props.js placeQuick: right of and below the pointer, else to its left / kept above the bottom edge
+            let r = ctx.content_rect();
+            let c = ctx.pointer_latest_pos().unwrap_or_else(|| r.center());
+            let (w, h) = (256.0, 200.0);
+            let mut p = c + egui::vec2(24.0, 24.0);
+            if p.x + w > r.max.x - 8.0 {
+                p.x = (c.x - 24.0 - w).max(r.min.x + 8.0);
+            }
+            if p.y + h > r.max.y - 8.0 {
+                p.y = (r.max.y - 8.0 - h).max(r.min.y + 8.0);
+            }
+            app.cadprops.quick_at = Some((sel.clone(), p));
+            p
+        }
+    };
+    let name = if ents.len() == 1 { ents.first().map(|e| type_name(e, &l)).unwrap_or_default() } else { group_label(g, &l) };
+    let mut close = false;
+    let edits = &mut app.cadprops.edits;
+    egui::Window::new(name)
+        .id(egui::Id::unique("cad_quick_props"))
+        .title_bar(true)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(240.0)
+        .current_pos(at)
+        .constrain(true)
+        .show(ctx, |ui| {
+            if groups.len() > 1 {
+                egui::ComboBox::new("qp_group", "").selected_text(group_label(g, &l)).show_ui(ui, |ui| {
+                    for x in &groups {
+                        if ui.selectable_label(x.key == g.key, group_label(x, &l)).clicked() {
+                            asks.group = Some(x.key.clone());
                         }
                     }
                 });
             }
+            for d in defs {
+                field_rows(ui, &t, &l, d, &c, edits, "qp:", 0, false, &mut asks.acts);
+            }
+            if ui.small_button(l.s("props.qp.close")).clicked() {
+                close = true;
+            }
         });
-    });
     if close {
+        app.cadprops.quick_dismissed = sel;
+    }
+}
+
+fn apply(app: &mut UiApp, asks: Asks) {
+    if asks.close {
         app.run_ui_pub("props.close", &Params::default());
     }
-    if let Some(u) = pick_units {
-        app.run_ui_pub("props.units", &Params { name: Some(u), ..Default::default() });
+    for k in asks.folds {
+        app.run_ui_pub("props.fold", &Params { name: Some(k), ..Default::default() });
     }
-    if let Some(g) = pick_group {
+    if let Some(g) = asks.group {
         app.run_ui_pub("props.group", &Params { name: Some(g), ..Default::default() });
     }
-    if let Some(v) = vertex_to {
-        app.run_ui_pub("props.vertex", &Params { index: usize::try_from(v).ok(), ..Default::default() });
+    for a in asks.acts {
+        match a {
+            Act::Set(k, raw) => app.run_ui_pub("props.set", &Params { name: Some(format!("{k}={raw}")), ..Default::default() }),
+            Act::Vertex(v) => app.run_ui_pub("props.vertex", &Params { index: usize::try_from(v).ok(), ..Default::default() }),
+            Act::Pick(n) => app.run_ui_pub("props.pick", &Params { name: Some(n), ..Default::default() }),
+        }
     }
-    if let Some((k, raw)) = act {
-        app.run_ui_pub("props.set", &Params { name: Some(format!("{k}={raw}")), ..Default::default() });
+    for (id, name) in asks.run {
+        app.run_ui_pub(&id, &Params { name: Some(name), ..Default::default() });
     }
 }

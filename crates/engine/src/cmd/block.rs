@@ -111,7 +111,7 @@ pub fn one_line(s: &str) -> String {
     o
 }
 
-fn is_attdef_text(e: &Entity) -> bool {
+pub fn is_attdef_text(e: &Entity) -> bool {
     matches!(e.geo, Geo::Text(_)) && e.get("attdef").and_then(|a| a.get("tag")).is_some_and(Value::is_string)
 }
 

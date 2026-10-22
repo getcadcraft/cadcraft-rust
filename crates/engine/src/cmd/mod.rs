@@ -243,6 +243,7 @@ pub static COMMANDS: &[CmdDef] = &[
     def("PUBLISH", &["-PUBLISH"], |c| Box::pin(publish::publish(c))),
     quiet(def("PLOT", &["PRINT", "EXPORTPDF"], |c| Box::pin(view::plot(c)))),
     quiet(def("_PLOTWIN", &[], |c| Box::pin(view::plot_window(c)))),
+    quiet(def("_PROPPICK", &[], |c| Box::pin(view::prop_pick(c)))),
     quiet(def("PROPERTIES", &["PR", "PROPS", "CH", "MO", "DDMODIFY"], |c| Box::pin(view::properties(c)))),
     quiet(def("PROPERTIESCLOSE", &["PRCLOSE"], |c| Box::pin(view::properties_close(c)))),
     quiet(def("QPMODE", &["QP"], |c| Box::pin(view::qpmode(c)))),

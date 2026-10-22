@@ -460,6 +460,21 @@ fn shows_state(d: Option<&Value>, show: &[usize]) -> bool {
     shown.iter().enumerate().all(|(i, v)| ad.contains(&i) || js::truthy(Some(v)) == show.contains(&i))
 }
 
+/// `setVisibility` with its refusals: Ok(Err("not-dynamic" | "no-state" | "changed")) leaves the drawing as it was.
+pub fn set_visibility_checked(doc: &mut Doc, id: u64, state: &str, space: SpaceId) -> Result<Result<(), &'static str>, DocError> {
+    let Some(rf) = doc.space_map(space).and_then(|m| m.get(&id)).cloned() else { return Ok(Err("not-dynamic")) };
+    let Geo::Insert(ins) = &rf.geo else { return Ok(Err("not-dynamic")) };
+    let Some(b) = doc.blocks.get(&ins.block).cloned() else { return Ok(Err("not-dynamic")) };
+    let Some((_, states, _)) = crate::props::visibility_of(doc, &rf.to_obj()) else { return Ok(Err("not-dynamic")) };
+    if !states.iter().any(|s| s == state) {
+        return Ok(Err("no-state"));
+    }
+    if dyn_entities(&b).is_none() {
+        return Ok(Err("changed"));
+    }
+    set_visibility(doc, id, state, space).map(Ok)
+}
+
 /// dyn-blocks.js `setVisibility(doc, id, state, map)`: the reference moves to a copy of its block showing that
 /// state's objects (an existing one when one matches, else a new "*B<n>"). One undo step.
 fn set_visibility(doc: &mut Doc, id: u64, state: &str, space: SpaceId) -> Result<(), DocError> {

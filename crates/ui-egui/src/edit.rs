@@ -111,6 +111,11 @@ pub struct HostState {
     pub lib_pick: bool,
     /// a card placed from the open panel, for the INSERT, Library it starts
     pub lib_queued: Option<serde_json::Value>,
+    /// _PROPPICK: what the Properties panel's pick button asks for, and the point picked for it
+    pub prop_pick_label: Option<String>,
+    pub prop_picked: Option<P2>,
+    /// QPMODE asked to turn Quick Properties on / off
+    pub qp_toggle: bool,
 }
 
 /// What a command asked the window's picker for.
@@ -281,6 +286,15 @@ impl Host for UiHost {
     }
     fn props(&mut self, open: bool) {
         self.0.borrow_mut().props_open = Some(open);
+    }
+    fn quick_props(&mut self) {
+        self.0.borrow_mut().qp_toggle = true;
+    }
+    fn prop_pick_label(&self) -> Option<String> {
+        self.0.borrow().prop_pick_label.clone()
+    }
+    fn prop_picked(&mut self, p: P2) {
+        self.0.borrow_mut().prop_picked = Some(p);
     }
     fn plot(&mut self) -> bool {
         self.0.borrow_mut().plot_open = true;

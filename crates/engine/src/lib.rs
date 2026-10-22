@@ -37,6 +37,7 @@ pub mod engine;
 pub mod input;
 pub mod lang;
 pub mod prompt;
+pub mod propextra;
 pub mod props;
 pub mod tancircle;
 pub mod ucs;
