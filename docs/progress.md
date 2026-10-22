@@ -2,6 +2,88 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M6.27–M6.33 ModelCraft finished: WebM writer, render lamps and glass, entourage, pictures as textures, terrain / starter / keys / views, scene films, view marks (agent, work/model2)
+
+- Commits: M6.27 cc-video, M6.28 cc-render (lamps, glows, glass, 64 layers), M6.29 cc-m3d-tools (entourage, finish),
+  M6.30 pictures as textures, M6.31 terrain + starter + keys + Views menu + switches, M6.32 the film, M6.33 view marks
+  and the page's default switches + these docs (the bullets below keep their feature names).
+- Terrain (`crates/ui-egui/src/mcterrain.rs`): Edit › More › Terrain from selected contours (terrainFromSelection:
+  the selected edges' points triangulated in plan into one group placed where they are; "Select the contour lines
+  first…" under three points, "…all lie on one line…" when flat), Terrain grid… (the dialog: width, depth, cell size
+  in the model's units, 20 m / 1 m or 60′ / 2′, "Type a width…" when one is not a length over 0; then the Place tool
+  for the grid's corner), Sculpt terrain (the Sculpt tool). cc-m3d-tools' terrain.js port was already at parity; this
+  is the page around it. Actions terrain-contours, terrain-grid, terrain-grid-place:{width, depth, spacing},
+  terrain-grid-cancel, sculpt.
+- Starter library (`mcstarter.rs`, `cc-m3d-tools::entourage`): the Components panel's Starter library… dialog
+  (by category, 0.5's words), a thing built once per model (the component remembers it: `starter`), then the Place
+  tool (wall things stand in the wall). The entourage — fifteen trees, shrubs, a hedge, a potted plant, four people and
+  two cars, lib/entourage/entourage.js — is now ported number for number (fdlibm sin / cos, V8 hypot, mulberry32, 0.1 mm
+  rounding) and builds like 0.5 (a group per part in its colour, see-through parts the tinted glass, edges softened at
+  75°, vehicles 25°). Actions starter, starter-place:<id>, starter-cancel.
+- Key styles (`mckeys.rs`): modelcraft.js's keydown handler for both styles — the push-pull keys and Edit ›
+  Modeler keys (W select, B rectangle, E push/pull, G / R / S grab, turn, scale the selection at once with X / Y / Z
+  locking an axis and Enter finishing, Shift+D, X, A / Alt+A, H / Shift+H / Alt+H, Tab into and out of groups,
+  Shift+Tab snapping, Home and Shift+C, Ctrl+G / Ctrl+Shift+G, the numpad's views, Ctrl+numpad the opposite ones);
+  right-click cancels a tool, Alt + drag orbits (Alt+Shift pans), Ctrl + middle-drag zooms; the palette's tooltips,
+  the Outliner's and Components' notes follow the style (app.btitle.*, app.outliner.empty.bl). The style stays when
+  another model opens. The keyboard reaches the same code as `key:<key>[@<code>]` (Ctrl+ / Shift+ / Alt+ in front).
+  cc-m3d-tools: Push/pull, Rotate and Scale answer `finish` (finishTransform).
+  With it the Camera group's Views menu (the standard views and their "… view." words, Perspective, Presentation view
+  — Shift+P: only the model on screen —, Show section planes / cuts, one undo step each, kept in the file) and the
+  status bar's Snap / Collide switches (actions view:<name>, persp, present, sec-planes, sec-cuts, toggle:snap |
+  collide).
+- Pictures as textures (`model3d.rs`): `img:` paints (SketchUp / glTF / OBJ imports) drawn with their picture in
+  the shaded view and in both renders — decoded once per model (cc-io-markup's capped decoder), resampled to the
+  texture array's 256² layers (flipped as three.js uploads an Image), UVs from the paint's own map (imageUV). The array
+  has 64 layers now: the 30 library materials, then up to 34 pictures a scene (more show their average colour, as
+  before). Screenshot `forks/lead/shots/model2/m630-picture-texture.png`.
+- The scenes' film (`mcrecord.rs`, new crate `crates/video` = cc-video, L3, pure Rust): Scenes › Export animation
+  plays the scenes as 0.5 records them (the first held 1.5 s, each next reached in 2 s and held 1.5 s) and saves
+  `<model>.webm` through the host's save (a save dialog on the desktop, a download on the web); again or Esc stops it
+  (nothing saved); fewer than two scenes: 0.5's words. Each frame is placed exactly at 30 a second, rendered by the
+  view, read back from the GPU without blocking (map_async: WebGPU's way, so the web build records too, with no
+  MediaRecorder and no JS) and coded by cc-video: VP8 key frames (RFC 6386: DC prediction, the forward DCT / WHT, the
+  decoder's own inverse transforms for the encoder's reconstruction, default token probabilities; tables from the
+  RFC) in a WebM file (EBML header, Info, Tracks V_VP8, a cluster a second, Cues). Desktop codes on a thread of its
+  own. ffmpeg decodes the films without an error (oracle, run as a program). Screenshot of frames:
+  `m631-record-frames.png`.
+- The Render dialog's kept differences, closed: Fast — the four brightest lamps cast shadows (a cube of six
+  1024² depth maps each, a layer of one depth array per face, placed at the pass's point of the bulb or panel so the
+  shadows soften as 0.5's do) and every lamp's bulb (a ball of half its size, 1.5 cm at least) or panel glows in its
+  colour × 4 (found per pixel along its ray, written at its own depth); High quality — glass that closes round a solid
+  bends light (ior 1.5: refraction in and out, Fresnel's share reflected, total internal reflection, frosted glass about
+  a GGX normal), a lone pane stays thin. Shaders WebGPU-safe (texture_depth_2d_array + comparison sampler,
+  frag_depth). Screenshots `m632-render-before-after.png` (a night room: main left / now right, Fast above / High quality below),
+  `m632-room-fast-lamps.png`, `m632-room-hq-glass.png`.
+- The view's marks (`mcmarks.rs`, view3d.js buildExtras + drawOverlay): the open context's drawing axes, guide
+  lines and points, the open group's box, dimensions (linear with ticks, radius / diameter / angle with arrowheads,
+  the text boxed), section planes (the active one in ochre) when Views › Show section planes is on, a tool's
+  dimension or section being placed, and selected dimensions, sections and guides; Presentation view keeps only the
+  dimensions. Layouts on copies of the dimensions (dimLayout re-attaches ends; the model is left as it is). The
+  view's tools now start as the 0.5 page sets them (SET_DEFAULTS: snapping and collisions on; Tools alone starts with
+  collisions off); the harness's page does the same. Screenshots `m633-marks-dims.png`, `m633-marks-guides.png`,
+  `m633-marks-section.png`.
+- Speed (asked: ModelCraft copy of the 50k model 0.8×, undo 0.6–2 ms vs 0.2–0.5): S.7 already fixed both; measured
+  again here (mcuidiff `--bench-edit`, best of 7, other agents building): copy 287 / 134 ms (2.1×), paste in place
+  268 / 116 (2.3×), undo 0.74 / 0.17 (4.3×), redo 201 / 66 (3.0×), flip 30 / 11 (2.6×) and its undo 0.71 / 0.14
+  (5.3×), flipped copy 27 / 6.7 (3.9×) and its undo 0.62 / 0.11 (5.9×). No change needed.
+- Parity (`forks/tools/mcuidiff-m627.mjs`, a copy of mcuidiff.mjs: `--terrain`, `--starter`, `--keys` added — the
+  page's terrainFromSelection / terrain grid / placeStarter / setKeys / keydown handler DOM-free; should replace
+  mcuidiff.mjs at merge): baseline `--edit --lights --play` 1320 / 1320 status lines, 1250 / 1250 files; with
+  `--terrain --starter --keys` too 1320 / 1320, 1248 / 1248; every starter thing placed (49, entourage included)
+  98 / 98, 99 / 99 files byte-identical. Known 0.5 limit counted, not a difference: 0.5's intersect of a 200 × 200
+  terrain grid throws "Set maximum size exceeded" (a JS Set's cap) where the app goes on.
+- Not done / kept: pictures are 256² texture layers (0.5 uses the image at its size) and 34 a scene at most; the film
+  has no view marks (0.5's presentation view hides most of them too) and is VP8 key frames only (a few MB a minute
+  at the view's size); the keyboard cannot tell the numpad's digits from the row's in egui, so the numpad views work
+  from scripts (`key:7@Numpad7`) but type a value from the keyboard; the key style is not kept between app runs; axes
+  and guide lines are drawn over the model (0.5 draws them in the 3D scene, so the model hides them). Lamp shadows are perspective depth cubes (three.js keeps a point light's as distances); HQ tells a glass solid
+  from a pane by whether its glass faces close (every edge met twice).
+- Plain English where 0.5 has no key: none (the menus, dialogs, statuses and tooltips use 0.5's keys; "●" before
+  Export animation and the Starter library link are layout).
+- Tests: `mcterrain::tests::*` (2), `mcstarter::tests::a_starter_thing_is_built_once`, `mckeys::tests::modeler_keys`,
+  `mcrecord::tests::*` (2), `entourage::tests::every_item_is_made_and_indexes_its_own_points`, cc-video's `vp8` /
+  `webm` / `a_short_video` (`CC_VIDEO_OUT=<file>` keeps it for ffmpeg), `model3d` tests with the picture cache.
 ## 2026-11-04 — M7.18–M7.19 BimCraft: Library panel, swap / update, copy / paste (agent, work/bimfin)
 
 - Rebased work/bim's M7.16 (residential sync) and M7.17 (library item adapters) onto main (b00a86c; docs merged), and

@@ -181,7 +181,10 @@ fn kind_color(kind: &str, t: &Tokens) -> Color32 {
 
 impl ModelView {
     pub fn new(model: Model, name: &str, dark: bool) -> Result<ModelView, String> {
-        let tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
+        let mut tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
+        // the page's settings (modelcraft.js SET_DEFAULTS, applySettings): snapping on, collisions on
+        tools.snapping = true;
+        tools.collide = true;
         let mut img_cache = model3d::ImgCache::new();
         let scene = model3d::scene_of(&tools.host.model, 1, dark, &mut img_cache);
         let built = (tools.host.model.version(), tools.host.model_gen());
@@ -457,7 +460,12 @@ impl ModelView {
             style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
         }
         view3d::paint_capture(ui, rect, &self.scene, &cam, &style, self.recording.as_ref().map(|r| r.cap.clone()));
-        // presentation view (and a film being recorded, as 0.5 records in it): no tool marks, no selection
+        // the model's marks (axes, guides, dimensions, section planes); presentation view (and a film being recorded,
+        // as 0.5 records in it): the dimensions only, no tool marks, no selection
+        if self.recording.is_none() {
+            let bg = style.background;
+            self.marks(&ui.painter_at(rect), rect, bg[0] + bg[1] + bg[2] < 1.5);
+        }
         if !self.presenting && self.recording.is_none() {
             self.overlay(ui, rect, t);
         }

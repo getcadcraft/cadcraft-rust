@@ -92,18 +92,20 @@ Last updated 2026-11-04 · Change: BimCraft Library panel, swap / update, copy /
    finishing a line drops it (0.5 keeps it picked); GeoTIFF pictures are kept as the app's own PNG / JPEG (0.5: the
    browser canvas's). Speed: reading 500,000 point rows 2.0× the JS, the 33 MB GeoJSON read 1.3×, its import 1.8×, GIS
    export 1.4–2.4×; a 4000² DEM import 1.0×; section sheets PDF runs 1.4× the JS (S.2).
-5. **ModelCraft** (M6.17: panels, components, 3D-print check, inference keys at parity): missing imported pictures as textures in the view (`img:` paints show their average colour), the scenes' WebM recording,
-   terrain, the starter library, Blender key style. Copy / paste, duplicate, flip and 3D text: M6.19; solids, intersect
-   faces, storeys, drawing axes: M6.20; components that stretch (part rules, stretch dialog): M6.21; sun shadows in the view: M6.22; material textures (view and swatches): M6.23; Lights panel and lamp editor: M6.24; Render a picture (Fast and High quality; thin glass, no lamp shadows in Fast): M6.25; the scenes' Play: M6.26.
-6. **BimCraft** (M7.13: IFC edit + save, storey plan + PDF, Draw tools, schedules; M7.14: plan grips; M7.15: library
-   items placed from the plan; M7.16: residential sync; M7.17: the Library's file adapters; M7.18–M7.19: the Library
-   panel — LibraryCraft and feeds on the web, This file, Files… —, Swap item… / update, copy / cut / paste / paste in
-   place / duplicate / delete of placements and of any element, several picked; all at parity). Left: the residential
-   tools themselves (res-ui.js's Build menu: placing foundations, stairs, railings, framing, terrain, devices,
-   countertops, section lines; Sheets, Takeoff; their plan overlays); the IFC equipment schedule and Library credits
-   buttons (bimcraft.js renderIfcEquipment, credits dialog); on the web, the library sign-in (0.5's personal token from
-   /library/connect: team items, use tracking) and Check for updates (its POST /updates; a newer version can be
-   swapped in from the Library by hand).
+5. **ModelCraft** (M6.17–M6.33): every 0.5 feature in, at mcuidiff parity (panels, components, 3D-print check,
+   inference keys M6.17; copy / paste, flip, 3D text M6.19; solids, storeys, axes M6.20; components that stretch M6.21;
+   sun shadows M6.22; material textures M6.23; Lights M6.24; Render a picture M6.25 with lamp shadows, glowing bulbs
+   and bending glass M6.32; Play M6.26; terrain M6.27; the starter library with the entourage M6.28; modeler keys,
+   the Views menu and Snap / Collide M6.29; imported pictures as textures M6.30; the scenes' WebM film M6.31). Left: pictures at 256² and 34 a scene;
+   the numpad's views from the keyboard (egui does not tell numpad digits apart); the key style is not kept between
+   runs; axes and guide lines draw over the model, not in the 3D scene. View marks (axes, guides, dimensions,
+   section planes): M6.33.
+6. **BimCraft** (M7.13: IFC edit + save, storey plan + PDF, Draw tools, schedules at parity; M7.14: plan grips — wall
+   ends and middles, doors / windows slid along or onto walls — at parity; M7.15: library items (`*.item.json`) placed
+   from the plan with turn, wall snap, typed X, Y and the item-number dialog, ifc-place.js at parity): no residential
+   sync (res-follow.js: foundations, countertops, stairs, electrical, framing follow the walls; terrain only once the
+   ground is loaded); no Library panel (LibraryCraft / feeds search, the open drawing's blocks, the Files… adapters for
+   DWG / DXF / IFC / glTF / OBJ / RFA / CSV), swap / update of placed items, copy / paste of placements.
 7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): every 0.5 MarkupCraft drawing tool (M9.14) with select /
    move / grips / window, the text editor and the Properties panel, save marked-up PDF at parity; takeoff count / linear
    / area, exports, Auto count. Copy / paste, the Markups list and its exports, replies, sheet rename and the Pages menu
