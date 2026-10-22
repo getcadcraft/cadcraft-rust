@@ -11,6 +11,14 @@ struct Lamp {
     c: vec4<f32>,
 };
 
+// a lamp's glowing bulb (c.w: radius) or panel (c.w 0: half-size axes u, v)
+struct Glow {
+    c: vec4<f32>,
+    u: vec4<f32>,
+    v: vec4<f32>,
+    col: vec4<f32>,
+};
+
 struct Still {
     // projection × view rotation × T(origin − eye), jittered under a pixel
     pv: mat4x4<f32>,
@@ -44,6 +52,13 @@ struct Still {
     // x: lamps, y: 1/passes (output), z: exposure factor, w: 1 = textures
     misc: vec4<f32>,
     lamps: array<Lamp, 64>,
+    glows: array<Glow, 64>,
+};
+
+// the brightest lamps' shadow cubes: six cameras each (+x −x +y −y +z −z); x: lamps with shadows, y: near × 1 cm
+struct LampShadows {
+    m: array<mat4x4<f32>, 24>,
+    info: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> st: Still;
 @group(1) @binding(0) var smap_sun: texture_depth_2d;
@@ -51,6 +66,8 @@ struct Still {
 @group(1) @binding(2) var ssamp: sampler_comparison;
 @group(1) @binding(3) var mtex: texture_2d_array<f32>;
 @group(1) @binding(4) var msamp: sampler;
+@group(1) @binding(5) var lmaps: texture_depth_2d_array;
+@group(1) @binding(6) var<uniform> ls: LampShadows;
 
 const PI: f32 = 3.14159265;
 
@@ -77,6 +94,37 @@ fn shadow(smap: texture_depth_2d, lpv: mat4x4<f32>, rel: vec3<f32>, n: vec3<f32>
         return 1.0;
     }
     return textureSampleCompareLevel(smap, ssamp, uv, z);
+}
+
+// how much of lamp k reaches rel (1: not one of the shadow lamps): the cube face by the largest axis
+fn lamp_shadow(k: i32, lp: vec3<f32>, rel: vec3<f32>, n: vec3<f32>) -> f32 {
+    if f32(k) >= ls.info.x {
+        return 1.0;
+    }
+    // normal offset about a texel and a half at that distance (a lamp's texels grow with distance)
+    let q = rel + n * (0.002 + length(rel - lp) * 0.003);
+    let d = q - lp;
+    let a = abs(d);
+    var f = 0;
+    if a.x >= a.y && a.x >= a.z {
+        f = select(1, 0, d.x > 0.0);
+    } else if a.y >= a.z {
+        f = select(3, 2, d.y > 0.0);
+    } else {
+        f = select(5, 4, d.z > 0.0);
+    }
+    let layer = k * 6 + f;
+    let p = ls.m[layer] * vec4<f32>(q, 1.0);
+    if p.w <= 1e-6 {
+        return 1.0;
+    }
+    let uv = vec2<f32>(p.x / p.w * 0.5 + 0.5, 0.5 - p.y / p.w * 0.5);
+    // a centimetre of depth bias at that distance (perspective depth: near / d² a metre)
+    let z = p.z / p.w - ls.info.y / max(dot(d, d), 1e-4);
+    if z > 1.0 {
+        return 1.0;
+    }
+    return textureSampleCompareLevel(lmaps, ssamp, uv, layer, z);
 }
 
 // the dome's colour along a direction (render-core.js skyDome)
@@ -193,7 +241,7 @@ fn shade(v: FaceOut, front: bool) -> vec4<f32> {
             // a spot's cone; a panel lights its half of the world as a wide soft cone (render-core.js)
             att *= smoothstep(L.d.w, L.c.w, dot(-l, normalize(L.d.xyz)));
         }
-        c += light(n, vdir, l, L.c.rgb * att, albedo, rough, metal);
+        c += light(n, vdir, l, L.c.rgb * att, albedo, rough, metal) * lamp_shadow(k, L.p.xyz, v.rel, n);
     }
     // the dome's image light: diffuse from its irradiance, specular from its colour along the reflection
     let f0 = mix(vec3<f32>(0.04), albedo, metal);
@@ -311,6 +359,65 @@ fn fs_sky(v: SkyOut) -> @location(0) vec4<f32> {
     return vec4<f32>(dome(dir), 1.0);
 }
 
+// ---- the lamps' glowing bulbs and panels: along each pixel's ray, the nearest one, at its own depth ----
+
+struct GlowOut {
+    @location(0) c: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
+
+@fragment
+fn fs_glow(v: SkyOut) -> GlowOut {
+    let a = st.inv_pr * vec4<f32>(v.ndc, 0.5, 1.0);
+    let b = st.inv_pr * vec4<f32>(v.ndc, 0.25, 1.0);
+    let dir = normalize(b.xyz / b.w - a.xyz / a.w);
+    let o = st.eye.xyz;
+    var best = 1e30;
+    var col = vec3<f32>(0.0);
+    let count = i32(st.misc.x);
+    for (var k = 0; k < count; k++) {
+        let g = st.glows[k];
+        var t = -1.0;
+        if g.c.w > 0.0 {
+            let oc = o - g.c.xyz;
+            let bb = dot(oc, dir);
+            let cc = dot(oc, oc) - g.c.w * g.c.w;
+            let disc = bb * bb - cc;
+            if disc >= 0.0 {
+                let s = sqrt(disc);
+                t = -bb - s;
+                if t < 0.0 {
+                    t = -bb + s;
+                }
+            }
+        } else {
+            let nn = cross(g.u.xyz, g.v.xyz);
+            let dn = dot(dir, nn);
+            if abs(dn) > 1e-12 {
+                let tt = dot(g.c.xyz - o, nn) / dn;
+                let lp = o + dir * tt - g.c.xyz;
+                let su = dot(lp, g.u.xyz) / max(dot(g.u.xyz, g.u.xyz), 1e-12);
+                let sv = dot(lp, g.v.xyz) / max(dot(g.v.xyz, g.v.xyz), 1e-12);
+                if abs(su) <= 1.0 && abs(sv) <= 1.0 {
+                    t = tt;
+                }
+            }
+        }
+        if t > 0.0 && t < best && !cut(o + dir * t) {
+            best = t;
+            col = g.col.rgb;
+        }
+    }
+    if best >= 1e30 {
+        discard;
+    }
+    let clip = st.pv * vec4<f32>(o + dir * best, 1.0);
+    var out: GlowOut;
+    out.c = vec4<f32>(col, 1.0);
+    out.depth = clamp(clip.z / clip.w, 0.0, 1.0);
+    return out;
+}
+
 // ---- the ground: a matte disc under the model, shadowed, fading into the horizon ----
 
 struct GroundOut {
@@ -359,7 +466,7 @@ fn fs_ground(v: GroundOut) -> @location(0) vec4<f32> {
         if L.p.w > 0.5 {
             att *= smoothstep(L.d.w, L.c.w, dot(-l, normalize(L.d.xyz)));
         }
-        c += light(n, vdir, l, L.c.rgb * att, albedo, 1.0, 0.0);
+        c += light(n, vdir, l, L.c.rgb * att, albedo, 1.0, 0.0) * lamp_shadow(k, L.p.xyz, v.rel, n);
     }
     c += st.env.x * albedo * dome_irr(n);
     if st.env.w > 0.0 {

@@ -126,6 +126,43 @@ pub fn sun_disc(dir: [f64; 3], i: u64, degrees: f64) -> [f64; 3] {
     vnorm(lin3(&[(d, 1.0), (e1, x), (e2, y)]))
 }
 
+/// The six faces of a lamp's shadow cube: where each looks and its up (the shader picks a face by the largest axis).
+const CUBE: [([f64; 3], [f64; 3]); 6] = [
+    ([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    ([-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+    ([0.0, 1.0, 0.0], [0.0, 0.0, 1.0]),
+    ([0.0, -1.0, 0.0], [0.0, 0.0, 1.0]),
+    ([0.0, 0.0, 1.0], [0.0, 1.0, 0.0]),
+    ([0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+];
+
+/// A 90° square perspective camera at `eye` looking along `fwd` (column-major, depth 0 at `near` … 1 at `far`).
+fn cube_cam(eye: [f64; 3], fwd: [f64; 3], up0: [f64; 3], near: f64, far: f64) -> [f64; 16] {
+    let right = vnorm(cross(fwd, up0));
+    let up = cross(right, fwd);
+    let a = far / (far - near);
+    let b = -far * near / (far - near);
+    let (de, du, df) = (dot(right, eye), dot(up, eye), dot(fwd, eye));
+    [
+        right[0],
+        up[0],
+        fwd[0] * a,
+        fwd[0],
+        right[1],
+        up[1],
+        fwd[1] * a,
+        fwd[1],
+        right[2],
+        up[2],
+        fwd[2] * a,
+        fwd[2],
+        -de,
+        -du,
+        -df * a + b,
+        -df,
+    ]
+}
+
 /// looks.js `lampAt(L, i)`: where pass i puts a lamp (a point of its bulb, or of its panel).
 pub fn lamp_at(l: &StillLamp, i: u64) -> [f64; 3] {
     let (a, b) = (halton(i + 1, 17), halton(i + 1, 19));
@@ -155,7 +192,11 @@ pub struct StillMesh {
 
 const SVSTRIDE: u64 = 44; // pos 12 + normal 12 + colour 4 + texture u, v, layer 12 + look 4
 const SHADOW: u32 = 2048;
-const UNIFORM: u64 = 16 * 4 * 4 + 16 * 16 + 64 * 48;
+const UNIFORM: u64 = 16 * 4 * 4 + 16 * 16 + 64 * 48 + 64 * 64;
+/// Lamps that cast shadows (looks.js SHADOW_LAMPS: the brightest four), each through six faces of a cube of maps.
+pub const SHADOW_LAMPS: usize = 4;
+const LAMP_SHADOW: u32 = 1024;
+const LAMP_FACES: usize = SHADOW_LAMPS * 6;
 
 impl StillMesh {
     pub fn upload(device: &wgpu::Device, m: &MeshData, looks: &[[u8; 4]]) -> StillMesh {
@@ -203,6 +244,12 @@ pub struct StillRenderer {
     uni: wgpu::Buffer,
     shd: [wgpu::Buffer; 2],
     bind: [wgpu::BindGroup; 2],
+    /// the lamps' shadow cubes: a layer per face, its camera's buffer and bind group, the cameras for the shader
+    lamp_layers: Vec<wgpu::TextureView>,
+    lamp_shd: Vec<wgpu::Buffer>,
+    lamp_bind: Vec<wgpu::BindGroup>,
+    lamp_cams: wgpu::Buffer,
+    glow: wgpu::RenderPipeline,
     maps_bind: wgpu::BindGroup,
     map_views: [wgpu::TextureView; 2],
     textures: wgpu::Texture,
@@ -287,6 +334,44 @@ impl StillRenderer {
         };
         let map_views = [0, 1]
             .map(|_| depth_tex("still shadow map", SHADOW, SHADOW, wgpu::TextureUsages::TEXTURE_BINDING).create_view(&Default::default()));
+        // the lamps' cubes of shadow maps (render-core.js: 1024² each, the four brightest lamps)
+        let lamp_maps = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("still lamp shadows"),
+            size: wgpu::Extent3d { width: LAMP_SHADOW, height: LAMP_SHADOW, depth_or_array_layers: LAMP_FACES as u32 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let lamp_layers: Vec<wgpu::TextureView> = (0..LAMP_FACES as u32)
+            .map(|k| {
+                lamp_maps.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: k,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
+        let lamp_array = lamp_maps
+            .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        let lamp_shd: Vec<wgpu::Buffer> = (0..LAMP_FACES).map(|_| ubuf("still shadow lamp", 64)).collect();
+        let lamp_bind: Vec<wgpu::BindGroup> = lamp_shd
+            .iter()
+            .map(|b| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("still lamp shadow"),
+                    layout: &bgl0,
+                    entries: &[
+                        wgpu::BindGroupEntry { binding: 0, resource: uni.as_entire_binding() },
+                        wgpu::BindGroupEntry { binding: 1, resource: b.as_entire_binding() },
+                    ],
+                })
+            })
+            .collect();
+        let lamp_cams = ubuf("still lamp cameras", (LAMP_FACES as u64) * 64 + 16);
         let textures = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("still material textures"),
             size: wgpu::Extent3d { width: TEX_SIZE, height: TEX_SIZE, depth_or_array_layers: TEX_LAYERS },
@@ -319,6 +404,17 @@ impl StillRenderer {
                 samp_entry(2, wgpu::SamplerBindingType::Comparison),
                 fs_tex(3, wgpu::TextureSampleType::Float { filterable: true }, wgpu::TextureViewDimension::D2Array),
                 samp_entry(4, wgpu::SamplerBindingType::Filtering),
+                fs_tex(5, wgpu::TextureSampleType::Depth, wgpu::TextureViewDimension::D2Array),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let cmp = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -348,6 +444,8 @@ impl StillRenderer {
                 wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&cmp) },
                 wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&tex_view) },
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&tsamp) },
+                wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&lamp_array) },
+                wgpu::BindGroupEntry { binding: 6, resource: lamp_cams.as_entire_binding() },
             ],
         });
         let main_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -467,6 +565,19 @@ impl StillRenderer {
             Some(wgpu::Face::Front),
             ds(true, wgpu::CompareFunction::Less),
         );
+        // the lamps' glowing bulbs and panels: found per pixel along its ray, at their own depth
+        let glow = pipe(
+            "still glow",
+            &main_layout,
+            &shader,
+            "vs_full",
+            "fs_glow",
+            &[],
+            &hdr_t,
+            tri,
+            None,
+            ds(false, wgpu::CompareFunction::Greater),
+        );
         let sky =
             pipe("still sky", &main_layout, &shader, "vs_full", "fs_sky", &[], &hdr_t, tri, None, ds(false, wgpu::CompareFunction::Always));
         let ground = pipe(
@@ -550,6 +661,11 @@ impl StillRenderer {
             uni,
             shd,
             bind,
+            lamp_layers,
+            lamp_shd,
+            lamp_bind,
+            lamp_cams,
+            glow,
             maps_bind,
             map_views,
             textures,
@@ -692,12 +808,57 @@ impl StillRenderer {
             v4(&mut fb, vnorm(l.dir), half.cos());
             c4(&mut fb, l.color, l.candela, (half * (1.0 - pen)).cos() as f32);
         }
+        // the glowing bulbs and panels (render-core.js: the lamp's colour × 4, a ball of half its size, at least 1.5 cm,
+        // or the panel turned from +Z to the lamp's direction as setFromUnitVectors turns it)
+        fb.resize((UNIFORM - 64 * 64) as usize / 4, 0.0);
+        for l in &lamps {
+            if l.kind == "area" {
+                let d = vnorm(l.dir);
+                let (a, b, c) = (d[0], d[1], d[2]);
+                let (ux, uy) = if c + 1.0 < 1e-6 {
+                    ([1.0, 0.0, 0.0], [0.0, -1.0, 0.0])
+                } else {
+                    let k = 1.0 + c;
+                    ([1.0 - a * a / k, -a * b / k, -a], [-a * b / k, 1.0 - b * b / k, -b])
+                };
+                v4(&mut fb, rel(l.p), 0.0);
+                v4(&mut fb, lin3(&[(ux, l.size[0] / 2.0)]), 0.0);
+                v4(&mut fb, lin3(&[(uy, l.size[1] / 2.0)]), 0.0);
+            } else {
+                let rad = (l.size[0] / 2.0).max(0.015);
+                v4(&mut fb, rel(l.p), rad);
+                v4(&mut fb, [0.0; 3], 0.0);
+                v4(&mut fb, [0.0; 3], 0.0);
+            }
+            c4(&mut fb, l.color, 4.0, 1.0);
+        }
         fb.resize(UNIFORM as usize / 4, 0.0);
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.uni, 0, &bytes);
         let [s0, s1] = &self.shd;
         queue.write_buffer(s0, 0, &lpv_sun.map(|v| v as f32).iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
         queue.write_buffer(s1, 0, &lpv_sky.map(|v| v as f32).iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
+
+        // the brightest lamps' shadow cubes: six 90° cameras at the lamp's point for this pass (near 2 cm, far 6R + 10)
+        let n_shadow = lamps.len().min(SHADOW_LAMPS);
+        let far = r * 6.0 + 10.0;
+        let mut cams: Vec<f32> = Vec::with_capacity(LAMP_FACES * 16 + 4);
+        for (k, l) in lamps.iter().take(n_shadow).enumerate() {
+            let q = lamp_at(l, i);
+            let off = if l.kind == "area" { 0.01 } else { 0.0 };
+            let eye = rel([q[0] + l.dir[0] * off, q[1] + l.dir[1] * off, q[2] + l.dir[2] * off]);
+            for (f, (fwd, up0)) in CUBE.iter().enumerate() {
+                let m = cube_cam(eye, *fwd, *up0, 0.02, far);
+                let m32: Vec<f32> = m.iter().map(|v| *v as f32).collect();
+                if let Some(b) = self.lamp_shd.get(k * 6 + f) {
+                    queue.write_buffer(b, 0, &m32.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
+                }
+                cams.extend(m32);
+            }
+        }
+        cams.resize(LAMP_FACES * 16, 0.0);
+        cams.extend([n_shadow as f32, (0.02 * 0.01) as f32, 0.0, 0.0]);
+        queue.write_buffer(&self.lamp_cams, 0, &cams.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>());
 
         let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("still pass") });
         let inst_buf = set.buf.as_ref();
@@ -726,6 +887,27 @@ impl StillRenderer {
                 multiview_mask: None,
             });
             if on && let Some(ib) = inst_buf {
+                pass.set_pipeline(&self.shadow);
+                pass.set_bind_group(0, bg, &[]);
+                pass.set_vertex_buffer(1, ib.slice(..));
+                draw_faces(&mut pass);
+            }
+        }
+        for k in 0..n_shadow * 6 {
+            let (Some(view), Some(bg)) = (self.lamp_layers.get(k), self.lamp_bind.get(k)) else { continue };
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("still lamp shadow"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(1.0), store: wgpu::StoreOp::Store }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            if let Some(ib) = inst_buf {
                 pass.set_pipeline(&self.shadow);
                 pass.set_bind_group(0, bg, &[]);
                 pass.set_vertex_buffer(1, ib.slice(..));
@@ -764,6 +946,10 @@ impl StillRenderer {
                 pass.set_vertex_buffer(1, ib.slice(..));
                 pass.set_pipeline(&self.face);
                 draw_faces(&mut pass);
+                if !lamps.is_empty() {
+                    pass.set_pipeline(&self.glow);
+                    pass.draw(0..3, 0..1);
+                }
                 pass.set_pipeline(&self.glass);
                 draw_faces(&mut pass);
                 if job.edges {

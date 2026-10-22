@@ -41,6 +41,26 @@ fn srgb1(v: u8) -> f32 {
     if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) }
 }
 
+/// Whether a mesh's glass triangles close round solids: every edge (by its corners' positions) used an even number of
+/// times. No glass: false.
+fn glass_is_solid(m: &MeshData, looks: &[[u8; 4]]) -> bool {
+    let mut edges: std::collections::HashMap<([u32; 3], [u32; 3]), u32> = std::collections::HashMap::new();
+    let key = |i: u32| m.positions.get(i as usize).map(|p| p.map(f32::to_bits));
+    let mut any = false;
+    for t in m.indices.as_chunks::<3>().0 {
+        if looks.get(t[0] as usize).is_none_or(|l| l[2] == 0) {
+            continue;
+        }
+        any = true;
+        for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+            let (Some(ka), Some(kb)) = (key(a), key(b)) else { return false };
+            let k = if ka <= kb { (ka, kb) } else { (kb, ka) };
+            *edges.entry(k).or_insert(0) += 1;
+        }
+    }
+    any && edges.values().all(|n| n % 2 == 0)
+}
+
 impl PtScene {
     /// Every placed mesh baked to world triangles (relative to `origin`), cut by `clip` (keep n · p ≤ d), plus the
     /// ground disc (`ground`: centre, radius, linear colour), then the box tree.
@@ -54,6 +74,9 @@ impl PtScene {
     ) -> PtScene {
         let mut tris: Vec<([V; 3], [f32; 4], [f32; 4])> = Vec::new();
         let mut dropped = 0usize;
+        // glass that closes round a solid (every edge of its glass faces met twice) bends light through it (three's
+        // transmission at ior 1.5); a lone pane stays thin
+        let solid: Vec<bool> = meshes.iter().zip(looks.iter()).map(|(m, lk)| glass_is_solid(m, lk)).collect();
         for inst in instances.iter().filter(|i| !i.hidden) {
             let (Some(m), Some(lk)) = (meshes.get(inst.mesh), looks.get(inst.mesh)) else { continue };
             let full = mmul(&inst.m, &translation(m.origin));
@@ -78,7 +101,8 @@ impl PtScene {
                     nm[2] * nn[0] + nm[5] * nn[1] + nm[8] * nn[2],
                 ];
                 let col = [srgb1(c[0]), srgb1(c[1]), srgb1(c[2]), f32::from(l[0]) / 255.0];
-                let mat = [f32::from(l[1]) / 255.0, f32::from(l[2]) / 255.0, t[2], 0.0];
+                let solid_glass = l[2] > 0 && solid.get(inst.mesh).copied().unwrap_or(false);
+                let mat = [f32::from(l[1]) / 255.0, f32::from(l[2]) / 255.0, t[2], if solid_glass { 1.0 } else { 0.0 }];
                 Some((V { p: w, n: wn, uv: [f64::from(t[0]), f64::from(t[1])] }, col, mat))
             };
             for t in m.indices.as_chunks::<3>().0 {

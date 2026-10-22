@@ -443,8 +443,8 @@ pub const SHADOW_SIZE: u32 = 2048;
 /// A material texture's side (texels; three-mats.js libTextures' default size) and its mip levels.
 pub const TEX_SIZE: u32 = 256;
 const TEX_MIPS: u32 = 9;
-/// Layers of the material texture array (the library's textured materials).
-pub const TEX_LAYERS: u32 = 32;
+/// Layers of the material texture array: the library's textured materials (30), then imported pictures (ModelCraft `img:` paints).
+pub const TEX_LAYERS: u32 = 64;
 
 impl Default for Style3 {
     fn default() -> Self {

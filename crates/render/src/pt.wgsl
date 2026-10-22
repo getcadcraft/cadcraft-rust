@@ -150,6 +150,8 @@ struct Surf {
     rough: f32,
     metal: f32,
     glass: f32,
+    // glass closing round a solid: it bends light (ior 1.5)
+    solid: bool,
 };
 
 fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
@@ -173,6 +175,7 @@ fn surface(h: Hit) -> Surf {
     s.rough = clamp(col.w, 0.03, 1.0);
     s.metal = m.x;
     s.glass = m.y;
+    s.solid = m.w > 0.5;
     if m.z >= 0.0 && pt.env.y > 0.0 {
         let uv = vec2<f32>(n0.w * w0 + n1.w * h.b1 + n2.w * h.b2, vv.x * w0 + vv.y * h.b1 + vv.z * h.b2);
         s.albedo = srgb_to_linear(textureSampleLevel(mtex, msamp, uv, i32(round(m.z)), 0.0).rgb);
@@ -313,13 +316,47 @@ fn trace_px(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
         let v = -d;
         if s.glass > 0.0 {
-            // thin glass: Fresnel's share reflects, the rest goes on through, tinted
-            let cosi = max(dot(v, s.n), 0.0);
-            let fr = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
             glassy++;
             if glassy > i32(pt.env.w) {
                 break;
             }
+            if s.solid {
+                // a glass solid (three's transmission, ior 1.5): the ray bends going in and coming out, Fresnel's share
+                // reflects (all of it past the critical angle); a rough (frosted) surface bends about a GGX normal
+                var m = s.n;
+                if s.rough > 0.06 {
+                    let a = s.rough * s.rough;
+                    let u1 = rnd();
+                    let u2 = rnd();
+                    let th = atan(a * sqrt(u1 / max(1.0 - u1, 1e-6)));
+                    let ph = 2.0 * PI * u2;
+                    m = basis(s.n) * vec3<f32>(sin(th) * cos(ph), sin(th) * sin(ph), cos(th));
+                    if dot(m, v) <= 0.0 {
+                        m = s.n;
+                    }
+                }
+                let eta = select(1.5, 1.0 / 1.5, front);
+                let cosi = clamp(dot(v, m), 0.0, 1.0);
+                let r = refract(d, m, eta);
+                let tir = dot(r, r) < 1e-12;
+                // Schlick with the cosine on the air's side
+                let c = select(cosi, sqrt(max(0.0, 1.0 - eta * eta * (1.0 - cosi * cosi))), !front);
+                let fr = select(0.04 + 0.96 * pow(1.0 - c, 5.0), 1.0, tir);
+                if rnd() < fr {
+                    d = reflect(d, m);
+                    o = p + s.n * 1e-4;
+                } else {
+                    if front {
+                        thru *= mix(vec3<f32>(1.0), s.albedo, 0.5) * s.glass;
+                    }
+                    d = normalize(r);
+                    o = p - s.n * 1e-4;
+                }
+                continue;
+            }
+            // thin glass: Fresnel's share reflects, the rest goes on through, tinted
+            let cosi = max(dot(v, s.n), 0.0);
+            let fr = 0.04 + 0.96 * pow(1.0 - cosi, 5.0);
             if rnd() < fr {
                 d = reflect(d, s.n);
                 o = p + s.n * 1e-4;
