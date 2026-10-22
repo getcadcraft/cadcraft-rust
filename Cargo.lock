@@ -899,6 +899,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-video"
+version = "0.0.1"
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

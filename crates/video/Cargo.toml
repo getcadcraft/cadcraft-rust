@@ -1,0 +1,18 @@
+[package]
+name = "cc-video"
+description = "CadCraft L3: WebM video from RGBA frames (VP8 key frames, RFC 6386, in a WebM / Matroska file), pure Rust."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
