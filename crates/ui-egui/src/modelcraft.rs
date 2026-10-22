@@ -62,6 +62,17 @@ pub const PALETTE: &[(&str, &str)] = &[
     ("section", "Section"),
 ];
 
+/// A palette tool's tooltip: the modeler keys' title (app.btitle.<tool>) or ui.inc's (ui.tool.<tool>.title).
+pub fn tool_title(name: &str, blender: bool) -> String {
+    let bk = format!("app.btitle.{name}");
+    if blender && mt(&bk, &[]) != bk {
+        return mt(&bk, &[]);
+    }
+    let k = format!("ui.tool.{name}.title");
+    let s = mt(&k, &[]);
+    if s == k { String::new() } else { s }
+}
+
 /// One open ModelCraft model and its tools.
 pub struct ModelView {
     pub tools: Tools,
@@ -127,8 +138,18 @@ pub struct ModelView {
     pub render_settings: cc_m3d_tools::looks::Settings,
     /// the scenes playing (Play): when the next one comes, ms on the view's clock
     pub playing: Option<f64>,
+    /// the Terrain grid dialog (mcterrain.rs)
+    pub terrain_dlg: Option<crate::mcterrain::TerrainDlg>,
+    /// the Starter library dialog is open (mcstarter.rs)
+    pub starter_dlg: bool,
+    /// the key style: "sketchup" (push-pull keys) or "blender" (modeler keys) (mckeys.rs)
+    pub keys: String,
+    /// a Ctrl + middle-drag zooming about this point (modeler keys)
+    cam_zoom: Option<(f64, f64)>,
     /// imported pictures decoded for the view and renders (model3d.rs)
     pub(crate) img_cache: model3d::ImgCache,
+    /// Presentation view (Shift+P): only the model on screen
+    pub presenting: bool,
 }
 
 /// view3d.js's default sun: 21 June, 15:00, 40° N 105° W, UTC−7.
@@ -202,7 +223,12 @@ impl ModelView {
             render_dlg: None,
             render_settings: cc_m3d_tools::looks::Settings::default(),
             playing: None,
+            terrain_dlg: None,
+            starter_dlg: false,
+            keys: "sketchup".into(),
+            cam_zoom: None,
             img_cache,
+            presenting: false,
         };
         v.fit();
         Ok(v)
@@ -425,7 +451,10 @@ impl ModelView {
         let c = t.canvas_bg;
         style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
         view3d::paint(ui, rect, &self.scene, &cam, &style);
-        self.overlay(ui, rect, t);
+        // presentation view: no tool marks, no selection
+        if !self.presenting {
+            self.overlay(ui, rect, t);
+        }
         self.take_tool_message();
         self.dialogs(ui.ctx());
     }
@@ -455,6 +484,13 @@ impl ModelView {
             {
                 // a click on a lamp's mark picks the lamp before the tools see it
                 let _ = self.act(&format!("light-sel:{}", crate::mcact::ns(id)));
+            } else if self.blender() && pressed[1] && self.tools.busy() {
+                // modeler keys: right-click cancels what a tool is doing
+                let _ = self.tools.escape();
+            } else if self.blender() && pressed[0] && mods.alt {
+                // modeler keys: Alt + left-drag orbits (Alt+Shift pans), for mice without a middle button
+                self.held = Some(egui::PointerButton::Secondary);
+                self.cam_zoom = None;
             } else if pressed[0] {
                 self.place_guard();
                 self.held = Some(egui::PointerButton::Primary);
@@ -462,14 +498,22 @@ impl ModelView {
                 let _ = self.tools.down(&e);
             } else if pressed[1] {
                 self.held = Some(egui::PointerButton::Secondary);
+                self.cam_zoom = None;
             } else if pressed[2] {
                 self.held = Some(egui::PointerButton::Middle);
+                // modeler keys: Ctrl + middle-drag zooms about where it started
+                let z = self.blender() && (mods.command || mods.ctrl);
+                self.cam_zoom = z.then(|| (f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y)));
             }
         }
         match self.held {
             Some(egui::PointerButton::Secondary | egui::PointerButton::Middle) => {
                 let (dx, dy) = (f64::from(delta.x), f64::from(delta.y));
-                if dx != 0.0 || dy != 0.0 {
+                if let Some((x0, y0)) = self.cam_zoom {
+                    if dy != 0.0 {
+                        self.tools.host.cam.zoom_at((dy * 0.01).exp(), Some(x0), Some(y0), None);
+                    }
+                } else if dx != 0.0 || dy != 0.0 {
                     if mods.shift {
                         self.tools.host.cam.pan(dx, dy);
                     } else {
@@ -516,11 +560,10 @@ impl ModelView {
                 egui::Event::Cut => self.run_act("cut"),
                 egui::Event::Paste(_) => self.run_act(if mods.shift { "paste-in-place" } else { "paste" }),
                 egui::Event::Text(s) => {
+                    // typed text goes to the value box once a value key started it (the keys go to the handler)
                     for ch in s.chars() {
-                        if ch.is_ascii_digit() || ".,-+/*<>@[]'\"xXs ".contains(ch) || (!self.vcb.is_empty() && ch.is_ascii_alphabetic()) {
+                        if (!self.vcb.is_empty() && !ch.is_control()) || crate::mckeys::vcb_start(&ch.to_string()) {
                             self.vcb.push(ch);
-                        } else if let Some(name) = cc_m3d_tools::tools::tool_key(&ch.to_ascii_lowercase().to_string()) {
-                            self.set_tool(name);
                         }
                     }
                 }
@@ -529,130 +572,48 @@ impl ModelView {
         }
     }
 
+    /// A key pressed over the view: the value box while it is being typed, else modelcraft.js's keydown handler
+    /// (mckeys.rs) with the key as the browser names it.
     fn key(&mut self, key: egui::Key, m: egui::Modifiers) {
         use egui::Key;
-        if m.command && key == Key::Z {
-            if m.shift {
-                self.redo()
-            } else {
-                self.undo()
-            }
-            return;
-        }
-        if m.command && key == Key::Y {
-            self.redo();
-            return;
-        }
-        if key == Key::PageUp || key == Key::PageDown {
-            self.step_scene(if key == Key::PageUp { -1 } else { 1 });
-            return;
-        }
-        if m.command && key == Key::A {
-            self.select_all();
-            return;
-        }
-        if m.command && key == Key::D {
-            self.run_act("duplicate");
-            return;
-        }
-        if m.command && m.shift && key == Key::G {
-            self.make_group("component");
-            return;
-        }
-        if m.command && key == Key::G {
-            self.make_group("group");
-            return;
-        }
-        match key {
-            Key::Escape => {
-                // modelcraft.js: Esc stops the scenes playing first (and goes on)
-                self.stop_play();
-                if !self.vcb.is_empty() {
-                    self.vcb.clear();
-                } else if self.tools.escape().unwrap_or(false) {
-                } else if self.tools.name != "select" {
-                    self.set_tool("select");
-                } else if !self.tools.host.sel.is_empty() {
-                    self.tools.host.sel.clear();
-                } else if !self.tools.host.path.is_empty() {
-                    self.close_ctx();
-                }
-            }
-            Key::Enter => {
-                if !self.vcb.is_empty() {
+        if !self.vcb.is_empty() {
+            match key {
+                Key::Enter => {
                     let text = std::mem::take(&mut self.vcb);
                     let _ = self.tools.value(&text);
                 }
-            }
-            Key::Backspace if !self.vcb.is_empty() => {
-                self.vcb.pop();
-            }
-            Key::Delete | Key::Backspace if self.vcb.is_empty() && !self.tools.busy() => self.erase_selection(),
-            Key::Delete => {
-                let _ = self.tools.key("Delete");
-            }
-            Key::ArrowRight | Key::ArrowLeft | Key::ArrowUp | Key::ArrowDown => {
-                // a busy tool that locks takes the arrow (red, green, blue); otherwise the arrows orbit (Shift pans)
-                let name = match key {
-                    Key::ArrowRight => "ArrowRight",
-                    Key::ArrowLeft => "ArrowLeft",
-                    Key::ArrowUp => "ArrowUp",
-                    _ => "ArrowDown",
-                };
-                if self.lockable() && self.tools.busy() && self.tools.key(name).unwrap_or(false) {
-                    self.say_lock();
-                    return;
+                Key::Backspace => {
+                    self.vcb.pop();
                 }
-                let s = 18.0;
-                let (l, r, u, d) = (key == Key::ArrowLeft, key == Key::ArrowRight, key == Key::ArrowUp, key == Key::ArrowDown);
-                let cam = &mut self.tools.host.cam;
-                if m.shift {
-                    cam.pan(
-                        if l {
-                            s
-                        } else if r {
-                            -s
-                        } else {
-                            0.0
-                        },
-                        if u {
-                            s
-                        } else if d {
-                            -s
-                        } else {
-                            0.0
-                        },
-                    );
-                } else {
-                    cam.orbit(
-                        if l {
-                            -s
-                        } else if r {
-                            s
-                        } else {
-                            0.0
-                        },
-                        if u {
-                            -s
-                        } else if d {
-                            s
-                        } else {
-                            0.0
-                        },
-                    );
-                }
+                Key::Escape => self.vcb.clear(),
+                _ => {}
             }
-            _ => {}
+            return;
         }
+        let ctrl = m.command || m.ctrl;
+        // Ctrl+C / X / V arrive as clipboard events
+        if ctrl && matches!(key, Key::C | Key::X | Key::V) {
+            return;
+        }
+        let name = key.name();
+        let k = match key {
+            Key::Space => " ".to_string(),
+            Key::Enter | Key::Escape | Key::Tab | Key::Delete | Key::Backspace | Key::Home | Key::PageUp | Key::PageDown => {
+                name.to_string()
+            }
+            Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown => name.to_string(),
+            _ if name.len() == 1 && name.chars().all(|c| c.is_ascii_alphabetic()) => name.to_lowercase(),
+            _ => return,
+        };
+        self.key_down(&k, "", m.shift, ctrl, m.alt);
     }
-
     /// Whether the current tool locks to an axis (arrows, Shift).
-    fn lockable(&mut self) -> bool {
+    pub(crate) fn lockable(&mut self) -> bool {
         self.tools.with_tool(|t, _| Ok(cc_m3d_tools::tools::ToolImpl::lockable(t)), false).unwrap_or(false)
     }
 
     /// sayLock: what the arrow or Shift locked to.
-    fn say_lock(&mut self) {
+    pub(crate) fn say_lock(&mut self) {
         let m = match &self.tools.lock {
             Some(l) => {
                 let w = match l.kind.as_str() {

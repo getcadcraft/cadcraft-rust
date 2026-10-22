@@ -531,7 +531,13 @@ impl ModelView {
                 });
             }
             if root.insts.is_empty() {
-                ui.label(RichText::new(mt("ui.outliner.empty", &[("comp", "G"), ("group", "Shift+G")])).small().color(t.text_dim));
+                // the note follows the key style (modelcraft.js NOTES)
+                let note = if self.blender() {
+                    mt("app.outliner.empty.bl", &[("group", "Ctrl+G"), ("comp", "Ctrl+Shift+G")])
+                } else {
+                    mt("ui.outliner.empty", &[("comp", "G"), ("group", "Shift+G")])
+                };
+                ui.label(RichText::new(note).small().color(t.text_dim));
                 return;
             }
             // drop on the heading row: to the top level
@@ -682,6 +688,9 @@ impl ModelView {
 
     fn comps_section(&self, ui: &mut egui::Ui, t: &Tokens, acts: &mut Vec<String>) {
         egui::CollapsingHeader::new(RichText::new(mt("ui.comps", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+            if crate::shell::link(ui, t, "grid-3x3", &mt("ui.comps.starter", &[])).clicked() {
+                acts.push("starter".into());
+            }
             let model = &self.tools.host.model;
             let counts = model.instance_counts();
             let mut any = false;
@@ -696,7 +705,8 @@ impl ModelView {
                 });
             }
             if !any {
-                ui.label(RichText::new(mt("ui.comps.empty", &[("key", "G")])).small().color(t.text_dim));
+                let key = if self.blender() { "Ctrl+Shift+G" } else { "G" };
+                ui.label(RichText::new(mt("ui.comps.empty", &[("key", key)])).small().color(t.text_dim));
             }
         });
     }

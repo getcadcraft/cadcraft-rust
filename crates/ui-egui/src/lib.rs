@@ -85,13 +85,16 @@ pub mod markupprops;
 pub mod markuptools;
 pub mod mcact;
 pub mod mcedit;
+mod mckeys;
 pub mod mclights;
 pub mod mcmats;
 pub mod mcpanels;
 pub mod mcprint;
 mod mcrender;
 pub mod mcsolids;
+mod mcstarter;
 mod mcstretch;
+mod mcterrain;
 pub mod model3d;
 pub mod modelcraft;
 pub mod mytoolsdlg;
@@ -838,8 +841,13 @@ impl UiApp {
         self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
+        // the key style is the viewer's, not the model's: it stays from the model open before
+        let keys = self.mc.as_ref().map(|m| m.keys.clone());
         match modelcraft::ModelView::new(model, name, self.preset.is_dark()) {
             Ok(mut mv) => {
+                if let Some(k) = keys {
+                    mv.keys = k;
+                }
                 let mut v = view3d::View3::default();
                 self.style3(&mut v);
                 mv.mode = if !v.style.faces {
@@ -931,6 +939,8 @@ impl UiApp {
         use shell::{Tool, ToolGroup};
         let t = self.tokens;
         let cur = self.mc.as_ref().map(|m| m.tools.name.clone()).unwrap_or_default();
+        let menus = self.mc.as_ref().map(|m| m.menu_state()).unwrap_or_default();
+        let blender = menus.blender;
         let mut pick: Option<&str> = None;
         let mut undo = false;
         let mut redo = false;
@@ -938,7 +948,7 @@ impl UiApp {
         let mut fit = false;
         let mt = |k: &str| modelcraft::mt(k, &[]);
         let tool = |name: &'static str, icon: &'static str| {
-            Tool::new(name, icon, mt(&format!("ui.tool.{name}"))).tip(mt(&format!("ui.tool.{name}.title"))).on(cur == name)
+            Tool::new(name, icon, mt(&format!("ui.tool.{name}"))).tip(modelcraft::tool_title(name, blender)).on(cur == name)
         };
         let act = |id: &'static str, icon: &'static str, key: &str| Tool::new(id, icon, mt(key)).tip(mt(&format!("{key}.title")));
         let groups = vec![
@@ -994,6 +1004,7 @@ impl UiApp {
                 tools: vec![
                     act("fit", "arrows-fullscreen", "ui.tool.extents"),
                     tool("section", "scissors"),
+                    Tool::new("menu:views", "camera", mt("ui.views")).tip(mt("ui.views.title")),
                     Tool::new("act:storeys", "layers", mt("ui.export.storeys")),
                     Tool::new("act:render", "camera", mt("ui.export.render")),
                 ],
@@ -1008,7 +1019,10 @@ impl UiApp {
                         egui::Popup::menu(&resp).show(|ui| mcedit::solids_menu_items(ui, &mut edit));
                     }
                     "menu:edit" => {
-                        egui::Popup::menu(&resp).show(|ui| mcedit::edit_menu_items(ui, &mut edit));
+                        egui::Popup::menu(&resp).show(|ui| mcedit::edit_menu_items(ui, &mut edit, blender));
+                    }
+                    "menu:views" => {
+                        egui::Popup::menu(&resp).show(|ui| mcedit::views_menu_items(ui, &mut edit, menus));
                     }
                     _ if !resp.clicked() => {}
                     "undo" => undo = true,
@@ -2748,6 +2762,19 @@ impl UiApp {
             }
             None => Vec::new(),
         };
+        // ModelCraft's status bar switches (ui.inc .mc-status: Snap, Collide)
+        let mc_aids: Vec<(String, String, &'static str, bool)> = match self.mc.as_ref().filter(|_| self.editor.is_none()) {
+            Some(mc) => {
+                let st = mc.menu_state();
+                let m = |k: &str| modelcraft::mt(k, &[]);
+                vec![
+                    (m("ui.snap"), m("ui.snap.title"), "toggle:snap", st.snap),
+                    (m("ui.collide"), m("ui.collide.title"), "toggle:collide", st.collide),
+                ]
+            }
+            None => Vec::new(),
+        };
+        let mut mc_press: Option<&'static str> = None;
         let mut press: Option<(&'static str, String)> = None;
         let mut snapkind: Option<&'static str> = None;
         egui::Panel::bottom("status")
@@ -2827,9 +2854,20 @@ impl UiApp {
                                 press = Some((cmd, label.clone()));
                             }
                         }
+                        for (label, tip, a, on) in mc_aids.iter().rev() {
+                            if shell::toggle(ui, &t, label, *on).on_hover_text(tip).clicked() {
+                                mc_press = Some(a);
+                            }
+                        }
                     });
                 });
             });
+        if let Some(a) = mc_press
+            && let Some(mc) = self.mc.as_mut()
+            && let Err(e) = mc.act(a)
+        {
+            mc.message = e;
+        }
         if let Some(k) = snapkind {
             self.run_ui("edit.snapkind", &Params { name: Some(k.into()), ..Default::default() });
         }

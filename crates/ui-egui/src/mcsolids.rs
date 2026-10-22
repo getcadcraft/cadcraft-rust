@@ -391,6 +391,8 @@ impl ModelView {
         }
         self.stretch_dialogs(ctx, act);
         self.render_dialog(ctx, act);
+        self.terrain_dialogs(ctx, act);
+        self.starter_dialog(ctx, act);
     }
 }
 

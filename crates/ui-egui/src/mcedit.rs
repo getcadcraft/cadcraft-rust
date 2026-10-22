@@ -399,30 +399,32 @@ impl ModelView {
     }
 }
 
-/// The palette's Edit, Solids and 3D text entries (ui.inc's Edit group, the More menu, the Solids menu, File ›
-/// Export › IFC storeys): → the action picked.
-pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
-    let mut act: Option<String> = None;
-    ui.horizontal_wrapped(|ui| {
-        if ui.add(crate::shell::Btn::new(mt("ui.tool.copy", &[]))).on_hover_text(mt("ui.tool.copy.title", &[])).clicked() {
-            act = Some("copy".into());
+/// What the palette's menus show as switched on: the key style, Perspective, Presentation view, section planes and
+/// cuts, snapping, collisions.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MenuState {
+    pub blender: bool,
+    pub persp: bool,
+    pub present: bool,
+    pub planes: bool,
+    pub cuts: bool,
+    pub snap: bool,
+    pub collide: bool,
+}
+
+impl crate::modelcraft::ModelView {
+    /// The palette menus' switches as they stand.
+    pub fn menu_state(&self) -> MenuState {
+        MenuState {
+            blender: self.blender(),
+            persp: self.tools.host.cam.persp,
+            present: self.presenting,
+            planes: self.tools.host.model.section_view.planes,
+            cuts: self.tools.host.model.section_view.cuts,
+            snap: self.tools.snapping,
+            collide: self.tools.collide,
         }
-        if ui.add(crate::shell::Btn::new(mt("ui.tool.paste", &[]))).on_hover_text(mt("ui.tool.paste.title", &[])).clicked() {
-            act = Some("paste".into());
-        }
-    });
-    ui.menu_button(mt("ui.editmenu", &[]), |ui| edit_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.editmenu.title", &[]));
-    ui.menu_button(mt("ui.solids", &[]), |ui| solids_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.solids.title", &[]));
-    if ui.add(crate::shell::Btn::new(mt("ui.tool.text3d", &[]))).on_hover_text(mt("ui.tool.text3d.title", &[])).clicked() {
-        act = Some("text3d".into());
     }
-    if ui.add(crate::shell::Btn::new(mt("ui.export.storeys", &[]))).clicked() {
-        act = Some("storeys".into());
-    }
-    if ui.add(crate::shell::Btn::new(mt("ui.export.render", &[]))).clicked() {
-        act = Some("render".into());
-    }
-    act
 }
 
 fn menu_item(ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>) {
@@ -433,7 +435,7 @@ fn menu_item(ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>) {
 }
 
 /// The Edit group's "More" menu (ui.inc `data-edit-menu`): cut … select none.
-pub fn edit_menu_items(ui: &mut egui::Ui, act: &mut Option<String>) {
+pub fn edit_menu_items(ui: &mut egui::Ui, act: &mut Option<String>, blender: bool) {
     for (k, a) in [
         ("ui.editmenu.cut", "cut"),
         ("ui.editmenu.copy", "copy"),
@@ -459,12 +461,46 @@ pub fn edit_menu_items(ui: &mut egui::Ui, act: &mut Option<String>) {
     menu_item(ui, "ui.editmenu.intersect_model", "intersect-model", act);
     menu_item(ui, "ui.editmenu.intersect_sel", "intersect-sel", act);
     ui.separator();
+    menu_item(ui, "ui.editmenu.terrain_contours", "terrain-contours", act);
+    menu_item(ui, "ui.editmenu.terrain_grid", "terrain-grid", act);
+    menu_item(ui, "ui.editmenu.sculpt", "sculpt", act);
+    ui.separator();
     menu_item(ui, "ui.editmenu.axes_place", "axes-place", act);
     menu_item(ui, "ui.editmenu.axes_face", "axes-face", act);
     menu_item(ui, "ui.editmenu.axes_reset", "axes-reset", act);
     ui.separator();
     menu_item(ui, "ui.editmenu.select_all", "select-all", act);
     menu_item(ui, "ui.editmenu.select_none", "select-none", act);
+    ui.separator();
+    // the key style (menuitemradio)
+    for (k, a, on) in [("ui.editmenu.keys_sketchup", "keys-sketchup", !blender), ("ui.editmenu.keys_blender", "keys-blender", blender)] {
+        menu_check(ui, k, a, on, true, act);
+    }
+}
+
+/// A menu entry that is switched on or off (menuitemradio / menuitemcheckbox), as the status bar's snap menu shows
+/// its switches.
+fn menu_check(ui: &mut egui::Ui, key: &str, a: &str, on: bool, radio: bool, act: &mut Option<String>) {
+    let mut v = on;
+    let clicked = if radio { ui.radio(on, mt(key, &[])).clicked() } else { ui.checkbox(&mut v, mt(key, &[])).clicked() };
+    if clicked {
+        *act = Some(a.to_string());
+        ui.close();
+    }
+}
+
+/// The Camera group's Views menu (ui.inc `data-view-menu`): the standard views, Perspective, Presentation view,
+/// section planes and cuts.
+pub fn views_menu_items(ui: &mut egui::Ui, act: &mut Option<String>, st: MenuState) {
+    for v in ["iso", "top", "front", "right", "back", "left", "bottom"] {
+        menu_item(ui, &format!("ui.views.{v}"), &format!("view:{v}"), act);
+    }
+    ui.separator();
+    menu_check(ui, "ui.views.persp", "persp", st.persp, false, act);
+    menu_check(ui, "ui.views.present", "present", st.present, false, act);
+    ui.separator();
+    menu_check(ui, "ui.views.sec_planes", "sec-planes", st.planes, false, act);
+    menu_check(ui, "ui.views.sec_cuts", "sec-cuts", st.cuts, false, act);
 }
 
 /// The Organize group's Solids menu (ui.inc `data-solid-menu`).

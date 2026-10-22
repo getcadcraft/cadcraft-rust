@@ -62,7 +62,7 @@ impl ModelView {
     /// The light actions; None when `name` is not one of them.
     pub fn lights_act(&mut self, name: &str, arg: &str) -> Option<Result<(), String>> {
         if !name.starts_with("light-") {
-            return None;
+            return self.terrain_act(name, arg);
         }
         self.check_sel_light();
         let id_of = |s: &str| s.trim().parse::<f64>().ok().filter(|v| v.is_finite());
