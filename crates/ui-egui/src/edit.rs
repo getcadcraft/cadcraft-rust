@@ -223,6 +223,13 @@ impl Host for UiHost {
     fn print(&mut self, s: &str) {
         self.0.borrow_mut().push_log(s);
     }
+    /// The window has a 3D tab (cad3dtab.rs): the engine shows its workspace there.
+    fn open3d(&mut self) -> bool {
+        true
+    }
+    fn set_cursor(&mut self, p: P2) {
+        self.0.borrow_mut().cursor = Some(p);
+    }
     fn prompt(&mut self, s: &str) {
         self.0.borrow_mut().prompt = s.to_string();
     }

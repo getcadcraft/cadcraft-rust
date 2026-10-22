@@ -36,6 +36,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("props.group", "Properties: group", "", "{name: \"all\" | a type (line, circle, …)} → the group the panel shows"),
     ("props.vertex", "Properties: vertex", "", "{index: n} → the polyline vertex the panel shows (0 = the first)"),
     (
+        "props.units",
+        "Properties: drawing units",
+        "",
+        "{name: \"\" | millimeters | centimeters | meters | inches | feet} → what one drawing unit stands for; with solids the 3D model is scaled to stay on the drawing (one undo step)",
+    ),
+    (
         "props.set",
         "Properties: set a field",
         "",
@@ -96,6 +102,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "props.close" => app.cadprops.open = false,
         "props.group" => app.cadprops.group = params.name.clone(),
         "props.vertex" => app.cadprops.vertex = i64::try_from(params.index.unwrap_or(0)).unwrap_or(0),
+        "props.units" => set_units(app, params.name.as_deref().unwrap_or(""))?,
         "props.set" => {
             let spec = params.name.clone().ok_or("props.set: name = \"<key>=<value>\" is required")?;
             let (key, raw) = spec.split_once('=').ok_or("props.set: name = \"<key>=<value>\"")?;
@@ -150,6 +157,28 @@ pub fn set_field(app: &mut UiApp, key: &str, raw: &str) -> Result<(), String> {
         return Err(e);
     }
     app.cadprops.note = if r.locked > 0 { format!("{} on locked layers left as they were", r.locked) } else { String::new() };
+    Ok(())
+}
+
+/// The units the panel offers (props.js unitsSelect).
+const UNITS: [&str; 6] = ["", "millimeters", "centimeters", "meters", "inches", "feet"];
+
+/// props.js unitsSelect's change: model3d.js setUnits, the status line, and the note about the scaled 3D model.
+pub fn set_units(app: &mut UiApp, units: &str) -> Result<(), String> {
+    if !UNITS.contains(&units) {
+        return Err(format!("props.units: {units} is not one of the drawing units (\"\", millimeters, centimeters, meters, inches, feet)"));
+    }
+    let l = lang();
+    let ed = app.editor.as_mut().ok_or("props.units: no drawing is open for editing")?;
+    let (scaled, ratio) = cc_engine::cmd::solid3d::set_units(ed.eng.shared(), units);
+    let name = l.s(&format!("props.units.{}", if units.is_empty() { "none" } else { units }));
+    app.message = l.t(if scaled { "props.units.set.scaled" } else { "props.units.set" }, &[("units", name.clone())]);
+    if scaled {
+        let k: f64 = format!("{ratio:.5e}").parse().unwrap_or(ratio);
+        let m = l.t("props.units.set.3d", &[("units", name), ("k", cc_cad::js::num_to_string(k))]);
+        ed.hs.borrow_mut().push_log(&m);
+    }
+    app.sync_editor();
     Ok(())
 }
 
@@ -291,6 +320,7 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut pick_group: Option<String> = None;
     let mut vertex_to: Option<i64> = None;
     let mut close = false;
+    let mut pick_units: Option<String> = None;
     let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
     egui::Panel::right("cad_props").default_size(270.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
         let Some(ed) = app.editor.as_ref() else { return };
@@ -328,6 +358,22 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
                 ui.end_row();
                 ui.label(l.s("props.f.lw"));
                 ui.label(cur.lineweight.map_or_else(|| l.s("lt.bylayer"), |w| l.t("lw.mm", &[("mm", cc_cad::js::to_fixed(w, 2))])));
+                ui.end_row();
+                // props.js unitsSelect: what one drawing unit stands for (with solids, the 3D model follows)
+                let cur_u = doc.meta.get("units").filter(|v| cc_cad::js::truthy(Some(v))).map(cc_cad::js::to_js_string).unwrap_or_default();
+                let name = |u: &str| l.s(&format!("props.units.{}", if u.is_empty() { "none" } else { u }));
+                let lab = ui.label(l.s("props.cur.units")).on_hover_text(l.s("props.cur.units.title"));
+                egui::ComboBox::new("props_units", "")
+                    .selected_text(if UNITS.contains(&cur_u.as_str()) { name(&cur_u) } else { cur_u.clone() })
+                    .show_ui(ui, |ui| {
+                        for u in UNITS {
+                            if ui.selectable_label(u == cur_u, name(u)).clicked() && u != cur_u {
+                                pick_units = Some(u.to_string());
+                            }
+                        }
+                    })
+                    .response
+                    .labelled_by(lab.id);
                 ui.end_row();
             });
             return;
@@ -470,6 +516,9 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     });
     if close {
         app.run_ui_pub("props.close", &Params::default());
+    }
+    if let Some(u) = pick_units {
+        app.run_ui_pub("props.units", &Params { name: Some(u), ..Default::default() });
     }
     if let Some(g) = pick_group {
         app.run_ui_pub("props.group", &Params { name: Some(g), ..Default::default() });

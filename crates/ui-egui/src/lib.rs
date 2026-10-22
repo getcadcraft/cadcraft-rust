@@ -21,6 +21,7 @@ pub mod bimgrips;
 pub mod bimplace;
 pub mod bimplan;
 pub mod bimtools;
+pub mod cad3dtab;
 pub mod cadprops;
 pub mod canvas;
 pub mod civil3d;
@@ -257,6 +258,8 @@ pub struct UiApp {
     pub editor: Option<edit::Editor>,
     /// the drafting editor's Properties panel (M4.11)
     pub cadprops: cadprops::CadProps,
+    /// the drafting editor's 3D tab (M4.25)
+    pub tab3d: cad3dtab::Tab3d,
     /// the drafting editor's Plot dialog (M4.12)
     pub plot: plotdlg::PlotDlg,
     /// INSERT, File's "Insert from" dialog / a question with buttons
@@ -346,6 +349,7 @@ impl Default for UiApp {
             bench_result: None,
             editor: None,
             cadprops: cadprops::CadProps::default(),
+            tab3d: cad3dtab::Tab3d::default(),
             plot: plotdlg::PlotDlg::default(),
             choose: None,
             lib: libdlg::LibPanel::default(),
@@ -1457,6 +1461,7 @@ impl UiApp {
                     if ed.eng.busy() {
                         ed.escape();
                     }
+                    ed.eng.hide3d();
                     ed.hs.borrow_mut().entered = None;
                     let name = if i == 0 { None } else { ed.eng.doc().layouts.get(i.saturating_sub(1)).map(|l| l.name.clone()) };
                     ed.eng.doc_mut().set_space(name.as_deref());
@@ -1493,6 +1498,7 @@ impl UiApp {
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("hub.") => return hub::run(self, id, params),
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
+            id if id.starts_with("tab3d.") => return cad3dtab::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
             id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
             id if id.starts_with("par.") => return parpanel::run(self, id, params),
@@ -1973,6 +1979,8 @@ impl UiApp {
             civilview::ui(self, ui);
         } else if self.doc.is_none() && self.editor.is_none() {
             hub::ui(self, ui);
+        } else if cad3dtab::showing(self) {
+            egui::CentralPanel::no_frame().show(ui, |ui| cad3dtab::show(self, ui));
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         }
@@ -2240,6 +2248,8 @@ impl UiApp {
         }
         let mut pick = None;
         let mut add = false;
+        let mut open3d = false;
+        let in3d = cad3dtab::showing(self);
         egui::Panel::bottom("tabs")
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(6, 3)))
@@ -2247,8 +2257,18 @@ impl UiApp {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal(|ui| {
                         for (i, (n, _)) in names.iter().enumerate() {
-                            if ui.selectable_label(i == self.space, n).clicked() {
+                            if ui.selectable_label(i == self.space && !in3d, n).clicked() {
                                 pick = Some(i);
+                            }
+                            // cadcraft.js renderTabs: Model, 3D, then the sheets
+                            if i == 0
+                                && editing
+                                && ui
+                                    .selectable_label(in3d, "3D")
+                                    .on_hover_text(crate::edit::lang_text("app.model_3d_drawing_ground", &[]))
+                                    .clicked()
+                            {
+                                open3d = true;
                             }
                         }
                         // cadcraft.js's "+" tab: a new sheet (LAYOUT)
@@ -2261,6 +2281,9 @@ impl UiApp {
             });
         if let Some(i) = pick {
             self.run_ui("space.select", &Params { index: Some(i), ..Default::default() });
+        }
+        if open3d && !in3d {
+            self.run_ui("tab3d.open", &Params::default());
         }
         if add {
             self.run_ui("cmd.line", &Params { name: Some("LAYOUT".into()), ..Default::default() });
@@ -2586,6 +2609,17 @@ impl UiApp {
         }
         // keys typed into another field (the Properties panel, the Plot dialog) stay there
         let elsewhere = ctx.memory(|m| m.focused()).is_some_and(|f| Some(f) != cmd_id);
+        // the 3D tab takes Esc and Delete first (its tool, open group, selection)
+        let (mut esc, mut del) = (esc, del);
+        if ed.eng.in3d() && !elsewhere {
+            let typing = !ed.line.is_empty();
+            if esc && ed.eng.ws_key("Escape", typing) {
+                esc = false;
+            }
+            if del && ed.eng.ws_key("Delete", typing) {
+                del = false;
+            }
+        }
         if esc && !elsewhere {
             ed.escape();
             ed.line.clear();

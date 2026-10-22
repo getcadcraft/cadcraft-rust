@@ -2,6 +2,44 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.25–M4.26 CadCraft's 3D tab (agent, work/cad3d)
+
+- cc-engine `ws3d.rs` (ws3d-core.js `Workspace3D`): ModelCraft's tools (cc-m3d-tools) on the drawing's 3D model, with
+  the camera; clicks answer the command line as 0.5 does (a point with z through inference, a height along Z, 2D
+  objects picked or windowed on the ground, a ModelCraft tool's own state machine, else the Select tool). The tools'
+  steps go into the drawing's history as `Op::M3d` (Model3D.record), and a tool's own undo (Move's 3x) undoes the
+  drawing's last 3D step (the step is lent to the kernel while the tool runs). The 2D drawing's lines are soft edges
+  the tools snap to (50,000 at most), made when first needed. The kernel's own copies of states the history holds are
+  kept, so undo / redo on the tab restores without reading the JSON again.
+- Commands (commands3d.js): PRESSPULL 3DORBIT VIEW VSCURRENT UNION INTERSECT SUBTRACT now open the 3D tab and run there;
+  MOVE COPY (3x, /n) ROTATE ERASE ZOOM SELECTALL DESELECT work on the 3D selection while the tab shows, the clipboard
+  commands say they are 2D-only; BOX / WEDGE / CYLINDER take a base picked on a face (its z) and a height clicked in 3D;
+  EXTRUDE picks and windows outlines on the ground. Booleans (`bool3d.rs`, boolean3d.js) on cc-manifold, with
+  manifold-3d's own error messages. Drawing units (model3d.js setUnits): the Properties panel's Units choice
+  (`props.units`) scales the solids, one undo step with the units. A saved drawing carries the tab's camera and style.
+- Kept for parity (0.5 bugs, plain text): commands3d.js names the typed text `t`, so a value ROTATE cannot use prints
+  "Error: t is not a function" and ends the command; MOVE's typed distance message is English only.
+- ui-egui `cad3dtab.rs` (ws3d.js): the "3D" tab after Model; the solids (ModelCraft's meshes), the 2D drawing on the
+  ground in its colours and the open context's axes (solid / dashed) drawn by the 3D renderer around their own origins
+  (survey coordinates steady); the tools' overlay, 2D selection and hover, tip box; the toolbar's 3D group (Extrude …
+  Orbit, booleans, Views, Style, Export menus); a view cube; the tip and style bar. Middle-drag orbits, Shift+middle or
+  right-drag pans, the wheel zooms about the face under the cursor, a right click is Enter; Esc / Delete go to the tab
+  first. UI commands `tab3d.open/close/orbit/cube`.
+- Small engine changes: m3d-tools `Host::set_extra` (edges a page adds to the scene), getters `MoveTool::p0`,
+  `RotateTool::center`, `PushTool::fid`; cc-cad `Doc::m3d_records`; engine `Opts.ws_tool / height`, `Reply::Done3d`,
+  `State::z3`, `Host::open3d / set_cursor` (defaults: no 3D tab).
+- Parity: tools/kdiff-cad3d.mjs (kdiff.mjs + a Workspace3D in the stub host, 3D clicks / drags / keys / orbit / zoom /
+  units / saved DWG and DXF bytes, random 3D input in the driver; replaces kdiff.mjs at merge): 10 new 3D-tab scenarios
+  453/453; full run seed 1 (63 scenarios + 8 scripts) 4426/4426; random scripts with 3D input seed 1 × 16 2240/2240,
+  seed 7 × 24 3360/3360. idiff `--solids --save --save-only` kit: DXF R12 / DXF 2000 / DWG 2000 / 2018 78/78 byte-identical each (no change outside the tab).
+- Timings (tools/cad3dbench.mjs, 400 solids + 5,000 lines, best of 5, ms JS / Rust): hover a point question ×10
+  72.7 / 1.1 (66×), select click 17.6 / 7.1, PRESSPULL 15.2 / 13.5, MOVE 51.8 / 7.2, COPY 3x 53.2 / 12.2, UNION 44.7 / 3.9,
+  ERASE 24.6 / 4.9, UNDO ×3 + ZOOM 19.3 / 2.8; opening the tab 2.0 / 21.2 (Rust reads the 400-solid model there, 0.5
+  when the file is read).
+- Screenshots: forks/lead/shots/cad3d (tab3d-1, -push, -select, -units, -survey; js05-tab3d-1 / -top from the 0.5 JS
+  through tools/js05shot-cad3d.mjs).
+- Next: the 3D tab's point cloud and its "Open in 3D" handoff; touch gestures; the view cube's compass and drag-orbit.
+
 ## 2026-10-21 — M11.17 GeoTIFF tiles under one pixel refused (lead, workstation11a)
 
 - A civil_raster fuzz input (632 bytes, found by the model621 agent's gate) ran past libFuzzer's 10 s limit: its
