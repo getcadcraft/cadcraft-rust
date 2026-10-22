@@ -390,6 +390,13 @@ fn refresh_in(app: &mut UiApp, fit: bool) {
             return;
         }
     };
+    // res-ui.js refresh: a model with a terrain on the plan loads tin.js, and from then on the ground follows the walls
+    if !cc_bim::draw::resterrain::ground_loaded()
+        && let Ok(mut w) = cc_bim::draw::writer::W::new(&mut doc.ed.api)
+        && matches!(cc_bim::draw::resterrain::read_terrain(&mut w), Ok(Some(_)))
+    {
+        cc_bim::draw::resterrain::set_ground_loaded(true);
+    }
     if sn.levels.is_empty() {
         app.error = Some(bt("model.err.nolevels", &[]));
         app.bimh.draw.data = Some(sn);

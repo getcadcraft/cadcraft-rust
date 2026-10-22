@@ -2,6 +2,34 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M7.16 BimCraft residential sync (agent, work/bim)
+
+- cc-bim `draw::res` (res-follow.js) and the halves of the residential modules that follow the model:
+  `resfound` (res-foundation.js: slab / stem walls and slab / crawlspace / basement, footings sized from the stories
+  and the wall types, stepped to the grade), `rescounter` (res-counter.js: base cabinets from the library, runs with
+  the overhang, IfcPlacer `placements()`), `resstair` (res-stair.js + res-railing.js `railingParts` / `railingItems`:
+  straight, L, U, winders, handrails, the stairwell in the floor above), `reselec` (res-elec.js: wall devices stay on
+  their wall face), `resframe` (res-framing.js: wall, floor and roof framing — stick or trusses — kept pieces flagged,
+  framings of gone hosts dropped), `resterrain` (res-terrain.js on cc-civil's tin.js port: pads round the walls, the
+  graded terrain body, cut / fill, paving draped on the new grade, `groundAt`). `syncDerived` ends with
+  `sync_residential` and door / window changes call it for their walls' levels (model-ops.js `afterOpenings`), all in
+  the same undo step. The ground follows only once loaded: the plan's refresh loads it as soon as a model with a
+  terrain shows (res-ui.js `ensureTin`); job step `groundLoaded`. Hostile counts are capped (a stair of more than
+  1,000 risers, loops over kilometres) where the JS would hang.
+- Parity: `forks/tools/bmresdiff.mjs` (new; fixtures built by the frozen JS's own res-* place / frame ops — four
+  foundation kinds, five stairs of every kind with a stairwell, six devices, eleven framings with a kept piece and
+  trusses, two countertops over library cabinets (one stale), terrain + pad + paving + stepped footings) — 10 scripted
+  jobs and 10 seeded ones (wall moves, retypes, removals, levels moved / added, floors / roofs changed, openings
+  placed / moved / removed, undo / redo; the ground loaded and not): 296/296 steps (incl. the residential elements
+  read back) equal, saved IFC byte-identical 61/61. App: `forks/tools/bmgripdiff-m716.mjs --res` (should replace
+  bmgripdiff.mjs at merge) opens each fixture in cadcraft-shot and drags its walls' grips: status 97/97, saved IFC
+  12/12 byte-identical.
+- Timings (`bmresdiff.mjs --bench`, one wall moved with everything that follows it, best of 5; JS / Rust ms):
+  foundations 9.5 / 4.3 (2.2×), stairs 3.8 / 1.3 (2.8×), electrical 2.7 / 1.2 (2.3×), framing (11 framings, ~450
+  pieces) 242 / 79 (3.1×), countertops 3.9 / 1.3 (2.9×), terrain regraded 84 / 25 (3.4×).
+- Not in: the residential tools themselves (res-ui.js: placing foundations, stairs, railings, framing, terrain,
+  devices, countertops, section lines, Sheets / Takeoff) and their plan overlays — the plan cuts their parts like any
+  other element. Screenshot: shots/bim/m716-framing-dragged.png.
 ## 2026-11-03 — M17.1 the 0.7 look: theme, Archivo, the app shell, CadCraft's window and the start screen (agent, work/look07)
 
 - Measured first (docs/ui-notes.md): CadCraft 0.7.1 and the other apps' 0.7.x pages, the 0.5 page and the website

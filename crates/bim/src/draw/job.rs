@@ -367,6 +367,40 @@ impl Run {
                 self.model(opx, "walls", "Drew")
             }
             "chain" => self.chain(&sn, &o),
+            // a wall moved by (dx, dy) (bmresdiff.mjs's seeded moves)
+            "nudge" => {
+                let Some(wl) = o.get("wall").and_then(J::as_u64).and_then(|i| usize::try_from(i).ok()).and_then(|i| sn.walls.get(i)) else {
+                    return err("no wall");
+                };
+                let (dx, dy) = (num(o.get("dx")).unwrap_or(0.0), num(o.get("dy")).unwrap_or(0.0));
+                let c =
+                    WallChange { a: Some([wl.a[0] + dx, wl.a[1] + dy]), b: Some([wl.b[0] + dx, wl.b[1] + dy]), ..WallChange::default() };
+                let g = wl.guid.clone();
+                self.model(Op::ChangeWall { guid: g, changes: c, carry_joined: true }, &t0("model.wall"), &t0("model.verb.changed"))
+            }
+            // one wall moved and undone n times: the fastest change (with everything that follows the walls)
+            "resBench" => {
+                let Some(wl) =
+                    o.get("wall").and_then(J::as_u64).and_then(|i| usize::try_from(i).ok()).and_then(|i| sn.walls.get(i)).cloned()
+                else {
+                    return err("no wall");
+                };
+                let n = o.get("n").and_then(J::as_u64).unwrap_or(5);
+                let mut best = f64::INFINITY;
+                for k in 0..n {
+                    let dx = if k % 2 == 1 { -300.0 } else { 300.0 };
+                    let c = WallChange { a: Some([wl.a[0] + dx, wl.a[1]]), b: Some([wl.b[0] + dx, wl.b[1]]), ..WallChange::default() };
+                    let t = std::time::Instant::now();
+                    if let Err(e) = ed.model_change(Op::ChangeWall { guid: wl.guid.clone(), changes: c, carry_joined: true }, "w", "v") {
+                        return err(&e.0);
+                    }
+                    best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+                    if let Err(e) = ed.undo() {
+                        return err(&e.0);
+                    }
+                }
+                json!({ "ms": best })
+            }
             "changeWall" => {
                 let g = wall_guid(&sn, o.get("wall")).unwrap_or_default();
                 let c = wall_change(&sn, &ch("changes"));
@@ -686,6 +720,15 @@ impl Run {
                     Err(e) => err(&e.0),
                 }
             }
+            // res-ui.js ensureTin: the ground is loaded on this page (the terrain follows the walls from now on)
+            "groundLoaded" => {
+                crate::draw::resterrain::set_ground_loaded(true);
+                json!({ "ok": true })
+            }
+            "res" => match res_json(&mut ed.api) {
+                Ok(v) => v,
+                Err(e) => err(&e.0),
+            },
             "nextItemNumber" => match crate::draw::place::next_item_number(&mut ed.api) {
                 Ok(n) => J::String(n),
                 Err(e) => err(&e.0),
@@ -798,6 +841,26 @@ pub fn run(job: &J) -> J {
     let steps = job.get("steps").and_then(J::as_array).cloned().unwrap_or_default();
     let results: Vec<J> = steps.iter().map(|s| r.step(s)).collect();
     json!({ "results": results })
+}
+
+/// The residential elements as the harness compares them (what res-follow.js keeps up to date).
+pub fn res_json(api: &mut crate::wapi::Api) -> crate::api::R<J> {
+    use crate::draw::{rescounter, reselec, resfound, resframe, resstair, resterrain};
+    let mut w = crate::draw::writer::W::new(api)?;
+    let f = resfound::read_foundations(&mut w)?;
+    let st = resstair::read_stairs(&mut w)?;
+    let c = rescounter::read_countertops(&mut w)?;
+    let d = reselec::read_devices(&mut w)?;
+    let fr = resframe::read_framing(&mut w)?;
+    let t = resterrain::read_terrain(&mut w)?;
+    Ok(json!({
+        "foundations": f.iter().map(|x| json!({ "kind": x.kind, "seed": p2(x.seed), "key": x.key, "parts": x.parts.len() })).collect::<Vec<_>>(),
+        "stairs": st.iter().map(|x| json!({ "kind": x.kind, "key": x.key, "parts": x.parts.len() })).collect::<Vec<_>>(),
+        "counters": c.iter().map(|x| json!({ "seed": p2(x.seed), "key": x.key })).collect::<Vec<_>>(),
+        "devices": d.iter().map(|x| json!({ "kind": x.kind, "tag": x.tag, "at": p2(x.at), "angle": jn(x.angle) })).collect::<Vec<_>>(),
+        "framing": fr.iter().map(|x| json!({ "host": x.host, "key": x.key, "parts": x.parts.len() })).collect::<Vec<_>>(),
+        "terrain": t.map(|x| x.key),
+    }))
 }
 
 #[cfg(test)]

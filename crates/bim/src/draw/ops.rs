@@ -127,16 +127,22 @@ fn storey_id(w: &mut W<'_>, guid: &str) -> R<Id> {
     w.by_guid(guid)?.ok_or_else(|| key_err("model.err.nolevel"))
 }
 
-/// After doors / windows changed in these walls: the walls (RC: what follows them is not ported; models with
-/// residential elements are refused by the caller).
+/// After doors / windows changed in these walls: the walls, then what follows them (RC: their framing).
 fn after_openings(w: &mut W<'_>, guids: &[String]) -> R<()> {
     let walls = read_walls(w, None)?;
+    let mut storeys: Vec<Id> = Vec::new();
     for g in guids {
         if let Some(x) = walls.iter().find(|y| y.guid == *g)
             && let Some(st) = x.storey
         {
             regen_walls(w, st, Some(std::slice::from_ref(g)))?;
+            if !storeys.contains(&st) {
+                storeys.push(st);
+            }
         }
+    }
+    for st in storeys {
+        crate::draw::res::sync_residential(w, st, &crate::draw::res::ResCtx { levels: None, l: None })?;
     }
     Ok(())
 }

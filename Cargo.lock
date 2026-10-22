@@ -430,6 +430,7 @@ name = "cc-bim"
 version = "0.0.1"
 dependencies = [
  "cc-cad",
+ "cc-civil",
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-skp",

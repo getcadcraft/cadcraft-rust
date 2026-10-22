@@ -197,6 +197,8 @@ pub enum K {
     B(bool),
     Null,
     A(Vec<K>),
+    /// an object: its keys in insertion order (`undefined` values are left out by the caller)
+    O(Vec<(&'static str, K)>),
 }
 
 pub fn kpts(p: &[V2]) -> K {
@@ -206,10 +208,10 @@ pub fn kloops(h: &[Vec<V2>]) -> K {
     K::A(h.iter().map(|x| kpts(x)).collect())
 }
 
-fn kjson(k: &K, out: &mut String) {
+fn kjson(k: &K, scale: f64, out: &mut String) {
     match k {
         K::N(x) => {
-            let r = m::round(x * 100.0) / 100.0;
+            let r = m::round(x * scale) / scale;
             if r.is_finite() {
                 out.push_str(&crate::js::num_str(if r == 0.0 { 0.0 } else { r }));
             } else {
@@ -228,17 +230,34 @@ fn kjson(k: &K, out: &mut String) {
                 if i > 0 {
                     out.push(',');
                 }
-                kjson(x, out);
+                kjson(x, scale, out);
             }
             out.push(']');
+        }
+        K::O(o) => {
+            out.push('{');
+            for (i, (k, x)) in o.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&serde_json::to_string(k).unwrap_or_default());
+                out.push(':');
+                kjson(x, scale, out);
+            }
+            out.push('}');
         }
     }
 }
 
 /// `shapeKey(...parts)`: FNV-1a over the JSON text's UTF-16 units, base 36, then its length in base 36.
 pub fn shape_key(parts: Vec<K>) -> String {
+    shape_key_scaled(parts, 100.0)
+}
+
+/// `shapeKey` with numbers rounded to 1 / `scale` (res-counter.js, res-framing.js, res-terrain.js: 0.1).
+pub fn shape_key_scaled(parts: Vec<K>, scale: f64) -> String {
     let mut s = String::new();
-    kjson(&K::A(parts), &mut s);
+    kjson(&K::A(parts), scale, &mut s);
     let mut h: u32 = 2_166_136_261;
     let mut n = 0u32;
     for u in s.encode_utf16() {
@@ -750,6 +769,9 @@ pub fn sync_derived(w: &mut W<'_>, storey: Id) -> R<Sync> {
             out.changed = out.changed.saturating_add(1);
         }
     }
+    // res-follow.js: what of the residential set follows the walls
+    let n = crate::draw::res::sync_residential(w, storey, &crate::draw::res::ResCtx { levels: Some(&levels), l: Some(&l) })?;
+    out.changed = out.changed.saturating_add(n);
     Ok(out)
 }
 
