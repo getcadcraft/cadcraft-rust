@@ -56,6 +56,8 @@ pub struct ParPanel {
     pub choice: Option<Choice>,
     /// the label edit dialog: (constraint id, text, error)
     pub dc_edit: Option<(String, String, String)>,
+    /// where the label edit dialog opens: under the label that was double-clicked (screen)
+    pub dc_at: Option<egui::Pos2>,
 }
 
 /// UI commands of the panel.
@@ -480,25 +482,40 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
     };
     let mut apply = false;
     let mut cancel = false;
-    egui::Window::new(title).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.label(t("params.panel.value_expression_number_driven"));
-        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(240.0).font(egui::TextStyle::Monospace));
-        if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            apply = true;
-        }
-        if !err.is_empty() {
-            ui.label(RichText::new(&err).color(Color32::from_rgb(0xe0, 0x60, 0x50)));
-        }
-        ui.label(RichText::new(format!("{what}.")).small());
-        ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
-                cancel = true;
-            }
-            if ui.button("Apply").clicked() {
+    // under the label that was double-clicked (kept on screen), else the middle of the window
+    let screen = ctx.content_rect();
+    let (pos, pivot) = match app.par.dc_at {
+        Some(p) => (
+            egui::pos2(p.x.clamp(screen.min.x + 160.0, screen.max.x - 160.0), (p.y + 8.0).min(screen.max.y - 140.0)),
+            egui::Align2::CENTER_TOP,
+        ),
+        None => (screen.center(), egui::Align2::CENTER_CENTER),
+    };
+    egui::Window::new(title)
+        .id(egui::Id::unique("dc_edit_window").with(&cid))
+        .collapsible(false)
+        .resizable(false)
+        .pivot(pivot)
+        .default_pos(pos)
+        .show(ctx, |ui| {
+            ui.label(t("params.panel.value_expression_number_driven"));
+            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(240.0).font(egui::TextStyle::Monospace));
+            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 apply = true;
             }
+            if !err.is_empty() {
+                ui.label(RichText::new(&err).color(Color32::from_rgb(0xe0, 0x60, 0x50)));
+            }
+            ui.label(RichText::new(format!("{what}.")).small());
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+                if ui.button("Apply").clicked() {
+                    apply = true;
+                }
+            });
         });
-    });
     if cancel {
         app.par.dc_edit = None;
         return;
@@ -696,6 +713,7 @@ pub fn open_edit(app: &mut UiApp, cid: &str) {
     let v = cc_gcons::gcons::params_of(&d).var(&name).map(|v| v.expr.clone());
     let text = format!("{name}={}", v.unwrap_or_else(|| cc_cad::js::num_to_string(c.value_num())));
     drop(d);
+    app.par.dc_at = app.par.hits.borrow().iter().rev().find(|h| h.cid == cid && h.dim).map(|h| h.rect.center_bottom());
     app.par.dc_edit = Some((cid.to_string(), text, String::new()));
 }
 

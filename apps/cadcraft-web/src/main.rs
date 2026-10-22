@@ -190,6 +190,7 @@ mod web {
                             read_xref: None,
                             read_path: None,
                             save: Some(Box::new(download)),
+                            open_pdf: Some(Box::new(open_pdf)),
                         };
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {
@@ -244,6 +245,28 @@ mod web {
             let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(free.unchecked_ref(), 10_000);
         }
         Ok(Some(name.to_string()))
+    }
+
+    /// The Plot dialog's "Open to print": the PDF in a new tab (cadcraft.js plotUi.open); a blocked tab downloads it.
+    fn open_pdf(name: &str, bytes: &[u8]) -> Result<bool, String> {
+        let fail = |e: wasm_bindgen::JsValue| format!("open: {e:?}");
+        let w = web_sys::window().ok_or("open: no window")?;
+        let arr = js_sys::Uint8Array::from(bytes);
+        let parts = js_sys::Array::of1(&arr);
+        let opts = web_sys::BlobPropertyBag::new();
+        opts.set_type("application/pdf");
+        let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &opts).map_err(fail)?;
+        let url = web_sys::Url::create_object_url_with_blob(&blob).map_err(fail)?;
+        let tab = w.open_with_url_and_target(&url, "_blank").ok().flatten();
+        let free = wasm_bindgen::closure::Closure::once_into_js(move || {
+            let _ = web_sys::Url::revoke_object_url(&url);
+        });
+        let _ = w.set_timeout_with_callback_and_timeout_and_arguments_0(free.unchecked_ref(), 120_000);
+        if tab.is_some() {
+            return Ok(true);
+        }
+        download(name, bytes.to_vec())?;
+        Ok(false)
     }
 
     /// `?bench`: time the reader on the built-in sample in this browser (6 runs, like the kit's JS bench) → console.

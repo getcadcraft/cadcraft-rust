@@ -167,6 +167,26 @@ fn save_file(name: &str, bytes: Vec<u8>) -> Result<Option<String>, String> {
     Ok(Some(path.display().to_string()))
 }
 
+/// The Plot dialog's "Open to print": the PDF goes to this run's own temp folder and opens in the system's PDF viewer
+/// (a fixed program per platform with the file as its one argument; nothing from the drawing chooses what runs).
+fn open_pdf(name: &str, bytes: &[u8]) -> Result<bool, String> {
+    let dir = std::env::temp_dir().join(format!("cadcraft-print-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // the name the plot gives, kept to a plain file name
+    let file: String = name.chars().map(|c| if c.is_control() || matches!(c, '/' | '\\' | ':') { '_' } else { c }).collect();
+    let path = dir.join(if file.trim().is_empty() { "plot.pdf".to_string() } else { file });
+    std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    let viewer = if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(viewer).arg(&path).spawn().map_err(|e| format!("{viewer}: {e}"))?;
+    Ok(true)
+}
+
 /// "<xref>.dwg" in the drawing's folder, case-insensitively (as BimCraft looks for linked drawings).
 fn read_xref(dir: &str, name: &str) -> Option<Vec<u8>> {
     let want = format!("{name}.dwg").to_lowercase();
@@ -254,6 +274,7 @@ fn main() -> eframe::Result {
                 pick_files: Some(Box::new(pick_files)),
                 read_xref: Some(Box::new(read_xref)),
                 save: Some(Box::new(save_file)),
+                open_pdf: Some(Box::new(open_pdf)),
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
                 ..Default::default()
             };

@@ -145,7 +145,13 @@ pub struct Services {
     pub pick_files: Option<PickFiles>,
     /// web: what the last `pick_files` picker read (an empty list = cancelled)
     pub picked: Option<Arc<Mutex<Option<Vec<ImportedFile>>>>>,
+    /// the Plot dialog's "Open to print": show a PDF (name, bytes) where it can be printed → Ok(true) shown (desktop:
+    /// the system's PDF viewer; web: a new tab), Ok(false) saved / downloaded instead (a blocked tab)
+    pub open_pdf: Option<OpenPdf>,
 }
+
+/// Show a PDF to print (see `Services::open_pdf`).
+pub type OpenPdf = Box<dyn FnMut(&str, &[u8]) -> Result<bool, String>>;
 
 /// Pick files for a command (see `Services::pick_files`).
 pub type PickFiles = Box<dyn FnMut(&str, bool) -> Option<Vec<ImportedFile>>>;

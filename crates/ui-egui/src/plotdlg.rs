@@ -7,7 +7,7 @@
 //! Pictures plot at their own resolution or capped at 600 / 300 / 150 dpi (PNGs shrunk, JPEGs kept and said so). With
 //! two or more sheets, Publish closes the dialog and runs PUBLISH for every sheet with the dialog's ink and pen.
 //!
-//! Not here: "Open / print" (the browser's new tab).
+//! Open to print shows the PDF in the system's PDF viewer (the web build: a new tab, downloaded when the tab is blocked).
 
 use cc_io_cad::plot::{PAPERS, PEN_WIDTHS, display_list, extents_of, layout_sheet, model_sheet, paper_label, scale_list, to_pdf_dpi};
 use egui::{Color32, RichText};
@@ -62,6 +62,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: \"area=extents|display|window\" | \"paper=<key>\" | \"orient=landscape|portrait\" | \"scale=<n>|\" (1:n, empty = fit) | \"ink=mono|color\" | \"pen=<mm>\" | \"dpi=0|600|300|150\" (pictures; 0 = their own resolution) | \"window=minX,minY,maxX,maxY\"}",
     ),
     ("plot.save", "Plot: save the PDF", "", "{name?: file name} → plots with the dialog's settings and saves the PDF"),
+    (
+        "plot.print",
+        "Open to print",
+        "",
+        "{} → plots with the dialog's settings and opens the PDF to print (desktop: the PDF viewer; web: a new tab), then closes the dialog",
+    ),
     ("plot.publish", "Plot: publish every sheet", "", "{} → closes the dialog and runs PUBLISH (all sheets, one PDF) with its ink and pen"),
 ];
 
@@ -122,6 +128,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             }
         }
         "plot.save" => save(app, params.name.as_deref())?,
+        "plot.print" => open_print(app)?,
         "plot.publish" => {
             app.editor.as_ref().ok_or("plot.publish: no drawing is open for editing")?;
             // cadcraft.js: the dialog closes (PLOT ends), then PUBLISH runs; Enter answers "all sheets"
@@ -183,6 +190,16 @@ fn current_sheet(app: &UiApp) -> (Option<cc_io_cad::plot::Sheet>, String) {
 
 /// Plot with the dialog's settings and save the PDF (`name` = the file name; default the drawing's name).
 pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
+    out(app, name, false)
+}
+
+/// "Open to print": plot and show the PDF where it can be printed (cadcraft.js plotUi.open: the browser's new tab; the
+/// desktop's PDF viewer), then close the dialog.
+pub fn open_print(app: &mut UiApp) -> Result<(), String> {
+    out(app, None, true)
+}
+
+fn out(app: &mut UiApp, name: Option<&str>, to_print: bool) -> Result<(), String> {
     let (sheet, info) = current_sheet(app);
     let sheet = sheet.ok_or(if info.is_empty() { "There is nothing to plot.".to_string() } else { info })?;
     let ed = app.editor.as_ref().ok_or("plot.save: no drawing is open for editing")?;
@@ -212,13 +229,19 @@ pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
         clean.push_str(".pdf");
     }
     let n = bytes.len();
-    let saved = match app.services.save.as_mut() {
-        Some(save) => save(&clean, bytes)?,
-        None => return Err("Saving is not available here.".into()),
-    };
-    if saved.is_none() {
-        app.plot.status = "Not saved.".into();
-        return Ok(());
+    let mut shown = None;
+    if to_print {
+        let open = app.services.open_pdf.as_mut().ok_or("Opening a PDF to print is not available here.")?;
+        shown = Some(open(&clean, &bytes)?);
+    } else {
+        let saved = match app.services.save.as_mut() {
+            Some(save) => save(&clean, bytes)?,
+            None => return Err("Saving is not available here.".into()),
+        };
+        if saved.is_none() {
+            app.plot.status = "Not saved.".into();
+            return Ok(());
+        }
     }
     let mut vars = vec![("name", clean.clone()), ("bytes", group3(n)), ("w", fmt(list_w)), ("h", fmt(list_h))];
     let key = match scale_label {
@@ -244,6 +267,16 @@ pub fn save(app: &mut UiApp, name: Option<&str>) -> Result<(), String> {
         if kept > 0 {
             hs.log.push_back(format!("  {}", tv("app.plot.pictures_jpeg", &[("n", kept.to_string())])));
         }
+        match shown {
+            // the web build's new tab says 0.5's words; the desktop's viewer its own
+            Some(true) if cfg!(target_arch = "wasm32") => hs.log.push_back(t("app.pdf_opened_new_tab")),
+            Some(true) => hs.log.push_back("  The PDF opened in your PDF viewer: print it from there.".into()),
+            Some(false) => hs.log.push_back(t("app.browser_blocked_new_tab")),
+            None => {}
+        }
+    }
+    if shown.is_some() {
+        app.plot.open = false;
     }
     Ok(())
 }
@@ -271,6 +304,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let on_sheet = app.editor.as_ref().is_some_and(|e| e.eng.doc().layout().is_some());
     let mut act: Vec<(String, String)> = Vec::new();
     let mut do_save = false;
+    let mut do_print = false;
     let mut publish = false;
     let sheets = app.editor.as_ref().map_or(0, |e| e.eng.doc().layouts.len());
     let mut close = false;
@@ -278,8 +312,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let mut open = true;
     egui::Window::new(t("ui.plot_pdf"))
         .open(&mut open)
-        .resizable(true)
-        .default_size([620.0, 420.0])
+        .resizable(false)
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .collapsible(false)
@@ -422,18 +455,31 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         if ui.add_enabled(sheet.is_some(), egui::Button::new(t("ui.download_pdf"))).clicked() {
                             do_save = true;
                         }
+                        if ui.add_enabled(sheet.is_some(), egui::Button::new(t("ui.open_print"))).clicked() {
+                            do_print = true;
+                        }
                         if ui.button(t("ui.close")).clicked() {
                             close = true;
                         }
                     });
                 });
-                // the preview: the sheet in white with the plotted lines
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(200.0), 360.0), egui::Sense::hover());
+                // the preview: the sheet in white with the plotted lines, as tall as the paper's shape asks (the
+                // dialog is as tall as its contents, no taller)
+                let list = match (sheet.as_ref(), app.editor.as_ref()) {
+                    (Some(sheet), Some(ed)) => Some(display_list(&ed.eng.doc(), sheet, app.plot.mono)),
+                    _ => None,
+                };
+                let pw = 360.0_f32;
+                let ph = list
+                    .as_ref()
+                    .filter(|l| l.w > 0.0 && l.h > 0.0)
+                    .map_or(220.0, |l| ((f64::from(pw) - 24.0) * l.h / l.w + 24.0) as f32)
+                    .clamp(160.0, 380.0);
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(pw, ph), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
                 painter.rect_filled(rect, 0.0, tok.panel_darker);
-                if let (Some(sheet), Some(ed)) = (sheet.as_ref(), app.editor.as_ref()) {
-                    let list = display_list(&ed.eng.doc(), sheet, app.plot.mono);
-                    preview(&painter, rect, &list, app.plot.pen);
+                if let Some(list) = list.as_ref() {
+                    preview(&painter, rect, list, app.plot.pen);
                 }
             });
         });
@@ -450,6 +496,9 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     }
     if do_save {
         app.run_ui_pub("plot.save", &Params::default());
+    }
+    if do_print {
+        app.run_ui_pub("plot.print", &Params::default());
     }
     if publish {
         app.run_ui_pub("plot.publish", &Params::default());

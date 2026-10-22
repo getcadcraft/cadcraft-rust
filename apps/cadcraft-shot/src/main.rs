@@ -129,12 +129,20 @@ fn shot(args: &[String]) -> Result<(), String> {
         std::fs::read(path).map(|bytes| cc_ui_egui::ImportedFile { name, bytes, dir: None }).map_err(|e| format!("{p}: {e}"))
     }));
     if let Some(dir) = arg(args, "--save-dir") {
+        let dir2 = dir.clone();
         // whatever the UI saves (exports, marked PDFs) lands in DIR under the name the app gives it
         app.services.save = Some(Box::new(move |name, bytes| {
             let file = std::path::Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let path = std::path::Path::new(&dir).join(file);
             std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
             Ok(Some(path.display().to_string()))
+        }));
+        // Open to print: the PDF lands in DIR too (as if a viewer showed it)
+        app.services.open_pdf = Some(Box::new(move |name, bytes| {
+            let file = std::path::Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let path = std::path::Path::new(&dir2).join(file);
+            std::fs::write(&path, bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(true)
         }));
     }
     // --pick FILE (repeatable): what the window's picker hands a command (XATTACH, IMAGEATTACH, IMAGE), in order;
