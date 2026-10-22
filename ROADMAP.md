@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-21 M7.17: BimCraft library item adapters (libitem.js: CSV, glTF / GLB, OBJ, STL, DWG / DXF blocks, IFC types, Revit families) at parity: bmlibitemdiff 880/880 files, 12,255 items; 1.2–4.4× the JS.
 - 2026-10-21 M7.16: BimCraft residential sync (res-follow.js: foundations, countertops, stairs, electrical, framing and, once the ground is loaded, the terrain follow the walls in the same undo step) at parity: bmresdiff 296/296 steps, 61/61 IFC byte-identical; grips in the app 97/97, 12/12; 2.2–3.4× the JS.
 - 2026-11-03 M17.14: ModelCraft's 3D view on 0.7's sheet colour in both spaces; full harness sweep 0 differences; web build loads 6 of 6.
 - 2026-11-03 M17.13: CadCraft's layer rows (current, on / freeze / lock / plot, New layer, Tools) and the status bar's Object snaps; kdiff 5250/5250 en + es-MX, propsdiff 720/720.

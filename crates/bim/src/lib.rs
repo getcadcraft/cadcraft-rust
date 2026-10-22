@@ -40,6 +40,7 @@ pub mod elements;
 pub mod find;
 pub mod job;
 pub mod js;
+pub mod libitem;
 pub mod model;
 pub mod props;
 pub mod qto;

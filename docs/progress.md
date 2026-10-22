@@ -2,6 +2,26 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M7.17 BimCraft library item adapters (agent, work/bim)
+
+- cc-bim `libitem` (libitem.js, the same file CadCraft uses; libitem-ifc.js; rvt-reader.js's compound-file and
+  PartAtom reading): `validate_item`, `item_hash` (sha256 of the canonical JSON), plan bounds / box / convex hull,
+  KCL and plain attributes → params, `suggest_category`, `parse_length`; the adapters the Library panel's sources run —
+  `items_from_csv`, `mesh::item_from_mesh` (glTF / GLB with embedded buffers, OBJ, STL binary and ASCII; units and up
+  axis), `dwg::items_from_dwg` / `item_from_block` on cc-io-dwg's drawing model (KCL item tags, visibility states as
+  their own candidates, nested inserts exploded, 3D faces as a body), `ifc::items_from_ifc` (types with representation
+  maps and untyped furnishing / proxy groups; one occurrence's mesh in its own placement, FootPrint / Plan curves),
+  `rfa::item_from_rfa` (a family's PartAtom: title, categories, parameters; a box from Width / Depth / Height). Job step
+  `libitem` / `libitemBench` for `cadcraft-cli bimdraw`; fuzz target `bim_libitem`.
+- Parity (`forks/tools/bmlibitemdiff.mjs`, new): every DWG (149) and DXF (150) of the corpus through "Files…" and "This
+  file" (candidates, then each block as the panel loads it), 116 IFC files (list and items), 5 RFA, 23 CSV, the
+  generated GLB / OBJ and synthetic glTF / GLB / OBJ / STL / damaged files: 880/880 equal, 12,255 items with their
+  hashes and notes, zero tolerance.
+- Timings (in-process, best of 3, summed; JS / Rust ms): DWG files 7,514 / 4,711 (1.6×), DWG "This file" 9,508 / 6,517
+  (1.5×), DXF 3,641 / 2,545 (1.4×), IFC list 304 / 69 (4.4×), IFC items 3,156 / 1,030 (3.1×), GLB 574 / 448 (1.3×), OBJ
+  340 / 173 (2.0×), RFA 2.3 / 0.6, CSV 12.6 / 10.2.
+- Next: the Library panel itself (M7.18), swap / update and copy / paste of placements.
+
 ## 2026-10-21 — M7.16 BimCraft residential sync (agent, work/bim)
 
 - cc-bim `draw::res` (res-follow.js) and the halves of the residential modules that follow the model:

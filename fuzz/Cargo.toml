@@ -65,6 +65,13 @@ debug = 1
 overflow-checks = true
 
 [[bin]]
+name = "bim_libitem"
+path = "fuzz_targets/bim_libitem.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cad_lib_item"
 path = "fuzz_targets/cad_lib_item.rs"
 test = false

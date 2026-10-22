@@ -290,6 +290,20 @@ impl Run {
                 Err(e) => return err(&e.0),
             }
         }
+        if op == "libitem" {
+            return libitem_json(st);
+        }
+        // the adapters timed in-process (best of 3; the items and notes made, not written out)
+        if op == "libitemBench" {
+            let mut best = f64::INFINITY;
+            for _ in 0..3 {
+                let t = std::time::Instant::now();
+                let r = libitem_json(st);
+                best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+                drop(r);
+            }
+            return json!({ "ms": best });
+        }
         let Some(ed) = self.ed.as_mut() else { return err("no model") };
         let sn = match snapshot(&mut ed.api) {
             Ok(x) => x,
@@ -861,6 +875,84 @@ pub fn res_json(api: &mut crate::wapi::Api) -> crate::api::R<J> {
         "framing": fr.iter().map(|x| json!({ "host": x.host, "key": x.key, "parts": x.parts.len() })).collect::<Vec<_>>(),
         "terrain": t.map(|x| x.key),
     }))
+}
+
+/// bmlibitemdiff.mjs's step: a file through the Library panel's adapters (library-view.js `readFile`, or with
+/// `mode: "this"` the open drawing's blocks as `dwgEntries` lists and loads them).
+fn libitem_json(st: &J) -> J {
+    use crate::libitem::{self as li, Read};
+    let file = st.get("file").and_then(J::as_str).unwrap_or("");
+    let Ok(bytes) = std::fs::read(file) else { return err("read") };
+    let name = std::path::Path::new(file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let kind = st.get("kind").and_then(J::as_str).unwrap_or("");
+    let units = st.get("units").and_then(J::as_str);
+    let up = st.get("up").and_then(J::as_str);
+    let item_out = |raw: &J| {
+        let item = li::clean_item(raw);
+        json!({ "item": item, "hash": li::item_hash(&item) })
+    };
+    let cand_json = |c: &li::dwg::Candidate| {
+        json!({ "key": c.key, "name": c.name, "block": c.block, "state": c.state, "entities": c.entities, "attdefs": c.attdefs,
+            "attrs": J::Object(c.attrs.iter().map(|(k, v)| (k.clone(), J::String(v.clone()))).collect()), "attrs_from": c.attrs_from,
+            "tag": c.tag, "has_body": c.has_body, "ifc_class": J::Null, "occurrences": J::Null })
+    };
+    let drawing = || -> cc_io_dwg::Obj {
+        if kind == "dxf" {
+            cc_io_dwg::dxf_model::read_dxf_model(&cc_io_dwg::dxf_model::decode_dxf_bytes(&bytes))
+        } else {
+            cc_io_dwg::read_dwg(&bytes, &cc_io_dwg::ReadOpts::default())
+        }
+    };
+    let out = |r: Read, cands: Vec<J>| json!({ "notes": r.notes, "candidates": cands, "items": r.items.iter().map(item_out).collect::<Vec<_>>() });
+    if st.get("mode").and_then(J::as_str) == Some("this") {
+        let db = drawing();
+        let max = st.get("max").and_then(J::as_u64).and_then(|x| usize::try_from(x).ok()).unwrap_or(60);
+        let (r, cands) = match li::dwg::items_from_dwg(&db, None, None, &name, true) {
+            Ok(x) => x,
+            Err(e) => return err(&e),
+        };
+        let mut items = Vec::new();
+        for c in cands.iter().filter(|c| c.entities > 0).take(max) {
+            match li::dwg::item_from_block(&db, &c.name, None, &name, None) {
+                Ok((Some(it), notes)) => {
+                    let mut o = item_out(&it);
+                    if let J::Object(m) = &mut o {
+                        m.insert("notes".into(), json!(notes));
+                    }
+                    items.push(o);
+                }
+                Ok((None, notes)) => items.push(json!({ "item": J::Null, "notes": notes })),
+                Err(e) => return err(&e),
+            }
+        }
+        return json!({ "notes": r.notes, "candidates": cands.iter().map(cand_json).collect::<Vec<_>>(), "items": items });
+    }
+    match kind {
+        "dwg" | "dxf" => match li::dwg::items_from_dwg(&drawing(), units, None, &name, false) {
+            Ok((r, c)) => out(r, c.iter().map(cand_json).collect()),
+            Err(e) => err(&e),
+        },
+        "ifc" => match li::ifc::items_from_ifc(Arc::from(bytes.into_boxed_slice()), st.get("list").and_then(J::as_bool).unwrap_or(false), None) {
+            Ok((r, listed)) => out(
+                r,
+                listed
+                    .iter()
+                    .map(|c| json!({ "key": c.key, "name": c.name, "block": J::Null, "state": J::Null, "entities": 0, "attdefs": [], "attrs": {}, "attrs_from": J::Null, "tag": false, "has_body": c.has_body, "ifc_class": c.ifc_class, "occurrences": c.occurrences }))
+                    .collect(),
+            ),
+            Err(_) => err("read"),
+        },
+        "glb" | "gltf" | "obj" | "stl" => {
+            let base = name.rsplit_once('.').map_or(name.as_str(), |(b, _)| b).to_string();
+            out(li::mesh::item_from_mesh(&bytes, kind, units, up, &base), Vec::new())
+        }
+        "rfa" => match li::rfa::read_revit_family(&bytes) {
+            Ok(f) => out(li::rfa::item_from_rfa(f.as_ref(), &name), Vec::new()),
+            Err(e) => err(&e),
+        },
+        "csv" => out(li::items_from_csv(&String::from_utf8_lossy(&bytes), None, None), Vec::new()),
+        _ => err("unsupported"),
+    }
 }
 
 #[cfg(test)]

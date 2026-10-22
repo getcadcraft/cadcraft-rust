@@ -203,7 +203,10 @@ dependencies = [
  "cc-io-skp",
  "cc-lang",
  "cc-m3d",
+ "fancy-regex",
+ "regex",
  "serde_json",
+ "sha2",
  "zlib-rs",
 ]
 
