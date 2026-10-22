@@ -271,6 +271,11 @@ pub async fn vports(c: Ctx) -> R {
     if c.doc().layout().is_some() {
         return mview(c).await;
     }
+    split_panes(c).await
+}
+
+/// commands.js `splitPanes(c)`: the drawing area split into panes (VPORTS in the model, SPLIT anywhere).
+pub async fn split_panes(c: Ctx) -> R {
     if !c.sh().host.borrow().has_panes() {
         c.print(&c.t("cmd.vports.browser"));
         return Ok(());

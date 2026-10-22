@@ -60,6 +60,11 @@ struct Stub {
     library: std::collections::VecDeque<Option<(Value, Option<String>)>>,
     /// the script's `tab3d: true`: the stub has a 3D tab (`host.open3d`, M4.25)
     tab3d: bool,
+    /// M4.32 (`extras: true`): the page's linked views, lasso setting, keys editor, Compare settings and Open in 3D,
+    /// as kdiff-cadsheets.mjs's stub has them
+    extras: bool,
+    lasso: bool,
+    linked: bool,
 }
 
 /// Standard base64 (the script's picture bytes) → bytes; None on anything else.
@@ -282,6 +287,39 @@ impl Host for Stub {
         };
         self.log.borrow_mut().events.push(json!(["saveBlob", name, text]));
     }
+    fn link_views(&self) -> Option<bool> {
+        self.extras.then_some(self.linked)
+    }
+    fn set_link_views(&mut self, on: bool) {
+        self.linked = on;
+        self.log.borrow_mut().events.push(json!(["linkViews", on]));
+    }
+    fn lasso(&self) -> Option<bool> {
+        self.extras.then_some(self.lasso)
+    }
+    fn set_lasso(&mut self, on: bool) {
+        self.lasso = on;
+        self.log.borrow_mut().events.push(json!(["setLasso", on]));
+    }
+    fn shortcuts(&mut self) -> bool {
+        if self.extras {
+            self.log.borrow_mut().events.push(json!(["shortcuts"]));
+        }
+        self.extras
+    }
+    fn compare_settings(&mut self) -> bool {
+        if self.extras {
+            self.log.borrow_mut().events.push(json!(["compareSettings"]));
+        }
+        self.extras
+    }
+    fn open_in_3d(&mut self) -> Option<Result<String, (String, String)>> {
+        if !self.extras {
+            return None;
+        }
+        self.log.borrow_mut().events.push(json!(["openIn3d"]));
+        Some(Ok("ModelCraft".into()))
+    }
     fn can_pick_files(&self) -> bool {
         true
     }
@@ -415,6 +453,9 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         pictures,
         library,
         tab3d: script.get("tab3d").and_then(Value::as_bool).unwrap_or(false),
+        extras: script.get("extras").and_then(Value::as_bool).unwrap_or(false),
+        lasso: true,
+        linked: false,
     };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     let empty = Vec::new();
@@ -463,6 +504,10 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         } else if let Some(w) = inp.get("window") {
             let crossing = inp.get("crossing").and_then(Value::as_bool).unwrap_or(false);
             eng.window(Bounds::from_value(w), crossing);
+        } else if let Some(pts) = inp.get("lasso").and_then(Value::as_array) {
+            // M4.32: a lasso dragged while "Select objects" waits
+            let pts: Vec<P2> = pts.iter().filter_map(|p| p_of(Some(p))).collect();
+            eng.lasso(&pts, inp.get("mode").and_then(Value::as_str).unwrap_or("window"));
         } else if let Some(pts) = inp.get("path").and_then(Value::as_array) {
             let pts: Vec<P2> = pts.iter().filter_map(|p| p_of(Some(p))).collect();
             ret = Value::Bool(eng.path(&pts));

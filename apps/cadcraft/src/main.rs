@@ -73,6 +73,30 @@ fn load_mc_prefs(app: &mut UiApp) {
     }
 }
 
+/// CadCraft's own preferences (SHORTCUTS' keys), as 0.5 keeps `cadcraft.shortcuts`.
+fn cad_prefs_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("cadcraft.json"))
+}
+
+fn load_cad_prefs(app: &mut UiApp) {
+    let Some(p) = cad_prefs_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    if text.len() > 1 << 20 {
+        return;
+    }
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&text) {
+        app.winset.load_prefs(&v);
+    }
+}
+
+fn save_cad_prefs(app: &UiApp) {
+    let Some(p) = cad_prefs_path() else { return };
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, app.winset.prefs_json().to_string().as_bytes());
+}
+
 fn save_mc_prefs(app: &UiApp) {
     let Some(p) = mc_prefs_path() else { return };
     if app.mc_prefs.is_null() {
@@ -88,6 +112,7 @@ impl eframe::App for App {
     fn on_exit(&mut self) {
         save_recent(&self.app);
         save_mc_prefs(&self.app);
+        save_cad_prefs(&self.app);
     }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
@@ -283,6 +308,7 @@ fn main() -> eframe::Result {
             let mut app = UiApp::new(services);
             load_recent(&mut app);
             load_mc_prefs(&mut app);
+            load_cad_prefs(&mut app);
             if let Some(l) = control_line {
                 app.message = l;
             }

@@ -87,6 +87,7 @@ pub mod takeofftools;
 pub mod theme;
 pub mod tkbench;
 pub mod view3d;
+pub mod winsetdlg;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -274,6 +275,8 @@ pub struct UiApp {
     pub lib: libdlg::LibPanel,
     /// the Parameters panel and the constraints on the drawing (PARAMETERS, M4.23)
     pub par: parpanel::ParPanel,
+    /// SHORTCUTS' keys editor and COMPARESETTINGS' dialog (M4.32)
+    pub winset: winsetdlg::WinSet,
     /// the drafting editor's Quick select and Find and replace dialogs (M4.15)
     pub caddlg: qsdlg::CadDialogs,
     /// the clipboard keys go to the clipboard commands (the command line is empty and has the focus)
@@ -360,6 +363,7 @@ impl Default for UiApp {
             choose: None,
             lib: libdlg::LibPanel::default(),
             par: parpanel::ParPanel::default(),
+            winset: winsetdlg::WinSet::default(),
             caddlg: qsdlg::CadDialogs::default(),
             clip_keys: false,
             clip_cmd: None,
@@ -1508,6 +1512,7 @@ impl UiApp {
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
             id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
             id if id.starts_with("par.") => return parpanel::run(self, id, params),
+            id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
@@ -1553,6 +1558,7 @@ impl UiApp {
         }
         libdlg::sync(self);
         cadprops::sync(self);
+        winsetdlg::sync(self);
         if let Some(ed) = self.editor.as_ref() {
             // PARAMETERS opens the panel; notes from edits the window made itself (grips, Properties)
             if std::mem::take(&mut ed.hs.borrow_mut().par_open) {
@@ -1823,6 +1829,7 @@ impl UiApp {
         }
         plotdlg::window(self, &ctx);
         cadprops::quick_window(self, &ctx);
+        winsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
@@ -2401,16 +2408,40 @@ impl UiApp {
         if let Some(p) = resp.hover_pos() {
             ed.hover(world(p), pxu);
         }
+        let lasso_on = !ed.hs.borrow().lasso_box;
+        let scr = |p: egui::Pos2| (f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y));
         if resp.drag_started_by(egui::PointerButton::Primary)
             && let Some(p) = resp.interact_pointer_pos()
         {
-            let w = world(p - resp.drag_delta());
-            self.drag_from = Some((w.x, w.y));
+            let down = ui.input(|i| i.pointer.press_origin()).unwrap_or(p - resp.drag_delta());
+            if lasso_on && ed.can_select_now() && ed.pending_box.is_none() {
+                // LASSOMODE 1: press and drag draws a lasso (cadcraft.js startDrag)
+                ed.lasso_start(world(down), scr(down), world(p), scr(p));
+            } else {
+                let w = world(down);
+                self.drag_from = Some((w.x, w.y));
+            }
         }
-        if resp.drag_stopped_by(egui::PointerButton::Primary)
-            && let (Some((x, y)), Some(p)) = (self.drag_from.take(), resp.interact_pointer_pos())
-        {
-            ed.finish_box(cc_geom::P2::new(x, y), world(p), pxu);
+        if ed.lasso.is_some() {
+            if resp.dragged_by(egui::PointerButton::Primary)
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                ed.lasso_move(world(p), scr(p));
+            }
+            let (space, esc) = ui.input(|i| (i.key_pressed(egui::Key::Space), i.key_pressed(egui::Key::Escape)));
+            if space {
+                ed.lasso_cycle();
+            }
+            if esc {
+                ed.lasso = None;
+            }
+        }
+        if resp.drag_stopped_by(egui::PointerButton::Primary) {
+            if ed.lasso.is_some() {
+                ed.finish_lasso(pxu);
+            } else if let (Some((x, y)), Some(p)) = (self.drag_from.take(), resp.interact_pointer_pos()) {
+                ed.finish_box(cc_geom::P2::new(x, y), world(p), pxu);
+            }
         }
         // a constraint's glyph or label (gview.js hits): select it, or edit a dimensional one's value on a double click
         let par_hit = if !ed.eng.busy() { resp.interact_pointer_pos().and_then(|p| parpanel::hit_at(self, p)) } else { None };
@@ -2526,6 +2557,25 @@ impl UiApp {
             let c = if crossing { egui::Color32::from_rgb(0x3c, 0xb0, 0x60) } else { egui::Color32::from_rgb(0x3c, 0x80, 0xe0) };
             painter.rect_filled(r, 0.0, c.gamma_multiply(0.12));
             painter.rect_stroke(r, 0.0, egui::Stroke::new(1.0, c), egui::StrokeKind::Middle);
+        }
+        // a lasso (lasso.js): window = solid outline, crossing = dashed, fence = a dashed open path (no fill: a freehand
+        // outline is rarely convex)
+        if let Some(l) = ed.lasso.as_ref() {
+            let mode = l.mode.unwrap_or("window");
+            let pts: Vec<egui::Pos2> = l.pts.iter().map(|q| to_pos(q.x, q.y)).collect();
+            let c = if mode == "window" { egui::Color32::from_rgb(0x3c, 0x80, 0xe0) } else { egui::Color32::from_rgb(0x3c, 0xb0, 0x60) };
+            let st = egui::Stroke::new(1.0, c);
+            let mut path = pts.clone();
+            if mode != "fence"
+                && let Some(f) = pts.first()
+            {
+                path.push(*f);
+            }
+            if mode == "window" {
+                painter.add(egui::Shape::line(path, st));
+            } else {
+                painter.extend(egui::Shape::dashed_line(&path, st, 5.0, 3.0));
+            }
         }
         // crosshair
         if let Some(hp) = hover.filter(|p| rect.contains(*p)) {

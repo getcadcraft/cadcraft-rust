@@ -110,6 +110,29 @@ pub trait Host {
         false
     }
     fn set_panes(&mut self, _layout: &str) {}
+    /// `host.linkViews()` (LINKVIEWS): whether the panes' views are linked; None when the host has no panes.
+    fn link_views(&self) -> Option<bool> {
+        None
+    }
+    fn set_link_views(&mut self, _on: bool) {}
+    /// `host.openIn3d()` (OPENIN3D): hand the drawing to the 3D modeling app → the app's name, or (code, message) when
+    /// it failed ('blocked' | 'storage' | other); None when the host has no such app.
+    fn open_in_3d(&mut self) -> Option<Result<String, (String, String)>> {
+        None
+    }
+    /// `host.settings.lasso` (LASSOMODE): press and drag draws a lasso (true) or a rectangle; None = no such setting.
+    fn lasso(&self) -> Option<bool> {
+        None
+    }
+    fn set_lasso(&mut self, _on: bool) {}
+    /// `host.shortcuts.open()` (SHORTCUTS) → false when the host has no keys editor.
+    fn shortcuts(&mut self) -> bool {
+        false
+    }
+    /// `host.compareSettings()` (COMPARESETTINGS) → false when the host has no such dialog.
+    fn compare_settings(&mut self) -> bool {
+        false
+    }
     /// `host.enterViewport`: working on the model through a sheet's viewport (MSPACE / PSPACE) → false when the host
     /// has none.
     fn has_viewports(&self) -> bool {
@@ -198,6 +221,22 @@ pub trait Host {
     }
     /// `host.cursor = p`: the 3D tab moves the cursor the commands see (a point on the ground under the pointer).
     fn set_cursor(&mut self, _p: P2) {}
+}
+
+/// A window "Select objects" was given: a rectangle, or a lasso's outline (STRETCH stretches what they hold).
+#[derive(Clone, Debug, PartialEq)]
+pub enum SelWin {
+    Rect(Bounds),
+    Poly(Vec<P2>),
+}
+impl SelWin {
+    /// Does it hold this point (a rectangle with 1e-9 to spare; a lasso by its polygon)?
+    pub fn holds(&self, q: P2) -> bool {
+        match self {
+            SelWin::Rect(w) => q.x >= w.min_x - 1e-9 && q.x <= w.max_x + 1e-9 && q.y >= w.min_y - 1e-9 && q.y <= w.max_y + 1e-9,
+            SelWin::Poly(p) => cc_cad_geom::pick::point_in_poly(q, p),
+        }
+    }
 }
 
 /// What `choose_block` answers for "the whole drawing" (cadcraft.js's `'\u0000whole'` option).
@@ -412,8 +451,9 @@ pub struct State {
     pub edge_mode: i32,
     /// the freehand path being dragged (the host sets it; TRIM / EXTEND preview what it crosses)
     pub drag_path: Option<Vec<P2>>,
-    /// the windows the last "Select objects" was given (`set.windows`: STRETCH stretches what they hold)
-    pub sel_windows: Vec<Bounds>,
+    /// the windows the last "Select objects" was given (`set.windows`: STRETCH stretches what they hold): rectangles,
+    /// and lassos as their outlines
+    pub sel_windows: Vec<SelWin>,
     /// what commands remember between runs (`E.hatch`, `E.filletR`, …)
     pub memo: crate::cmd::Memo,
     /// the engine's clipboard (`E.clipboard`; the host's shared store sits behind it)
@@ -891,7 +931,34 @@ impl Engine {
             }
         });
         if !shift && !opts.remove {
-            self.sh.st.borrow_mut().sel_windows.push(rect);
+            self.sh.st.borrow_mut().sel_windows.push(SelWin::Rect(rect));
+        }
+        let msg = if opts.remove { self.sh.tv("sel.removed", &[("n", ids.len().to_string())]) } else { format!("{} found", ids.len()) };
+        let mut h = self.sh.host.borrow_mut();
+        h.set_selection(&set.0);
+        h.print(&msg);
+    }
+
+    /// commands.js `lasso(pts, mode)`: a lasso dragged while "Select objects" waits ('window' | 'crossing' | 'fence').
+    pub fn lasso(&mut self, pts: &[P2], mode: &str) {
+        let Some((Kind::Select, opts, _)) = self.waiting_info() else { return };
+        let ids = {
+            let d = self.sh.doc.borrow();
+            let ents: Vec<Entity> = d.entities().filter(|e| d.editable(e)).cloned().collect();
+            crate::lasso::lasso_hits(&ents, pts, mode, Some(&d.blocks))
+        };
+        let shift = self.sh.host.borrow().shift();
+        let set = self.with_set(|s| {
+            for id in &ids {
+                if shift || opts.remove {
+                    s.delete(*id);
+                } else {
+                    s.add(*id);
+                }
+            }
+        });
+        if mode != "fence" && !shift && !opts.remove {
+            self.sh.st.borrow_mut().sel_windows.push(SelWin::Poly(pts.to_vec()));
         }
         let msg = if opts.remove { self.sh.tv("sel.removed", &[("n", ids.len().to_string())]) } else { format!("{} found", ids.len()) };
         let mut h = self.sh.host.borrow_mut();
@@ -1192,7 +1259,7 @@ impl Ctx {
                 let ids = self.sh.host.borrow().pick_window(&self.doc(), &w, key == "C");
                 self.take(&ids, set, remove);
                 if !remove {
-                    self.st().sel_windows.push(w);
+                    self.st().sel_windows.push(SelWin::Rect(w));
                 }
                 Ok(true)
             }

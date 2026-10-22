@@ -33,12 +33,15 @@
 
 pub mod clip;
 pub mod cmd;
+pub mod compare;
 pub mod engine;
 pub mod input;
 pub mod lang;
+pub mod lasso;
 pub mod prompt;
 pub mod propextra;
 pub mod props;
+pub mod shortcuts;
 pub mod tancircle;
 pub mod ucs;
 pub mod ws3d;

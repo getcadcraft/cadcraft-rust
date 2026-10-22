@@ -55,7 +55,7 @@ pub async fn stretch(c: Ctx) -> R {
     if ids.is_empty() {
         return Ok(());
     }
-    let wins: Rc<Vec<Bounds>> = Rc::new(c.st().sel_windows.clone());
+    let wins: Rc<Vec<crate::engine::SelWin>> = Rc::new(c.st().sel_windows.clone());
     if wins.is_empty() {
         c.print(&c.t("cmd.stretch.nowindow"));
     }
@@ -69,9 +69,7 @@ pub async fn stretch(c: Ctx) -> R {
             if wins.is_empty() {
                 return Some(tx_entity(e, &m_translate(dx, dy)));
             }
-            let inside = |q: P2| {
-                wins.iter().any(|w| q.x >= w.min_x - 1e-9 && q.x <= w.max_x + 1e-9 && q.y >= w.min_y - 1e-9 && q.y <= w.max_y + 1e-9)
-            };
+            let inside = |q: P2| wins.iter().any(|w| w.holds(q));
             stretch_entity(e, &inside, dx, dy)
         }
     };

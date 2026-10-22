@@ -63,6 +63,7 @@ mod props;
 mod skp;
 mod takeoff;
 mod takeoff_pdf;
+mod winset;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -98,6 +99,7 @@ fn main() -> ExitCode {
         "save" => iocad::save(&rest),
         "plot" => iocad::plot(&rest),
         "props" => props::props(&rest),
+        "winset" => winset::winset(&rest),
         "manifold" => manifold::manifold(&rest),
         "manifold-cs" => crosssection::run(&rest),
         "manifold-hull" => hull::run(&rest),

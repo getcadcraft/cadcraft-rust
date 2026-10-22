@@ -244,6 +244,33 @@ fn shot(args: &[String]) -> Result<(), String> {
                     hs.run_steps(2);
                 }
             }
+            "--mouse-path" => {
+                // a real primary-button drag through several points: "x1,y1:x2,y2:x3,y3…" (a lasso), four moves a leg
+                let pts: Vec<(f64, f64)> = v.split(':').filter_map(xy).collect();
+                if let (Some(&(x0, y0)), true) = (pts.first(), pts.len() >= 2) {
+                    let button =
+                        |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods };
+                    let p0 = egui::pos2(x0 as f32, y0 as f32);
+                    hs.event(egui::Event::PointerMoved(p0));
+                    hs.run_steps(1);
+                    hs.event(button(p0, true));
+                    hs.run_steps(1);
+                    let mut last = p0;
+                    for w in pts.windows(2) {
+                        let (Some(&(ax, ay)), Some(&(bx, by))) = (w.first(), w.get(1)) else { continue };
+                        for i in 1..=4 {
+                            let k = f64::from(i) / 4.0;
+                            last = egui::pos2((ax + (bx - ax) * k) as f32, (ay + (by - ay) * k) as f32);
+                            hs.event(egui::Event::PointerMoved(last));
+                            hs.run_steps(1);
+                        }
+                    }
+                    if args.get(i + 2).map(String::as_str) != Some("--hold") {
+                        hs.event(button(last, false));
+                        hs.run_steps(2);
+                    }
+                }
+            }
             "--wait" => {
                 // keep drawing frames for MS milliseconds (background work, such as an Auto count search, lands)
                 let ms: u64 = v.parse().unwrap_or(0).min(60_000);

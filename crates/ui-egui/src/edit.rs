@@ -116,6 +116,13 @@ pub struct HostState {
     pub prop_picked: Option<P2>,
     /// QPMODE asked to turn Quick Properties on / off
     pub qp_toggle: bool,
+    /// press and drag draws a rectangle (LASSOMODE 0), not a lasso (the default)
+    pub lasso_box: bool,
+    /// SHORTCUTS / COMPARESETTINGS asked for their dialogs
+    pub keys_open: bool,
+    pub cmp_open: bool,
+    /// a line for the status bar (LASSOMODE says what a drag now does)
+    pub status: Option<String>,
 }
 
 /// What a command asked the window's picker for.
@@ -287,6 +294,22 @@ impl Host for UiHost {
     fn props(&mut self, open: bool) {
         self.0.borrow_mut().props_open = Some(open);
     }
+    fn lasso(&self) -> Option<bool> {
+        Some(!self.0.borrow().lasso_box)
+    }
+    fn set_lasso(&mut self, on: bool) {
+        let mut h = self.0.borrow_mut();
+        h.lasso_box = !on;
+        h.status = Some(lang_text(if on { "status.lasso.on" } else { "status.lasso.off" }, &[]));
+    }
+    fn shortcuts(&mut self) -> bool {
+        self.0.borrow_mut().keys_open = true;
+        true
+    }
+    fn compare_settings(&mut self) -> bool {
+        self.0.borrow_mut().cmp_open = true;
+        true
+    }
     fn quick_props(&mut self) {
         self.0.borrow_mut().qp_toggle = true;
     }
@@ -425,6 +448,16 @@ thread_local! {
     static CLIP_STORE: RefCell<Option<cc_engine::clip::Clip>> = const { RefCell::new(None) };
 }
 
+/// A lasso being dragged (cadcraft.js `drag`, kind 'lasso').
+#[derive(Clone, Debug, PartialEq)]
+pub struct LassoDrag {
+    pub start_sx: f64,
+    pub pts: Vec<P2>,
+    pub mode: Option<&'static str>,
+    /// the last point added, on screen
+    last_s: (f64, f64),
+}
+
 /// The open editable drawing and its command line.
 pub struct Editor {
     pub eng: Engine,
@@ -440,6 +473,8 @@ pub struct Editor {
     pub snap: Option<Snap>,
     /// a selection window being drawn: its first corner (world)
     pub pending_box: Option<P2>,
+    /// a lasso being dragged (lasso.js): its screen start x, its points (world) and its mode once decided
+    pub lasso: Option<LassoDrag>,
     seen: Option<u64>,
     seen_space: Option<cc_cad::SpaceId>,
     /// the doc version at the last save (None = never saved)
@@ -462,6 +497,7 @@ impl Editor {
             polar: false,
             snap: None,
             pending_box: None,
+            lasso: None,
             seen: None,
             seen_space: None,
             saved: None,
@@ -593,6 +629,71 @@ impl Editor {
                     }
                     drop(h);
                     self.pending_box = Some(raw);
+                }
+            }
+        }
+        self.refresh_prompt();
+    }
+
+    /// Can a press and drag select now (cadcraft.js canSelectNow: "Select objects" waits, or no command runs)?
+    pub fn can_select_now(&self) -> bool {
+        self.eng.expects() == Some(Kind::Select) || !self.eng.busy()
+    }
+
+    /// cadcraft.js `startDrag('lasso', p)`: `down` / `p` world points, `down_s` / `p_s` screen points (px).
+    pub fn lasso_start(&mut self, down: P2, down_s: (f64, f64), p: P2, p_s: (f64, f64)) {
+        self.pending_box = None;
+        self.lasso = Some(LassoDrag {
+            start_sx: down_s.0,
+            pts: vec![down, p],
+            mode: cc_engine::lasso::lasso_mode(down_s.0, p_s.0, 6.0),
+            last_s: p_s,
+        });
+    }
+    /// cadcraft.js `dragMove(p)`: a point every 3 px; the first sideways move decides the mode.
+    pub fn lasso_move(&mut self, p: P2, p_s: (f64, f64)) {
+        let Some(l) = self.lasso.as_mut() else { return };
+        if (l.last_s.0 - p_s.0).hypot(l.last_s.1 - p_s.1) >= 3.0 && l.pts.len() < 20_000 {
+            l.pts.push(p);
+            l.last_s = p_s;
+        }
+        if l.mode.is_none() {
+            l.mode = cc_engine::lasso::lasso_mode(l.start_sx, p_s.0, 6.0);
+        }
+    }
+    /// Space while dragging: window → crossing → fence.
+    pub fn lasso_cycle(&mut self) {
+        if let Some(l) = self.lasso.as_mut() {
+            l.mode = Some(cc_engine::lasso::next_mode(l.mode.unwrap_or("window")));
+        }
+    }
+    /// cadcraft.js `finishDrag()`: thinned to 2 px; "Select objects" takes it, else the selection (Shift removes).
+    pub fn finish_lasso(&mut self, px_per_unit: f64) {
+        let Some(l) = self.lasso.take() else { return };
+        let step = if px_per_unit > 0.0 { 2.0 / px_per_unit } else { 0.0 };
+        let pts = cc_engine::lasso::thin(&l.pts, step);
+        let mode = l.mode.unwrap_or("window");
+        if pts.len() < if mode == "fence" { 2 } else { 3 } {
+            return;
+        }
+        if self.eng.expects() == Some(Kind::Select) {
+            self.eng.lasso(&pts, mode);
+        } else if !self.eng.busy() {
+            let ids = {
+                let d = self.eng.doc();
+                let ents: Vec<Entity> = d.entities().filter(|e| d.editable(e)).cloned().collect();
+                cc_engine::lasso::lasso_hits(&ents, &pts, mode, Some(&d.blocks))
+            };
+            let mut h = self.hs.borrow_mut();
+            if h.shift {
+                let off: std::collections::HashSet<u64> = ids.into_iter().collect();
+                h.selection.retain(|x| !off.contains(x));
+            } else {
+                let mut have: std::collections::HashSet<u64> = h.selection.iter().copied().collect();
+                for id in ids {
+                    if have.insert(id) {
+                        h.selection.push(id);
+                    }
                 }
             }
         }
