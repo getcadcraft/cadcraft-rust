@@ -1405,10 +1405,10 @@ fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &
         egui::TextEdit::multiline(&mut legal).desired_rows(10).desired_width(f32::INFINITY).font(egui::TextStyle::Small).interactive(true),
     );
     ui.horizontal(|ui| {
-        if ui.button(format!("⎘ {}", t0("pc.copy"))).clicked() {
+        if ui.button(t0("pc.copy")).clicked() {
             acts.push(Act::Run("civil.pc.copy", String::new()));
         }
-        if ui.button(format!("⬇ {}", t0("pc.download"))).clicked() {
+        if ui.button(t0("pc.download")).clicked() {
             acts.push(Act::Run("civil.pc.download", String::new()));
         }
     });

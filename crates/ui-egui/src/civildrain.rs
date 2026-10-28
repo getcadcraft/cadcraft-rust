@@ -587,7 +587,7 @@ pub fn block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
     });
     note(ui, tk, &t0("dr.idf.formula"));
     note(ui, tk, &tr!("dr.note", i = i_u(&units), q = q_u(&units), a = a_u(&units)));
-    if ui.button(format!("◫ {}", t0("dr.draw"))).clicked() {
+    if ui.button(t0("dr.draw")).clicked() {
         acts.push(Act::Run("civil.tool", "catchment!".into()));
     }
     let cs = cv.catchment_rows();
@@ -715,7 +715,7 @@ pub fn props(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, c: &Value, acts
     });
     note(ui, tk, &t0("dr.c.note"));
     ui.horizontal(|ui| {
-        if ui.button(format!("◫ {}", t0("dr.draw.more"))).clicked() {
+        if ui.button(t0("dr.draw.more")).clicked() {
             acts.push(Act::Run("civil.tool", "catchment!".into()));
         }
         if ui.button(RichText::new(t0("fl.props.delete")).color(egui::Color32::from_rgb(0xd0, 0x4a, 0x5a))).clicked() {

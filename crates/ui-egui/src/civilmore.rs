@@ -491,3 +491,74 @@ mod tests {
         assert!(cv.points.copy_out.is_some());
     }
 }
+
+// ------------------------------------------------------------------------------------------------ touch's draft bar
+
+impl CivilView {
+    /// The draft bar's buttons (civilcraft.js `draftBar` click): Finish (Enter), Undo point (says how many are left),
+    /// Cancel (the draft goes, the tool stays). `civil.draft=finish|back|cancel`.
+    pub fn draft_bar(&mut self, act: &str) -> Result<(), String> {
+        match act {
+            "finish" => {
+                if !self.tools.draft.is_empty() {
+                    self.finish();
+                }
+            }
+            "back" => {
+                if !self.tools.draft.is_empty() {
+                    self.tools.draft.pop();
+                    self.message = cc_civil::tr!("touch.back.done", n = self.tools.draft.len());
+                }
+            }
+            "cancel" => {
+                self.tools.draft.clear();
+                self.tools.closed = false;
+                self.message = t("cv.cancelled", &[]);
+            }
+            o => return Err(format!("civil.draft: finish, back or cancel (not {o})")),
+        }
+        Ok(())
+    }
+}
+
+/// The draft bar over the plan (ui.inc `data-draftbar`): shown on a touch screen while a line is being drawn.
+pub fn draft_bar_ui(cv: &CivilView, ui: &egui::Ui, rect: egui::Rect, tk: &crate::theme::Tokens, acts: &mut Vec<(&'static str, String)>) {
+    if !(cv.touch && !cv.tools.draft.is_empty() && !cv.show3d) {
+        return;
+    }
+    egui::Area::new(egui::Id::unique("cv_draftbar")).fixed_pos(egui::pos2(rect.center().x - 170.0, rect.max.y - 64.0)).show(
+        ui.ctx(),
+        |ui| {
+            egui::Frame::new().fill(tk.panel).stroke(egui::Stroke::new(1.5, tk.text)).inner_margin(6).corner_radius(3).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(t("touch.draft", &[])).color(tk.text_dim));
+                    for (k, key) in [("finish", "touch.finish"), ("back", "touch.back"), ("cancel", "touch.cancel")] {
+                        // finger-sized (0.4 S.8: 44 px targets)
+                        if ui.add(egui::Button::new(t(key, &[])).min_size(egui::vec2(88.0, 44.0))).clicked() {
+                            acts.push(("civil.draft", k.into()));
+                        }
+                    }
+                });
+            });
+        },
+    );
+}
+
+#[cfg(test)]
+mod draft_tests {
+    use super::*;
+
+    #[test]
+    fn the_draft_bar_finishes_drops_and_cancels() {
+        let mut cv = CivilView::sample();
+        cv.tool_command(crate::civiltools::Tool::Pad);
+        cv.click(6_150_150.0, 2_080_100.0);
+        cv.click(6_150_250.0, 2_080_110.0);
+        cv.draft_bar("back").unwrap();
+        assert_eq!(cv.tools.draft.len(), 1);
+        cv.draft_bar("cancel").unwrap();
+        assert!(cv.tools.draft.is_empty());
+        assert_eq!(cv.message, t("cv.cancelled", &[]));
+        assert!(cv.draft_bar("nope").is_err());
+    }
+}

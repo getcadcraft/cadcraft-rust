@@ -252,6 +252,34 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{} → the selected parcel's legal description as <site> - <parcel>.txt, through the save service",
     ),
     (
+        "civil.import",
+        "Import points",
+        "",
+        "{name: \"ok\" | \"cancel\" | \"format=auto|PNEZD|PENZD|PNEZ|PENZ|NEZD|ENZD|NEZ|ENZ\"} → the Import points dialog a survey point file opens: the column order, Import (the project's points replaced) or Cancel",
+    ),
+    (
+        "civil.import.info",
+        "Import points facts",
+        "",
+        "{} → the import dialog's summary, its first six rows and the rows not read, on the status line",
+    ),
+    ("civil.draft", "Draft bar", "", "{name: finish | back | cancel} → the touch screen's draft bar: Finish, Undo point, Cancel"),
+    ("civil.touch", "Touch screen", "", "{name?: \"off\"} → as if a touch screen were used (the draft bar shows while drawing)"),
+    (
+        "civil.drive",
+        "Drive",
+        "Space ← → Esc",
+        "{name: on | off | al=<id> | sta=<station> | play | pause | step=+1|-1 | speed=0..3 | tick=<seconds>} → drive along an alignment in the 3D view (tick: headless playing time)",
+    ),
+    ("civil.drive.info", "Drive facts", "", "{} → the Drive panel's station readout, on the status line"),
+    (
+        "civil.sun",
+        "Sun",
+        "",
+        "{name: \"on=on|off,shadows=on|off,date=YYYY-MM-DD,time=HH:MM,utc=<hours>,lat=<deg>,lon=<deg>,now=<ms>\"} → the 3D view's Sun menu (now: a fixed clock for the defaults)",
+    ),
+    ("civil.sun.info", "Sun facts", "", "{name?: \"@<ms>\"} → the Sun menu's fields and its readout, on the status line"),
+    (
         "civil.dr.size",
         "Size pipes",
         "",
@@ -414,6 +442,15 @@ pub struct CivilView {
     pub settings_open: bool,
     /// the corner cube asked for a view (civil.camera)
     pub corner_cmd: Option<String>,
+    /// the Import points dialog (civilimport.rs)
+    pub import: Option<crate::civilimport::ImportDlg>,
+    /// a touch screen was used (civilcraft.js `.is-touch`): the draft bar shows while drawing
+    pub touch: bool,
+    /// driving along an alignment in 3D, the Sun menu (civildrive.rs)
+    pub drive: Option<crate::civildrive::Drive>,
+    pub sun: Option<crate::civildrive::SunSet>,
+    pub sun_out: String,
+    pub sun_edit: HashMap<String, String>,
 }
 
 /// Is this a file CivilCraft opens? (civilcraft.js `openText`: JSON = project, XML = LandXML, else points.)
@@ -477,6 +514,12 @@ impl CivilView {
             prefs_dirty: false,
             settings_open: false,
             corner_cmd: None,
+            import: None,
+            touch: false,
+            drive: None,
+            sun: None,
+            sun_out: String::new(),
+            sun_edit: HashMap::new(),
         }
     }
 
@@ -1646,16 +1689,51 @@ impl CivilView {
             self.s3_seq = self.s3_seq.wrapping_add(1);
             let mut s = civil3d::build(&mut self.project, dark, self.exag, (1 << 41) + self.s3_seq);
             self.timings.insert("site3d", s.build_ms);
-            let c = t.canvas_bg;
-            s.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
-            s.view.style.edges = false;
             if let Some((cam, _)) = keep {
                 s.view.cam = cam;
                 s.view.fit_pending = false;
             }
             self.site3 = Some(s);
+            // the sun follows a rebuilt scene (drive-ui.js refresh)
+            self.apply_sun();
+        }
+        // drive-ui.js keydown while driving: Space plays / pauses, ← / → step, Esc stops
+        if self.drive.is_some() && ui.ctx().memory(|m| m.focused().is_none()) {
+            let (esc, space, left, right) = ui.ctx().input(|i| {
+                (
+                    i.key_pressed(egui::Key::Escape),
+                    i.key_pressed(egui::Key::Space),
+                    i.key_pressed(egui::Key::ArrowLeft),
+                    i.key_pressed(egui::Key::ArrowRight),
+                )
+            });
+            let playing = self.drive.as_ref().is_some_and(|d| d.playing);
+            let k = if esc {
+                Some("off")
+            } else if space {
+                Some(if playing { "pause" } else { "play" })
+            } else if left {
+                Some("step=-1")
+            } else if right {
+                Some("step=+1")
+            } else {
+                None
+            };
+            if let Some(k) = k {
+                let _ = self.drive_command(k, dark);
+            }
+        }
+        let mut dacts = Vec::new();
+        crate::civildrive::panel(self, ui, rect, t, &mut dacts);
+        for (_, k) in dacts {
+            if let Err(e) = self.drive_command(&k, dark) {
+                self.message = e;
+            }
         }
         let Some(s) = self.site3.as_mut() else { return };
+        let c = t.canvas_bg;
+        s.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
+        s.view.style.edges = false;
         let resp = crate::view3d::show(ui, rect, &s.scene, &mut s.view);
         let halo = if dark { Color32::from_rgb(0x1b, 0x1c, 0x1e) } else { Color32::WHITE };
         civil3d::paint_labels(ui, rect, s, t.text, halo);
@@ -1819,6 +1897,30 @@ pub fn install(app: &mut UiApp, cv: CivilView) {
 
 /// Open a CivilCraft file (project, LandXML, points) dropped, picked or given to the CLI.
 pub fn open_file(app: &mut UiApp, f: &ImportedFile) {
+    // civilcraft.js openText: a survey point file goes through the Import points dialog, over the open project (or a
+    // new one); projects and LandXML open at once
+    if f.bytes.len() <= MAX_TEXT_BYTES {
+        let text = String::from_utf8_lossy(&f.bytes);
+        let lower = f.name.to_ascii_lowercase();
+        let head: String = text.chars().take(400).collect::<String>().trim_start().to_string();
+        let points = !(lower.ends_with(".json")
+            || head.starts_with('{')
+            || lower.ends_with(".xml")
+            || lower.ends_with(".landxml")
+            || head.starts_with('<'));
+        if points {
+            if app.civil.is_none() {
+                let mut cv = CivilView::new(Project::new(), "");
+                cv.message = String::new();
+                install(app, cv);
+            }
+            if let Some(cv) = app.civil.as_mut() {
+                let prefer = cv.pt_settings.order.clone();
+                cv.import = Some(crate::civilimport::ImportDlg::new(&f.name, text.into_owned(), &prefer));
+            }
+            return;
+        }
+    }
     match CivilView::open(&f.name, &f.bytes) {
         Ok(cv) => install(app, cv),
         Err(e) => app.error = Some(e),
@@ -2147,6 +2249,24 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         }
         "civil.mh.close" => cv.sheets.mh = None,
         "civil.se.info" => cv.message = cv.se_info()?,
+        "civil.import" => match name.as_str() {
+            "ok" => cv.import_ok()?,
+            "cancel" => cv.import = None,
+            n => match n.strip_prefix("format=") {
+                Some(f) => cv.import_format(f)?,
+                None => return Err(format!("civil.import: ok, cancel or format=<order> (not {n})")),
+            },
+        },
+        "civil.import.info" => cv.message = cv.import_info()?,
+        "civil.draft" => cv.draft_bar(&name)?,
+        "civil.touch" => cv.touch = name != "off",
+        "civil.drive" => cv.drive_command(&name, dark)?,
+        "civil.drive.info" => cv.message = cv.drive_info(),
+        "civil.sun" => cv.sun_command(&name, now_ms(), zone)?,
+        "civil.sun.info" => {
+            let at = name.trim().strip_prefix('@').and_then(|v| v.parse::<f64>().ok()).unwrap_or_else(now_ms);
+            cv.message = cv.sun_info(at, zone);
+        }
         "civil.dr.info" => cv.message = cv.dr_info()?,
         "civil.dr.size" => cv.dr_size(),
         "civil.pc.copy" => cv.pc_copy()?,
@@ -2336,6 +2456,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         if ex != cv.exag {
                             cmd.push(("civil.exag", Params { factor: Some(ex), ..Default::default() }));
                         }
+                        let mut bacts = Vec::new();
+                        crate::civildrive::bar(cv, ui, &mut bacts);
+                        for (id, k) in bacts {
+                            cmd.push((id, Params { name: Some(k), ..Default::default() }));
+                        }
                     }
                 });
             });
@@ -2395,10 +2520,23 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 cmd.push((id, Params { name: Some(k), ..Default::default() }));
             }
         }
+        if ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Touch { .. }))) {
+            cv.touch = true;
+        }
+        let mut bar_acts = Vec::new();
         egui::CentralPanel::no_frame().show(ui, |ui| {
             let rect = ui.max_rect();
             cv.show(ui, rect, &t, dark);
+            crate::civilmore::draft_bar_ui(cv, ui, rect, &t, &mut bar_acts);
         });
+        for (id, k) in bar_acts {
+            cmd.push((id, Params { name: Some(k), ..Default::default() }));
+        }
+        let mut iacts = Vec::new();
+        crate::civilimport::show(cv, ui.ctx(), &t, &mut iacts);
+        for (id, k) in iacts {
+            cmd.push((id, Params { name: Some(k), ..Default::default() }));
+        }
         if let Some(n) = cv.corner_cmd.take() {
             cmd.push(("civil.camera", Params { name: Some(n), ..Default::default() }));
         }

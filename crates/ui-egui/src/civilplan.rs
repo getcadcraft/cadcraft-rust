@@ -937,10 +937,36 @@ fn point_crosses(g: &mut SpaceGeometry, space: &Space, pts: &[cc_civil::points::
     let (ox, oy) = g.origin;
     let rgba = [col.r(), col.g(), col.b(), 255];
     let l0 = g.segments();
+    // a big survey zoomed out: one cross per cell of the cross's half size (crosses closer than that draw over each
+    // other as one mark; the plan looks the same with far fewer segments). Only when the cells are fewer than the
+    // points (a bitset over the points' box); 0.5 draws them all.
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    if pts.len() > 5000 && k.is_finite() && k > 0.0 {
+        for q in pts.iter().filter(|q| q.x.is_finite() && q.y.is_finite()) {
+            x0 = x0.min(q.x);
+            y0 = y0.min(q.y);
+            x1 = x1.max(q.x);
+            y1 = y1.max(q.y);
+        }
+    }
+    let (nx, ny) = (((x1 - x0) / k).floor() + 1.0, ((y1 - y0) / k).floor() + 1.0);
+    let thin = nx.is_finite() && ny.is_finite() && nx * ny <= pts.len() as f64 * 2.0;
+    let mut bits: Vec<u64> = if thin { vec![0; ((nx * ny) as usize).div_ceil(64)] } else { Vec::new() };
+    let nxu = if thin { nx as usize } else { 0 };
     g.line_bytes.reserve(pts.len().saturating_mul(40));
     for q in pts {
         if !(q.x.is_finite() && q.y.is_finite()) {
             continue;
+        }
+        if thin {
+            let c = (((q.x - x0) / k).floor() as usize).saturating_add((((q.y - y0) / k).floor() as usize).saturating_mul(nxu));
+            if let Some(w) = bits.get_mut(c / 64) {
+                let m = 1u64 << (c % 64);
+                if *w & m != 0 {
+                    continue;
+                }
+                *w |= m;
+            }
         }
         let (x, y) = (q.x - ox, q.y - oy);
         for v in [[x - k, y - k, x + k, y + k], [x - k, y + k, x + k, y - k]] {
