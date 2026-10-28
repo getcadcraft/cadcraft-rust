@@ -372,6 +372,7 @@ dependencies = [
  "rfd",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasmalloc",
  "web-sys",
  "web-time",
  "wgpu",
@@ -588,6 +589,7 @@ dependencies = [
 name = "cc-io-dwg"
 version = "0.0.1"
 dependencies = [
+ "cc-cad-geom",
  "cc-drawing",
  "cc-geom",
  "encoding_rs",
@@ -3936,6 +3938,12 @@ checksum = "23f0c9c52aa7cd7d77769a4cfe2a9adb1b331f489a41d912ce14513d5ab995c6"
 dependencies = [
  "unicode-ident",
 ]
+
+[[package]]
+name = "wasmalloc"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "065f25b3013d594aa09b24789faf58b6ce2db1623c6843eeebd161b5f080736e"
 
 [[package]]
 name = "wayland-backend"

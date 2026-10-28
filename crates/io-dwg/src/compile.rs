@@ -8,7 +8,9 @@
 //! counted, never guessed at.
 //!
 //! JS semantics kept on purpose: `||` / `??` defaults, `undefined` → NaN in arithmetic, `Math.min/max` NaN
-//! propagation, `Math.hypot` (V8's Kahan-compensated form), UTF-16 string lengths and `trim()`'s whitespace set, the
+//! propagation, `Math.hypot` (V8's Kahan-compensated form), `Math.sin` / `cos` / `atan` / `atan2` as V8 computes them
+//! ([`JsMath`]: the platform's libm differs in the last bit, and differently on wasm, so the web build drew from other
+//! numbers than the desktop), UTF-16 string lengths and `trim()`'s whitespace set, the
 //! exact order of floating-point operations, the JS `Map` insertion order of batches, layers and images, and
 //! `localeCompare(…, {numeric: true})` for the layer order (an ICU-root-like natural sort, see [`collate`]).
 //! What JS would throw on (a missing point, runaway recursion) never panics here: missing numbers are NaN and the
@@ -18,6 +20,7 @@ use std::collections::{HashMap, HashSet};
 use std::f64::consts::TAU;
 use std::rc::Rc;
 
+use cc_cad_geom::jsmath::JsMath;
 use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, ImageRef, Layer, Space, SpaceImage, SpaceKind, Stats, Text, Viewport, XrefInfo};
 
 use crate::read::js_string;
@@ -259,7 +262,7 @@ fn scale(sx: f64, sy: f64) -> M {
     [sx, 0.0, 0.0, sy, 0.0, 0.0]
 }
 fn rotate(r: f64) -> M {
-    let (c, s) = (r.cos(), r.sin());
+    let (c, s) = (r.jcos(), r.jsin());
     [c, s, -s, c, 0.0, 0.0]
 }
 fn mul(p: &M, q: &M) -> M {
@@ -314,8 +317,8 @@ fn arc_points(cx: f64, cy: f64, r: f64, a0: f64, a1: f64, ccw: bool) -> Vec<f64>
     let mut i = 0.0;
     while i <= n {
         let a = a0 + dir * sweep * (i / n);
-        pts.push(cx + r * a.cos());
-        pts.push(cy + r * a.sin());
+        pts.push(cx + r * a.jcos());
+        pts.push(cy + r * a.jsin());
         i += 1.0;
     }
     pts
@@ -325,16 +328,16 @@ fn ellipse_points(c: Option<&V>, maj: Option<&V>, ratio: f64, p0: f64, p1: f64) 
     let (mx, my) = pxy(maj);
     let (ccx, ccy) = pxy(c);
     let len = js_hypot(mx, my);
-    let rot = my.atan2(mx);
+    let rot = my.jatan2(mx);
     let sweep = wrap_sweep(p1 - p0);
     let n = seg_count(sweep);
-    let (cr, sr) = (rot.cos(), rot.sin());
+    let (cr, sr) = (rot.jcos(), rot.jsin());
     let mut pts = Vec::new();
     let mut i = 0.0;
     while i <= n {
         let t = p0 + sweep * (i / n);
-        let x = len * t.cos();
-        let y = len * ratio * t.sin();
+        let x = len * t.jcos();
+        let y = len * ratio * t.jsin();
         pts.push(ccx + x * cr - y * sr);
         pts.push(ccy + x * sr + y * cr);
         i += 1.0;
@@ -358,22 +361,22 @@ fn bulge_polyline(vs: &[&V], closed: bool) -> Vec<f64> {
         let (bx, by) = pxy(b);
         let bulge = or_n(f(a.and_then(V::as_obj), "bulge"), 0.0);
         if bulge.abs() > 1e-9 {
-            let theta = 4.0 * bulge.atan();
+            let theta = 4.0 * bulge.jatan();
             let chord = js_hypot(bx - ax, by - ay);
             if chord > 0.0 {
-                let r = chord / (2.0 * (theta / 2.0).sin());
+                let r = chord / (2.0 * (theta / 2.0).jsin());
                 let (mx, my) = ((ax + bx) / 2.0, (ay + by) / 2.0);
-                let h = r * (theta / 2.0).cos();
+                let h = r * (theta / 2.0).jcos();
                 let ux = -(by - ay) / chord;
                 let uy = (bx - ax) / chord;
                 let (cx, cy) = (mx + ux * h, my + uy * h);
-                let a0 = (ay - cy).atan2(ax - cx);
+                let a0 = (ay - cy).jatan2(ax - cx);
                 let steps = seg_count(theta);
                 let mut k = 1.0;
                 while k < steps {
                     let t = a0 + theta * (k / steps);
-                    pts.push(cx + r.abs() * t.cos());
-                    pts.push(cy + r.abs() * t.sin());
+                    pts.push(cx + r.abs() * t.jcos());
+                    pts.push(cy + r.abs() * t.jsin());
                     k += 1.0;
                 }
             }
@@ -1426,7 +1429,7 @@ fn mtext(sp: &mut SpaceState<'_>, out: &Out, m: &M, e: &MText<'_>) {
     }
     let xa = e.x_axis.filter(|v| v.truthy()).and_then(V::as_obj);
     let rot = if xa.is_some() && (truthy(f(xa, "x")) || truthy(f(xa, "y"))) {
-        num(f(xa, "y")).atan2(num(f(xa, "x")))
+        num(f(xa, "y")).jatan2(num(f(xa, "x")))
     } else {
         or_n(e.rotation, 0.0)
     };
@@ -1444,7 +1447,7 @@ fn mtext(sp: &mut SpaceState<'_>, out: &Out, m: &M, e: &MText<'_>) {
     } else {
         total
     };
-    let (cr, sr) = (rot.cos(), rot.sin());
+    let (cr, sr) = (rot.jcos(), rot.jsin());
     let (ix, iy) = pxy(e.insert);
     let ha = small_u8(ha + 0.0);
     for (i, ln) in lines.into_iter().enumerate() {
@@ -1464,7 +1467,7 @@ fn place(sp: &mut SpaceState<'_>, out: &Out, m: &M, x: f64, y: f64, h: f64, rot:
     let sx = js_hypot(m[0], m[1]);
     let sy = js_hypot(m[2], m[3]);
     let det = m[0] * m[3] - m[1] * m[2];
-    let angle = m[1].atan2(m[0]) + if det < 0.0 { -rot } else { rot };
+    let angle = m[1].jatan2(m[0]) + if det < 0.0 { -rot } else { rot };
     let hh = h * sy;
     let len = usize_f(s.len());
     sp.with(out, |b| {
@@ -1473,7 +1476,7 @@ fn place(sp: &mut SpaceState<'_>, out: &Out, m: &M, x: f64, y: f64, h: f64, rot:
     // Rough extent so fit-to-drawing includes text: assume 0.6 h per character.
     let syd = if sy != 0.0 && !sy.is_nan() { sy } else { 1.0 };
     let w = len * hh * 0.6 * (sx / syd);
-    sp.bounds.grow(&[xx, yy, xx + w * angle.cos(), yy + w * angle.sin()]);
+    sp.bounds.grow(&[xx, yy, xx + w * angle.jcos(), yy + w * angle.jsin()]);
 }
 
 // ---------------------------------------------------------------------------------------------------------------

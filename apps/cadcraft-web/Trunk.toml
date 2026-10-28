@@ -3,3 +3,9 @@ target = "index.html"
 dist = "../../dist/web"
 filehash = true
 public_url = "/"
+
+# binaryen's wasm-opt, pinned: version_108 (Ubuntu 24.04's package) rewrites wasm-bindgen's externref table export to
+# the function table and the page dies at start (`cargo xtask web` checks for it). trunk uses a wasm-opt on PATH when
+# its version matches, else downloads this release.
+[tools]
+wasm_opt = "version_132"

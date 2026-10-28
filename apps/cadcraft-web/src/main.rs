@@ -3,6 +3,15 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
+/// The web build's allocator: wasmalloc (pure Rust, MIT OR Apache-2.0) in place of std's dlmalloc. dlmalloc grows the
+/// wasm memory a page or so at a time, and in Chromium each `memory.grow` costs a garbage collection: opening the
+/// 3.4 MB Carey drawing spent 45 % of its time in V8's GC and 29 % in `malloc` (CPU profile, 2026-10-27). wasmalloc
+/// grows memory geometrically and serves small blocks from size classes: the first open went from 1,320 to 380 ms.
+/// It refuses to build with wasm threads (`atomics`); the web build is single-threaded (docs/roadmap.md § Wasm threads).
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOC: wasmalloc::WasmAlloc = wasmalloc::WasmAlloc::new();
+
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     eprintln!("cadcraft-web is the browser build: trunk build --release (apps/cadcraft-web).");
@@ -27,10 +36,27 @@ mod web {
 
     struct App {
         app: UiApp,
+        /// the drawing shown last frame (its load id): a new one logs its open timings
+        shown: u64,
+        /// `?bench`: every drawing opened (the sample, or one dropped on the page) runs the frame benchmark
+        bench: bool,
     }
     impl eframe::App for App {
         fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
             self.app.ui(ui);
+            let id = self.app.doc.as_ref().map_or(0, |d| d.id);
+            if id != self.shown {
+                self.shown = id;
+                if let Some(d) = &self.app.doc {
+                    log_open(d, self.app.frame_ms);
+                    if self.bench {
+                        self.app.start_bench(120);
+                    }
+                }
+            }
+            if let Some(r) = self.app.bench_result.take() {
+                web_sys::console::log_1(&r.into());
+            }
         }
         fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
             self.app.raw_input_hook(raw);
@@ -208,9 +234,6 @@ mod web {
                         if new_drawing && !sample && !bench_frames {
                             let _ = app.run("file.new", &Params::default());
                         }
-                        if bench_frames {
-                            app.start_bench(120);
-                        }
                         if demo3d {
                             let _ = app.run("view.demo3d", &Params::default());
                         }
@@ -220,7 +243,7 @@ mod web {
                         if ifc {
                             let _ = app.run("file.sample.ifc", &Params::default());
                         }
-                        Ok(Box::new(App { app }))
+                        Ok(Box::new(App { app, shown: 0, bench: bench_frames }))
                     }),
                 )
                 .await;
@@ -276,6 +299,27 @@ mod web {
         }
         download(name, bytes.to_vec())?;
         Ok(false)
+    }
+
+    /// A drawing was opened this frame: its timings to the console, then the time two animation frames later (the
+    /// frame drawn with it has been presented by then), so a harness can measure open → first frame.
+    fn log_open(d: &cc_ui_egui::document::Loaded, frame_ms: f64) {
+        let line = format!(
+            "opened {} ({} bytes): read {:.1} ms · compile {:.1} ms · GPU data {:.1} ms · first frame (CPU) {:.1} ms",
+            d.name, d.bytes, d.read_ms, d.compile_ms, d.geometry_ms, frame_ms
+        );
+        web_sys::console::log_1(&line.into());
+        let Some(w) = web_sys::window() else { return };
+        let second = wasm_bindgen::closure::Closure::once_into_js(move || {
+            let now = web_sys::window().and_then(|w| w.performance()).map_or(f64::NAN, |p| p.now());
+            web_sys::console::log_1(&format!("first frame shown at {now:.1}").into());
+        });
+        let first = wasm_bindgen::closure::Closure::once_into_js(move || {
+            if let Some(w) = web_sys::window() {
+                let _ = w.request_animation_frame(second.unchecked_ref());
+            }
+        });
+        let _ = w.request_animation_frame(first.unchecked_ref());
     }
 
     /// `?bench`: time the reader on the built-in sample in this browser (6 runs, like the kit's JS bench) → console.

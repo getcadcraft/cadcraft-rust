@@ -7,7 +7,9 @@
 //!   deny          `cargo deny check`
 //!   fuzz [--smoke] [--secs N]   each fuzz target over its corpus (needs the nightly toolchain + cargo-fuzz)
 //!   web           trunk build --release of apps/cadcraft-web into dist/web, then the inline init script moves into
-//!                 its own hashed file (the host's CSP is script-src 'self' 'wasm-unsafe-eval': no inline script)
+//!                 its own hashed file (the host's CSP is script-src 'self' 'wasm-unsafe-eval': no inline script);
+//!                 fails when wasm-opt broke the module (binaryen 108 points wasm-bindgen's externref export at the
+//!                 function table: the page then dies at start with "WebAssembly.Table.grow(): failed to grow table")
 #![forbid(unsafe_code)]
 // No indexing_slicing deny here: `serde_json::Value[...]` returns Null for a missing key, it never panics.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -274,6 +276,7 @@ fn web() -> R {
     c.args(["build", "--release"]);
     run("trunk build --release", c)?;
     let dist = root().join("dist").join("web");
+    check_web_wasm(&dist)?;
     let index = dist.join("index.html");
     let html = std::fs::read_to_string(&index).map_err(|e| format!("{}: {e}", index.display()))?;
     let Some(a) = html.find("<script type=\"module\">") else { return Ok(()) };
@@ -295,4 +298,158 @@ fn web() -> R {
     std::fs::write(&index, out).map_err(|e| format!("{}: {e}", index.display()))?;
     eprintln!("   inline init script → {name}");
     Ok(())
+}
+
+/// The built module must export wasm-bindgen's `__wbindgen_externrefs` as an externref table. binaryen's wasm-opt
+/// version_108 (Ubuntu 24.04's `binaryen` package) rewrites that export to table 0, the function table, even with no
+/// passes; the page then stops at start ("WebAssembly.Table.grow(): failed to grow table by 4"). Found 2026-10-27.
+fn check_web_wasm(dist: &Path) -> R {
+    let entries = std::fs::read_dir(dist).map_err(|e| format!("{}: {e}", dist.display()))?;
+    let mut seen = false;
+    for e in entries.flatten() {
+        let path = e.path();
+        if !path.to_string_lossy().ends_with("_bg.wasm") {
+            continue;
+        }
+        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        match externref_export_ok(&bytes) {
+            Some(true) => seen = true,
+            Some(false) => {
+                return Err(format!(
+                    "{}: `__wbindgen_externrefs` is not exported as an externref table: wasm-opt broke the module (binaryen \
+                     version_108 does; use a newer one, e.g. trunk's own with `[tools] wasm_opt` in Trunk.toml)",
+                    path.display()
+                ));
+            }
+            None => return Err(format!("{}: not a wasm module this check can read", path.display())),
+        }
+    }
+    if seen { Ok(()) } else { Err(format!("{}: no *_bg.wasm", dist.display())) }
+}
+
+/// LEB128 (unsigned, up to 32 bits) at `*at`.
+fn leb(b: &[u8], at: &mut usize) -> Option<u32> {
+    let mut v: u32 = 0;
+    for shift in [0u32, 7, 14, 21, 28] {
+        let x = *b.get(*at)?;
+        *at = at.checked_add(1)?;
+        v |= u32::from(x & 0x7f).checked_shl(shift)?;
+        if x < 0x80 {
+            return Some(v);
+        }
+    }
+    None
+}
+
+/// Skips a table's limits (flags, min, optional max).
+fn skip_limits(b: &[u8], at: &mut usize) -> Option<()> {
+    let flags = *b.get(*at)?;
+    *at = at.checked_add(1)?;
+    leb(b, at)?;
+    if flags & 1 != 0 {
+        leb(b, at)?;
+    }
+    Some(())
+}
+
+/// Skips a name (length + bytes) and returns it.
+fn wasm_name<'a>(b: &'a [u8], at: &mut usize) -> Option<&'a [u8]> {
+    let n = usize::try_from(leb(b, at)?).ok()?;
+    let end = at.checked_add(n)?;
+    let s = b.get(*at..end)?;
+    *at = end;
+    Some(s)
+}
+
+/// Some(true) when `__wbindgen_externrefs` names an externref (0x6f) table; Some(false) when it names another table
+/// or is missing; None when the module cannot be read.
+fn externref_export_ok(b: &[u8]) -> Option<bool> {
+    if b.get(..4)? != b"\0asm" {
+        return None;
+    }
+    let mut tables: Vec<u8> = Vec::new(); // element type per table index (imports first)
+    let mut export: Option<u32> = None;
+    let mut at = 8usize;
+    while at < b.len() {
+        let id = *b.get(at)?;
+        at = at.checked_add(1)?;
+        let size = usize::try_from(leb(b, &mut at)?).ok()?;
+        let end = at.checked_add(size)?;
+        let mut p = at;
+        match id {
+            2 => {
+                for _ in 0..leb(b, &mut p)? {
+                    wasm_name(b, &mut p)?;
+                    wasm_name(b, &mut p)?;
+                    let kind = *b.get(p)?;
+                    p = p.checked_add(1)?;
+                    match kind {
+                        0 => {
+                            leb(b, &mut p)?;
+                        }
+                        1 => {
+                            tables.push(*b.get(p)?);
+                            p = p.checked_add(1)?;
+                            skip_limits(b, &mut p)?;
+                        }
+                        2 => skip_limits(b, &mut p)?,
+                        3 => p = p.checked_add(2)?,
+                        _ => return None,
+                    }
+                }
+            }
+            4 => {
+                for _ in 0..leb(b, &mut p)? {
+                    tables.push(*b.get(p)?);
+                    p = p.checked_add(1)?;
+                    skip_limits(b, &mut p)?;
+                }
+            }
+            7 => {
+                for _ in 0..leb(b, &mut p)? {
+                    let name = wasm_name(b, &mut p)?;
+                    let kind = *b.get(p)?;
+                    p = p.checked_add(1)?;
+                    let idx = leb(b, &mut p)?;
+                    if kind == 1 && name == b"__wbindgen_externrefs" {
+                        export = Some(idx);
+                    }
+                }
+            }
+            _ => {}
+        }
+        at = end;
+    }
+    let Some(i) = export else { return Some(false) };
+    Some(tables.get(usize::try_from(i).ok()?) == Some(&0x6f))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::externref_export_ok;
+
+    /// A module with a funcref table 0 and an externref table 1, exporting `__wbindgen_externrefs` as table `idx`.
+    fn module(idx: u8) -> Vec<u8> {
+        let mut m = b"\0asm\x01\0\0\0".to_vec();
+        m.extend([4, 7, 2, 0x70, 0, 1, 0x6f, 0, 4]); // tables: funcref min 1; externref min 4
+        let name = b"__wbindgen_externrefs";
+        let mut exp = vec![1, name.len() as u8];
+        exp.extend(name);
+        exp.extend([1, idx]);
+        m.push(7);
+        m.push(exp.len() as u8);
+        m.extend(exp);
+        m
+    }
+
+    #[test]
+    fn externref_export_checked() {
+        assert_eq!(externref_export_ok(&module(1)), Some(true));
+        assert_eq!(externref_export_ok(&module(0)), Some(false), "binaryen 108's rewrite");
+        assert_eq!(externref_export_ok(b"\0asm\x01\0\0\0"), Some(false));
+        assert_eq!(externref_export_ok(b"nope"), None);
+        let mut cut = module(1);
+        cut.truncate(20);
+        assert_eq!(externref_export_ok(&cut), None);
+    }
 }

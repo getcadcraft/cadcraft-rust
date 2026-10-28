@@ -1,6 +1,6 @@
 # Architecture
 
-Last reviewed 2026-10-21 · Change: cc-gcons (M4.23: constraints and parameters).
+Last reviewed 2026-10-27 · Change: web build allocator, wasm-opt pin, V8 trig in the display list (M15.3).
 
 ## Toolchain and pins
 
@@ -8,7 +8,7 @@ Last reviewed 2026-10-21 · Change: cc-gcons (M4.23: constraints and parameters)
 |---|---|
 | Rust | 1.99.0 (`rust-toolchain.toml`), edition 2024, resolver 3, rust-version 1.95 |
 | Fuzzing | nightly + cargo-fuzz |
-| Web | trunk, wasm32-unknown-unknown, WebGPU only |
+| Web | trunk, wasm32-unknown-unknown, WebGPU only; wasm-opt = binaryen version_132 (Trunk.toml); allocator wasmalloc 0.1.1 |
 
 | UI | egui / eframe / egui-wgpu / egui_kittest 0.37, wgpu 30, lyon_tessellation 1, rfd 0.17, trunk 0.21 |
 
@@ -19,7 +19,7 @@ Last reviewed 2026-10-21 · Change: cc-gcons (M4.23: constraints and parameters)
 | L0 | `cc-geom`, `cc-clock` (the host's UTC offset per instant: jiff natively, `Date.getTimezoneOffset` on the web; writers take a `Zone` from the host) |
 | L1 | `cc-drawing` (display model), `cc-cad` (CadCraft's editable Doc, doc.js) |
 | L2 | `cc-cad-geom` (geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch; `display` = Doc → `cc-drawing`) |
-| L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client), `cc-gcons` (CadCraft's constraints and parameters: gsolve.js, gcons.js, params-doc.js, ckeep.js; gives `cc-cad`'s `Doc::change` its constraint hook) |
+| L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`; its trig from `cc-cad-geom::jsmath`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client), `cc-gcons` (CadCraft's constraints and parameters: gsolve.js, gcons.js, params-doc.js, ckeep.js; gives `cc-cad`'s `Doc::change` its constraint hook) |
 | L4 | `cc-tools`, `cc-io-cad` (CadCraft's DWG import, DXF R12 read/write, DWG save, DXF 2000; L4 because it uses `cc-io-dwg`) |
 | L5 | `cc-engine` (prompt Runner, command line, drafting commands) |
 | L6 | `cc-ui-egui`, `cc-mcp` (assistants: dispatcher, control channel, confinement, headless and live tools; docs/control-protocol.md) |
@@ -64,7 +64,11 @@ per visible batch, texts as egui shapes.
   (zoom × viewHeight ratio, twist, centre mapped as dwg-view.js's `vpMatrix`) under a scissor rectangle, then the
   sheet's own entities. Per-viewport frozen layers are not applied yet (as in the JS viewer).
 - **Web:** WebGPU only (`Backends::BROWSER_WEBGPU`; egui-wgpu's WebGL feature is off), `profile.web` = fat LTO, one
-  codegen unit, opt-level 3, `+simd128`; trunk + wasm-opt -O3; no inline script.
+  codegen unit, opt-level 3, `+simd128`; trunk + wasm-opt -O3 (binaryen pinned to version_132 in Trunk.toml: Ubuntu's
+  version_108 breaks wasm-bindgen's externref table, `cargo xtask web` refuses such a build); no inline script. The
+  global allocator is wasmalloc, not std's dlmalloc (M15.3: dlmalloc's small `memory.grow` steps each cost Chromium
+  a garbage collection). The display list's sin / cos / atan / atan2 are V8's (`cc_cad_geom::jsmath`), so the web
+  build, the desktop and the 0.5 JS compile a drawing to the same numbers.
 
 ## Drafting (M4)
 

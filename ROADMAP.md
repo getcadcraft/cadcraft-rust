@@ -36,6 +36,8 @@ drawing 168 → 84 ms, 1.7 MB 32 → 22 ms.
 | Measurement | Value |
 |---|---|
 | Web (Chromium, wasm, single thread, fat LTO + SIMD): read the sample (174 KB R2018), 6 runs | Rust 38–53 ms warm (first 119–254) vs 0.5 JS 46–90 ms warm (first 117–130) in the same browser |
+| Web, M15.3 (2026-10-27, Chromium 130 headless, median of 5 fresh pages; machine under load ~50 on 32 threads): Carey 3.4 MB, first read in the page | before 1,835 ms, after **417 ms**, 0.5 JS `readDwg` 975 ms (0.53× → **2.3×**); 1.66 MB plan 376 → 189 vs 225 (0.6× → 1.2×); sample 174 KB 259 → 106 vs 158 (0.6× → 1.5×) |
+| Web, M15.3: open → first frame (drop on the page → the frame showing it; JS = 0.5's open: worker read, importDwg, load, view) | Carey before 2,686 ms, after **717 ms**, JS 1,730 (0.64× → **2.4×**); 1.66 MB 845 → 495 vs 1,373 (1.6× → 2.8×); sample 273 → 336 vs 640 (1.9×); showcase house / asbuilt 245 / 193 → 285 / 219 vs 396 / 355 (1.4× / 1.6×; small files unchanged within the noise) |
 | CPU side of a frame (egui + view + text layout), 3.4 MB drawing, 1600×1000 | 0.72 ms best, 0.95 ms median |
 | Whole frame incl. software GPU (lavapipe) + readback, 3.4 MB drawing | 132 ms best (no hardware GPU on this server) |
 | Kitchen sample, whole frame on lavapipe | 42 ms best |
@@ -127,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-27 M15.3: web speed: a browser CPU profile showed 74 % of a cold Carey read in dlmalloc's memory growth and V8's GC; wasmalloc on the web: Carey first read 1,835 → 417 ms (JS 975), open → first frame 2,686 → 717 ms (JS 1,730); display list trig as V8 (web = desktop = 0.5 JS exactly on 149 DWGs + 156 DXFs); wasm-opt pinned (Ubuntu's binaryen 108 broke the build: the live test site does not start).
 - 2026-10-21 M11.17: GeoTIFF tiles under one pixel refused (civil_raster fuzz timeout: a 7.7e-304 TileLength walked ~1e305 tile rows); regression test + seed.
 - 2026-10-21 M4.40: CadCraft's LISP (new crate cc-lisp; APPLOAD, (command …), DCL dialogs, vla-, ALIASEDIT / REINIT / DELBLOCKS; MCP script_run lisp): lispdiff 6 × 2366/2366, kdiff-cadlisp 571/571, mcpdiff 304/304; 1.8–4.8× the JS.
 - 2026-10-21 M4.24: CadCraft 3D commands (EXTRUDE with Taper / Path, SWEEP, REVOLVE, BOX, WEDGE, CYLINDER, EXPORT3D / STLOUT / OBJOUT / GLBOUT) on ModelCraft's kernel, one undo step each, and the 3D model in DWG / DXF: kdiff 182/182, saves byte-identical 4 × 78/78, read-back 52/52; 1.8–37× the JS.

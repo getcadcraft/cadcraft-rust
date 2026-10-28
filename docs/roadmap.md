@@ -1,6 +1,6 @@
 # Roadmap: CadCraft in Rust
 
-Last updated 2026-10-21 · Change: DXF 2000 save speed measured again (S.5); all eight engines at parity; PartCraft and DetailCraft views; wasm threads measured and not shipped (M15.1).
+Last updated 2026-10-27 · Change: web speed profiled and fixed (M15.3: the web allocator); DXF 2000 save speed measured again (S.5); all eight engines at parity; PartCraft and DetailCraft views; wasm threads measured and not shipped (M15.1).
 
 | Date | Change |
 |---|---|
@@ -10,6 +10,7 @@ Last updated 2026-10-21 · Change: DXF 2000 save speed measured again (S.5); all
 | 2026-10-16 | M4 done: drafting, Edit + Save as DWG / DXF at byte parity; M5+ re-planned (below). |
 | 2026-10-16 | M5 done; cc-ifc, cc-manifold, cc-skp at parity (the engines of M7/M8, run in parallel); M6 started (3D viewport). |
 | 2026-10-18 | PartCraft (M13) and DetailCraft (M14) views; wasm threads built and measured slower (M15.1). |
+| 2026-10-27 | Web speed: the browser profile found dlmalloc's memory growth; wasmalloc on the web (M15.3). |
 | 2026-10-17 | M9+ engines at parity (TakeoffCraft, MarkupCraft, BimCraft, CivilCraft, DetailCraft, PartCraft without its rebuild kernel); app views for ModelCraft, BimCraft, PDF sheets with MarkupCraft and TakeoffCraft, CivilCraft. |
 
 Speed decides. Every milestone is measured against the CadCraft 0.5 JavaScript build (reference:
@@ -35,7 +36,7 @@ MarkupCraft tools (two commits carry M9.12: TakeoffCraft mode and the measuring 
 M10.20–M10.23 DetailCraft engine; M11.x CivilCraft app view; M12.x cc-manifold API + PartCraft kernel.
 
 Next (2026-10-18): CivilCraft drawing tools, BimCraft plan / draw / IFC save, MarkupCraft and TakeoffCraft UI (agents); Studio;
-web speed through fewer allocations in the readers (wasm threads measured slower, below).
+web speed: the allocator, M15.3 (below).
 
 ## Tablets (AGENTS.md section 10, Mobile)
 
@@ -79,6 +80,16 @@ Follow-up (same day): reading the 3.4 MB Carey drawing makes 1.69 M allocations 
 allocator that never frees is no faster natively (650 vs 530–590 ms: fresh pages cost more than malloc), and the sample
 reads in 36–46 ms warm in Chromium against 73–80 ms cold natively. So allocation is not where the reader's time goes;
 web speed needs a profile of the decoder itself (perf is blocked here: `perf_event_paranoid` = 4).
+
+Profile (M15.3, 2026-10-27, Chromium 130 CPU profile through the DevTools protocol, a cold Carey read): 45 % in V8's
+garbage collector and 29 % in dlmalloc's `malloc`, 25 % in the reader. Allocation *was* the cost on the web, just not
+natively: std's dlmalloc grows the wasm memory a page or so at a time and Chromium runs a GC on each `memory.grow`
+(the follow-up above measured warm reads, after the heap had grown). talc behaves the same; wasmalloc grows
+geometrically and was adopted (cold Carey read 1,320 → 380 ms; warm ~210 → 186 ms). After it the warm profile is the
+reader's own code, as natively (formatting, hashing, `memcmp` under 1.5 % each), and wasm reads at about native
+single-thread speed. Threads stay out: wasmalloc refuses `atomics`, talc's locked mode is the same global lock that
+made threads scale negatively, and a per-thread allocator needs `unsafe` (`GlobalAlloc`), which the workspace forbids.
+The remaining gap to the desktop (2.6–4.2×) is the desktop's threads.
 
 ## M9 inputs (measured 2026-10-16, during M6)
 

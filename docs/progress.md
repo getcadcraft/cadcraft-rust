@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-27 — M15.3 web speed: the browser profile, the web allocator (agent, work/webspeed)
+
+- Profiled the decoder in headless Chromium 130 (DevTools-protocol CPU profile, names kept by a wasm-bindgen run without
+  wasm-opt): a cold Carey read spent 45 % in V8's garbage collector and 29 % in dlmalloc's `malloc`. std's dlmalloc
+  grows the wasm memory in small steps and Chromium collects garbage on each `memory.grow`; talc does the same. The web
+  entry now uses **wasmalloc 0.1.1** (pure Rust, MIT OR Apache-2.0, safe constructor; grows geometrically). Natively
+  nothing changes. Warm, the profile is now the reader's own code (fmt / SipHash / memcmp ≤ 1.5 % each) and wasm reads
+  at about native single-thread speed; threads stay out (roadmap § Wasm threads, updated).
+- Measured in the same browser, cold page each time, median of 5 (machine at load ~50 on 32 threads, so best-of in
+  the scratch logs too). Reader, first read: Carey 1,835 → **417 ms** vs 0.5 JS 975 (0.53× → 2.3×); 1.66 MB plan 376 →
+  189 vs 225; sample 259 → 106 vs 158. Warm best: Carey 212 → 186 vs 436. Open → first frame (a drop on the page to the
+  frame showing it; JS = 0.5's open path: worker read, importDwg, doc.load, fit, render): Carey 2,686 → **717 ms** vs
+  1,730 (0.64× → 2.4×); 1.66 MB 845 → 495 vs 1,373; small drawings (sample, showcase house / asbuilt) unchanged within
+  the noise (273 / 245 / 193 → 336 / 285 / 219 vs JS 640 / 396 / 355). wasmalloc's inlined fast paths add 2.9 MB of
+  code (36.6 → 39.7 MB before compression).
+- The web console logs each open (`opened …: read / compile / GPU data / first frame (CPU)`, then `first frame shown
+  at`, two animation frames later) and `?bench` runs the frame benchmark on any drawing dropped on the page.
+- The display list (`compile.rs`) takes sin / cos / atan / atan2 from `cc_cad_geom::jsmath` (V8's): the web build drew
+  from last-bit-different numbers than the desktop on 113 of 149 DWGs. Now web = desktop for model and display list on
+  149 DWGs + 156 DXFs (scratch `wparity.mjs`), and the desktop compile matches 0.5's `compileDrawing` with **no
+  tolerance** on all of them (`tools/cdiff-webspeed.mjs --exact`; before: e.g. 151 last-bit differences on Carey).
+- Build: Ubuntu's binaryen 108 (`/usr/bin/wasm-opt`) rewrites wasm-bindgen's externref table export to the function
+  table even with no passes, so trunk builds made here die at start ("WebAssembly.Table.grow(): failed to grow table by
+  4"). Trunk.toml pins `wasm_opt = "version_132"` (trunk takes it from PATH when the version matches, e.g. emsdk's
+  `/opt/cadcraft-cpp/emsdk/upstream/bin`, else downloads it) and `cargo xtask web` refuses a module with that defect.
+  **The live rust.getcadcraft.com build (built here 2026-10-21) has the defect and does not start**; redeploy is the
+  owner's / lead's call.
+- Frame time: on SwiftShader (no hardware WebGPU reachable from WSL's headless Chromium) a Rust frame of the sample
+  costs ~500 ms of software rasterising vs 16.7 ms for 0.5's canvas; a real-GPU number still needs Windows Chrome.
 ## 2026-10-28 — M4.32 fix: OPENIN3D prints 0.5's line where no app takes the drawing (agent, work/draftmerge)
 
 - Found merging cadsheets (M4.30–M4.34) with cadlisp (M4.40, M4.45, M4.46): kdiff seed 1's random script 9 typed

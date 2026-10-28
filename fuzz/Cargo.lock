@@ -365,6 +365,7 @@ dependencies = [
 name = "cc-io-dwg"
 version = "0.0.1"
 dependencies = [
+ "cc-cad-geom",
  "cc-drawing",
  "cc-geom",
  "encoding_rs",
