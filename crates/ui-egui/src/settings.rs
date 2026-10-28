@@ -97,6 +97,7 @@ impl UiApp {
             "zoom": self.settings.zoom,
             "cadcraft": self.cadset.json(),
             "cadprops": self.cadprops.prefs_json(),
+            "cadcraftInput": self.ribbon.prefs(),
         })
     }
 
@@ -117,6 +118,9 @@ impl UiApp {
         }
         if let Some(p) = v.get("cadprops") {
             self.cadprops.load_prefs(p);
+        }
+        if let Some(p) = v.get("cadcraftInput") {
+            self.ribbon.load_prefs(p);
         }
     }
 
@@ -180,74 +184,91 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let s = |k: &str| t0(&SHELL, k);
     let mut open = true;
     let mut act: Option<String> = None;
+    let mut input_act: Vec<(&'static str, Option<String>)> = Vec::new();
     let mut done = false;
     let theme_now = app.settings.theme.clone();
     let lang_now = cc_lang::locale();
     let zoom_now = app.settings.zoom;
-    egui::Window::new(title(app)).open(&mut open).collapsible(false).resizable(false).default_width(340.0).show(ctx, |ui| {
-        ui.label(RichText::new(s("shell.settings.general")).strong().color(t.text_strong));
-        ui.add_space(4.0);
-        // language: every app (0.5 reloads the page; here the words change at once)
-        ui.horizontal(|ui| {
-            let lab = ui.label(RichText::new(s("shell.settings.lang.label")).color(t.text));
-            egui::ComboBox::new("settings.lang", "").selected_text(lang_now.name()).show_ui(ui, |ui| {
-                for l in cc_lang::Locale::ALL {
-                    if ui.selectable_label(l == lang_now, l.name()).clicked() {
-                        act = Some(format!("lang={}", l.code()));
+    // CadCraft's sections make it long: it scrolls within the window
+    let max_h = (ctx.content_rect().height() - 60.0).max(200.0);
+    egui::Window::new(title(app))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(false)
+        .default_width(340.0)
+        .max_height(max_h)
+        .default_height(max_h)
+        .vscroll(true)
+        .show(ctx, |ui| {
+            ui.label(RichText::new(s("shell.settings.general")).strong().color(t.text_strong));
+            ui.add_space(4.0);
+            // language: every app (0.5 reloads the page; here the words change at once)
+            ui.horizontal(|ui| {
+                let lab = ui.label(RichText::new(s("shell.settings.lang.label")).color(t.text));
+                egui::ComboBox::new("settings.lang", "").selected_text(lang_now.name()).show_ui(ui, |ui| {
+                    for l in cc_lang::Locale::ALL {
+                        if ui.selectable_label(l == lang_now, l.name()).clicked() {
+                            act = Some(format!("lang={}", l.code()));
+                        }
+                    }
+                });
+                let _ = lab;
+            });
+            ui.label(RichText::new(t0(&STUDIO, "settings.lang.hint")).small().color(t.text_dim));
+            ui.add_space(8.0);
+            ui.label(RichText::new(s("shell.settings.theme")).color(t.text));
+            ui.horizontal_wrapped(|ui| {
+                for (v, k) in [
+                    ("model", "shell.settings.theme.model"),
+                    ("paper", "shell.settings.theme.paper"),
+                    ("system", "shell.settings.theme.system"),
+                ] {
+                    if ui.radio(theme_now == v, s(k)).clicked() {
+                        act = Some(format!("theme={v}"));
                     }
                 }
             });
-            let _ = lab;
-        });
-        ui.label(RichText::new(t0(&STUDIO, "settings.lang.hint")).small().color(t.text_dim));
-        ui.add_space(8.0);
-        ui.label(RichText::new(s("shell.settings.theme")).color(t.text));
-        ui.horizontal_wrapped(|ui| {
-            for (v, k) in [
-                ("model", "shell.settings.theme.model"),
-                ("paper", "shell.settings.theme.paper"),
-                ("system", "shell.settings.theme.system"),
-            ] {
-                if ui.radio(theme_now == v, s(k)).clicked() {
-                    act = Some(format!("theme={v}"));
-                }
+            ui.label(RichText::new(s("shell.settings.theme.hint")).small().color(t.text_dim));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(s("shell.settings.zoom")).color(t.text));
+                let word = |name: &str, z: f32| {
+                    let pct = (z * 100.0).round() as i32;
+                    crate::lang::t(&SHELL, &format!("shell.settings.zoom.{name}"), &[("pct", pct.to_string())])
+                };
+                let cur = ZOOMS
+                    .iter()
+                    .find(|(_, z)| (*z - zoom_now).abs() < 0.001)
+                    .map_or_else(|| format!("{:.0}%", zoom_now * 100.0), |(n, z)| word(n, *z));
+                egui::ComboBox::new("settings.zoom", "").selected_text(cur).show_ui(ui, |ui| {
+                    for (n, z) in ZOOMS {
+                        if ui.selectable_label((z - zoom_now).abs() < 0.001, word(n, z)).clicked() {
+                            act = Some(format!("zoom={z}"));
+                        }
+                    }
+                });
+            });
+            // the app's own section (0.5's app-settings.inc includes the build's settings.inc)
+            if app.active_app() == "cadcraft" {
+                crate::cadset::section(app, ui, &mut act);
+                crate::inputdlg::section(app, ui, &mut input_act);
+            }
+            ui.add_space(10.0);
+            if ui.button(s("shell.settings.done")).clicked() {
+                done = true;
             }
         });
-        ui.label(RichText::new(s("shell.settings.theme.hint")).small().color(t.text_dim));
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(s("shell.settings.zoom")).color(t.text));
-            let word = |name: &str, z: f32| {
-                let pct = (z * 100.0).round() as i32;
-                crate::lang::t(&SHELL, &format!("shell.settings.zoom.{name}"), &[("pct", pct.to_string())])
-            };
-            let cur = ZOOMS
-                .iter()
-                .find(|(_, z)| (*z - zoom_now).abs() < 0.001)
-                .map_or_else(|| format!("{:.0}%", zoom_now * 100.0), |(n, z)| word(n, *z));
-            egui::ComboBox::new("settings.zoom", "").selected_text(cur).show_ui(ui, |ui| {
-                for (n, z) in ZOOMS {
-                    if ui.selectable_label((z - zoom_now).abs() < 0.001, word(n, z)).clicked() {
-                        act = Some(format!("zoom={z}"));
-                    }
-                }
-            });
-        });
-        // the app's own section (0.5's app-settings.inc includes the build's settings.inc)
-        if app.active_app() == "cadcraft" {
-            crate::cadset::section(app, ui, &mut act);
-        }
-        ui.add_space(10.0);
-        if ui.button(s("shell.settings.done")).clicked() {
-            done = true;
-        }
-    });
     if let Some(a) = act
         && let Err(e) = app.run("settings.set", &Params { name: Some(a), ..Default::default() })
     {
         app.error = Some(e);
     }
-    if done || !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    for (id, name) in input_act {
+        if let Err(e) = app.run(id, &Params { name, ..Default::default() }) {
+            app.message = e;
+        }
+    }
+    if done || !open || (app.ribbon.draft.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape))) {
         app.settings.open = false;
     }
 }

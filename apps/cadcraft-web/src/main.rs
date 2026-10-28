@@ -159,12 +159,15 @@ mod web {
                                 let lisp = kind == "lisp";
                                 let cloud = kind == "cloud";
                                 let gis = kind == "gis";
+                                let input = kind == "input";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if lisp {
                                         rfd::AsyncFileDialog::new()
                                             .add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua"])
                                     } else if pictures {
                                         rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
+                                    } else if input {
+                                        rfd::AsyncFileDialog::new().add_filter("CadCraft input styles", &["json"])
                                     } else if library {
                                         rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])
                                     } else if cloud {

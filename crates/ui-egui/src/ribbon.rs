@@ -835,6 +835,69 @@ pub const STYLES: &[Style] = &[
 
 pub const STYLE_ORDER: &[&str] = &["cadcraft", "drafting", "ribbon"];
 
+/// The registry and built-in styles as app-input.js takes them (input-cadcraft.js `COMMANDS`, `STYLES` with
+/// `DEFAULT_KEYS`, `FAMILY`, `MACROS`).
+pub fn registry() -> &'static cc_engine::inputprof::Registry {
+    use cc_engine::inputprof as ip;
+    static R: std::sync::OnceLock<ip::Registry> = std::sync::OnceLock::new();
+    R.get_or_init(|| {
+        let commands = COMMANDS
+            .iter()
+            .map(|c| ip::RegCmd {
+                id: c.id.into(),
+                def_keys: c.keys.iter().map(|k| (*k).to_string()).collect(),
+                fixed: c.fixed,
+                key_only: c.key_only,
+                optional: c.optional,
+            })
+            .collect();
+        let mut keys: ip::JsMap<Vec<String>> = ip::JsMap::new();
+        for c in COMMANDS.iter().filter(|c| !c.keys.is_empty() && !c.fixed) {
+            keys.set(c.id, c.keys.iter().map(|k| (*k).to_string()).collect());
+        }
+        let styles = STYLES
+            .iter()
+            .map(|st| {
+                let ribbon = st.layout != "toolbar";
+                let m = |l: &str| format!("input.m.{l}");
+                let ids = |l: &[&str]| l.iter().map(|x| (*x).to_string()).collect::<Vec<_>>();
+                ip::Profile {
+                    id: st.id.into(),
+                    name: format!("input.style.{}", st.id),
+                    base: None,
+                    builtin: true,
+                    added: false,
+                    layout: st.layout.into(),
+                    command_line: st.command_line.then_some(true),
+                    menus: ribbon.then(|| st.menus.iter().map(|(l, items)| ip::Menu { label: m(l), items: ids(items) }).collect()),
+                    bar: None,
+                    quick: ribbon.then(|| ids(st.quick)),
+                    tabs: ribbon.then(|| {
+                        st.tabs
+                            .iter()
+                            .map(|(l, panels)| ip::RTab {
+                                label: m(l),
+                                panels: panels.iter().map(|(pl, items)| ip::RPanel { label: m(pl), items: ids(items) }).collect(),
+                            })
+                            .collect()
+                    }),
+                    labels: st.labels.iter().map(|(a, b)| ((*a).to_string(), (*b).to_string())).collect(),
+                    keys: Some(keys.clone()),
+                    typed: None,
+                    macros: None,
+                    mouse: Some(ip::Mouse { wheel: 1, zoom_speed: 1.0, pan2d: ids(st.pan2d), orbit3d: None }),
+                }
+            })
+            .collect();
+        ip::Registry {
+            commands,
+            styles,
+            family: vec![("cadcraft".into(), "own".into()), ("drafting".into(), "classic".into()), ("ribbon".into(), "ribbon".into())],
+            macros: true,
+        }
+    })
+}
+
 pub fn style(id: &str) -> Option<&'static Style> {
     STYLES.iter().find(|s| s.id == id)
 }
@@ -852,12 +915,26 @@ pub fn group_label(key: &str) -> String {
 
 // ---------------------------------------------------------------------------------------------- the bar's state
 
-/// What the window keeps of the bar (0.5 keeps `{style, tab}` in localStorage `cadcraft.input`).
+/// What the window keeps of the bar and the styles (0.5 keeps them in localStorage `cadcraft.input`: app-input.js
+/// `writeState`), and the Customize dialog.
 #[derive(Clone, Debug)]
 pub struct Bar {
-    pub style: String,
-    /// the ribbon's open tab
-    pub tab: usize,
+    /// the style in use, the person's own styles, the ribbon's open tab …
+    pub st: cc_engine::inputprof::State,
+    /// Customize… open
+    pub draft: Option<crate::inputdlg::Draft>,
+    /// web: Import's picker is open
+    pub importing: bool,
+    /// the key matcher of the style in use (rebuilt when it changes)
+    pub matcher: Option<(String, cc_engine::inputprof::KeyMatcher)>,
+    /// a sequence's first key was pressed: the second is awaited until then (s)
+    pub wait_until: Option<f64>,
+    /// the input's clock (s)
+    pub clock: f64,
+    /// a field or a dialog has the keyboard: the style's keys wait
+    pub keys_blocked: bool,
+    /// SHORTCUTS' keys were looked at for WL.18's carry
+    pub carry_checked: bool,
     /// the open menu: "file", "saveas", "more:<group>", "menu:<group>"
     pub open: Option<String>,
     /// the frame the menu opened in (a click elsewhere closes it, but not the click that opened it)
@@ -868,25 +945,31 @@ pub struct Bar {
 
 impl Default for Bar {
     fn default() -> Self {
-        Bar { style: "cadcraft".into(), tab: 0, open: None, opened_at: 0, dirty: false }
+        Bar {
+            st: cc_engine::inputprof::State::new(registry()),
+            draft: None,
+            importing: false,
+            matcher: None,
+            wait_until: None,
+            clock: 0.0,
+            keys_blocked: false,
+            carry_checked: false,
+            open: None,
+            opened_at: 0,
+            dirty: false,
+        }
     }
 }
 
 impl Bar {
-    /// `{style, tab}` as the host keeps it.
+    /// What the host keeps (app-input.js `writeState`: `{style, custom, tab, …}`).
     pub fn prefs(&self) -> Value {
-        json!({"style": self.style, "tab": self.tab})
+        cc_engine::inputprof::write_state(&self.st)
     }
-    /// Read what the host kept (anything unknown keeps the defaults).
+    /// Read what the host kept, untrusted (`readState`; the older `{style, tab}` too).
     pub fn load_prefs(&mut self, v: &Value) {
-        if let Some(s) = v.get("style").and_then(Value::as_str)
-            && style(s).is_some()
-        {
-            self.style = s.to_string();
-        }
-        if let Some(t) = v.get("tab").and_then(Value::as_u64) {
-            self.tab = usize::try_from(t).unwrap_or(0).min(64);
-        }
+        self.st = cc_engine::inputprof::read_state(v, registry());
+        self.matcher = None;
     }
 }
 
@@ -953,29 +1036,21 @@ fn press(app: &mut UiApp, cmd: &'static str, label: &str) -> Result<(), String> 
 /// `input.menu {name?}`, `input.saveas {name: format}`.
 pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     match id {
-        "input.style" => {
-            let n = params.name.clone().unwrap_or_default();
-            if style(&n).is_none() {
-                return Err(format!("input.style: name is one of {}", STYLE_ORDER.join(", ")));
-            }
-            app.ribbon.style = n;
-            app.ribbon.open = None;
-            app.ribbon.dirty = true;
-        }
         "input.tab" => {
             let i = params.index.or_else(|| params.factor.map(|f| f as usize)).ok_or("input.tab: index is required")?;
-            let n = style(&app.ribbon.style).map_or(0, |s| s.tabs.len());
+            let n = app.input_profile().tabs.map_or(0, |t| t.len());
             if i >= n {
                 return Err(format!("input.tab: index {i} is out of range (0..{n})"));
             }
-            app.ribbon.tab = i;
+            app.ribbon.st.tab = i;
             app.ribbon.dirty = true;
         }
         "input.run" => {
             let n = params.name.clone().ok_or("input.run: name (a command id) is required")?;
             if let Some(c) = cmd(&n) {
-                let st = style(&app.ribbon.style).unwrap_or(&CADCRAFT_STYLE);
-                return press(app, c.cmd, &label(st, c.id));
+                let p = app.input_profile();
+                let l = app.input_label(&p, c.id);
+                return press(app, c.cmd, &l);
             }
             // a toolbar button by its data-cmd ("ZOOM E", "CIRCLE T" …)
             let hit = TOOLBAR.iter().find_map(|g| {
@@ -999,7 +1074,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             let f = params.name.clone().ok_or("input.saveas: name (a format) is required")?;
             return app.run("file.save", &Params { name: Some(f), ..Default::default() });
         }
-        other => return Err(format!("unknown command {other}")),
+        other => return crate::inputdlg::run(app, other, params),
     }
     Ok(())
 }
@@ -1642,7 +1717,7 @@ enum Click {
     Cmd(&'static str, String),
     Toggle(String),
     Tab(usize),
-    Style(&'static str),
+    Style(String),
     SaveAs(&'static str),
 }
 
@@ -1675,7 +1750,18 @@ fn sep(ui: &mut egui::Ui, tk: &crate::theme::Tokens) {
 /// The bar over the drafting editor: the chosen style's toolbar or ribbon.
 pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let tk = app.tokens;
-    let st = style(&app.ribbon.style).unwrap_or(&CADCRAFT_STYLE);
+    let prof = app.input_profile();
+    // the label of a command in the style, and its first key in the style (tooltips, menus)
+    let lab = |id: &str| crate::inputdlg::tx(&prof.label_key(id));
+    let keys = cc_engine::inputprof::bindings(&prof);
+    let key_of = |id: &str| keys.0.iter().find(|(_, c)| c == id).map(|(k, _)| cc_engine::inputprof::show_seq(k)).unwrap_or_default();
+    let styles: Vec<(String, String)> =
+        registry().styles.iter().chain(app.ribbon.st.custom.iter()).map(|p| (p.id.clone(), crate::inputdlg::name_of(p))).collect();
+    let cur_style = app.ribbon.st.style.clone();
+    let menus = prof.menus.clone().unwrap_or_default();
+    let tabs = prof.tabs.clone().unwrap_or_default();
+    let quick = prof.quick.clone().unwrap_or_default();
+    let quickbar = prof.bar.clone().unwrap_or_default();
     let running = app.editor.as_ref().and_then(|e| e.eng.running());
     let pressed = |c: &str| {
         let first = c.split(' ').next().unwrap_or("");
@@ -1688,12 +1774,16 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let toggle = |key: String, click: &mut Option<Click>| {
         *click = Some(Click::Toggle(key));
     };
-    let height = if st.layout == "toolbar" { 46.0 } else { 116.0 };
+    let height = match prof.layout.as_str() {
+        "toolbar" => 46.0,
+        "menubar" => 62.0,
+        _ => 116.0,
+    };
     egui::Panel::top("cc_inbar")
         .exact_size(height)
         .frame(egui::Frame::new().fill(tk.app_bar).inner_margin(egui::Margin::symmetric(6, 2)))
         .show(ui, |ui| {
-            if st.layout == "toolbar" {
+            if prof.layout == "toolbar" {
                 egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 1.0;
@@ -1768,20 +1858,77 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                             let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 38.0), egui::Sense::hover());
                             ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
                         }
-                        style_picker(ui, &tk, st, &mut click);
+                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
                     });
+                });
+            } else if prof.layout == "menubar" {
+                // a menu bar (a person's own style): the menus, then the quick row
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (mi, m) in menus.iter().enumerate() {
+                        let key = format!("mb:{mi}");
+                        let open = bar_state.open.as_deref() == Some(key.as_str());
+                        let r = ui.add(
+                            egui::Button::new(RichText::new(crate::inputdlg::tx(&m.label)).color(if open {
+                                tk.text_strong
+                            } else {
+                                tk.text
+                            }))
+                            .fill(if open { tk.accent } else { tk.app_bar })
+                            .min_size(Vec2::new(0.0, 22.0)),
+                        );
+                        if r.clicked() {
+                            toggle(key.clone(), &mut click);
+                        }
+                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
+                            let mut last_sep = true;
+                            for x in &m.items {
+                                if x == "-" {
+                                    if !last_sep {
+                                        sep(ui, &tk);
+                                        last_sep = true;
+                                    }
+                                    continue;
+                                }
+                                let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
+                                if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
+                                    click = Some(Click::Cmd(c.cmd, lab(x)));
+                                }
+                                last_sep = false;
+                            }
+                        }) {
+                            menu_rects.push(mr.union(r.rect));
+                        }
+                    }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
+                    });
+                });
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 1.0;
+                    for x in &quickbar {
+                        if x == "-" {
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 24.0), egui::Sense::hover());
+                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
+                            continue;
+                        }
+                        let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
+                        let k = key_of(x);
+                        let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
+                        let r = tool_button(ui, &tk, c.icon, "", false, true, pressed(c.cmd)).on_hover_text(tip);
+                        if r.clicked() {
+                            click = Some(Click::Cmd(c.cmd, lab(x)));
+                        }
+                    }
                 });
             } else {
                 // head: File menu · tabs · quick buttons (on the right)
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
-                    if let Some((ml, items)) = st.menus.first() {
+                    if let Some(fm) = menus.first() {
+                        let items = &fm.items;
                         let open = bar_state.open.as_deref() == Some("file");
-                        let txt = RichText::new(lang_text(&format!("input.m.{ml}"), &[])).strong().color(if open {
-                            tk.text_strong
-                        } else {
-                            tk.text
-                        });
+                        let txt = RichText::new(crate::inputdlg::tx(&fm.label)).strong().color(if open { tk.text_strong } else { tk.text });
                         let r = ui.add(
                             egui::Button::new(txt).fill(if open { tk.accent } else { tk.panel_darker }).min_size(Vec2::new(48.0, 22.0)),
                         );
@@ -1790,8 +1937,8 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                         }
                         if let Some(mr) = popup(ui, &bar_state, "file", r.rect, &tk, |ui| {
                             let mut last_sep = true;
-                            for x in *items {
-                                if *x == "-" {
+                            for x in items {
+                                if x == "-" {
                                     if !last_sep {
                                         sep(ui, &tk);
                                         last_sep = true;
@@ -1799,9 +1946,8 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                                     continue;
                                 }
                                 let Some(c) = cmd(x) else { continue };
-                                let keys = c.keys.first().copied().unwrap_or("");
-                                if menu_entry(ui, &tk, Some(c.icon), &label(st, x), keys).clicked() {
-                                    click = Some(Click::Cmd(c.cmd, label(st, x)));
+                                if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
+                                    click = Some(Click::Cmd(c.cmd, lab(x)));
                                 }
                                 last_sep = false;
                             }
@@ -1810,13 +1956,10 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                         }
                     }
                     ui.add_space(6.0);
-                    for (i, (tl, _)) in st.tabs.iter().enumerate() {
-                        let on = i == bar_state.tab;
-                        let txt = RichText::new(lang_text(&format!("input.m.{tl}"), &[])).size(12.0).color(if on {
-                            tk.text_strong
-                        } else {
-                            tk.text_dim
-                        });
+                    for (i, tb) in tabs.iter().enumerate() {
+                        let on = i == bar_state.st.tab;
+                        let txt =
+                            RichText::new(crate::inputdlg::tx(&tb.label)).size(12.0).color(if on { tk.text_strong } else { tk.text_dim });
                         ui.add_space(4.0);
                         let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
                         ui.add_space(4.0);
@@ -1828,46 +1971,43 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                         }
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        style_picker(ui, &tk, st, &mut click);
-                        for x in st.quick.iter().rev() {
+                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
+                        for x in quick.iter().rev() {
                             let Some(c) = cmd(x) else { continue };
-                            let tip = match c.keys.first() {
-                                Some(k) => format!("{} ({k})", label(st, x)),
-                                None => label(st, x),
-                            };
+                            let k = key_of(x);
+                            let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
                             let r = tool_button(ui, &tk, c.icon, "", false, true, false).on_hover_text(tip);
                             if r.clicked() {
-                                click = Some(Click::Cmd(c.cmd, label(st, x)));
+                                click = Some(Click::Cmd(c.cmd, lab(x)));
                             }
                         }
                     });
                 });
                 // body: the open tab's panels
-                let tab = st.tabs.get(bar_state.tab).or_else(|| st.tabs.first());
+                let tab = tabs.get(bar_state.st.tab).or_else(|| tabs.first());
                 egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        for (pl, items) in tab.map_or(&[][..], |t| t.1) {
+                        for pn in tab.map_or(&[][..], |t| t.panels.as_slice()) {
+                            let (pl, items) = (&pn.label, &pn.items);
                             ui.vertical(|ui| {
                                 ui.spacing_mut().item_spacing.y = 0.0;
                                 ui.horizontal(|ui| {
                                     ui.spacing_mut().item_spacing.x = 1.0;
-                                    for x in *items {
+                                    for x in items {
                                         // app-input-ui.js: an optional command whose button is not there (the 3D group,
                                         // Open in ModelCraft) is left out
                                         let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
-                                        let tip = match c.keys.first() {
-                                            Some(k) => format!("{} ({k})", label(st, x)),
-                                            None => label(st, x),
-                                        };
-                                        let r = tool_button(ui, &tk, c.icon, &label(st, x), true, false, pressed(c.cmd)).on_hover_text(tip);
+                                        let k = key_of(x);
+                                        let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
+                                        let r = tool_button(ui, &tk, c.icon, &lab(x), true, false, pressed(c.cmd)).on_hover_text(tip);
                                         if r.clicked() {
-                                            click = Some(Click::Cmd(c.cmd, label(st, x)));
+                                            click = Some(Click::Cmd(c.cmd, lab(x)));
                                         }
                                     }
                                 });
                                 let w = ui.min_rect().width();
                                 ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(lang_text(&format!("input.m.{pl}"), &[])).size(10.0).color(tk.text_dim));
+                                    ui.label(RichText::new(crate::inputdlg::tx(pl)).size(10.0).color(tk.text_dim));
                                 });
                             });
                             let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 68.0), egui::Sense::hover());
@@ -1920,7 +2060,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
             Ok(())
         }
         Some(Click::Tab(i)) => run(app, "input.tab", &Params { index: Some(i), ..Default::default() }),
-        Some(Click::Style(s)) => run(app, "input.style", &Params { name: Some(s.into()), ..Default::default() }),
+        Some(Click::Style(s)) => run(app, "input.style", &Params { name: Some(s), ..Default::default() }),
         Some(Click::SaveAs(f)) => run(app, "input.saveas", &Params { name: Some(f.into()), ..Default::default() }),
     };
     if let Err(e) = r {
@@ -1928,19 +2068,21 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     }
 }
 
-/// The style chooser at the end of the bar (0.5 has it in Settings › Menus, keys and mouse).
-fn style_picker(ui: &mut egui::Ui, tk: &crate::theme::Tokens, st: &Style, click: &mut Option<Click>) {
-    let name = lang_text(&format!("input.style.{}", st.id), &[]);
+/// The style chooser at the end of the bar (0.5 has it in Settings › Menus, keys and mouse; there too here).
+fn style_picker(ui: &mut egui::Ui, tk: &crate::theme::Tokens, styles: &[(String, String)], cur: &str, click: &mut Option<Click>) {
+    let name = styles.iter().find(|(id, _)| id == cur).map(|(_, n)| n.clone()).unwrap_or_default();
     egui::ComboBox::new("cc-in-style", "")
         .selected_text(RichText::new(name).size(11.0).color(tk.text))
         .width(120.0)
         .show_ui(ui, |ui| {
-            for id in STYLE_ORDER {
-                let r = ui
-                    .selectable_label(*id == st.id, lang_text(&format!("input.style.{id}"), &[]))
-                    .on_hover_text(lang_text(&format!("input.style.{id}.hint"), &[]));
+            for (id, n) in styles {
+                let hint = lang_text(&format!("input.style.{id}.hint"), &[]);
+                let mut r = ui.selectable_label(id == cur, n);
+                if !hint.starts_with("input.style.") {
+                    r = r.on_hover_text(hint);
+                }
                 if r.clicked() {
-                    *click = Some(Click::Style(id));
+                    *click = Some(Click::Style(id.clone()));
                 }
             }
         })
@@ -2018,11 +2160,12 @@ mod tests {
         assert!(run(&mut app, "input.tab", &Params { index: Some(7), ..Default::default() }).is_ok());
         assert!(run(&mut app, "input.tab", &Params { index: Some(8), ..Default::default() }).is_err());
         assert!(run(&mut app, "input.style", &Params { name: Some("nope".into()), ..Default::default() }).is_err());
-        assert_eq!(app.ribbon.prefs(), json!({"style": "drafting", "tab": 7}));
+        assert_eq!(app.ribbon.prefs()["style"], json!("drafting"));
+        assert_eq!(app.ribbon.prefs()["tab"], json!(7));
         let mut b = Bar::default();
         b.load_prefs(&json!({"style": "ribbon", "tab": 3}));
-        assert_eq!((b.style.as_str(), b.tab), ("ribbon", 3));
+        assert_eq!((b.st.style.as_str(), b.st.tab), ("ribbon", 3));
         b.load_prefs(&json!({"style": "bogus"}));
-        assert_eq!(b.style, "ribbon");
+        assert_eq!(b.st.style, "cadcraft", "app-input.js readState: an unknown style is the app's own");
     }
 }

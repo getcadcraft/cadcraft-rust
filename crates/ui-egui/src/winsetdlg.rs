@@ -149,6 +149,11 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     Ok(())
 }
 
+/// A text key of the input style (WL.18: app-input-ui.js runText → keys-ui.js run).
+pub fn run_shortcut_text(app: &mut UiApp, key: &str, text: &str) {
+    run_text(app, key, text);
+}
+
 /// keys-ui.js `run(text)`: Esc a running command, then the command and what to type after it.
 fn run_text(app: &mut UiApp, key: &str, text: &str) {
     app.message = tv("keys.run", &[("key", key.to_string()), ("text", text.to_string())]);

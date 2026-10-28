@@ -388,3 +388,10 @@ path = "fuzz_targets/cad_pointcloud.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cad_input_profile"
+path = "fuzz_targets/cad_input_profile.rs"
+test = false
+doc = false
+bench = false

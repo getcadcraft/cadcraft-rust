@@ -24,6 +24,8 @@ pub mod bimtools;
 pub mod cad3dtab;
 pub mod cadprops;
 pub mod cadset;
+pub mod inputdlg;
+pub use cc_engine::inputprof;
 pub mod canvas;
 pub mod civil3d;
 pub mod civildialogs;
@@ -1860,6 +1862,8 @@ impl UiApp {
         if self.editor.is_none() {
             return;
         }
+        // the input style's keys (Settings › Menus, keys and mouse) before the window's own
+        inputdlg::key_hook(self, raw);
         if self.clip_keys {
             let shift = raw.events.iter().any(|e| matches!(e, egui::Event::Key { modifiers, .. } if modifiers.shift && modifiers.command));
             let mut pick: Option<&'static str> = None;
@@ -1982,6 +1986,8 @@ impl UiApp {
             cadprops::panel(self, ui);
         }
         settings::window(self, &ctx);
+        inputdlg::sync(self, ctx.input(|i| i.time));
+        inputdlg::window(self, &ctx);
         viewer::frame(self, &ctx);
         plotdlg::window(self, &ctx);
         cadprops::quick_window(self, &ctx);
@@ -2634,8 +2640,18 @@ impl UiApp {
         let editing = self.editor.is_some();
         // touch: two fingers pinch-zoom and pan (viewer.rs)
         let touching = viewer::touch(ui, rect, &mut view, ppp);
-        // input: drag pans (any button; drafting: middle / right), wheel zooms about the pointer, double click fits
-        if !touching && resp.dragged() && !(editing && resp.dragged_by(egui::PointerButton::Primary)) {
+        // input: drag pans (any button; drafting: the buttons the input style pans with, middle / right), wheel zooms
+        // about the pointer (drafting: the style's wheel direction and speed), double click fits
+        let mouse = if editing { self.input_profile().mouse } else { None };
+        let pans = |b: egui::PointerButton| match (&mouse, b) {
+            (_, egui::PointerButton::Primary) => !editing,
+            (Some(m), egui::PointerButton::Middle) => m.pan2d.iter().any(|x| x == "middle"),
+            (Some(m), egui::PointerButton::Secondary) => m.pan2d.iter().any(|x| x == "right"),
+            _ => true,
+        };
+        let wheel = mouse.as_ref().map_or(1.0, |m| f64::from(m.wheel) * m.zoom_speed);
+        let by = [egui::PointerButton::Primary, egui::PointerButton::Secondary, egui::PointerButton::Middle];
+        if !touching && resp.dragged() && by.iter().any(|b| resp.dragged_by(*b) && pans(*b)) {
             let d = resp.drag_delta();
             view.pan(f64::from(d.x) * ppp, f64::from(d.y) * ppp);
         }
@@ -2644,7 +2660,7 @@ impl UiApp {
             let sy = f64::from(p.y - rect.min.y) * ppp;
             let (scroll, zoom) = ui.ctx().input(|i| (i.smooth_scroll_delta.y, i.zoom_delta()));
             if scroll != 0.0 {
-                view.zoom_at(sx, sy, (f64::from(scroll) / 200.0).exp());
+                view.zoom_at(sx, sy, (f64::from(scroll) / 200.0 * wheel).exp());
             }
             if zoom != 1.0 && !touching {
                 view.zoom_at(sx, sy, f64::from(zoom));
@@ -2952,6 +2968,9 @@ impl UiApp {
             ed.type_line(cmd);
         }
         let elsewhere0 = ctx.memory(|m| m.focused()).is_some_and(|f| Some(f) != cmd_id);
+        // the style's keys wait while another field or a dialog has the keyboard (app-input-ui.js inField / dialog[open])
+        self.ribbon.keys_blocked =
+            elsewhere0 || self.settings.open || self.plot.open || self.caddlg.qs.is_some() || self.caddlg.find.is_some();
         self.clip_keys = ed.line.is_empty()
             && !ed.eng.busy()
             && !elsewhere0

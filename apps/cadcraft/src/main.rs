@@ -277,6 +277,8 @@ fn read_path(path: &std::path::Path) -> Result<ImportedFile, String> {
 fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
     let d = if kind == "pictures" {
         rfd::FileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"])
+    } else if kind == "input" {
+        rfd::FileDialog::new().add_filter("CadCraft input styles", &["json", "JSON"])
     } else if kind == "library" {
         rfd::FileDialog::new().add_filter("Library items", &["json", "JSON"])
     } else if kind == "lisp" {

@@ -39,6 +39,7 @@ pub mod cmd;
 pub mod compare;
 pub mod engine;
 pub mod input;
+pub mod inputprof;
 pub mod lang;
 pub mod lasso;
 pub mod lisp;
