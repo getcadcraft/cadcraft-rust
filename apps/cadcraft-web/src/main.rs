@@ -160,6 +160,8 @@ mod web {
                                 let cloud = kind == "cloud";
                                 let gis = kind == "gis";
                                 let input = kind == "input";
+                                let prj = kind == "prj";
+                                let grid = kind == "grid";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if lisp {
                                         rfd::AsyncFileDialog::new()
@@ -177,9 +179,14 @@ mod web {
                                             "GIS files",
                                             &[
                                                 "shp", "shx", "dbf", "prj", "cpg", "zip", "geojson", "json", "gpkg", "kml", "kmz", "png",
-                                                "jpg", "jpeg", "pgw", "jgw", "wld",
+                                                "jpg", "jpeg", "pgw", "jgw", "wld", "tif", "tiff", "tfw", "asc", "las", "laz", "dwg",
+                                                "dxf",
                                             ],
                                         )
+                                    } else if prj {
+                                        rfd::AsyncFileDialog::new().add_filter(".prj", &["prj", "txt", "wkt"])
+                                    } else if grid {
+                                        rfd::AsyncFileDialog::new().add_filter("Grid shift files", &["gsb", "tif", "tiff"])
                                     } else {
                                         rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
                                     };

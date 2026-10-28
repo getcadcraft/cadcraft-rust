@@ -291,9 +291,15 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
             "GIS files",
             &[
                 "shp", "shx", "dbf", "prj", "cpg", "zip", "geojson", "json", "gpkg", "kml", "kmz", "tif", "tiff", "png", "jpg", "jpeg",
-                "pgw", "jgw", "tfw", "wld",
+                "pgw", "jgw", "tfw", "wld", "asc", "las", "laz", "dwg", "dxf",
             ],
         )
+    } else if kind == "prj" {
+        // CivilCraft's Coordinates window: a .prj file (gis-crs-ui.js prjIn)
+        rfd::FileDialog::new().add_filter(".prj", &["prj", "txt", "wkt", "PRJ"])
+    } else if kind == "grid" {
+        // a grid shift file (gis-crs-ui.js gridIn)
+        rfd::FileDialog::new().add_filter("Grid shift files", &["gsb", "tif", "tiff", "GSB", "TIF"])
     } else {
         rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"])
     };

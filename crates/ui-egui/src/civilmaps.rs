@@ -93,7 +93,7 @@ pub struct Maps {
 
 /// A record for state.gis.maps (gis-map-ui.js `record`).
 #[allow(clippy::too_many_arguments)]
-fn record(
+pub(crate) fn record(
     id: &str,
     kind: &str,
     name: &str,
@@ -152,7 +152,7 @@ fn b64_decode(s: &str) -> Vec<u8> {
     out
 }
 
-fn b64_encode(b: &[u8]) -> String {
+pub(crate) fn b64_encode(b: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(b.len().div_ceil(3) * 4);
     for ch in b.chunks(3) {
@@ -221,12 +221,12 @@ fn layer_crs(m: &Value) -> Option<Value> {
 }
 
 impl CivilView {
-    fn maps_list(&self) -> Vec<Value> {
+    pub(crate) fn maps_list(&self) -> Vec<Value> {
         arr(self.project.state.get("gis").and_then(|g| g.get("maps"))).to_vec()
     }
 
     /// The project's usable system (crsProblem-free) or None.
-    fn pcrs(&self) -> Option<Value> {
+    pub(crate) fn pcrs(&self) -> Option<Value> {
         let c = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c)))?;
         crate::civilgis::ensure_catalog();
         cc_io_civil::crs::crs_problem(c, self.project.units()).is_none().then(|| c.clone())
@@ -719,7 +719,7 @@ impl CivilView {
 
     // ------------------------------------------------------------------------------------------- adding, editing
 
-    fn new_map_id(&self) -> String {
+    pub(crate) fn new_map_id(&self) -> String {
         let used: Vec<String> = self.maps_list().iter().map(|m| string_of(m.get("id"))).collect();
         let mut i = 1;
         while used.contains(&format!("m{i}")) {
@@ -728,7 +728,7 @@ impl CivilView {
         format!("m{i}")
     }
 
-    fn add_map(&mut self, rec: Value, label: &str) {
+    pub(crate) fn add_map(&mut self, rec: Value, label: &str) {
         let id = string_of(rec.get("id"));
         self.project.change(label, &mut |s: &mut Value| {
             let Some(m) = s.as_object_mut() else { return };
@@ -788,62 +788,11 @@ impl CivilView {
             return;
         };
         let (w, h) = (pic.w, pic.h);
-        // the picture's system: its .prj, else the project's (0.5 asks; here a .prj or the project's)
-        crate::civilgis::ensure_catalog();
-        let crs = match prj.as_deref().map(cc_io_civil::crs::crs_from_prj) {
-            Some(Ok(r)) => Some(r.crs),
-            Some(Err(e)) => {
-                self.message = tr!("mapl.prj.bad", name = "prj", error = e);
-                return;
-            }
-            None => self.pcrs().map(|mut c| {
-                if let Some(o) = c.as_object_mut() {
-                    o.insert("local".into(), Value::Null);
-                }
-                c
-            }),
-        };
         let mime = if ibytes.starts_with(&[0x89, b'P', b'N', b'G']) { "image/png" } else { "image/jpeg" };
         let data = format!("data:{mime};base64,{}", b64_encode(&ibytes));
-        let used: Vec<String> = self
-            .project
-            .gis_images
-            .iter()
-            .map(|(k, _)| k.clone())
-            .chain(self.maps_list().iter().map(|m| string_of(m.get("image"))))
-            .collect();
-        let mut n = 1;
-        while used.contains(&format!("img{n}")) {
-            n += 1;
-        }
-        let img_id = format!("img{n}");
-        self.project.gis_images.push((img_id.clone(), data));
-        let stem = iname.rsplit_once('.').map_or(iname.as_str(), |(a, _)| a).to_string();
-        let id = self.new_map_id();
-        let rec = record(
-            &id,
-            "image",
-            &stem,
-            "",
-            "",
-            "",
-            "image/png",
-            "1.3.0",
-            crs.as_ref(),
-            "",
-            &img_id,
-            (f64::from(w), f64::from(h)),
-            Some(gt),
-            "",
-            "",
-            "",
-        );
-        self.add_map(rec, &tr!("mapl.undo.picture", name = iname.as_str()));
-        self.message = match &crs {
-            Some(c) => tr!("mapl.added.pic_crs", name = iname.as_str(), w = f64::from(w), h = f64::from(h), crs = string_of(c.get("name"))),
-            None => tr!("mapl.added.pic_proj", name = iname.as_str(), w = f64::from(w), h = f64::from(h)),
-        };
-        self.fit();
+        let pw = crate::civilpics::PicWait { name: iname, data, w: f64::from(w), h: f64::from(h), gt, tif: false, notes: Vec::new() };
+        // the picture's system: its .prj, else asked (crsForFile)
+        self.pic_crs(pw, prj.map(|t| ("prj".to_string(), t)));
     }
 
     /// `civil.maps=…`: visible=<id>:on|off · opacity=<id>:<0..1> · move=<id>:-1|1 · remove=<id> · zoom=<id> · allow=<id>
@@ -1516,6 +1465,8 @@ mod tests {
         cv.maps_file("a.pgw", b"1\n0\n0\n-1\n6150000\n2080200\n".to_vec());
         assert!(cv.maps_list().is_empty(), "the world file waits for its picture");
         cv.maps_file("a.png", png(40, 30));
+        assert!(cv.maps_list().is_empty() && cv.gis3.ask.is_some(), "no .prj: asked where the picture is (crsForFile)");
+        cv.ask_answer("same").unwrap();
         let ms = cv.maps_list();
         assert_eq!(ms.len(), 1);
         assert_eq!(ms[0]["image"], "img1");

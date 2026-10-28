@@ -298,6 +298,11 @@ impl CivilView {
 
     /// A click on the plan at world (x, y) (civilcraft.js `click(w, s)`): Select picks, a drawing tool adds a point.
     pub fn click(&mut self, x: f64, y: f64) {
+        // the Coordinates window steps aside for one click (gis-crs-ui.js pickOnPlan)
+        if self.crs_picking() {
+            self.crs_pick_click(x, y);
+            return;
+        }
         let s = self.css(x, y);
         let tool = self.tools.tool;
         match tool {
@@ -419,6 +424,10 @@ impl CivilView {
 
     /// Esc (civilcraft.js keydown): a point drag is put back; a draft is dropped; otherwise Select and nothing selected.
     pub fn cancel(&mut self) {
+        if let Some(d) = self.crs_dlg.as_mut().filter(|d| d.picking.is_some()) {
+            d.picking = None;
+            return;
+        }
         if let Some(d) = self.tools.drag.as_mut()
             && matches!(d.grip, Grip::Point(_))
         {

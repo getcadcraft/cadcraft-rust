@@ -295,6 +295,27 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("civil.gis.feature.info", "GIS feature facts", "", "{} → the picked GIS feature's facts and attributes, on the status line"),
     ("civil.gis.zoom", "Zoom to a box", "", "{name: \"x0,y0,x1,y1\"} → the plan shows the box with 15 % round it"),
     (
+        "civil.crs.dlg",
+        "Coordinates window",
+        "",
+        "{name: search=<text> | fits | near=<lat, long> | choose=<EPSG code> | prj (the picker) | mode=grid|ground|local | csf= | be= | bn= (base E, N) | ae= | an= | az= (the factor's point) | compute | usef | cp=<0|1|2>:<n|ge|gn|ll|xy>=<value> | pick=factor|cp0|cp1|cp2 (then a plan click) | grid=file|off|cdn:<name> | apply | remove | close} → gis-crs-ui.js's dialog; Apply may ask (civil.ask)",
+    ),
+    ("civil.crs.info", "Coordinates facts", "", "{} → what the Coordinates window shows, on the status line"),
+    (
+        "civil.ask",
+        "Answer a question",
+        "",
+        "{name: the button (cancel, convert, yes, move, replace …)} → the question 0.5 asks with host.ask",
+    ),
+    ("civil.gis.use", "Use a GIS layer for the surface", "", "{name: \"<layer id>[:<feature index>]\"} → the Use for the surface dialog"),
+    (
+        "civil.gis.use.dlg",
+        "Use for the surface dialog",
+        "",
+        "{name: choice=<i> | field=<number field> | go | cancel} → go copies breaklines, the boundary or survey points (one undo step)",
+    ),
+    ("civil.gis.use.info", "Use for the surface facts", "", "{} → the dialog's choices, field and notes, on the status line"),
+    (
         "civil.crs",
         "Coordinate system",
         "",
@@ -514,7 +535,9 @@ pub struct CivilView {
     pub gis_export_dlg: Option<crate::civilgisx::GisExportDlg>,
     pub gis_export_format: String,
     /// the Coordinates window
-    pub crs_dlg: Option<crate::civilgis::CrsDlg>,
+    pub crs_dlg: Option<crate::civilcrs::CrsDlg>,
+    /// M11.26 on: questions, pickers waiting, Use for the surface, terrain, CAD linework (civilcrs.rs)
+    pub gis3: crate::civilcrs::Gis3,
     /// map layers' runtime: pictures, tiles, the Map dialog (civilmaps.rs)
     pub maps: crate::civilmaps::Maps,
     /// the host cannot fetch (said once)
@@ -593,6 +616,7 @@ impl CivilView {
             gis_export_dlg: None,
             gis_export_format: "shp".into(),
             crs_dlg: None,
+            gis3: crate::civilcrs::Gis3::default(),
             maps: crate::civilmaps::Maps::default(),
             no_fetch_said: false,
         }
@@ -620,6 +644,11 @@ impl CivilView {
         let t0 = web_time::Instant::now();
         let v: Value = serde_json::from_str(text).map_err(|e| tr!("cv.open.failed", file = name, why = e.to_string()))?;
         let (p, notes) = Project::from_json(&v).map_err(|e| tr!("cv.open.failed", file = name, why = e))?;
+        // the project's grid shift files go to the converter (project.js fromJSON → crs.js loadGrid)
+        crate::civilgis::ensure_catalog();
+        for (n, b) in &p.crs_grids {
+            let _ = cc_io_civil::crs::load_grid(n, b);
+        }
         let mut cv = CivilView::new(p, name);
         cv.project.saved = i64::try_from(cv.project.version).unwrap_or(0);
         cv.report = notes;
@@ -1989,7 +2018,7 @@ fn point_in(pts: &[(f64, f64)], x: f64, y: f64) -> bool {
     inside
 }
 
-fn xy_param(s: &str) -> Option<Vec<f64>> {
+pub(crate) fn xy_param(s: &str) -> Option<Vec<f64>> {
     let v: Vec<f64> = s.split(',').map(|x| x.trim().parse::<f64>()).collect::<Result<_, _>>().ok()?;
     (v.len() >= 2 && v.iter().all(|x| x.is_finite())).then_some(v)
 }
@@ -2032,6 +2061,21 @@ pub fn is_gis_file(lower: &str, bytes: &[u8]) -> bool {
 /// A GIS file into the open project's import dialog (the parts of a shapefile gather while it is open).
 pub fn open_gis(app: &mut UiApp, f: &ImportedFile) {
     let Some(cv) = app.civil.as_mut() else { return };
+    let lower = f.name.to_ascii_lowercase();
+    // gis-crs-ui.js opener: a .prj alone opens the Coordinates window with it (a shapefile's .prj arriving first is
+    // handed back to the shapefile when its other parts follow)
+    if lower.ends_with(".prj") && cv.gis_import.is_none() && cv.gis_pending.is_empty() && cv.crs_dlg.is_none() {
+        cv.crs_open(None);
+        cv.crs_prj(&f.name, &f.bytes);
+        if let Some(d) = cv.crs_dlg.as_mut() {
+            d.prj_file = Some((f.name.clone(), f.bytes.clone()));
+        }
+        return;
+    }
+    if let Some((n, b)) = cv.crs_dlg.as_ref().filter(|d| !d.pick).and_then(|d| d.prj_file.clone()) {
+        cv.crs_dlg = None;
+        cv.gis_pending.push((n, b));
+    }
     if f.bytes.len() > crate::civilgis::MAX_GIS_BYTES {
         cv.message = tr!("vec.import.failed", why = t("cv.file.toobig", &[]));
         return;
@@ -2431,8 +2475,22 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             cv.crs_dlg = None;
         }
         "civil.crs.open" => {
-            cv.crs_dlg = if name == "off" { None } else { Some(crate::civilgis::CrsDlg::default()) };
+            if name == "off" {
+                cv.crs_dlg = None;
+            } else {
+                cv.crs_open(None);
+            }
         }
+        "civil.crs.dlg" => {
+            if let Some(need) = cv.crs_cmd(&name)? {
+                crate::civilcrs::host_need(app, need);
+            }
+        }
+        "civil.crs.info" => cv.message = cv.crs_info()?,
+        "civil.ask" => cv.ask_answer(&name)?,
+        "civil.gis.use" => cv.use_open(&name)?,
+        "civil.gis.use.dlg" => cv.use_cmd(&name)?,
+        "civil.gis.use.info" => cv.message = cv.use_info()?,
         "civil.gis.pick" => {
             // GIS › Import: the platform's picker; the files go through Open (the GIS openers)
             match app.services.pick_files.as_mut().map(|f| f("gis", true)) {
@@ -2441,7 +2499,12 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
                         app.open_bytes(&f.name, &f.bytes);
                     }
                 }
-                Some(None) => {}
+                // web: the files arrive later (civilcrs::poll_host opens them)
+                Some(None) => {
+                    if let Some(cv) = app.civil.as_mut() {
+                        cv.gis3.pick_wait = Some(crate::civilcrs::Need::PickGis);
+                    }
+                }
                 None => {
                     if let Some(o) = app.services.open_async.as_mut() {
                         o();
@@ -2616,6 +2679,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut cmd: Vec<(&'static str, Params)> = Vec::new();
     let mut save_file: Option<(String, Vec<u8>)> = None;
     let frame_started = web_time::Instant::now();
+    crate::civilcrs::poll_host(app);
     if let Some(cv) = app.civil.as_mut() {
         egui::Panel::top("civil_bar")
             .exact_size(30.0)
@@ -2786,14 +2850,18 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         if let Some(inbox) = app.services.fetched.as_ref() {
             let got: Vec<crate::Fetched> = std::mem::take(&mut *inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
             for g in got {
-                cv.maps_answer(&g.url, g.result);
+                if !crate::civilcrs::take_fetched(cv, &g.url, &g.result) {
+                    cv.maps_answer(&g.url, g.result);
+                }
             }
         }
         let mut iacts = Vec::new();
         crate::civilimport::show(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgis::import_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgisx::export_window(cv, ui.ctx(), &t, &mut iacts);
-        crate::civilgis::crs_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilcrs::crs_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilgis3::use_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilcrs::ask_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilmaps::window(cv, ui.ctx(), &t, &mut iacts);
         for (id, k) in iacts {
             cmd.push((id, Params { name: Some(k), ..Default::default() }));

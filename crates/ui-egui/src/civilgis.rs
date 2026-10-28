@@ -271,7 +271,17 @@ impl CivilView {
         self.gis_import = Some(GisImport { files, sources, notes, plan, pick, target, set_crs: case == "offer", overrides });
     }
 
-    /// `civil.gis.import=ok|cancel|pick=si:li:on|off|crs=<EPSG code>|crs=offer|unknown=si:same|<code>`.
+    /// The system picked for an unknown file, by name.
+    pub fn gis_import_unknown_name(&self, si: usize) -> Option<String> {
+        let d = self.gis_import.as_ref()?;
+        match d.overrides.iter().find(|(i, _)| *i == si).map(|x| &x.1) {
+            Some(Src::Crs { name, .. }) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    /// `civil.gis.import=ok|cancel|pick=si:li:on|off|crs=<EPSG code>|crs=offer|unknown=si:same|<code>|pickcrs|
+    /// pickunknown=<si>` (the last two ask through the system picker).
     pub fn gis_import_cmd(&mut self, spec: &str) -> Result<(), String> {
         let units = self.project.units().to_string();
         let (k, v) = spec.split_once('=').map_or((spec, ""), |(a, b)| (a, b));
@@ -314,6 +324,8 @@ impl CivilView {
                 d.set_crs = true;
                 Ok(())
             }
+            "pickcrs" => self.gis_import_ask(None),
+            "pickunknown" => self.gis_import_ask(Some(v.parse().map_err(|_| "civil.gis.import: pickunknown=<file index>")?)),
             "unknown" => {
                 let d = self.gis_import.as_mut().ok_or("civil.gis.import: the import dialog is not open")?;
                 let (si, w) = v.split_once(':').ok_or("civil.gis.import: unknown=si:same|<code>")?;
@@ -603,12 +615,14 @@ impl CivilView {
             return Ok(());
         }
         let name = string_of(next.get("name"));
+        let before = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
         self.project.change(&tr!("crs.d.undo.set", crs = name.as_str()), &mut |s: &mut Value| {
             if let Some(m) = s.as_object_mut() {
                 m.insert("crs".into(), next.clone());
             }
         });
         self.message = tr!("crs.d.set", crs = name.as_str());
+        self.crs_changed(before, Some(next), false);
         Ok(())
     }
 
@@ -675,6 +689,13 @@ pub fn layers_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: 
                     acts.push(Act::Run("civil.gis.layer", format!("zoom={}", l.id)));
                     ui.close();
                 }
+                let can_use =
+                    !cc_io_civil::gis_layers::use_choices(l, cc_io_civil::gis_layers::features_of(&cv.project.gis_features, &l.id))
+                        .is_empty();
+                if ui.add_enabled(can_use, egui::Button::new(t0("vec.use.open"))).clicked() {
+                    acts.push(Act::Run("civil.gis.use", l.id.clone()));
+                    ui.close();
+                }
                 ui.label(RichText::new(t0("vec.layer.color.title")).small());
                 ui.horizontal_wrapped(|ui| {
                     for tok in LAYER_TOKENS {
@@ -734,6 +755,9 @@ pub fn feature_props(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, lid: &s
     if f.g.is_some() && link(ui, tk, &t0("vec.zoomto"), false) {
         let b = cc_io_civil::gis_geom::bounds(f.g.as_ref());
         acts.push(Act::Run("civil.gis.zoom", format!("{},{},{},{}", b.min_x, b.min_y, b.max_x, b.max_y)));
+    }
+    if !cc_io_civil::gis_layers::use_choices(&l, fs).is_empty() && link(ui, tk, &t0("vec.use.open"), false) {
+        acts.push(Act::Run("civil.gis.use", format!("{lid}:{i}")));
     }
     true
 }
@@ -874,9 +898,9 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
             .filter(|(_, s)| matches!(s.src, Src::None))
             .map(|(si, s)| (si, s.file.clone(), !matches!(d.overrides.iter().find(|(i, _)| *i == si).map(|x| &x.1), Some(Src::Crs { .. }))))
             .collect();
-        (rows, names, case, offer, using_offer, disabled, d.plan.get("near").cloned(), unknown, d.files.len())
+        (rows, names, case, offer, using_offer, disabled, d.target.is_some(), unknown, d.files.len())
     });
-    let Some((rows, names, case, offer, using_offer, disabled, near, unknown, nfiles)) = info else { return };
+    let Some((rows, names, case, offer, using_offer, disabled, has_target, unknown, nfiles)) = info else { return };
     let notes = cv.gis_import_notes();
     let crs_lines = cv.gis_import_crs_lines();
     let what = cv.gis_import_what();
@@ -919,24 +943,20 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                     ui.label(RichText::new(l).small().color(tk.text));
                 }
             }
-            if matches!(case.as_str(), "offer" | "pick") {
-                // the systems near the layers (crs.js suggest), as 0.5's askCrs lists them
-                let list = near
-                    .as_ref()
-                    .and_then(|n| Some((n.get(0)?.as_f64()?, n.get(1)?.as_f64()?)))
-                    .and_then(|(lon, lat)| cc_io_civil::crs::suggest(lon, lat, Some(cv.project.units()), 30.0).ok())
-                    .unwrap_or_default();
-                egui::ComboBox::new("cv_gis_imp_crs", t0("vec.ask.system")).selected_text(t0("vec.choose")).width(360.0).show_ui(
-                    ui,
-                    |ui| {
-                        for e in &list {
-                            if ui.selectable_label(false, format!("EPSG:{} — {}", cc_civil::js::num_to_string(e.code), e.name)).clicked()
-                            {
-                                acts.push(("civil.gis.import", format!("crs={}", cc_civil::js::num_to_string(e.code))));
-                            }
-                        }
-                    },
-                );
+            // askCrs: the system picker (gis-crs-ui.js pick mode)
+            match case.as_str() {
+                "offer" => {
+                    if ui.radio(!using_offer, t0("vec.offer.pick")).clicked() {
+                        acts.push(("civil.gis.import", "pickcrs".into()));
+                    }
+                }
+                "pick" => {
+                    let label = if has_target { t0("vec.offer.another") } else { t0("vec.pick.project") };
+                    if ui.button(label).clicked() {
+                        acts.push(("civil.gis.import", "pickcrs".into()));
+                    }
+                }
+                _ => {}
             }
             for (si, file, same) in &unknown {
                 if case == "none" {
@@ -945,6 +965,11 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 ui.label(RichText::new(tr!("vec.unknown.legend", file = file.as_str())).small().color(tk.text_dim));
                 if ui.radio(*same, t0("vec.unknown.same")).clicked() {
                     acts.push(("civil.gis.import", format!("unknown={si}:same")));
+                }
+                let picked = cv.gis_import_unknown_name(*si);
+                let label = picked.map_or_else(|| t0("vec.unknown.pick"), |n| tr!("vec.unknown.in", crs = n));
+                if ui.radio(!*same, label).clicked() {
+                    acts.push(("civil.gis.import", format!("pickunknown={si}")));
                 }
             }
             ui.label(RichText::new(t0("vec.import.what")).strong().color(tk.text_strong));
@@ -965,32 +990,6 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
 
 // ------------------------------------------------------------------------------------------------ GIS menu, Coordinates
 
-/// The Coordinates window (gis-crs-ui.js runDialog, project mode, Grid only): search, the systems the site's
-/// coordinates fit, Apply / Remove.
-#[derive(Clone, Debug, Default)]
-pub struct CrsDlg {
-    pub query: String,
-    pub list: Vec<(f64, String)>,
-    pub chosen: Option<f64>,
-    pub said: String,
-}
-
-impl CivilView {
-    /// "Systems these coordinates fit" (crs-pick.js systemsThatFit at the site's middle).
-    pub fn crs_fits(&mut self) -> Vec<(f64, String)> {
-        ensure_catalog();
-        let Some((x0, y0, x1, y1)) = crate::civilplan::extents(&mut self.project) else { return Vec::new() };
-        let units = self.project.units().to_string();
-        cc_io_civil::crs_pick::systems_that_fit(Some((x0 + x1) / 2.0), Some((y0 + y1) / 2.0), &units, 40.0)
-            .map(|(l, _)| l.iter().map(|f| (f.entry.code, f.entry.name.clone())).collect())
-            .unwrap_or_default()
-    }
-    pub fn crs_search(&mut self, q: &str) -> Vec<(f64, String)> {
-        ensure_catalog();
-        cc_io_civil::crs::search(q, None, 40.0).map(|l| l.iter().map(|e| (e.code, e.name.clone())).collect()).unwrap_or_default()
-    }
-}
-
 /// The toolbar's GIS group (ui.inc 'GIS'): Coordinates, Import, Export, Map.
 pub fn gis_menu(ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>) {
     ui.menu_button("GIS", |ui| {
@@ -1006,76 +1005,6 @@ pub fn gis_menu(ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>) {
             }
         }
     });
-}
-
-/// The Coordinates window.
-pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec<(&'static str, String)>) {
-    let Some(mut d) = cv.crs_dlg.clone() else { return };
-    let now = cv.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
-    let mut open = true;
-    egui::Window::new(t0("ui.tb.crs")).id(egui::Id::unique("cv_crs")).open(&mut open).collapsible(false).default_width(460.0).show(
-        ctx,
-        |ui| {
-            ui.label(RichText::new(t0("crs.d.now")).strong().color(tk.text_strong));
-            match &now {
-                Some(c) => {
-                    let code = c
-                        .get("code")
-                        .filter(|x| !x.is_null())
-                        .map_or(String::new(), |x| format!(" (EPSG:{})", cc_civil::js::to_js_string(x)));
-                    ui.label(RichText::new(format!("{}{code}", string_of(c.get("name")))).color(tk.text));
-                    if ui.button(t0("crs.d.remove")).clicked() {
-                        acts.push(("civil.crs", "none".into()));
-                    }
-                }
-                None => {
-                    ui.label(RichText::new(t0("crs.d.none").replace("{none}", &t0("crs.d.none.word"))).small().color(tk.text_dim));
-                }
-            }
-            ui.add_space(6.0);
-            ui.label(RichText::new(t0(if now.is_some() { "crs.d.change.head" } else { "crs.d.pick.head" })).strong().color(tk.text_strong));
-            ui.horizontal(|ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut d.query).hint_text(t0("crs.d.search.ph")).desired_width(280.0));
-                if ui.button(t0("crs.d.search")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    d.list = cv.crs_search(&d.query);
-                    d.said = if d.list.is_empty() {
-                        t0("crs.d.nomatch").replace("{q}", &d.query)
-                    } else {
-                        t0("crs.d.match").replace("{count}", &d.list.len().to_string()).replace("{q}", &d.query)
-                    };
-                }
-            });
-            if ui.button(t0("crs.d.fits")).clicked() {
-                d.list = cv.crs_fits();
-                d.said.clear();
-            }
-            if !d.said.is_empty() {
-                ui.label(RichText::new(&d.said).small().color(tk.text_dim));
-            }
-            egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                for (code, name) in &d.list {
-                    if ui
-                        .selectable_label(d.chosen == Some(*code), format!("EPSG:{} — {name}", cc_civil::js::num_to_string(*code)))
-                        .clicked()
-                    {
-                        d.chosen = Some(*code);
-                    }
-                }
-            });
-            if let Some(c) = d.chosen {
-                if let Ok(v) = crs_of_code(&cc_civil::js::num_to_string(c))
-                    && let Some(why) = cc_io_civil::crs::crs_problem(&v, cv.project.units())
-                {
-                    report_pub(ui, tk, &[why], true);
-                }
-                if ui.button(t0("crs.d.apply")).clicked() {
-                    acts.push(("civil.crs", cc_civil::js::num_to_string(c)));
-                }
-            }
-            ui.label(RichText::new(t0("crs.d.grid.note")).small().color(tk.text_dim));
-        },
-    );
-    cv.crs_dlg = if open { Some(d) } else { None };
 }
 
 #[cfg(test)]

@@ -133,35 +133,69 @@ impl CivilView {
             self.import = Some(d);
             return Err("civil.import: no points to import".into());
         }
-        // gis-vector-ui.js pointsLatLon: latitude / longitude through the project's system (0.5 asks for one when the
-        // project has none; here the points then wait for GIS › Coordinates)
-        let mut pts = d.res.points.clone();
-        let mut ll_note = String::new();
+        // gis-vector-ui.js pointsLatLon: latitude / longitude through the project's system, or one picked now (askCrs)
         if d.res.latlon {
             let crs = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
-            let Some(crs) = crs else {
-                self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
-                return Ok(());
-            };
-            crate::civilgis::ensure_catalog();
-            match cc_io_civil::gis_read::lat_lon_points(&pts, &crs) {
-                Ok((p2, bad)) => {
-                    pts = p2;
-                    let local = cc_civil::js::truthy(crs.get("local"));
-                    let name = cc_civil::js::string_of(crs.get("name"));
-                    let cname = if local { tr!("vec.crs.ground", crs = name.as_str()) } else { name };
-                    ll_note = format!(" {}", tr!("vec.latlon.note", crs = cname));
-                    if bad > 0 {
-                        ll_note.push(' ');
-                        ll_note.push_str(&tr!("vec.latlon.bad", n = bad));
+            match crs {
+                Some(c) => return self.import_latlon_points(d, c, false),
+                None => {
+                    let pts = &d.res.points;
+                    let (mut x0, mut x1, mut y0, mut y1) = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+                    for p in pts.iter() {
+                        x0 = x0.min(p.x);
+                        x1 = x1.max(p.x);
+                        y0 = y0.min(p.y);
+                        y1 = y1.max(p.y);
                     }
-                }
-                Err(_) => {
-                    self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
+                    let near = [(x0 + x1) / 2.0, (y0 + y1) / 2.0];
+                    let reason = tr!("vec.latlon.reason", file = d.name.as_str());
+                    self.gis3.latlon_wait = Some(d);
+                    self.crs_dlg = None;
+                    self.crs_open(Some((reason, Some(near), "project", crate::civilcrs::PickFor::PointsLatLon)));
                     return Ok(());
                 }
             }
         }
+        let pts = d.res.points.clone();
+        self.import_finish(d, pts, String::new(), None)
+    }
+
+    /// A latitude / longitude file with the system picked for it (it becomes the project's).
+    pub fn import_with_crs(&mut self, d: ImportDlg, c: Value) {
+        if let Err(e) = self.import_latlon_points(d, c, true) {
+            self.message = e;
+        }
+    }
+
+    /// The lat / lon points converted through `crs` (`set`: the system picked for them becomes the project's).
+    fn import_latlon_points(&mut self, d: ImportDlg, crs: Value, set: bool) -> Result<(), String> {
+        crate::civilgis::ensure_catalog();
+        match cc_io_civil::gis_read::lat_lon_points(&d.res.points, &crs) {
+            Ok((p2, bad)) => {
+                let local = cc_civil::js::truthy(crs.get("local"));
+                let name = cc_civil::js::string_of(crs.get("name"));
+                let cname = if local { tr!("vec.crs.ground", crs = name.as_str()) } else { name };
+                let mut ll_note = format!(" {}", tr!(if set { "vec.latlon.note.set" } else { "vec.latlon.note" }, crs = cname));
+                if bad > 0 {
+                    ll_note.push(' ');
+                    ll_note.push_str(&tr!("vec.latlon.bad", n = bad));
+                }
+                self.import_finish(d, p2, ll_note, set.then_some(crs))
+            }
+            Err(_) => {
+                self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
+                Ok(())
+            }
+        }
+    }
+
+    fn import_finish(
+        &mut self,
+        d: ImportDlg,
+        pts: Vec<cc_civil::points::Pt>,
+        ll_note: String,
+        ll_crs: Option<Value>,
+    ) -> Result<(), String> {
         let replacing = !self.project.points.is_empty();
         if let Some(s) = self.project.state.get_mut("surface").and_then(Value::as_object_mut) {
             s.insert("tin".into(), Value::Null);
@@ -176,6 +210,14 @@ impl CivilView {
             }
         }
         self.report.clear();
+        if let Some(c) = ll_crs {
+            // civilcraft.js: `project.state.crs = llCrs` (no step of its own: part of the import), then crsChange
+            let before = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
+            if let Some(m) = self.project.state.as_object_mut() {
+                m.insert("crs".into(), c.clone());
+            }
+            self.crs_changed(before, Some(c), false);
+        }
         let n = pts.len();
         self.project.set_points(pts, &d.name);
         self.sel = None;

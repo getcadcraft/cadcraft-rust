@@ -395,3 +395,10 @@ path = "fuzz_targets/cad_input_profile.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "civil_prj"
+path = "fuzz_targets/civil_prj.rs"
+test = false
+doc = false
+bench = false
