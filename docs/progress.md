@@ -2,6 +2,21 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.32 fix: OPENIN3D prints 0.5's line where no app takes the drawing (agent, work/draftmerge)
+
+- Found merging cadsheets (M4.30–M4.34) with cadlisp (M4.40, M4.45, M4.46): kdiff seed 1's random script 9 typed
+  OPENIN3D after opening the 3D tab, and the engine switched to the 3D tab with a line of its own where 0.5's page
+  (no `host.openIn3d`) prints `cmd.open3d.none`. Now only a host that asks for it (`Host::open_in_3d_tab`, the window)
+  gets the 3D tab; any other host gets 0.5's line and stays where it was. Test: tab3d.rs
+  `openin3d_without_a_handoff_prints_the_0_5_line` (failed before).
+- Merged tree, release build: kdiff-draftmerge (kdiff.mjs + kdiff-cadsheets + kdiff-cadlisp) seed 1 7087/7090, seed 7
+  6844/6950 (scripts 0–19, 21–23), LISP phase 571/571; the differences are all on the 3D tab (overlay z of a PLINE
+  axis line, a PRESSPULL hover face, AREA after COPY there) and left for M4.27; seed 7 script 20 runs the frozen JS out
+  of memory (REVCLOUD's second corner clicked on the 3D tab). propsdiff-cadsheets 12 × 720/720, winsetdiff 958/958,
+  sheetsetdiff 317/317, lispdiff seeds 1–4 4 × 2366/2366, mcpdiff-cadlisp 304/304, ribbondiff 3420/3420,
+  recoverdiff 552/552 + 156/156 files (4 zones), idiff --save --solids --constraints 4 × 78/78, plotdiff 1128/1128,
+  mdiff 640/640 + 1247/1247, mcuidiff --edit --lights --play 1250/1250 files, mkuidiff (Denver) 17/17.
+
 ## 2026-10-21 — M4.46 Recovery copies and "Recover your work?" (agent, work/cadlisp-recover)
 
 - New crate cc-recovery (L5): 0.5's shell `app-autosave.js` without its dialog — a copy 2 s after edits stop, at most

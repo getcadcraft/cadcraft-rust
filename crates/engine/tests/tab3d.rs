@@ -160,3 +160,16 @@ fn needs_the_3d_tab_without_one() {
     assert!(log.borrow().printed.iter().any(|p| p == "This needs the 3D tab, which is not available here."));
     assert!(!e.busy());
 }
+
+/// OPENIN3D on a host with a 3D tab but no 3D-app handoff (0.5's page stub, kdiff seed 1 script 9): 0.5's line, and the
+/// tab is not switched to; only a host that asks for it (the window) shows the drawing on its own 3D tab.
+#[test]
+fn openin3d_without_a_handoff_prints_the_0_5_line() {
+    let (mut e, log) = engine();
+    assert!(e.open3d());
+    e.hide3d();
+    ty(&mut e, &["OPENIN3D"]);
+    let printed = log.borrow().printed.clone();
+    assert!(printed.iter().any(|p| p.starts_with("Opening in 3D is not available here yet")), "{printed:?}");
+    assert!(!e.in3d());
+}

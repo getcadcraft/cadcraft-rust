@@ -252,6 +252,10 @@ impl Host for UiHost {
     fn open3d(&mut self) -> bool {
         true
     }
+    /// OPENIN3D shows the drawing on this window's own 3D tab (no ModelCraft handoff here).
+    fn open_in_3d_tab(&self) -> bool {
+        true
+    }
     fn set_cursor(&mut self, p: P2) {
         self.0.borrow_mut().cursor = Some(p);
     }

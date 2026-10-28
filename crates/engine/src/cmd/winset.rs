@@ -42,7 +42,9 @@ pub async fn openin3d(c: Ctx) -> R {
     let r = c.sh().host.borrow_mut().open_in_3d();
     match r {
         // no other app takes the drawing here: the window's own 3D tab shows it (the same drawing, one history)
-        None if c.sh().open3d() => c.print("The drawing is open on the 3D tab: the same drawing, so changes there are changes here."),
+        None if c.sh().host.borrow().open_in_3d_tab() && c.sh().open3d() => {
+            c.print("The drawing is open on the 3D tab: the same drawing, so changes there are changes here.")
+        }
         None => c.print(&c.t("cmd.open3d.none")),
         Some(Ok(app)) => c.print(&c.tv("cmd.open3d.done", &[("app", app)])),
         Some(Err((code, error))) => {

@@ -120,6 +120,11 @@ pub trait Host {
     fn open_in_3d(&mut self) -> Option<Result<String, (String, String)>> {
         None
     }
+    /// OPENIN3D where no 3D modeling app takes the drawing: true = show it on this host's own 3D tab instead (the
+    /// window; fork-only, 0.5's page prints `cmd.open3d.none`); false (the default) = 0.5's line.
+    fn open_in_3d_tab(&self) -> bool {
+        false
+    }
     /// `host.settings.lasso` (LASSOMODE): press and drag draws a lasso (true) or a rectangle; None = no such setting.
     fn lasso(&self) -> Option<bool> {
         None
