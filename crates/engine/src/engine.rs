@@ -853,6 +853,8 @@ impl Engine {
             lang,
             ws3d: RefCell::new(None),
         });
+        // model3d.js fromFile: the file's 3D model is read with the drawing
+        crate::cmd::solid3d::preload(&sh);
         Engine { sh, runner: Runner::default() }
     }
     pub fn doc(&self) -> Ref<'_, Doc> {

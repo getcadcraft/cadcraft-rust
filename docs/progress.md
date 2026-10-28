@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.28–M4.29 3D tab: the model read with the file; view cube, compass, touch (agent, work/cad3dfix)
+
+- M4.28: a drawing's 3D model is read when the drawing opens (doc.js load → model3d.js fromFile), not when the 3D tab
+  or a 3D command first needs it; the tab takes that model as it is. cad3dbench (400 solids, 5,000 lines, best of 5,
+  ms JS / Rust): open the tab 1.3 / 1.6 (was 2.0 / 21.2), select click 8.2 / 4.3, hover ×10 30.3 / 1.2, UNION
+  25.3 / 4.4, ERASE 16.0 / 5.1, PRESSPULL 13.1 / 15.2 and MOVE 19.2 / 14.5 (M4.27's whole-model previews, as 0.5 does
+  them, read the model each frame), ZOOM after undo 0.9 / 2.5. idiff on the 52 solids read-back files: 0 differences.
+- M4.29 (cad3dtab.rs): the view cube as viewcube.js lays it out — faces with their words sized to the face (FRONT and
+  RIGHT no longer run into each other; `viewcube.face.*` words), the compass ring under the cube with N / E / S / W
+  (fading as the ring closes; a letter looks from that side keeping the tilt), the WCS menu, the Home button, dragging
+  the cube orbits; presses on the cube no longer reach the tools. Touch (ws3d.js): one finger's press waits until it
+  moves or lifts, a long press (550 ms) is Enter, two fingers pan and pinch-zoom, three fingers orbit, a second finger
+  cancels what the first began.
+- Screenshots: forks/lead/shots/cad3d/tab3d-cube.png, -cube-top, -cube-front (a click on Front), -cube-letter (N).
+- Parity: kdiff-cadsheets-cad3dfix random scripts seeds 1–8 × 24, 8 × 3360/3360 after both.
+
 ## 2026-10-28 — M4.27 3D tab: 0.5's older kernel copy, at parity under random 3D input (agent, work/cad3dfix)
 
 - kdiff-cadsheets' random scripts found the 3D tab apart from 0.5 (a COPY landed elsewhere; then more). CadCraft 0.5

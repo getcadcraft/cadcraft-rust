@@ -507,6 +507,30 @@ thread_local! {
     static SRC: std::cell::RefCell<Option<Snap>> = const { std::cell::RefCell::new(None) };
 }
 
+/// doc.js load → `model3d.fromFile`: the model a file brought, read when the drawing is opened (not when it is first
+/// used) and kept as the drawing's snapshot; the model itself waits for the first 3D command or the 3D tab.
+pub fn preload(sh: &crate::engine::Shared) {
+    let faces = sh.t("model3d.faces_file");
+    let mut d = sh.doc.borrow_mut();
+    if d.m3d.is_some() || (d.model3d_text.is_none() && d.faces3d.is_empty()) {
+        return;
+    }
+    let mut m = m3::from_file(&d, &faces);
+    if m3::is_empty(&m) {
+        return;
+    }
+    let s: Snap = std::sync::Arc::from(m.snapshot().as_str());
+    d.m3d = Some(std::sync::Arc::clone(&s));
+    LIVE.with(|l| *l.borrow_mut() = Some((s, m)));
+}
+
+/// The model `preload` (or the last 3D command) left, when the drawing still holds its snapshot (the 3D tab takes it).
+pub fn take_live(doc: &Doc) -> Option<Model> {
+    let cur = doc.m3d.as_ref()?;
+    let (la, m) = LIVE.with(|l| l.borrow_mut().take())?;
+    std::sync::Arc::ptr_eq(&la, cur).then_some(m)
+}
+
 /// The drawing's model (the one the last 3D command left while the drawing still holds its snapshot).
 fn model_now(c: &Ctx) -> Model {
     // the 3D tab's model is the drawing's live model (model3d.js keeps one object; a snapshot read again would check,

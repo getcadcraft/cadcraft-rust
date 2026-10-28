@@ -359,7 +359,7 @@ fn ev_json(e: &Ev3) -> Value {
 impl Ws3d {
     /// `new Workspace3D({doc, engine, host})`
     pub fn new(doc: &Doc, faces_name: &str) -> Option<Ws3d> {
-        let mut model = m3::model_of(doc, faces_name);
+        let mut model = crate::cmd::solid3d::take_live(doc).unwrap_or_else(|| m3::model_of(doc, faces_name));
         model.old_previews = true;
         let mut host = THost::new(model, Camera::new());
         // CadCraft 0.5 bundles the older infer.js (no trees): its candidates in scene order
