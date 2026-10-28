@@ -203,7 +203,7 @@ fn when_text_es(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
         }
     } else {
         // toLocaleDateString('es-MX', { dateStyle: 'medium' }) → "2 oct 2026"
-        const MESES: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
+        const MESES: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
         let en = cc_markup::js::short_date_en(zone.local_ms(ms));
         // "Oct 2, 2026" → its parts
         let mut it = en.split([' ', ',']).filter(|x| !x.is_empty());

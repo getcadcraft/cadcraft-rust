@@ -169,7 +169,7 @@ pub fn commit(
 ) -> Result<Res, DocError> {
     let mut ad = CadAdapter::owning(doc, tr, cs);
     let mut dummy = Value::Null;
-    let ap = params::apply_params(&mut dummy, prm, &mut ad, None);
+    let ap = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::apply_params(&mut dummy, prm, &mut ad, None));
     let mut dcs = std::mem::take(&mut ad.cs);
     let param_errors: Vec<&Problem> =
         ap.errors.iter().filter(|e| !e.at.starts_with("c:") || dcs.iter().any(|c| target_key(c) == e.at)).collect();
@@ -290,7 +290,7 @@ pub fn add_constraint(doc: &mut Doc, tr: &Tr, typ: &str, refs: &[Ref], o: &AddOp
     let mut prm = params_of(doc);
     if is_dim(&c) {
         if let Some(n) = &o.name
-            && let Some(bad) = params::name_problem(Some(&json!(n)), Some(&prm), None)
+            && let Some(bad) = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::name_problem(Some(&json!(n)), Some(&prm), None))
         {
             return Ok(fail(bad));
         }
@@ -358,7 +358,7 @@ pub fn set_dim_input(doc: &mut Doc, tr: &Tr, cid: &str, text: &str) -> Result<Re
         && n != &cname
     {
         let cur = prm.var(&cname).map_or_else(|| expr::format_number(c.value_num()), |v| v.expr.clone());
-        let r = params::set_var(&mut prm, n, &cur, None, Some(&cname));
+        let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::set_var(&mut prm, n, &cur, None, Some(&cname)));
         if !r.ok {
             return Ok(fail(r.error.unwrap_or_default()));
         }
@@ -373,7 +373,7 @@ pub fn set_dim_input(doc: &mut Doc, tr: &Tr, cid: &str, text: &str) -> Result<Re
     {
         return drive_constraint_in(doc, tr, cs.to_vec(), prm, cid, lit, None);
     }
-    let r = params::set_var(&mut prm, &my_name, &ex, None, None);
+    let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::set_var(&mut prm, &my_name, &ex, None, None));
     if !r.ok {
         return Ok(fail(r.error.unwrap_or_default()));
     }
@@ -397,7 +397,9 @@ fn drive_constraint_in(
 ) -> Result<Res, DocError> {
     let Some(c) = cs.iter().find(|k| k.id == cid && is_dim(k)).cloned() else { return Ok(fail(tr.s("params.constraint_gone"))) };
     let ad = CadAdapter::new(doc, tr, &cs);
-    let r = params::drive_back(&mut prm, &ad, &Value::Null, &target_key(&c), value, prefer);
+    let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || {
+        params::drive_back(&mut prm, &ad, &Value::Null, &target_key(&c), value, prefer)
+    });
     let name = c.name().unwrap_or_default().to_string();
     let var = match &r {
         Drive::Fail { error, choices } => {
@@ -426,7 +428,7 @@ fn drive_constraint_in(
 pub fn set_parameter(doc: &mut Doc, tr: &Tr, name: &str, ex: &str, rename: Option<&str>) -> Result<Res, DocError> {
     let mut prm = params_of(doc);
     let mut cs = cons(doc).to_vec();
-    let r = params::set_var(&mut prm, name, js::trim(ex), None, rename);
+    let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::set_var(&mut prm, name, js::trim(ex), None, rename));
     if !r.ok {
         return Ok(fail(r.error.unwrap_or_default()));
     }
@@ -444,7 +446,7 @@ pub fn set_parameter(doc: &mut Doc, tr: &Tr, name: &str, ex: &str, rename: Optio
 /// `driveParameter(doc, name, value, { prefer })`
 pub fn drive_parameter(doc: &mut Doc, tr: &Tr, name: &str, value: f64, prefer: Option<&str>) -> Result<Res, DocError> {
     let mut prm = params_of(doc);
-    let r = params::drive_var(&mut prm, name, value, prefer);
+    let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::drive_var(&mut prm, name, value, prefer));
     let var = match &r {
         Drive::Fail { error, choices } => {
             return Ok(Res { ok: false, error: error.clone(), choices: choices.clone().unwrap_or_default(), ..Res::default() });
@@ -469,7 +471,7 @@ pub fn remove_parameter(doc: &mut Doc, tr: &Tr, name: &str, inline: bool) -> Res
         return Ok(fail(tr.t("params.is_dimensional", &[("name", name.to_string())])));
     }
     let mut prm = params_of(doc);
-    let r = params::remove_var(&mut prm, name, inline);
+    let r = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::remove_var(&mut prm, name, inline));
     if !r.ok {
         return Ok(Res { ok: false, error: r.error.unwrap_or_default(), uses: r.uses.is_some(), ..Res::default() });
     }
@@ -521,14 +523,14 @@ pub struct Row {
 /// `describe(doc)` → (rows, status line)
 pub fn describe(doc: &Doc, tr: &Tr) -> (Vec<Row>, String) {
     let p = params_of(doc);
-    let ev = params::evaluate_vars(&p, None);
+    let ev = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::evaluate_vars(&p, None));
     let all = cons(doc);
     let rows = p
         .vars
         .iter()
         .map(|v| {
             let c = all.iter().find(|k| is_dim(k) && k.name() == Some(v.name.as_str())).cloned();
-            let (uv, ul) = params::uses_of(&p, &v.name);
+            let (uv, ul) = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::uses_of(&p, &v.name));
             let mut used_by = uv;
             let tk = c.as_ref().map(target_key);
             used_by.extend(ul.into_iter().filter(|t| tk.as_ref().is_none_or(|k| k != t)));

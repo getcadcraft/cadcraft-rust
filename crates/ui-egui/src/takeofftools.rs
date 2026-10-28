@@ -18,6 +18,8 @@ const MAX_PTS: usize = 10_000;
 pub struct TakeoffMode {
     pub tk: Takeoff,
     hash: String,
+    /// the hashes of the PDFs open now (their sheets are titled as pdfset.js `sheetTitle` titles them)
+    pub open_files: Vec<String>,
     /// the item new marks belong to
     pub item: Option<String>,
     /// the mark being clicked (linear / area / cut-out / circle centre), PDF user space; a point's `b` is the bulge of
@@ -157,6 +159,7 @@ impl TakeoffMode {
         TakeoffMode {
             tk: Takeoff::default(),
             hash: hash.to_string(),
+            open_files: Vec::new(),
             item: None,
             pts: Vec::new(),
             arc: false,
@@ -221,7 +224,8 @@ impl TakeoffMode {
         self.tk.marks().iter().any(|m| m.get("sheet").and_then(Value::as_str).is_some_and(|s| s.starts_with(&p)))
     }
 
-    /// `sheetLabel(key)` for a sheet nobody named: "<file>, page <n>".
+    /// `sheetLabel(key)`: an open PDF's sheet by pdfset.js `sheetTitle` ("<file>, page <n>", English in every language
+    /// as 0.5 writes it), a sheet whose PDF is not open by the catalog's `sheet.page`.
     pub(crate) fn sheet_label(&self, key: &str) -> String {
         let (hash, idx) = key.split_once(':').unwrap_or((key, "0"));
         let file = self
@@ -233,6 +237,9 @@ impl TakeoffMode {
             .and_then(|f| f.get("name").and_then(Value::as_str))
             .map_or_else(|| t("sheet.unknown"), |n| strip_pdf(n).to_string());
         let n = idx.parse::<f64>().map_or(1.0, |i| i + 1.0);
+        if hash == self.hash || self.open_files.iter().any(|h| h == hash) {
+            return format!("{file}, page {}", cc_takeoff::jv::num_str(n));
+        }
         tf("sheet.page", &[("file", F::S(file)), ("n", F::N(n))])
     }
 

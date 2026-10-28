@@ -361,6 +361,7 @@ impl PdfView {
                 self.go_file(&id, i);
             }
         }
+        self.takeoff.open_files = self.files().into_iter().map(|f| f.hash().to_string()).collect();
         self.takeoff.cur_sheet = self.takeoff.sheet(self.page);
         self.takeoff.px = 1.0 / self.zoom;
     }

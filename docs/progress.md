@@ -2,6 +2,65 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M3.6–M3.8 the viewer's details, Settings, help, es-MX in every app (agent, work/viewer)
+
+- M3.6 `cc-lang` (L0): the language (en, es-MX; process-wide, pinned per thread in tests) and 0.5's catalog pairs
+  looked up as the page's catalog is built (es-MX over English). Every engine's words follow it (cc-civil, cc-detail,
+  cc-part, cc-bim, cc-takeoff, cc-markup, cc-m3d / m3d-tools / io-m3d, cc-io-cad `Catalog::current`, the command line's
+  `Lang`); MarkupCraft's and the shell's catalogs added unchanged. `CADCRAFT_LANG` (CLI, shot) and `--lang` (shot).
+  The § 7 test (`crates/ui-egui/tests/lang_keys.rs`): 5,700+ literal-key calls checked, none missing from English;
+  es-MX lacks only `@context` (and the shell's `@server`) in every catalog.
+- M3.7 the viewer (BimCraft 0.5's DWG view): print view (P; black on white, never-printing layers hidden, line
+  weights: the shader reads each batch's weight from the vertex colour's alpha byte, true width on sheets), layers
+  frozen per viewport (the viewport's handles → layer names), the Drawing panel (info.*, linked drawings and pictures
+  with "Add linked drawings…" / "Add pictures…" through `Services::pick_files`, on the web the browser's picker; a
+  dropped picture or missing link is added to the drawing shown), Find (Ctrl+F; match case / whole words; a hit is
+  ringed as `focusModelPoint` does), F fits, two-finger pinch / pan. Shell: Settings (language, theme, panel text size;
+  `settings.json` on the desktop, browser storage on the web, `?lang=` / the browser's language), recent files in the
+  bar, the 0.5 Markdown help (426 topics of the 8 apps + basics, `crates/ui-egui/help`; F1, sections, search as
+  help-core.js, variants, keys, links). Plain-English labels replaced by catalog words across the views.
+- M3.8 es-MX parity fixes: the params messages CadCraft shows come from CadCraft's catalog (`cc_part::i18n::with_host`,
+  they differ from PartCraft's in es-MX); TakeoffCraft titles open sheets as pdfset.js does (", page n" in every
+  language); MarkupCraft stamp dates in the language (`short_date`); the CLI's 3D snapshot name in the language; help
+  parsed per app on first open.
+- Parity (0.5 JS vs Rust, harness copies `forks/tools/*-viewer.mjs` with `--lang` / `CADCRAFT_LANG`; they replace
+  the shared ones at merge):
+
+  | harness | en | es-MX |
+  |---|---|---|
+  | kdiff-cad3d (seed 1, 63 scenarios + 8 scripts) | 4426/4426 | 4426/4426 |
+  | mkuidiff | 17/17 | 17/17 |
+  | cvuidiff (sample) | all identical | all identical (PDF in Spanish) |
+  | cvtooldiff | 76/76, 2084/2084 status | 76/76, 2084/2084 |
+  | dcuidiff (sample) | 58/58 | 58/58 |
+  | pcuidiff (sample) | all identical | all identical |
+  | tkopsdiff | 61/61, 262/262 status | 61/61, 262/262 |
+  | mcuidiff | 1200/1200 messages, 1243/1243 files | same |
+  | bmuidiff | 2568/2568, 418/418 IFC | – (no language switch in the harness) |
+
+- Timings (release, this machine): help search 0.035 ms vs 0.45 ms in 0.5 (help-core.js on the compiled help);
+  CadCraft's help ready on first open 2.3 ms vs 13.9 ms to import 0.5's help.js; es-MX catalogs first use 6.9 ms,
+  the command line's es-MX catalog 11.9 ms (once); print view frame on Carey's sheet 13.6 ms median vs 14.4 ms
+  normal (lavapipe; the weights cost nothing measurable).
+- Screenshots: forks/lead/shots/viewer (es-*.png: hub, CadCraft viewer and editor, ModelCraft, BimCraft, CivilCraft,
+  DetailCraft, PartCraft, MarkupCraft, TakeoffCraft; print-sheet, find-help, settings-es). Fixed from looking: app bar
+  scrolls with Help / Settings / Recent pinned right, ModelCraft palette width, DetailCraft label column, TakeoffCraft
+  bid-area label.
+- Merged tree (merge2: M4.27–M4.29, M4.48–M4.49 cad3dfix, M4.50–M4.51 cadcloud, M11.18–M11.22 civil2, M3.6–M3.8 viewer
+  on M4.47): the recovery dialog's shell words, the ribbon's style tip, its "not in this version" line
+  (shell.input.cant) and the CLI's point cloud bench read the catalogs through cc-lang; the ribbon's keys-only Settings
+  and Help open the shell's Settings and help panel; POINTCLOUDATTACH / POINTCLOUD's options are commands-api.js's
+  untranslated ones (es-MX showed "Coordenadas del archivo (F) (F)" where 0.5 shows "File coordinates"). Parity, en and
+  es-MX alike (harnesses `forks/tools/*-merge2.mjs` and the `-viewer` copies): kdiff seed 1 and seed 7 × 24 scripts
+  7350/7350 each (seed 1 script 19 and seed 7 script 20 left out: 0.5's HATCH overflows a JS Set, "Set maximum size
+  exceeded", and REVCLOUD on the 3D tab runs out of memory), --lisp 30 5604/5604; cvtooldiff 120/120, 3,400/3,400
+  status lines, 42/42 files and cvuidiff (sample, demo, CSV, GIS, map, labels n / nz / nzd) identical under UTC and
+  America/Denver; mkuidiff 17/17, dcuidiff 58/58, pcuidiff all, tkopsdiff 61/61 + 262/262, mcuidiff --edit --lights
+  --play 1320/1320 + 1250/1250. English only: propsdiff 720/720, winsetdiff 958/958, sheetsetdiff 317/317, lispdiff
+  seeds 1–4 2366/2366 each, mcpdiff 304/304, ribbondiff 3420/3420, recoverdiff 0 differences, idiff kit --save
+  --solids --constraints --cloud 78/78 every version, plotdiff 1128/1128, pcbench 13/13 clouds identical, mdiff
+  640/640, bmuidiff 2568/2568 + 418/418. The web build loads clean six times (?sample, ?bench, ?lang=es-MX).
+
 ## 2026-10-28 — M11.18–M11.22 CivilCraft complete against 0.5's gaps (agent, work/civil2)
 
 - M11.18 (civilsuper.rs, civildrain.rs, civilmore.rs): superelevation's per-curve table (#, R, e, runoff, runout, full

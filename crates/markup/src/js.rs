@@ -337,6 +337,18 @@ pub fn short_date_en(t: f64) -> String {
     format!("{m} {d}, {y}")
 }
 
+/// `d.toLocaleDateString(locale(), { month: 'short', day: 'numeric', year: 'numeric' })` in the language now: "Oct 10,
+/// 2026", or in es-MX "10 oct 2026" (Node's ICU: ene feb mar abr may jun jul ago sep oct nov dic).
+pub fn short_date(t: f64) -> String {
+    if !cc_lang::is_es() {
+        return short_date_en(t);
+    }
+    const MESES: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+    let (y, mo, d, ..) = civil(t);
+    let m = MESES.get(usize::try_from(mo.saturating_sub(1)).unwrap_or(0)).copied().unwrap_or("ene");
+    format!("{d} {m} {y}")
+}
+
 /// `d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })`
 /// of a wall-clock time (`zone.local_ms(t)`) → "Oct 10, 2026, 3:04 PM" (a plain space before the day period, as V8
 /// prints it). Spec gap: years before 1 print as plain numbers here.

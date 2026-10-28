@@ -5,7 +5,7 @@
 use crate::arcs::{angle_arc, angle_at, arc_beziers, arc_through, format_angle};
 use crate::font::{text_width, wrap_text};
 use crate::i18n::{Fill, t, t0};
-use crate::js::{JsMath, hypot, max, min, ns, parse_date, round, short_date_en, upper};
+use crate::js::{JsMath, hypot, max, min, ns, parse_date, round, short_date, upper};
 use crate::model::Markup;
 use crate::units::{Cal, measure, measure_area};
 use cc_m3d::json::Out;
@@ -327,7 +327,7 @@ fn fill_truthy(f: &Option<String>) -> bool {
 
 fn fmt_date(iso: &str) -> String {
     let t = parse_date(iso);
-    if t.is_nan() { String::new() } else { short_date_en(t) }
+    if t.is_nan() { String::new() } else { short_date(t) }
 }
 
 /// `stampSub(m)`: the stamp's second line.

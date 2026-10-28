@@ -125,8 +125,27 @@ pub fn fill(text: &str, vars: &[(&str, F)]) -> String {
     out
 }
 
+thread_local! {
+    static HOST: std::cell::RefCell<Option<cc_cad::i18n::Catalog>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Run `f` with another app's catalog answering first: params.js and expr.js are one file in CadCraft and PartCraft
+/// 0.5, and each page's copy speaks its own app's catalog (CadCraft's `param.*` wording differs from PartCraft's in
+/// es-MX). cc-gcons runs the parameter calls it makes for CadCraft under CadCraft's catalog this way.
+pub fn with_host<R>(cat: cc_cad::i18n::Catalog, f: impl FnOnce() -> R) -> R {
+    let prev = HOST.with(|h| h.replace(Some(cat)));
+    let r = f();
+    HOST.with(|h| *h.borrow_mut() = prev);
+    r
+}
+
 /// `t(key, vars)`.
 pub fn t(key: &str, vars: &[(&str, F)]) -> String {
+    let host = HOST.with(|h| h.borrow().as_ref().filter(|c| c.has(key)).cloned());
+    if let Some(c) = host {
+        let vs: Vec<(&str, String)> = vars.iter().map(|(k, v)| (*k, v.text())).collect();
+        return c.t(key, &vs);
+    }
     let Some(v) = CATALOG.get(key) else { return key.to_string() };
     let text: String = match v {
         Value::String(s) => s.clone(),

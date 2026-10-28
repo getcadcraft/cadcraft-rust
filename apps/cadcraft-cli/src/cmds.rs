@@ -770,7 +770,7 @@ pub(crate) fn pdf_for_log(s: &[u8]) -> String {
 pub(crate) fn snap_with_m3d(d: &cc_cad::Doc) -> serde_json::Value {
     let mut v = d.snapshot();
     if d.m3d.is_some() || !d.faces3d.is_empty() || d.model3d_text.is_some() {
-        let name = cc_io_cad::i18n::Catalog::en().t("model3d.faces_file", &[]);
+        let name = cc_io_cad::i18n::Catalog::current().t("model3d.faces_file", &[]);
         let mut m = cc_io_cad::m3dmodel::model_of(d, &name);
         if !cc_io_cad::m3dmodel::is_empty(&m)
             && let Some(o) = v.as_object_mut()

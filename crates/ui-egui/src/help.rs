@@ -73,15 +73,26 @@ fn parse(scope: &'static str, slug: &'static str, md: &'static str) -> Topic {
     }
 }
 
-/// Every topic of every app (parsed once).
-pub fn topics() -> &'static [Topic] {
-    static ALL: OnceLock<Vec<Topic>> = OnceLock::new();
-    ALL.get_or_init(|| crate::help_files::FILES.iter().map(|(scope, slug, md)| parse(scope, slug, md)).collect())
+/// The help's scopes: the basics and each app (each parsed the first time it is shown).
+const SCOPES: [&str; 9] =
+    ["common", "cadcraft", "bimcraft", "modelcraft", "markupcraft", "takeoffcraft", "civilcraft", "detailcraft", "partcraft"];
+
+/// One scope's topics (parsed once, when first asked for).
+pub fn scope(name: &str) -> &'static [Topic] {
+    static CACHE: [OnceLock<Vec<Topic>>; 9] = [const { OnceLock::new() }; 9];
+    let Some(i) = SCOPES.iter().position(|s| *s == name) else { return &[] };
+    let Some(cell) = CACHE.get(i) else { return &[] };
+    cell.get_or_init(|| crate::help_files::FILES.iter().filter(|(sc, ..)| *sc == name).map(|(sc, slug, md)| parse(sc, slug, md)).collect())
+}
+
+/// Every topic of every app.
+pub fn topics() -> Vec<&'static Topic> {
+    SCOPES.iter().flat_map(|s| scope(s).iter()).collect()
 }
 
 /// The topics an app's help shows: its own, then the basics.
 pub fn topics_for(app: &str) -> Vec<&'static Topic> {
-    topics().iter().filter(|t| t.scope == app || t.scope == "common").collect()
+    scope(app).iter().chain(scope("common").iter()).collect()
 }
 
 /// help-core.js `search`: every word must appear (title 10, summary / keywords / headings 4, text 1); an app's own
@@ -154,16 +165,13 @@ pub fn resolve(app: &str, target: &str) -> Option<&'static Topic> {
     let target = target.strip_prefix("topic:").unwrap_or(target);
     let target = target.split('#').next().unwrap_or(target);
     if let Some(s) = target.strip_prefix("common:") {
-        return topics().iter().find(|t| t.scope == "common" && t.slug == s);
+        return scope("common").iter().find(|t| t.slug == s);
     }
     let target = target.strip_prefix("app:").unwrap_or(target);
     if let Some((a, s)) = target.split_once('/') {
-        return topics().iter().find(|t| t.scope == a && t.slug == s);
+        return scope(a).iter().find(|t| t.slug == s);
     }
-    topics()
-        .iter()
-        .find(|t| t.scope == app && t.slug == target)
-        .or_else(|| topics().iter().find(|t| t.scope == "common" && t.slug == target))
+    scope(app).iter().find(|t| t.slug == target).or_else(|| scope("common").iter().find(|t| t.slug == target))
 }
 
 /// The app whose help shows (the start screen: the basics only).
@@ -588,7 +596,7 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
                 }
             }
             View::Topic(sc, sl) => {
-                if let Some(x) = topics().iter().find(|x| x.scope == *sc && x.slug == *sl) {
+                if let Some(x) = self::scope(sc).iter().find(|x| x.slug == *sl) {
                     ui.label(RichText::new(&x.title).size(17.0).strong().color(t.text_strong));
                     if x.scope == "common" {
                         ui.label(RichText::new(s("shell.help.basics")).small().color(t.text_dim));

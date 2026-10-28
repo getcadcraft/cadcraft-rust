@@ -889,10 +889,10 @@ pub fn drop_dim_params(p: &Params, dropped: &[Con]) -> Params {
         if !is_dim(c) {
             continue;
         }
-        params::remove_link(&mut p, &target_key(c));
+        cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::remove_link(&mut p, &target_key(c)));
         let name = c.name().unwrap_or_default();
         if p.var(name).is_some() {
-            let _ = params::remove_var(&mut p, name, true);
+            let _ = cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::remove_var(&mut p, name, true));
         }
     }
     p
@@ -1025,7 +1025,7 @@ pub struct ForFile {
 pub fn for_file(doc: &Doc) -> Option<ForFile> {
     let cs: Vec<Con> = cons(doc).iter().filter(|c| c.refs.iter().all(|r| model_ref(doc, r.e).is_some())).cloned().collect();
     let p = params_of(doc);
-    if cs.is_empty() && !params::has_params(Some(&p)) {
+    if cs.is_empty() && !cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::has_params(Some(&p))) {
         return None;
     }
     let mut refs: Vec<(u64, String)> = Vec::new();
@@ -1288,7 +1288,9 @@ pub fn resolve_parametric(tr: &Tr, raw: &Value, ref_map: &RefMap) -> (Vec<Con>, 
         let dropped_links = links_in.map_or(0, Vec::len).saturating_sub(links.len());
         let vars = pp.get("vars").filter(|v| !v.is_null()).cloned().unwrap_or_else(|| json!([]));
         let set: std::collections::HashSet<String> = keys.iter().cloned().collect();
-        match params::read_params(&json!({ "vars": vars, "links": links }), Some(&set)) {
+        match cc_part::i18n::with_host(cc_cad::i18n::catalog(), || {
+            params::read_params(&json!({ "vars": vars, "links": links }), Some(&set))
+        }) {
             Ok(x) => prm = x,
             Err(why) => {
                 notes.push(tr.t("gcons.note.params_unreadable", &[("why", why)]));
@@ -1306,7 +1308,7 @@ pub fn resolve_parametric(tr: &Tr, raw: &Value, ref_map: &RefMap) -> (Vec<Con>, 
         let name = c.name().unwrap_or_default().to_string();
         if prm.var(&name).is_none() {
             let mut nm = name.clone();
-            if params::name_problem(Some(&json!(name)), Some(&prm), None).is_some() {
+            if cc_part::i18n::with_host(cc_cad::i18n::catalog(), || params::name_problem(Some(&json!(name)), Some(&prm), None)).is_some() {
                 nm = next_name(&prm, dim_prefix(&c.typ), &[]);
                 c.set("name", json!(nm));
             }
