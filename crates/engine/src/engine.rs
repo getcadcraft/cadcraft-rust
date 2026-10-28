@@ -129,6 +129,10 @@ pub trait Host {
     fn shortcuts(&mut self) -> bool {
         false
     }
+    /// `host.sheetSet` (SHEETSET): show the Sheet Set panel → None when the host has none, else the open set's name.
+    fn sheet_set(&mut self) -> Option<Option<String>> {
+        None
+    }
     /// `host.compareSettings()` (COMPARESETTINGS) → false when the host has no such dialog.
     fn compare_settings(&mut self) -> bool {
         false

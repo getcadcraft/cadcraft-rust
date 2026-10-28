@@ -41,6 +41,8 @@ pub mod lasso;
 pub mod prompt;
 pub mod propextra;
 pub mod props;
+pub mod sheetset;
+pub mod sheetset_io;
 pub mod shortcuts;
 pub mod tancircle;
 pub mod ucs;

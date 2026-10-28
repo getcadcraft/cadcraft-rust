@@ -2,6 +2,34 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-27 — M4.30–M4.34 Plot Open to print, Properties sections, window settings and lasso, VIEWBASE, SHEETSET (agent, work/cadsheets)
+
+- M4.30: the Plot dialog's Open to print (`plot.print`; `Services::open_pdf`: desktop = this run's temp folder and the
+  platform's PDF viewer, web = a new tab, downloaded when blocked); the dialog as tall as its contents (the preview
+  sized by the paper); the constraint value dialog opens under its label.
+- M4.31: Properties (props.js, propdefs.js `dynamicDefs`): dynamic-block Custom (visibility state switched in the one
+  PROPERTIES step, parameter values read-only), Attributes, Library licence / credit, attribute definitions, viewport
+  scale / Fit all / Show all / Window, the sheet (name, paper, orientation, Plot, Delete), what new objects get
+  (layer, colour, linetype, lineweight, text height, units, length format, ltscale, the layer's linetype and weight,
+  new dimensions), View (typing moves the view), Misc, point pick buttons (`_PROPPICK`), Quick Properties (QPMODE).
+  cc-engine `propextra.rs`. Engine fix: a hatch background "by block" (0) is dropped as put() drops it (test).
+  propsdiff-cadsheets (+ Custom / extras, `--doc` for a real DWG) 12 seeds 8640/8640; blocks-and-tables-imperial 240/240.
+- M4.32: SPLIT LINKVIEWS OPENIN3D LASSOMODE SHORTCUTS COMPARESETTINGS (cmd/winset.rs), lasso selection (lasso.js:
+  window / crossing / fence, Space cycles, STRETCH takes a lasso's outline), the Keyboard shortcuts editor
+  (shortcuts.js in cc-engine, keys kept in cadcraft.json) and Compare settings (compare.js). kdiff-cadsheets 103/103;
+  winsetdiff 3 seeds 2864/2864 (layer order: an ICU-like collation, spec gap noted).
+- M4.33: VIEWBASE / FLATSHOT (flatview.js on cc-m3d): kdiff 104/104; ar1all's 3,448 view lines identical. JS / Rust
+  (drafttime-cadsheets, EXTRUDE ALL then VIEWBASE; the projection alone): Carey 477 / 127 ms, ar1all 26 / 7 ms, kitchen 3 / 1 ms.
+- M4.34: SHEETSET / SSM (sheetset.js, sheetset-io.js, sheetset-archive.js in cc-engine; the Sheet Set panel
+  sheetsetdlg.rs, `ss.*`): sets read (hostile files checked), written byte for byte, every edit, numbering rules,
+  fields, publish (one PDF), Update drawings (DWG / DXF saved in their own format and version), the sheet list, archive
+  (zip; DOS time on the local clock through cc_clock, the note's date UTC). sheetsetdiff 4 seeds 1691/1691 (saved
+  drawings byte-identical; PDFs and zips compared inflated: the deflate bytes are zlib-rs's, not the browser's).
+- kdiff-cadsheets seed 1: scenarios 3513/3513; its random scripts now reach a 3D-tab divergence that main's own CLI
+  shows too (COPY in the 3D tab, the overlay marker), left for the 3D tab's owner.
+- Fuzz target `cad_sheetset` (any text as a .ccsheets file; seed: a name cut at 255 ending in spaces, which the next read trims, as the JS does).
+- Not done: POINTCLOUDATTACH / POINTCLOUD, SWBOUT; split panes; P.12's field choice.
+
 ## 2026-10-21 — M4.25–M4.26 CadCraft's 3D tab (agent, work/cad3d)
 
 - cc-engine `ws3d.rs` (ws3d-core.js `Workspace3D`): ModelCraft's tools (cc-m3d-tools) on the drawing's 3D model, with

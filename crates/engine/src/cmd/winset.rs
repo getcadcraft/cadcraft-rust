@@ -81,6 +81,17 @@ pub async fn shortcuts(c: Ctx) -> R {
     Ok(())
 }
 
+/// SHEETSET (SSM, SHEETSETMANAGER): the Sheet Set panel.
+pub async fn sheetset(c: Ctx) -> R {
+    let r = c.sh().host.borrow_mut().sheet_set();
+    match r {
+        None => c.print(&c.t("sheetset.cmd.browser")),
+        Some(Some(name)) => c.print(&c.tv("sheetset.cmd.open", &[("name", name)])),
+        Some(None) => c.print(&c.t("sheetset.cmd.none")),
+    }
+    Ok(())
+}
+
 /// COMPARESETTINGS (CMPSET): the Compare settings dialog.
 pub async fn comparesettings(c: Ctx) -> R {
     let opened = c.sh().host.borrow_mut().compare_settings();

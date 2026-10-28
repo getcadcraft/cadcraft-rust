@@ -848,6 +848,30 @@ pub(crate) fn zlib(data: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Raw deflate at level 6 (CompressionStream('deflate-raw'); the bytes differ from the browser's, the data not).
+pub fn deflate_raw(data: &[u8]) -> Vec<u8> {
+    let mut out = vec![0u8; zlib_rs::compress_bound(data.len()).saturating_add(64)];
+    let cfg = zlib_rs::DeflateConfig {
+        level: 6,
+        method: zlib_rs::Method::Deflated,
+        window_bits: -15,
+        mem_level: 8,
+        strategy: zlib_rs::Strategy::Default,
+    };
+    let (got, rc) = zlib_rs::compress_slice(&mut out, data, cfg);
+    if rc != zlib_rs::ReturnCode::Ok {
+        return miniz_oxide::deflate::compress_to_vec(data, 6);
+    }
+    let n = got.len();
+    out.truncate(n);
+    out
+}
+
+/// Raw inflate, at most 1 GB out (None: damaged or bigger).
+pub fn inflate_raw(data: &[u8]) -> Option<Vec<u8>> {
+    miniz_oxide::inflate::decompress_to_vec_with_limit(data, 1 << 30).ok()
+}
+
 /// Every page's content stream deflated: on all cores natively (the pages are independent), one by one on the web.
 fn deflate_pages(pages: &mut [Page]) {
     #[cfg(not(target_arch = "wasm32"))]

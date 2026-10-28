@@ -60,6 +60,7 @@ mod markup2;
 mod mcp;
 mod part;
 mod props;
+mod sheetset;
 mod skp;
 mod takeoff;
 mod takeoff_pdf;
@@ -100,6 +101,7 @@ fn main() -> ExitCode {
         "plot" => iocad::plot(&rest),
         "props" => props::props(&rest),
         "winset" => winset::winset(&rest),
+        "sheetset" => sheetset::sheetset(&rest),
         "manifold" => manifold::manifold(&rest),
         "manifold-cs" => crosssection::run(&rest),
         "manifold-hull" => hull::run(&rest),

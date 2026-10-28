@@ -276,6 +276,7 @@ dependencies = [
  "cc-gcons",
  "cc-geom",
  "cc-io-cad",
+ "cc-io-dwg",
  "cc-io-m3d",
  "cc-m3d",
  "cc-m3d-tools",

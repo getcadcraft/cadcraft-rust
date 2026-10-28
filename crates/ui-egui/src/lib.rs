@@ -78,6 +78,7 @@ pub mod pdfview;
 pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
+pub mod sheetsetdlg;
 pub mod takeoff3d;
 pub mod takeoffedit;
 pub mod takeoffnotes;
@@ -149,6 +150,8 @@ pub struct Services {
     /// the Plot dialog's "Open to print": show a PDF (name, bytes) where it can be printed → Ok(true) shown (desktop:
     /// the system's PDF viewer; web: a new tab), Ok(false) saved / downloaded instead (a blocked tab)
     pub open_pdf: Option<OpenPdf>,
+    /// desktop: pick a folder (the Sheet Set panel's) → its path; None = cancelled
+    pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
 }
 
 /// Show a PDF to print (see `Services::open_pdf`).
@@ -277,6 +280,8 @@ pub struct UiApp {
     pub par: parpanel::ParPanel,
     /// SHORTCUTS' keys editor and COMPARESETTINGS' dialog (M4.32)
     pub winset: winsetdlg::WinSet,
+    /// the Sheet Set panel (M4.34)
+    pub sheetset: sheetsetdlg::SheetSetPanel,
     /// the drafting editor's Quick select and Find and replace dialogs (M4.15)
     pub caddlg: qsdlg::CadDialogs,
     /// the clipboard keys go to the clipboard commands (the command line is empty and has the focus)
@@ -364,6 +369,7 @@ impl Default for UiApp {
             lib: libdlg::LibPanel::default(),
             par: parpanel::ParPanel::default(),
             winset: winsetdlg::WinSet::default(),
+            sheetset: sheetsetdlg::SheetSetPanel::default(),
             caddlg: qsdlg::CadDialogs::default(),
             clip_keys: false,
             clip_cmd: None,
@@ -1513,6 +1519,7 @@ impl UiApp {
             id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
             id if id.starts_with("par.") => return parpanel::run(self, id, params),
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
+            id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
@@ -1559,6 +1566,7 @@ impl UiApp {
         libdlg::sync(self);
         cadprops::sync(self);
         winsetdlg::sync(self);
+        sheetsetdlg::sync(self);
         if let Some(ed) = self.editor.as_ref() {
             // PARAMETERS opens the panel; notes from edits the window made itself (grips, Properties)
             if std::mem::take(&mut ed.hs.borrow_mut().par_open) {
@@ -1830,6 +1838,7 @@ impl UiApp {
         plotdlg::window(self, &ctx);
         cadprops::quick_window(self, &ctx);
         winsetdlg::window(self, &ctx);
+        sheetsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);

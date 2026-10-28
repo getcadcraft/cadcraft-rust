@@ -26,6 +26,8 @@ cc-part.workspace = true
 cc-drawing.workspace = true
 # sheets.js papers, units and scales (LAYOUT, MVIEW): ported once in cc-io-cad's plot
 cc-io-cad.workspace = true
+# a sheet set's drawings read for their links (sheetset-archive.js linksOf)
+cc-io-dwg.workspace = true
 cc-tools.workspace = true
 # the 3D commands (commands3d.js, M4.24): ModelCraft's kernel and its GLB / OBJ / STL writers
 cc-m3d.workspace = true

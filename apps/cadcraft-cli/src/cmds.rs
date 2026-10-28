@@ -636,7 +636,7 @@ pub fn cmds(rest: &[&str]) -> ExitCode {
 
 /// kdiff.mjs `pdfCanon`: a PDF as Latin-1 text the same on both sides however each deflates: every FlateDecode stream
 /// inflated, /Length keys and the xref offsets left out, the creation time blanked.
-fn pdf_for_log(s: &[u8]) -> String {
+pub(crate) fn pdf_for_log(s: &[u8]) -> String {
     fn find(h: &[u8], n: &[u8], from: usize) -> Option<usize> {
         h.get(from..)?.windows(n.len()).position(|w| w == n).map(|k| k.saturating_add(from))
     }

@@ -121,6 +121,9 @@ pub struct HostState {
     /// SHORTCUTS / COMPARESETTINGS asked for their dialogs
     pub keys_open: bool,
     pub cmp_open: bool,
+    /// SHEETSET asked for the Sheet Set panel; the open set's name (the panel keeps it here for the command)
+    pub ss_open: bool,
+    pub ss_name: Option<String>,
     /// a line for the status bar (LASSOMODE says what a drag now does)
     pub status: Option<String>,
 }
@@ -305,6 +308,11 @@ impl Host for UiHost {
     fn shortcuts(&mut self) -> bool {
         self.0.borrow_mut().keys_open = true;
         true
+    }
+    fn sheet_set(&mut self) -> Option<Option<String>> {
+        let mut h = self.0.borrow_mut();
+        h.ss_open = true;
+        Some(h.ss_name.clone())
     }
     fn compare_settings(&mut self) -> bool {
         self.0.borrow_mut().cmp_open = true;

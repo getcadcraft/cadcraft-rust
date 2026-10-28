@@ -300,6 +300,7 @@ fn main() -> eframe::Result {
                 read_xref: Some(Box::new(read_xref)),
                 save: Some(Box::new(save_file)),
                 open_pdf: Some(Box::new(open_pdf)),
+                pick_folder: Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.display().to_string()))),
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
                 ..Default::default()
             };

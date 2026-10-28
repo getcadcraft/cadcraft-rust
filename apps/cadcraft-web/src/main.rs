@@ -191,6 +191,7 @@ mod web {
                             read_path: None,
                             save: Some(Box::new(download)),
                             open_pdf: Some(Box::new(open_pdf)),
+                            pick_folder: None,
                         };
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {

@@ -358,3 +358,10 @@ path = "fuzz_targets/cad_model3d.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cad_sheetset"
+path = "fuzz_targets/cad_sheetset.rs"
+test = false
+doc = false
+bench = false
