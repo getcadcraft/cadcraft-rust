@@ -1403,7 +1403,7 @@ fn entity_from0(typ: &str, g: &G, follow: Option<&[Follow]>, rep: &mut Obj, ctx:
     let xf = |x: f64| if f { -x } else { x };
     let xd = if has(g, 1001.0) { xdata(g) } else { Obj::new() };
     let cc: Option<Vec<V>> = app_list(&xd, "CADCRAFT").map(values_of);
-    let cat = ctx.map_or(Catalog::en(), |c| c.cat);
+    let cat = ctx.map_or(Catalog::current(), |c| c.cat);
     Ok(match typ {
         "LINE" => {
             let mut o = mk("line", &base);
@@ -2017,7 +2017,7 @@ fn has_extras(text: &str) -> bool {
 
 /// `readDxf(text)` → the doc.load input as JSON, or the error the JS throws.
 pub fn read_dxf(text: &str) -> Result<serde_json::Value, JsErr> {
-    Ok(jsv::into_json(V::Obj(read_dxf_v(text, Catalog::en())?)))
+    Ok(jsv::into_json(V::Obj(read_dxf_v(text, Catalog::current())?)))
 }
 
 /// `readDxf(text)` on dynamic values.

@@ -16,6 +16,7 @@ layer = 2
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-clock.workspace = true
 cc-cad.workspace = true
 cc-m3d.workspace = true

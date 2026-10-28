@@ -16,6 +16,7 @@ layer = 7
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-ui-egui.workspace = true
 cc-recovery.workspace = true
 cc-io-cad.workspace = true

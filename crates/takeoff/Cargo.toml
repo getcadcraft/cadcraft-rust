@@ -16,6 +16,7 @@ layer = 2
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 # V8's Math helpers (hypot, round, Number#toString, toFixed, fdlibm sin / cos) and earcut, ported once in cc-m3d
 cc-m3d.workspace = true
 serde_json.workspace = true

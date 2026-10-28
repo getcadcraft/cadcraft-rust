@@ -14,9 +14,7 @@
 //! `recovery.clock {factor}`.
 
 use std::rc::Rc;
-use std::sync::OnceLock;
 
-use cc_engine::Lang;
 use cc_recovery::{Autosave, Rec, RecoveryOp};
 use serde_json::{Map, Value};
 
@@ -27,17 +25,9 @@ pub const APP: &str = "cadcraft";
 /// The app's name in the dialog's lede (the shell's `data-app-name`).
 pub const APP_NAME: &str = "CadCraft";
 
-static SHELL_EN: &str = include_str!("../../../assets/lang/shell/en.json");
-
-/// The shell catalog (English).
-pub fn shell() -> &'static Lang {
-    static L: OnceLock<Lang> = OnceLock::new();
-    L.get_or_init(|| Lang::new(&serde_json::from_str(SHELL_EN).unwrap_or(Value::Null)))
-}
-
-/// `T(key, vars)` of the shell.
+/// `T(key, vars)` of the shell, in the language now (0.5's shell catalog: [`crate::lang::SHELL`]).
 pub fn st(key: &str, vars: &[(&str, String)]) -> String {
-    shell().t(key, vars)
+    crate::lang::shell(key, vars)
 }
 
 /// What a copy keeps about its drawing (dwg-autosave.js snapshot meta).

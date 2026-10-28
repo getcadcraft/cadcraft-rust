@@ -1,0 +1,19 @@
+[package]
+name = "cc-lang"
+description = "CadCraft L0: the language the apps speak (en, es-MX) and the 0.5 catalog pairs, looked up as i18n.js does (the page's locale first, then English)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 0
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true

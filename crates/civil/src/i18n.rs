@@ -3,17 +3,12 @@
 //! "other"); a key the catalog lacks comes back as the key itself, as i18n.js does.
 
 use serde_json::Value;
-use std::sync::OnceLock;
 
-static EN: &str = include_str!("../../../assets/lang/civilcraft/en.json");
-
-fn catalog() -> &'static serde_json::Map<String, Value> {
-    static CAT: OnceLock<serde_json::Map<String, Value>> = OnceLock::new();
-    CAT.get_or_init(|| match serde_json::from_str::<Value>(EN) {
-        Ok(Value::Object(m)) => m,
-        _ => serde_json::Map::new(),
-    })
-}
+/// CivilCraft 0.5's catalogs (en + the es-MX draft, unchanged): the language now ([`cc_lang::locale`]), then English.
+pub static CATALOG: cc_lang::Catalog = cc_lang::Catalog::new(
+    include_str!("../../../assets/lang/civilcraft/en.json"),
+    include_str!("../../../assets/lang/civilcraft/es-MX.json"),
+);
 
 /// A fill value: a JS number or a string (`String(v)` is what lands in the text).
 #[derive(Clone, Debug)]
@@ -133,7 +128,7 @@ pub fn fill(text: &str, vars: &[(&str, F)]) -> String {
 
 /// `t(key, vars)`.
 pub fn t(key: &str, vars: &[(&str, F)]) -> String {
-    match catalog().get(key) {
+    match CATALOG.get(key) {
         None => key.to_string(),
         Some(Value::String(s)) => fill(s, vars),
         Some(Value::Object(forms)) => {
@@ -154,7 +149,7 @@ pub fn t0(key: &str) -> String {
 
 /// `has(key)`.
 pub fn has(key: &str) -> bool {
-    catalog().contains_key(key)
+    CATALOG.has(key)
 }
 
 /// `tr!("key", n = 3, name = s)` → `t("key", &[("n", F::from(3)), ("name", F::from(s))])`.

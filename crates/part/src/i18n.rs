@@ -1,20 +1,12 @@
 //! i18n.js `t()` over PartCraft 0.5's own English catalog (`partcraft/dev/lang/en.json`, unchanged): `{name}` fills,
 //! `{{` / `}}`, plural objects chosen by the fill `n` ("=n" exactly, then the English CLDR category, then "other"); a key
 //! the catalog lacks comes back as the key itself, as i18n.js does. The Spanish (Mexico) catalog ships beside it as a
-//! draft (`lang/es-MX.json`) and is not read yet.
+//! draft (`lang/es-MX.json`), read while the language is es-MX ([`cc_lang::locale`]).
 
 use serde_json::Value;
-use std::sync::OnceLock;
 
-static EN: &str = include_str!("../lang/en.json");
-
-fn catalog() -> &'static serde_json::Map<String, Value> {
-    static CAT: OnceLock<serde_json::Map<String, Value>> = OnceLock::new();
-    CAT.get_or_init(|| match serde_json::from_str::<Value>(EN) {
-        Ok(Value::Object(m)) => m,
-        _ => serde_json::Map::new(),
-    })
-}
+/// PartCraft 0.5's catalogs (en + the es-MX draft, unchanged).
+pub static CATALOG: cc_lang::Catalog = cc_lang::Catalog::new(include_str!("../lang/en.json"), include_str!("../lang/es-MX.json"));
 
 /// A fill value: a JS number or a string (`String(v)` is what lands in the text).
 #[derive(Clone, Debug)]
@@ -75,7 +67,7 @@ impl From<&String> for F {
 
 /// Is there a string for this key?
 pub fn has(key: &str) -> bool {
-    catalog().contains_key(key)
+    CATALOG.has(key)
 }
 
 /// English CLDR plural category (`Intl.PluralRules('en').select(n)`): "one" for exactly 1, else "other".
@@ -135,7 +127,7 @@ pub fn fill(text: &str, vars: &[(&str, F)]) -> String {
 
 /// `t(key, vars)`.
 pub fn t(key: &str, vars: &[(&str, F)]) -> String {
-    let Some(v) = catalog().get(key) else { return key.to_string() };
+    let Some(v) = CATALOG.get(key) else { return key.to_string() };
     let text: String = match v {
         Value::String(s) => s.clone(),
         Value::Object(forms) => {

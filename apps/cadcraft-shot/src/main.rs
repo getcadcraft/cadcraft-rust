@@ -4,6 +4,7 @@
 //!       <file> may be --hub: CadCraft Studio's start screen (nothing open), --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
 //!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --seed-recovery N (copies of N drawings a crashed window left: the dialog opens), --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --lang en|es-MX: the language (also CADCRAFT_LANG)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot recovery <scenario.json> <out-dir> → recovery copies driven headless (recovery.rs; forks/tools/recoverdiff.mjs)
@@ -84,6 +85,10 @@ fn egui_wgpu_options() -> egui_wgpu::RendererOptions {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // --lang es-MX (or CADCRAFT_LANG): the language of every app, set before anything opens
+    if let Some(l) = arg(&args, "--lang").or_else(|| std::env::var("CADCRAFT_LANG").ok()).and_then(|v| cc_lang::Locale::parse(&v)) {
+        cc_lang::set(l);
+    }
     let r = match args.first().map(String::as_str) {
         Some("bench") => bench(&args),
         Some("demo3d") => demo3d(&args),

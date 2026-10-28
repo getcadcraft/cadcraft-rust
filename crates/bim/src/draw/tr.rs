@@ -3,16 +3,15 @@
 
 use serde_json::Value as J;
 
-static EN: &str = include_str!("../../../../assets/lang/bimcraft/en.json");
-
-fn catalog() -> &'static serde_json::Map<String, J> {
-    static CAT: std::sync::OnceLock<serde_json::Map<String, J>> = std::sync::OnceLock::new();
-    CAT.get_or_init(|| serde_json::from_str::<J>(EN).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default())
-}
+/// BimCraft 0.5's catalogs (en + the es-MX draft, unchanged): the language now ([`cc_lang::locale`]), then English.
+pub static CATALOG: cc_lang::Catalog = cc_lang::Catalog::new(
+    include_str!("../../../../assets/lang/bimcraft/en.json"),
+    include_str!("../../../../assets/lang/bimcraft/es-MX.json"),
+);
 
 /// Does the catalog have this key?
 pub fn has(key: &str) -> bool {
-    catalog().contains_key(key)
+    CATALOG.has(key)
 }
 
 /// `fill(text, vars)`: "{name}" → its value, "{{" / "}}" → braces, unknown fills left as written.
@@ -65,7 +64,7 @@ fn category(n: &str) -> &'static str {
 
 /// `t(key, vars)`: the key itself when the catalog has no such string.
 pub fn t(key: &str, vars: &[(&str, &str)]) -> String {
-    let Some(v) = catalog().get(key) else { return key.to_string() };
+    let Some(v) = CATALOG.get(key) else { return key.to_string() };
     let text = match v {
         J::String(s) => s.clone(),
         J::Object(o) => {

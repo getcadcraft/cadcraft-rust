@@ -16,6 +16,10 @@ pub fn has(key: &str) -> bool {
 
 /// The string for `key` with its fills (each fill already written as the JS's `String(value)` would write it).
 pub fn t(key: &str, vars: &[(&str, &str)]) -> String {
+    let n = vars.iter().find(|(k, _)| *k == "n").map(|(_, v)| *v);
+    if let Some(s) = cc_m3d::i18n::ES.text(key, n) {
+        return cc_m3d::i18n::fill(s, vars);
+    }
     match find(key) {
         Some(Entry::S(s)) => cc_m3d::i18n::fill(s, vars),
         Some(Entry::P(one, other)) => {

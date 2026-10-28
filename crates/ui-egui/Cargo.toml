@@ -16,6 +16,7 @@ layer = 6
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-clock.workspace = true
 cc-recovery.workspace = true
 cc-m3d-files.workspace = true

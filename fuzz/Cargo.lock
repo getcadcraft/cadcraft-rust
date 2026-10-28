@@ -200,6 +200,7 @@ dependencies = [
  "cc-io-dwg",
  "cc-io-ifc",
  "cc-io-skp",
+ "cc-lang",
  "cc-m3d",
  "serde_json",
  "zlib-rs",
@@ -231,6 +232,7 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-clock",
+ "cc-lang",
  "cc-m3d",
  "fancy-regex",
  "libm",
@@ -253,6 +255,7 @@ dependencies = [
  "cc-cad",
  "cc-cad-geom",
  "cc-civil",
+ "cc-lang",
  "cc-m3d",
  "libm",
  "miniz_oxide 0.8.9",
@@ -318,6 +321,7 @@ dependencies = [
  "cc-gcons",
  "cc-geom",
  "cc-io-dwg",
+ "cc-lang",
  "cc-m3d",
  "image",
  "miniz_oxide 0.8.9",
@@ -389,6 +393,7 @@ dependencies = [
 name = "cc-io-m3d"
 version = "0.0.1"
 dependencies = [
+ "cc-lang",
  "cc-m3d",
  "cc-manifold",
  "libm",
@@ -434,6 +439,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-lang"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cc-lisp"
 version = "0.0.1"
 dependencies = [
@@ -454,6 +466,7 @@ dependencies = [
 name = "cc-m3d"
 version = "0.0.1"
 dependencies = [
+ "cc-lang",
  "libm",
  "serde_json",
 ]
@@ -463,6 +476,7 @@ name = "cc-m3d-tools"
 version = "0.0.1"
 dependencies = [
  "cc-geom",
+ "cc-lang",
  "cc-m3d",
  "libm",
  "serde_json",
@@ -481,6 +495,7 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-clock",
+ "cc-lang",
  "cc-m3d",
  "indexmap",
  "miniz_oxide 0.8.9",
@@ -516,6 +531,7 @@ name = "cc-part"
 version = "0.0.1"
 dependencies = [
  "cc-cad",
+ "cc-lang",
  "cc-m3d",
  "cc-manifold",
  "libm",
@@ -538,6 +554,7 @@ dependencies = [
 name = "cc-takeoff"
 version = "0.0.1"
 dependencies = [
+ "cc-lang",
  "cc-m3d",
  "libm",
  "serde_json",

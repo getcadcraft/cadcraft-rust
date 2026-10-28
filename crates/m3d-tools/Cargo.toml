@@ -16,6 +16,7 @@ layer = 4
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-geom.workspace = true
 cc-m3d.workspace = true
 serde_json.workspace = true

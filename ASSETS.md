@@ -25,6 +25,10 @@ Prefer art generated in code.
 | assets/lang/takeoffcraft/es-MX.json | CadCraft | TakeoffCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 | assets/lang/civilcraft/en.json | CadCraft | CivilCraft 0.5's own language catalog (`public_html/assets/apps/civilcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
 | assets/lang/civilcraft/es-MX.json | CadCraft | CivilCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
+| assets/lang/markupcraft/en.json | CadCraft | MarkupCraft 0.5's own language catalog (`public_html/assets/apps/markupcraft/dev/lang/en.json`, frozen at 594ab3e), unchanged | Apache-2.0 |
+| assets/lang/markupcraft/es-MX.json | CadCraft | MarkupCraft 0.5's own language catalog (`…/lang/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
+| assets/lang/shell/en.json | CadCraft | the 0.5 app shell's language catalog (`public_html/assets/lang/shell/en.json`, frozen at 594ab3e: Settings, Help, Recent files), unchanged | Apache-2.0 |
+| assets/lang/shell/es-MX.json | CadCraft | the 0.5 app shell's language catalog (`…/lang/shell/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 
 Test data and fuzz seeds (outside `assets/`, listed for the record):
 

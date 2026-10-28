@@ -120,9 +120,12 @@ pub fn bench(rest: &[&str]) -> std::process::ExitCode {
     };
     let read_ms = ms(t);
     let name = path.rsplit('/').next().unwrap_or(path).to_string();
-    let tr = cc_cad::i18n::Catalog::new(
-        &serde_json::from_str::<Value>(include_str!("../../../assets/lang/cadcraft/en.json")).unwrap_or(Value::Null),
+    // CadCraft's catalog in the language now (--lang / CADCRAFT_LANG), as the window's engine reads it
+    static CAD: cc_lang::Catalog = cc_lang::Catalog::new(
+        include_str!("../../../assets/lang/cadcraft/en.json"),
+        include_str!("../../../assets/lang/cadcraft/es-MX.json"),
     );
+    let tr = cc_cad::i18n::Catalog::new(&CAD.merged(cc_lang::locale()));
     let f = cc_io_civil::raster::InFile { name, bytes };
     // the coordinate system catalog, once per process (the page fetches it once): not part of the open
     let t = std::time::Instant::now();

@@ -1837,7 +1837,7 @@ fn unit_code(u: &str) -> i64 {
 
 /// `saveDwg(doc, { version, created })` → the DWG bytes and the report { version, notes, counts, top, … }.
 pub fn save_dwg(doc: &Doc, opts: &SaveOpts) -> Result<Saved, JsErr> {
-    save_dwg_with(doc, opts, Catalog::en())
+    save_dwg_with(doc, opts, Catalog::current())
 }
 
 /// `saveDwg` with a catalog for the notes.

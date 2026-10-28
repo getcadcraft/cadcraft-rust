@@ -3,9 +3,6 @@
 //! fill `n` (`"=n"` exactly, then the English CLDR category, then `other`); `{{` / `}}` are literal braces; a key no
 //! catalog has comes back as the key itself.
 
-use std::collections::HashMap;
-use std::sync::OnceLock;
-
 use serde_json::Value;
 
 static EN_JSON: &str = include_str!("../../../assets/lang/takeoffcraft/en.json");
@@ -52,25 +49,17 @@ impl F {
     }
 }
 
-fn catalog(json: &'static str) -> HashMap<String, Value> {
-    match serde_json::from_str::<Value>(json) {
-        Ok(Value::Object(o)) => o.into_iter().collect(),
-        _ => HashMap::new(),
-    }
-}
-fn en() -> &'static HashMap<String, Value> {
-    static EN: OnceLock<HashMap<String, Value>> = OnceLock::new();
-    EN.get_or_init(|| catalog(EN_JSON))
-}
-/// The es-MX catalog (draft), for a caller that wants it; the engine itself speaks English like the Node test.
-pub fn es_mx() -> &'static HashMap<String, Value> {
-    static ES: OnceLock<HashMap<String, Value>> = OnceLock::new();
-    ES.get_or_init(|| catalog(ES_JSON))
+/// TakeoffCraft 0.5's catalogs (en + the es-MX draft, unchanged): the language now ([`cc_lang::locale`]), then English.
+pub static CATALOG: cc_lang::Catalog = cc_lang::Catalog::new(EN_JSON, ES_JSON);
+
+/// The es-MX catalog (draft) alone.
+pub fn es_mx() -> &'static serde_json::Map<String, Value> {
+    CATALOG.es()
 }
 
 /// Is there a string for this key?
 pub fn has(key: &str) -> bool {
-    en().contains_key(key)
+    CATALOG.has(key)
 }
 
 /// English CLDR plural category: "one" for exactly 1, else "other".
@@ -156,7 +145,7 @@ pub fn t(key: &str) -> String {
 }
 /// `t(key, vars)`.
 pub fn tf(key: &str, vars: &[(&str, F)]) -> String {
-    let text = match en().get(key) {
+    let text = match CATALOG.get(key) {
         None => return key.to_string(),
         Some(Value::String(s)) => s.clone(),
         Some(Value::Object(forms)) => {

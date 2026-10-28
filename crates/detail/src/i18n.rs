@@ -5,19 +5,12 @@
 
 pub use cc_civil::i18n::{F, fill};
 use serde_json::Value;
-use std::sync::OnceLock;
 
-static EN: &str = include_str!("../lang/en.json");
 /// The es-MX draft catalog (shipped as draft; English is the fallback).
 pub static ES_MX: &str = include_str!("../lang/es-MX.json");
 
-fn catalog() -> &'static serde_json::Map<String, Value> {
-    static CAT: OnceLock<serde_json::Map<String, Value>> = OnceLock::new();
-    CAT.get_or_init(|| match serde_json::from_str::<Value>(EN) {
-        Ok(Value::Object(m)) => m,
-        _ => serde_json::Map::new(),
-    })
-}
+/// DetailCraft 0.5's catalogs (en + the es-MX draft, unchanged): the language now ([`cc_lang::locale`]), then English.
+pub static CATALOG: cc_lang::Catalog = cc_lang::Catalog::new(include_str!("../lang/en.json"), ES_MX);
 
 fn text_of(v: &F) -> String {
     match v {
@@ -54,7 +47,7 @@ fn choose_plural<'a>(forms: &'a serde_json::Map<String, Value>, n: Option<&F>) -
 
 /// `t(key, vars)`.
 pub fn t(key: &str, vars: &[(&str, F)]) -> String {
-    match catalog().get(key) {
+    match CATALOG.get(key) {
         None => key.to_string(),
         Some(Value::String(s)) => fill(s, vars),
         Some(Value::Object(forms)) => {
@@ -76,7 +69,7 @@ pub fn t0(key: &str) -> String {
 
 /// `has(key)`.
 pub fn has(key: &str) -> bool {
-    catalog().contains_key(key)
+    CATALOG.has(key)
 }
 
 /// `tr!("key", n = 3, name = s)` → `t("key", &[("n", F::from(3)), ("name", F::from(s))])`.

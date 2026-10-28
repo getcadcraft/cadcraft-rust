@@ -16,6 +16,7 @@ layer = 4
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-io-ifc.workspace = true
 cc-io-skp.workspace = true
 cc-io-dwg.workspace = true

@@ -116,8 +116,15 @@ pub fn fill(text: &str, vars: &[(&str, Fill)]) -> String {
     out
 }
 
+/// MarkupCraft 0.5's es-MX catalog (the draft, unchanged), read while the language is es-MX.
+pub static ES: cc_lang::Spanish = cc_lang::Spanish::new(include_str!("../../../assets/lang/markupcraft/es-MX.json"));
+
 /// `t(key, vars)`.
 pub fn t(key: &str, vars: &[(&str, Fill)]) -> String {
+    let n = vars.iter().find(|(k, _)| *k == "n").map(|(_, v)| v.text());
+    if let Some(s) = ES.text(key, n.as_deref()) {
+        return fill(s, vars);
+    }
     match lookup(key) {
         None => key.to_string(),
         Some(Msg::S(s)) => fill(s, vars),

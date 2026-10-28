@@ -12,7 +12,13 @@ use cc_io_civil::raster::{InFile, locale_int};
 
 use crate::cloud::COLOR_KEYS;
 use crate::engine::{Ctx, Opts, PickedFile, R, Reply, Shared};
-use crate::input::Def;
+use crate::input::{Def, Opt};
+
+/// commandRegistry.option (commands-api.js, as cloud-cad.js gets it): the registry's options are not translated (no
+/// `en`), so their labels stay English in every language.
+fn ro(key: &str, label: &str) -> Opt {
+    Opt { key: key.into(), label: label.into(), en: None, hidden: false }
+}
 
 /// `doc.meta.units || ''`
 pub fn units_of(doc: &Doc) -> String {
@@ -116,7 +122,7 @@ pub async fn pointcloudattach(c: Ctx) -> R {
             return Ok(());
         }
     };
-    let p = c.point(c.t("pc.prompt.insert"), Opts { options: vec![c.opt("F", "File coordinates")], none: true, ..Opts::default() }).await?;
+    let p = c.point(c.t("pc.prompt.insert"), Opts { options: vec![ro("F", "File coordinates")], none: true, ..Opts::default() }).await?;
     finish(c.sh(), &name, cloud, p.point(), t0);
     Ok(())
 }
@@ -141,14 +147,14 @@ pub async fn pointcloud(c: Ctx) -> R {
             &[("file", file), ("kept", locale_int(kept as f64)), ("slice", slice), ("color", c.t(&format!("pc.color.{color}")))],
         ));
         let options = vec![
-            c.opt("S", "Slice"),
-            c.opt("H", "Height"),
-            c.opt("T", "Thickness"),
-            c.opt("C", "Color"),
-            c.opt("SI", "Size"),
-            c.opt("V", "Visible"),
-            c.opt("Z", "Zoom"),
-            c.opt("D", "Detach"),
+            ro("S", "Slice"),
+            ro("H", "Height"),
+            ro("T", "Thickness"),
+            ro("C", "Color"),
+            ro("SI", "Size"),
+            ro("V", "Visible"),
+            ro("Z", "Zoom"),
+            ro("D", "Detach"),
         ];
         let r = c.keyword(c.t("pc.prompt.option"), Opts { options, ..Opts::default() }).await?;
         let k = match r {
@@ -205,7 +211,7 @@ pub async fn pointcloud(c: Ctx) -> R {
                             "class" => "Class",
                             _ => "One",
                         };
-                        c.opt(key, label)
+                        ro(key, label)
                     })
                     .collect();
                 let def = COLOR_KEYS.iter().find(|(_, m)| *m == cur).map(|(k, _)| Def::Str((*k).to_string()));

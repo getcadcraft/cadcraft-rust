@@ -28,6 +28,26 @@ impl Catalog {
         })
     }
 
+    /// The strings of the language now ([`cc_lang::locale`]): English, or English with CadCraft 0.5's es-MX catalog
+    /// over it (the page's catalog in 0.5).
+    pub fn current() -> &'static Catalog {
+        static ES: OnceLock<Catalog> = OnceLock::new();
+        if !cc_lang::is_es() {
+            return Catalog::en();
+        }
+        ES.get_or_init(|| {
+            let mut strings = Catalog::en().strings.clone();
+            let es =
+                serde_json::from_str::<Map<String, Value>>(include_str!("../../../assets/lang/cadcraft/es-MX.json")).unwrap_or_default();
+            for (k, v) in es {
+                if strings.contains_key(&k) {
+                    strings.insert(k, v);
+                }
+            }
+            Catalog { strings, locale: "es-MX".into() }
+        })
+    }
+
     /// `t(key, vars)`: the string filled, a plural form chosen by `n`; the key itself when the catalog lacks it.
     pub fn t(&self, key: &str, vars: &[(&str, String)]) -> String {
         let Some(v) = self.strings.get(key) else { return key.to_string() };
@@ -52,7 +72,9 @@ impl Catalog {
             None => "other",
             Some(n) => {
                 let x = js::str_to_number(n);
-                if x.is_finite() && self.locale.starts_with("en") && x == 1.0 { "one" } else { "other" }
+                // CLDR en and es: "one" for exactly 1
+                let one_rule = self.locale.starts_with("en") || self.locale.starts_with("es");
+                if x.is_finite() && one_rule && x == 1.0 { "one" } else { "other" }
             }
         };
         match forms.get(cat) {

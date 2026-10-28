@@ -1833,7 +1833,7 @@ fn length_format(h: Ov, meta: &mut Obj) {
 
 /// `importDwg(db, { versionTag })` → the doc.load input as JSON (private marks left out), or the JS exception.
 pub fn import_dwg(db: &Obj, version_tag: &str) -> Result<serde_json::Value, JsErr> {
-    Ok(jsv::into_json(V::Obj(import_dwg_v(db, version_tag, Catalog::en())?)))
+    Ok(jsv::into_json(V::Obj(import_dwg_v(db, version_tag, Catalog::current())?)))
 }
 
 /// `importDwg` on dynamic values (multileaders / pictures / wipeouts keep their [`EXTRA_MARK`]).

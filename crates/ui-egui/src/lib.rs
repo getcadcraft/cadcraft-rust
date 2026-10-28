@@ -57,6 +57,7 @@ pub mod document;
 pub mod edit;
 pub mod hub;
 pub mod ifc3d;
+pub mod lang;
 pub mod libdlg;
 pub mod lispdlg;
 pub mod markupbcf;
@@ -2128,7 +2129,7 @@ impl UiApp {
                 ui.horizontal_centered(|ui| {
                     if ui
                         .button(RichText::new("CadCraft").strong().color(t.text_strong))
-                        .on_hover_text(hub::t(&self.hub.locale, "window.hub.title"))
+                        .on_hover_text(hub::t(self.hub.loc(), "window.hub.title"))
                         .clicked()
                     {
                         self.run_ui("hub.home", &Params::default());

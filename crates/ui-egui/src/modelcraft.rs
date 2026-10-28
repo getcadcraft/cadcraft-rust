@@ -20,16 +20,11 @@ use crate::model3d;
 use crate::theme::Tokens;
 use crate::view3d::{self, Scene3D};
 
-static EN: &str = include_str!("../../../assets/lang/modelcraft/en.json");
-
-/// A word of ModelCraft's own catalog (English) as i18n.js t() gives it: `{name}` fills from `vars`, a plural entry
+/// A word of ModelCraft's own catalog (in the language now) as i18n.js t() gives it: `{name}` fills from `vars`, a plural entry
 /// picks "one" when the fill `n` is exactly 1 (Intl.PluralRules('en')), else "other"; a key the catalog lacks comes
 /// from the tools' and the kernel's catalogs, else the key itself.
 pub fn mt(key: &str, vars: &[(&str, &str)]) -> String {
-    static CAT: std::sync::OnceLock<serde_json::Map<String, serde_json::Value>> = std::sync::OnceLock::new();
-    let cat =
-        CAT.get_or_init(|| serde_json::from_str::<serde_json::Value>(EN).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default());
-    match cat.get(key) {
+    match crate::lang::MODELCRAFT.get(key) {
         Some(serde_json::Value::String(s)) => cc_m3d::i18n::fill(s, vars),
         Some(serde_json::Value::Object(forms)) => {
             let n = vars.iter().find(|(k, _)| *k == "n").map(|(_, v)| *v);

@@ -118,8 +118,11 @@ const EN: &[(&str, &str)] = &[
     ("m3d.xml.toobig", "This file has more than {n} XML elements: too big to read here."),
 ];
 
-/// The English string of a key.
+/// The string of a key in the language now (es-MX: ModelCraft's Spanish file first), else English.
 pub fn lookup(key: &str) -> Option<&'static str> {
+    if let Some(s) = cc_m3d::i18n::ES.text(key, None) {
+        return Some(s);
+    }
     EN.binary_search_by(|(k, _)| (*k).cmp(key)).ok().and_then(|i| EN.get(i)).map(|(_, v)| *v)
 }
 

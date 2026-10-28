@@ -17,6 +17,7 @@ layer = 3
 workspace = true
 
 [dependencies]
+cc-lang.workspace = true
 cc-cad.workspace = true
 cc-civil.workspace = true
 cc-m3d.workspace = true

@@ -1109,7 +1109,7 @@ fn ucs_name_ok(s: &str) -> bool {
 
 /// `writeDxf(doc)` → (DXF R12 text, report { notes, counts, extents }), or the error the JS throws.
 pub fn write_dxf(doc: &Doc) -> Result<(String, serde_json::Value), JsErr> {
-    write_dxf_with(doc, Catalog::en())
+    write_dxf_with(doc, Catalog::current())
 }
 
 /// `writeDxf` with a catalog for the report's notes.

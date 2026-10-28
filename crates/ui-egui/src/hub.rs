@@ -6,8 +6,6 @@
 //! Every button is a command (`hub.open`, `hub.sample`, `hub.recent`, `file.new`, `file.open`), so the screen works
 //! headless too.
 
-use std::sync::OnceLock;
-
 use egui::{Color32, RichText};
 use serde_json::Value;
 
@@ -38,41 +36,19 @@ pub fn sample_command(slug: &str) -> Option<&'static str> {
     }
 }
 
-fn catalog(locale: &str) -> &'static Value {
-    static EN: OnceLock<Value> = OnceLock::new();
-    static ES: OnceLock<Value> = OnceLock::new();
-    let parse = |s: &str| serde_json::from_str(s).unwrap_or(Value::Null);
-    if locale.starts_with("es") {
-        ES.get_or_init(|| parse(include_str!("../../../assets/lang/catalog/es-MX.json")))
-    } else {
-        EN.get_or_init(|| parse(include_str!("../../../assets/lang/catalog/en.json")))
-    }
-}
-
-fn hub_lang(locale: &str) -> &'static Value {
-    static EN: OnceLock<Value> = OnceLock::new();
-    static ES: OnceLock<Value> = OnceLock::new();
-    let parse = |s: &str| serde_json::from_str(s).unwrap_or(Value::Null);
-    if locale.starts_with("es") {
-        ES.get_or_init(|| parse(include_str!("../../../assets/lang/studio/es-MX.json")))
-    } else {
-        EN.get_or_init(|| parse(include_str!("../../../assets/lang/studio/en.json")))
-    }
+fn lang_of(locale: &str) -> cc_lang::Locale {
+    cc_lang::Locale::parse(locale).unwrap_or_default()
 }
 
 /// The hub's word for a key (English when the locale lacks it; the key itself when nothing has it).
 pub fn t(locale: &str, key: &str) -> String {
-    let get = |v: &Value| v.get(key).and_then(Value::as_str).map(str::to_string);
-    get(hub_lang(locale)).or_else(|| get(hub_lang("en"))).unwrap_or_else(|| key.to_string())
+    crate::lang::STUDIO.get_in(lang_of(locale), key).and_then(Value::as_str).map_or_else(|| key.to_string(), str::to_string)
 }
 
 /// `t(key, {n})` with a plural form.
 pub fn tn(locale: &str, key: &str, n: usize) -> String {
-    let forms = hub_lang(locale).get(key).or_else(|| hub_lang("en").get(key));
-    let s = match forms {
-        Some(Value::Object(o)) => {
-            o.get(if n == 1 { "one" } else { "other" }).or_else(|| o.get("other")).and_then(Value::as_str).unwrap_or(key).to_string()
-        }
+    let s = match crate::lang::STUDIO.get_in(lang_of(locale), key) {
+        Some(Value::Object(o)) => cc_lang::plural(o, Some(&n.to_string())).unwrap_or(key).to_string(),
         Some(Value::String(s)) => s.clone(),
         _ => key.to_string(),
     };
@@ -82,8 +58,7 @@ pub fn tn(locale: &str, key: &str, n: usize) -> String {
 /// An app's catalog word (role / short / tagline).
 pub fn word(locale: &str, slug: &str, field: &str) -> String {
     let k = format!("catalog.{slug}.{field}");
-    let get = |v: &Value| v.get(&k).and_then(Value::as_str).map(str::to_string);
-    get(catalog(locale)).or_else(|| get(catalog("en"))).unwrap_or_default()
+    crate::lang::SITE.get_in(lang_of(locale), &k).and_then(Value::as_str).map(str::to_string).unwrap_or_default()
 }
 
 /// A file the person opened or saved, newest first (the hub's recent list).
@@ -108,8 +83,6 @@ pub struct Hub {
     pub recent: Vec<Recent>,
     /// the recent list's app filter ("" = all apps)
     pub filter: String,
-    /// language (en, es-MX)
-    pub locale: String,
     pub show_help: bool,
 }
 
@@ -125,8 +98,9 @@ impl Hub {
         self.recent.insert(0, Recent { name: name.to_string(), dir: dir.map(str::to_string), app, when });
         self.recent.truncate(MAX_RECENT);
     }
-    pub fn loc(&self) -> &str {
-        if self.locale.is_empty() { "en" } else { &self.locale }
+    /// The language now (the hub's switch sets it for every app: [`cc_lang::set`]).
+    pub fn loc(&self) -> &'static str {
+        cc_lang::locale().code()
     }
 }
 
@@ -433,7 +407,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             if l != "en" && l != "es-MX" {
                 return Err(format!("hub.lang: {l} is not one of en, es-MX"));
             }
-            app.hub.locale = l;
+            app.set_locale(cc_lang::Locale::parse(&l).unwrap_or_default());
             Ok(())
         }
         "hub.home" => {

@@ -9,16 +9,11 @@ use egui::RichText;
 
 use crate::theme::Tokens;
 
-static EN: &str = include_str!("../../../assets/lang/bimcraft/en.json");
-
-/// A word of BimCraft's own catalog (English): `{name}` fills from `vars`; a plural entry picks `=0` / `one` / `other`
+/// A word of BimCraft's own catalog (in the language now): `{name}` fills from `vars`; a plural entry picks `=0` / `one` / `other`
 /// by `n`; the key itself when missing.
 pub fn bt(key: &str, vars: &[(&str, &str)]) -> String {
-    static CAT: std::sync::OnceLock<serde_json::Map<String, serde_json::Value>> = std::sync::OnceLock::new();
-    let cat =
-        CAT.get_or_init(|| serde_json::from_str::<serde_json::Value>(EN).ok().and_then(|v| v.as_object().cloned()).unwrap_or_default());
     let n = vars.iter().find(|(k, _)| *k == "n").map(|(_, v)| *v);
-    let mut s = match cat.get(key) {
+    let mut s = match crate::lang::BIMCRAFT.get(key) {
         Some(serde_json::Value::String(s)) => s.clone(),
         Some(serde_json::Value::Object(o)) => {
             let form = match n {

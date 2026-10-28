@@ -86,6 +86,10 @@ fn usage() -> ExitCode {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // CADCRAFT_LANG=es-MX: the words the engines print and write (en by default)
+    if let Some(l) = std::env::var("CADCRAFT_LANG").ok().and_then(|v| cc_lang::Locale::parse(&v)) {
+        cc_lang::set(l);
+    }
     let cmd = args.first().map(String::as_str).unwrap_or("");
     let rest: Vec<&str> = args.iter().skip(1).map(String::as_str).collect();
     match cmd {

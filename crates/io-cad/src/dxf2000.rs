@@ -691,7 +691,7 @@ struct Lay {
 
 /// `writeDxf2000(doc)` → (DXF R2000 text, report { notes, counts }).
 pub fn write_dxf2000(doc: &Doc) -> Result<(String, serde_json::Value), JsErr> {
-    write_dxf2000_with(doc, Catalog::en())
+    write_dxf2000_with(doc, Catalog::current())
 }
 
 /// `writeDxf2000` with a catalog for the notes.

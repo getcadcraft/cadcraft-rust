@@ -6,7 +6,6 @@
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::sync::OnceLock;
 
 use cc_cad::Doc;
 use cc_cad::entity::Entity;
@@ -16,22 +15,18 @@ use cc_engine::prompt::Kind;
 use cc_engine::{Engine, Host, Lang};
 use cc_geom::P2;
 
-/// CadCraft 0.5's own catalogs (lang/*.json, unchanged).
-static EN: &str = include_str!("../../../assets/lang/cadcraft/en.json");
-
-/// A catalog string in English, with fills (hosts print with it).
+/// A CadCraft catalog string in the language now, with fills (hosts print with it).
 pub fn lang_text(key: &str, vars: &[(&str, String)]) -> String {
-    lang_en().t(key, vars)
+    crate::lang::cad_lang().t(key, vars)
 }
 
-/// The English catalog (the Properties panel reads it too).
+/// CadCraft's catalog in the language now (the Properties panel reads it too).
 pub(crate) fn lang_en_pub() -> Lang {
-    lang_en()
+    crate::lang::cad_lang()
 }
 
 fn lang_en() -> Lang {
-    static V: OnceLock<serde_json::Value> = OnceLock::new();
-    Lang::new(V.get_or_init(|| serde_json::from_str(EN).unwrap_or(serde_json::Value::Null)))
+    crate::lang::cad_lang()
 }
 
 /// What a command asked the view to do (applied by the UI after the input that caused it).

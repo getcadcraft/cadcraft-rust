@@ -56,6 +56,7 @@ cc-part = { path = "crates/part" }
 cc-clock = { path = "crates/clock" }
 cc-lisp = { path = "crates/lisp" }
 cc-recovery = { path = "crates/recovery" }
+cc-lang = { path = "crates/lang" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
 thiserror = "2"

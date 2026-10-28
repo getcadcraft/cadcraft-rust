@@ -86,8 +86,14 @@ const EN: &[(&str, &str)] = &[
     ("m3d.units.sqin", "{v} sq in"),
 ];
 
-/// The English string of a key.
+/// ModelCraft 0.5's es-MX catalog (the draft, unchanged), read while the language is es-MX.
+pub static ES: cc_lang::Spanish = cc_lang::Spanish::new(include_str!("../../../assets/lang/modelcraft/es-MX.json"));
+
+/// The string of a key in the language now (es-MX: the Spanish file first), else English.
 pub fn lookup(key: &str) -> Option<&'static str> {
+    if let Some(s) = ES.text(key, None) {
+        return Some(s);
+    }
     EN.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
 }
 
