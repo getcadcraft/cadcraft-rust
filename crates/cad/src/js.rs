@@ -548,6 +548,11 @@ pub fn str_to_number(s: &str) -> f64 {
     if i != b.len() {
         return f64::NAN;
     }
+    // a literal Rust reads as it stands (digits on both sides of any point): no copy
+    let point_edge = body.starts_with('.') || body.ends_with('.') || body.contains(".e") || body.contains(".E");
+    if !point_edge {
+        return sgn * body.parse::<f64>().unwrap_or(f64::NAN);
+    }
     let mut lit = String::from(body);
     if lit.starts_with('.') {
         lit.insert(0, '0');

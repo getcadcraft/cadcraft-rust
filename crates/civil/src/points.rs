@@ -10,6 +10,7 @@ use crate::js::{
 use crate::tr;
 use crate::units::is_num_str;
 use serde_json::Value;
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 pub const FORMATS: [&str; 8] = ["PNEZD", "PENZD", "PNEZ", "PENZ", "NEZD", "ENZD", "NEZ", "ENZ"];
@@ -148,6 +149,8 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
     let delim = detect_delimiter(&rows.iter().take(20).map(|r| r.text).collect::<Vec<_>>());
     out.delimiter = Some(delim.to_string());
     let split = |s: &str| split_row(s, delim);
+    // the rows' cells, borrowed from the text where no quote was undone (one list reused for every row)
+    let mut cells: Vec<Cow<'_, str>> = Vec::new();
 
     // header?
     let mut start = 0usize;
@@ -210,7 +213,7 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
     let cols: Vec<char> = fmt.chars().collect();
     let idx = |c: char| cols.iter().position(|&x| x == c);
     let (ip, i_n, ie, iz, id) = (idx('P'), idx('N'), idx('E'), idx('Z'), idx('D'));
-    let mut seen: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<Cow<'_, str>> = HashSet::with_capacity(rows.len().saturating_sub(start));
     let mut auto = 0u64;
     let bad = |out: &mut Parsed, r: &Row, why: String| {
         out.bad_count = out.bad_count.saturating_add(1);
@@ -219,7 +222,8 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
         }
     };
     for r in rows.iter().skip(start) {
-        let mut c = split(r.text);
+        split_cells(r.text, delim, &mut cells);
+        let c = &mut cells;
         // whitespace-separated descriptions may contain spaces: glue the tail back on
         if let Some(d) = id
             && d == cols.len().saturating_sub(1)
@@ -228,7 +232,7 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
             let glue = if delim == "," { "," } else { " " };
             let tail = c.get(d..).map(|t| t.join(glue)).unwrap_or_default();
             c.truncate(d);
-            c.push(tail);
+            c.push(Cow::Owned(tail));
         }
         let need = cols.len().saturating_sub(if id.is_some() { 1 } else { 0 });
         if c.len() < need {
@@ -236,7 +240,7 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
             bad(&mut out, r, why);
             continue;
         }
-        let cell = |i: Option<usize>| i.and_then(|i| c.get(i)).map(String::as_str);
+        let cell = |i: Option<usize>| i.and_then(|i| c.get(i)).map(|x| &**x);
         let (nn, ee, zz) = (cell(i_n), cell(ie), cell(iz));
         if !nn.is_some_and(is_num_str) || !ee.is_some_and(is_num_str) {
             bad(&mut out, r, tr!("pts.bad.ne"));
@@ -255,26 +259,32 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
             bad(&mut out, r, tr!("pts.bad.latlon"));
             continue;
         }
-        let mut n = if ip.is_some() { trim(cell(ip).unwrap_or("")).to_string() } else { String::new() };
-        if ip.is_some() && n.is_empty() {
+        // the number: the cell (borrowed from the text when it was), or the next free automatic one
+        let key: Cow<'_, str> = match ip {
+            Some(i) => match c.get(i) {
+                Some(Cow::Borrowed(b)) => Cow::Borrowed(trim(b)),
+                Some(Cow::Owned(o)) => Cow::Owned(trim(o).to_string()),
+                None => Cow::Borrowed(""),
+            },
+            None => loop {
+                auto = auto.saturating_add(1);
+                let a = auto.to_string();
+                if !seen.contains(a.as_str()) {
+                    break Cow::Owned(a);
+                }
+            },
+        };
+        if ip.is_some() && key.is_empty() {
             bad(&mut out, r, tr!("pts.bad.nonum"));
             continue;
         }
-        if ip.is_none() {
-            loop {
-                auto = auto.saturating_add(1);
-                n = auto.to_string();
-                if !seen.contains(&n) {
-                    break;
-                }
-            }
-        }
-        if seen.contains(&n) {
+        if seen.contains(&*key) {
             out.duplicates = out.duplicates.saturating_add(1);
-            bad(&mut out, r, tr!("pts.bad.twice", num = n.as_str()));
+            bad(&mut out, r, tr!("pts.bad.twice", num = &*key));
             continue;
         }
-        seen.insert(n.clone());
+        let n = key.to_string();
+        seen.insert(key);
         let z = match zz {
             None | Some("") => None,
             Some(z) => Some(str_to_number(z)),
@@ -286,6 +296,10 @@ pub fn parse_points(text: &str, format: &str, prefer: &str) -> Parsed {
 }
 
 fn clean_text(s: &str) -> String {
+    // no control characters and at most 200 bytes (so at most 200 UTF-16 units): the trimmed text as it is
+    if s.len() <= 200 && !s.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return trim(s).to_string();
+    }
     slice16(trim(&crate::js::strip_controls(s, " ")), 200)
 }
 
@@ -322,6 +336,27 @@ pub fn split_ws(s: &str) -> Vec<String> {
     }
     out.push(cur);
     out
+}
+
+/// [`split_row`] into a reused list, the cells borrowed from `s` when the row holds no quote (the common case: then
+/// a cell is the text between delimiters, trimmed, exactly as the quote-aware walk gives it).
+fn split_cells<'a>(s: &'a str, delim: &str, out: &mut Vec<Cow<'a, str>>) {
+    out.clear();
+    if delim == "ws" {
+        let t = trim(s);
+        if t.is_empty() {
+            out.push(Cow::Borrowed(""));
+        } else {
+            out.extend(t.split(is_ws).filter(|w| !w.is_empty()).map(Cow::Borrowed));
+        }
+        return;
+    }
+    let dc = delim.chars().next().unwrap_or(',');
+    if s.contains('"') {
+        out.extend(split_row(s, delim).into_iter().map(Cow::Owned));
+        return;
+    }
+    out.extend(s.split(dc).map(|x| Cow::Borrowed(trim(x))));
 }
 
 /// One row split on the delimiter; "quoted, fields" kept whole (CSV quoting with "" escapes).
@@ -589,4 +624,64 @@ pub fn lasso_points(points: &[Pt], pts: &[crate::geo::P2], mode: &str, r: f64) -
 /// Fill values of a key (for messages built elsewhere).
 pub fn fill_n(n: usize) -> F {
     F::from(n)
+}
+
+#[cfg(test)]
+mod fast_paths {
+    use super::*;
+
+    /// A small deterministic generator of awkward rows (quotes, spaces of every kind, controls, empty cells).
+    fn rows() -> Vec<String> {
+        const BITS: &[&str] = &[
+            "1", "-2.5", ".5", "5.", "1e3", "1.e3", "abc", " ", "\t", ",", ";", "\"", "\"\"", "\u{a0}", "\u{3000}", "é", "\u{1}", "\u{7f}",
+            "x y", "",
+        ];
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut out = Vec::new();
+        for _ in 0..4000 {
+            let mut s = String::new();
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let n = usize::try_from(seed % 12).unwrap_or(0);
+            for k in 0..n {
+                let i = usize::try_from((seed >> (k * 5)) % BITS.len() as u64).unwrap_or(0);
+                s.push_str(BITS.get(i).copied().unwrap_or(""));
+            }
+            out.push(s);
+        }
+        out
+    }
+
+    #[test]
+    fn split_cells_matches_split_row() {
+        for r in rows() {
+            let mut cells = Vec::new();
+            for d in [",", "\t", ";", "ws"] {
+                split_cells(&r, d, &mut cells);
+                let got: Vec<String> = cells.iter().map(|c| c.to_string()).collect();
+                assert_eq!(got, split_row(&r, d), "row {r:?} delimiter {d:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn clean_text_matches_the_full_walk() {
+        for r in rows() {
+            for s in [r.clone(), r.repeat(40)] {
+                assert_eq!(clean_text(&s), slice16(trim(&crate::js::strip_controls(&s, " ")), 200), "{s:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn number_text_fast_path() {
+        for (t, want) in [("1.5", 1.5), (".5", 0.5), ("5.", 5.0), ("1.e3", 1000.0), ("-0", -0.0), ("+7e-1", 0.7), (" 12 ", 12.0)] {
+            let got = str_to_number(t);
+            assert!(got == want && got.is_sign_negative() == want.is_sign_negative(), "{t}: {got}");
+        }
+        for t in ["1..2", "e5", "1e", "--1", "1,5", "inf", "NaN", "0x", "1 2"] {
+            assert!(str_to_number(t).is_nan(), "{t}");
+        }
+    }
 }
