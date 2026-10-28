@@ -25,12 +25,12 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | hayro-syntax | io-markup | PDF object syntax for MarkupCraft's pdf.js-side reading (xref tables and streams, object streams, repair, decryption); `std` feature only, no rendering; **vendored with one panic removed** (`vendor/hayro-syntax/CADCRAFT-PATCH.md`) | Apache-2.0 OR MIT |
 | image (0.25, `png` + `jpeg` features: png, zune-jpeg) | io-markup | MarkupCraft's picture stamps and reply photos: PNG / JPEG decoded under `image::Limits` (header first), scaled to 1600 px and written again when bigger; BCF snapshots as PNG | MIT OR Apache-2.0 |
 | indexmap | markup, io-markup | insertion-ordered maps (the JS Map / object order of markups, fields and refs) | Apache-2.0 OR MIT |
-| url | io-civil | WHATWG URL parsing / serialising for the base-map service URLs (the JS uses `new URL` and `URLSearchParams`) | MIT OR Apache-2.0 (idna / ICU data crates: Unicode-3.0) |
+| url | io-civil, ui-egui (CivilCraft map layers' host names) | WHATWG URL parsing / serialising for the base-map service URLs (the JS uses `new URL` and `URLSearchParams`) | MIT OR Apache-2.0 (idna / ICU data crates: Unicode-3.0) |
 | laz (laz-rs) | io-civil | LAZ (LASzip) point decompression for CivilCraft's LiDAR import (the JS uses laz-perf); deps byteorder, num-traits; no build.rs, no default features | Apache-2.0 |
 | regex | io-civil | crs.js / crs-pick.js / raster.js / las.js patterns (.prj matching, lat/long text, GDAL metadata, vertical units) | MIT OR Apache-2.0 |
 | robust | civil | Shewchuk's adaptive exact `incircle` for the TIN's Delaunay flips (tin.js reads only its sign) | MIT OR Apache-2.0 |
 | fancy-regex | civil | JS regular expressions with lookaround and backtracking, for the deed-call, traverse and offset parsers that copy the 0.5 patterns as written | MIT |
-| image (0.25; png, jpeg) | io-cad (also cadcraft-shot: png) | pictures in drawings (IMAGE, M4.19): PNG and JPEG decoded for the screen with `image::Limits`; jpeg pulls zune-jpeg + zune-core, png pulls png / fdeflate / crc32fast; default features off (no rayon, no other codecs) | MIT OR Apache-2.0 (zune-*: MIT OR Apache-2.0 OR Zlib) |
+| image (0.25; png, jpeg) | io-cad (also cadcraft-shot: png; ui-egui: CivilCraft's map picture in the PDF as JPEG and beside the DWG as PNG) | pictures in drawings (IMAGE, M4.19): PNG and JPEG decoded for the screen with `image::Limits`; jpeg pulls zune-jpeg + zune-core, png pulls png / fdeflate / crc32fast; default features off (no rayon, no other codecs) | MIT OR Apache-2.0 (zune-*: MIT OR Apache-2.0 OR Zlib) |
 
 ## Ported source code (no crate dependency)
 

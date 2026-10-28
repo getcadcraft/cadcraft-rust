@@ -33,6 +33,7 @@ pub mod civilgis;
 pub mod civilgisx;
 pub mod civilimport;
 pub mod civillasso;
+pub mod civilmaps;
 pub mod civilmore;
 pub mod civilpanel;
 pub mod civilplan;
@@ -167,6 +168,20 @@ pub struct Services {
     /// where recovery copies of unsaved work go (desktop: a locked folder in the config dir; web: browser storage);
     /// None = the window cannot keep them, and says so (recover.rs)
     pub recovery: Option<cc_recovery::Service>,
+    /// CivilCraft's map layers: ask a map server for a URL (no credentials, no referrer); the answer arrives in
+    /// `fetched`. None = this host cannot fetch.
+    pub fetch: Option<Fetch>,
+    pub fetched: Option<Arc<Mutex<Vec<Fetched>>>>,
+}
+
+/// Ask a map server for a URL (see `Services::fetch`).
+pub type Fetch = Box<dyn FnMut(&str)>;
+
+/// A fetched URL: Ok((content type, bytes)) or why not.
+#[derive(Debug, Clone)]
+pub struct Fetched {
+    pub url: String,
+    pub result: Result<(String, Vec<u8>), String>,
 }
 
 /// Show a PDF to print (see `Services::open_pdf`).
@@ -497,6 +512,13 @@ impl UiApp {
             return;
         }
         self.part = None;
+        // a picture and its world file go to the open CivilCraft project's map layers (gis-map-ui.js opener)
+        if self.civil.is_some() && civilview::is_map_file(&lower) {
+            if let Some(cv) = self.civil.as_mut() {
+                cv.maps_file(&f.name, f.bytes.clone());
+            }
+            return;
+        }
         // GIS files (and their shapefile parts) go into the open CivilCraft project (gis-vector-ui.js openers)
         if self.civil.is_some() && civilview::is_gis_file(&lower, &f.bytes) {
             civilview::open_gis(self, f);

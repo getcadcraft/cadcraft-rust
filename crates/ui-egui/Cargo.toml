@@ -49,6 +49,10 @@ cc-io-detail.workspace = true
 egui = { version = "0.37", default-features = false }
 egui-wgpu = { version = "0.37", default-features = false, features = ["fragile-send-sync-non-atomic-wasm"] }
 web-time = "1"
+# CivilCraft map layers in the PDF (JPEG) and beside the DWG (PNG): the same crate and features as io-cad / io-markup
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+# the map layers' URL host names (as io-civil)
+url = "2.5.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1"

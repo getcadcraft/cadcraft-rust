@@ -251,6 +251,20 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{} → the selected parcel's legal description as <site> - <parcel>.txt, through the save service",
     ),
+    (
+        "civil.maps",
+        "Map layers",
+        "",
+        "{name: open | close | visible=<id>:on|off | opacity=<id>:<0..1> | move=<id>:-1|1 | remove=<id> | zoom=<id> | allow=<id> | xyz=<template>|<name>|<attribution> | kind=image|xyz|wms|wmts|arcgis | url=<text> | read | add=<layer>[:<set>]} → GIS › Map (one undo step per edit; servers are asked only with Settings' internet on)",
+    ),
+    ("civil.maps.open", "GIS › Map", "", "{name?: \"off\"} → the Map dialog"),
+    ("civil.maps.info", "Map layers facts", "", "{} → each map layer's row and why it does not draw, on the status line"),
+    (
+        "civil.maps.export",
+        "Map layers in exports",
+        "",
+        "{name: on | off} → the PDF and the DWG carry the visible map layers as a picture (on by default)",
+    ),
     ("civil.crs.open", "Coordinates", "", "{name?: \"off\"} → the Coordinates window (search, the systems the site fits, Apply, Remove)"),
     ("civil.gis.pick", "GIS › Import", "", "{} → the platform's picker for GIS files (they open into the GIS import dialog)"),
     (
@@ -501,6 +515,10 @@ pub struct CivilView {
     pub gis_export_format: String,
     /// the Coordinates window
     pub crs_dlg: Option<crate::civilgis::CrsDlg>,
+    /// map layers' runtime: pictures, tiles, the Map dialog (civilmaps.rs)
+    pub maps: crate::civilmaps::Maps,
+    /// the host cannot fetch (said once)
+    pub no_fetch_said: bool,
 }
 
 /// Is this a file CivilCraft opens? (civilcraft.js `openText`: JSON = project, XML = LandXML, else points.)
@@ -575,6 +593,8 @@ impl CivilView {
             gis_export_dlg: None,
             gis_export_format: "shp".into(),
             crs_dlg: None,
+            maps: crate::civilmaps::Maps::default(),
+            no_fetch_said: false,
         }
     }
 
@@ -1288,6 +1308,10 @@ impl CivilView {
         self.keys(ui);
         let pal = Palette::of(t, dark);
         let view = self.view;
+        // the background, then the map layers (gis-map-ui.js underlay), then the plan's linework
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 0.0, pal.bg);
+        self.maps_paint(&painter, rect, ppp);
         let plan = self.plan_for(ppp, &pal);
         let n = civilplan::paint(ui, rect, plan, &view, &pal);
         self.last_labels = n;
@@ -1991,6 +2015,11 @@ pub fn install(app: &mut UiApp, cv: CivilView) {
     app.civil = Some(cv);
 }
 
+/// A picture or a world file for the map layers (gis-map-ui.js IMG / WORLD).
+pub fn is_map_file(lower: &str) -> bool {
+    [".png", ".jpg", ".jpeg", ".pgw", ".pngw", ".jgw", ".jpgw", ".jpegw", ".tfw", ".tifw", ".wld"].iter().any(|e| lower.ends_with(e))
+}
+
 /// A GIS file CivilCraft's import dialog takes (gis-vector-ui.js VECTOR, a GeoJSON .json, a shapefile's parts).
 pub fn is_gis_file(lower: &str, bytes: &[u8]) -> bool {
     let head: String = String::from_utf8_lossy(bytes.get(..bytes.len().min(4096)).unwrap_or(&[])).into_owned();
@@ -2455,6 +2484,10 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             n => cv.gis_export_set(n)?,
         },
         "civil.gis.export.info" => cv.message = cv.gis_export_info(),
+        "civil.maps" => cv.maps_cmd(&name)?,
+        "civil.maps.open" => cv.maps_cmd(if name == "off" { "close" } else { "open" })?,
+        "civil.maps.info" => cv.message = cv.maps_info(),
+        "civil.maps.export" => cv.export.no_map = name == "off",
         "civil.draft" => cv.draft_bar(&name)?,
         "civil.touch" => cv.touch = name != "off",
         "civil.drive" => cv.drive_command(&name, dark)?,
@@ -2734,11 +2767,34 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         for (id, k) in bar_acts {
             cmd.push((id, Params { name: Some(k), ..Default::default() }));
         }
+        // map layers: what the plan asked for goes to the host; its answers come back (gis-map-ui.js fetching)
+        let urls = std::mem::take(&mut cv.maps.to_fetch);
+        if !urls.is_empty() {
+            match app.services.fetch.as_mut() {
+                Some(f) => {
+                    for u in &urls {
+                        f(u);
+                    }
+                }
+                None => {
+                    for u in &urls {
+                        cv.maps_answer(u, Err("Map layers from the internet are not available in this version of the app: use the web version, or a picture with its world file.".into()));
+                    }
+                }
+            }
+        }
+        if let Some(inbox) = app.services.fetched.as_ref() {
+            let got: Vec<crate::Fetched> = std::mem::take(&mut *inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            for g in got {
+                cv.maps_answer(&g.url, g.result);
+            }
+        }
         let mut iacts = Vec::new();
         crate::civilimport::show(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgis::import_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgisx::export_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgis::crs_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilmaps::window(cv, ui.ctx(), &t, &mut iacts);
         for (id, k) in iacts {
             cmd.push((id, Params { name: Some(k), ..Default::default() }));
         }

@@ -1031,6 +1031,10 @@ pub fn extents(p: &mut Project) -> Option<(f64, f64, f64, f64)> {
         g(b.min_x, b.min_y);
         g(b.max_x, b.max_y);
     }
+    if let Some((a, b, c, d)) = crate::civilmaps::image_extents(p) {
+        g(a, b);
+        g(c, d);
+    }
     if let Some(n) = p.state.get("network") {
         for o in arr(n.get("catchments")) {
             for q in pts_of(o) {
@@ -1103,7 +1107,6 @@ fn rgba(c: Color32) -> [f32; 4] {
 pub fn paint(ui: &egui::Ui, rect: Rect, plan: &Plan, view: &View2D, pal: &Palette) -> usize {
     let ppp = ui.ctx().pixels_per_point();
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, 0.0, pal.bg);
     let origin = plan.geometry.first().map_or((0.0, 0.0), |g| g.origin);
     // one slot per distinct width (the renderer has 256)
     let mut widths: Vec<f32> = Vec::new();

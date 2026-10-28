@@ -39,13 +39,15 @@ pub struct ExportOpts {
     pub area_view: bool,
     /// plot in black
     pub mono: bool,
+    /// leave the map layers out of the PDF and the DWG (0.4 V8's checkboxes, ticked by default)
+    pub no_map: bool,
     /// the site's extents for the panel's scale list, by project version
     ext_cache: Option<(u64, (f64, f64, f64, f64))>,
 }
 
 impl Default for ExportOpts {
     fn default() -> Self {
-        ExportOpts { dwg: "AC1015".into(), paper: None, scale: None, area_view: false, mono: false, ext_cache: None }
+        ExportOpts { dwg: "AC1015".into(), paper: None, scale: None, area_view: false, mono: false, no_map: false, ext_cache: None }
     }
 }
 
@@ -352,6 +354,10 @@ pub fn extents_all(p: &mut Project) -> Option<Ext> {
         g(gb.min_x, gb.min_y);
         g(gb.max_x, gb.max_y);
     }
+    if let Some((a, c, d, e)) = crate::civilmaps::image_extents(p) {
+        g(a, c);
+        g(d, e);
+    }
     b.min_x.is_finite().then_some(b)
 }
 
@@ -556,7 +562,19 @@ pub fn dxf(p: &mut Project, labels: &str) -> Outcome {
 
 /// civilcraft.js `exportDwg(version)`: the DXF's drawing as a DWG of that year (`seq_guids`: the GUIDs a fixed
 /// sequence, for tests; else random as 0.5's).
-pub fn dwg(p: &mut Project, version: &str, now_ms: f64, seq_guids: bool, labels: &str) -> Result<Outcome, String> {
+/// A map picture for an export: (file bytes, px w, px h, box, attribution, complete).
+pub type MapPic = (Vec<u8>, f64, f64, Ext, String, bool);
+
+#[allow(clippy::too_many_arguments)]
+pub fn dwg(
+    p: &mut Project,
+    version: &str,
+    now_ms: f64,
+    seq_guids: bool,
+    labels: &str,
+    map: Option<MapPic>,
+    zone: cc_clock::Zone,
+) -> Result<Outcome, String> {
     let Some(year) = DWG_YEAR.iter().find(|(v, _)| *v == version).map(|(_, y)| *y) else {
         return Err(format!("civil.export: DWG version {version} (AC1015, AC1018, AC1021, AC1024, AC1027 or AC1032)"));
     };
@@ -566,7 +584,22 @@ pub fn dwg(p: &mut Project, version: &str, now_ms: f64, seq_guids: bool, labels:
     let sc = build_scene(p, scale.mm_per_unit, labels);
     let ents = scene::to_dxf_entities(&sc, scale.mm_per_unit);
     drop(sc);
-    let (bytes, report) = cc_io_civil::dwg_write::write_dwg(Some(&units), &layer_values(), &ents, now_ms, version, &[], seq_guids)?;
+    // 0.4 V8: with map layers, a .zip: the drawing + the picture (PNG + world file) its IMAGE points at
+    let stem = file_stem(&site_name(p));
+    let pic_name = format!("{stem}-map.png");
+    let images: Vec<cc_io_civil::dwg_write::Image> = map
+        .as_ref()
+        .map(|m| {
+            vec![cc_io_civil::dwg_write::Image {
+                file_name: pic_name.clone(),
+                px_w: m.1,
+                px_h: m.2,
+                bbox: Some((m.3.min_x, m.3.min_y, m.3.max_x, m.3.max_y)),
+                layer: Some("G-MAP-IMAG".into()),
+            }]
+        })
+        .unwrap_or_default();
+    let (bytes, report) = cc_io_civil::dwg_write::write_dwg(Some(&units), &layer_values(), &ents, now_ms, version, &images, seq_guids)?;
     let c = report.get("counts");
     let parts: Vec<String> = [
         ("lwpolyline", "cv.dwg.n.poly"),
@@ -581,13 +614,36 @@ pub fn dwg(p: &mut Project, version: &str, now_ms: f64, seq_guids: bool, labels:
         (n != 0.0 && n.is_finite()).then(|| tr!(key, n = n, count = grouped(n, 0)))
     })
     .collect();
-    let msg = format!(
+    let mut msg = format!(
         "{}{} {}",
         tr!("cv.dwg.done", year = year, list = parts.join(", "), n = arr(report.get("layers")).len(), scale = scale.label.as_str()),
         notes_of(&report),
         t("cv.bands.no", &[])
     );
-    Ok(Outcome::File(format!("{}.dwg", file_stem(&site_name(p))), bytes, msg))
+    let Some(m) = map else { return Ok(Outcome::File(format!("{stem}.dwg"), bytes, msg)) };
+    let px = (m.3.max_x - m.3.min_x) / m.1;
+    let py = (m.3.max_y - m.3.min_y) / m.2;
+    let world = format!(
+        "{}\n",
+        [px, 0.0, 0.0, -py, m.3.min_x + px / 2.0, m.3.max_y - py / 2.0]
+            .iter()
+            .map(|v| cc_civil::js::num_to_string(*v))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let date = crate::civilgisx::dos_date(zone.local_ms(now_ms));
+    let zip = cc_io_civil::zipfile::zip(
+        &[(format!("{stem}.dwg"), bytes), (pic_name.clone(), m.0), (format!("{stem}-map.pgw"), world.into_bytes())],
+        true,
+        date,
+    );
+    msg.push(' ');
+    msg.push_str(&tr!("map.out.dwg.done", png = pic_name.as_str()));
+    if !m.5 {
+        msg.push(' ');
+        msg.push_str(&t("map.out.partial", &[]));
+    }
+    Ok(Outcome::File(format!("{stem}-dwg.zip"), zip, msg))
 }
 
 // ------------------------------------------------------------------------------------------------ plot
@@ -648,7 +704,7 @@ pub fn view_bounds(v: &cc_render::View2D) -> Ext {
 }
 
 /// civilcraft.js `plotDialog` "Download PDF": the plan scene on one sheet.
-pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64, labels: &str) -> Outcome {
+pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64, labels: &str, map: Option<MapPic>) -> Outcome {
     let units = units_of(p);
     let sc = build_scene(p, c.scale.mm_per_unit, labels);
     let d = p.state.get("display").cloned().unwrap_or(Value::Null);
@@ -662,7 +718,19 @@ pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64, labels: &str) -> Outcom
         ));
     }
     let title = site_name(p);
-    let sheet = plot::plan_sheet(&sc, &c.area, &c.paper, true, &c.scale, Some(&title), &units, &notes, &[], &[], now_ms);
+    // 0.4 V8: the map layers under the linework, as a picture of the sheet's drawing window
+    let mut images = Vec::new();
+    let mut extra: Vec<String> = Vec::new();
+    if let Some(m) = &map {
+        images.push(plot::SceneImage { jpeg: m.0.clone(), px_w: m.1, px_h: m.2, bbox: m.3 });
+        if !m.4.is_empty() {
+            notes.push(m.4.clone());
+        }
+        if !m.5 {
+            extra.push(t("map.out.partial", &[]));
+        }
+    }
+    let sheet = plot::plan_sheet(&sc, &c.area, &c.paper, true, &c.scale, Some(&title), &units, &notes, &[], &images, now_ms);
     drop(sc);
     let (bytes, report) = plot::to_pdf(&sheet, c.mono, now_ms);
     let stem = file_stem(&site_name(p));
@@ -671,6 +739,14 @@ pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64, labels: &str) -> Outcom
     if missing > 0.0 {
         msg.push(' ');
         msg.push_str(&tr!("pp.ui.missing", n = missing));
+    }
+    if !images.is_empty() {
+        msg.push(' ');
+        msg.push_str(&t("map.out.pdf.done", &[]));
+    }
+    for x in extra {
+        msg.push(' ');
+        msg.push_str(&x);
     }
     Outcome::File(format!("{stem}.pdf"), bytes, msg)
 }
@@ -719,10 +795,29 @@ pub fn run(cv: &mut CivilView, name: &str, now_ms: f64, dark: bool, zone: cc_clo
             let v = if spec.opts.is_empty() { cv.export.dwg.clone() } else { spec.opts.clone() };
             // a year is fine too (2004 → AC1018)
             let v = DWG_YEAR.iter().find(|(_, y)| *y == v).map_or(v.to_ascii_uppercase(), |(k, _)| (*k).to_string());
-            dwg(&mut cv.project, &v, now, spec.at.is_some(), &cv.pt_settings.labels)?
+            let map = if cv.visible_maps() && !cv.export.no_map {
+                extents_all(&mut cv.project).and_then(|e| {
+                    crate::civilmaps::map_picture(cv, [e.min_x, e.min_y, e.max_x, e.max_y], 4096.0, false, now)
+                        .map(|m| (m.0, m.1, m.2, e, m.3, m.4))
+                })
+            } else {
+                None
+            };
+            dwg(&mut cv.project, &v, now, spec.at.is_some(), &cv.pt_settings.labels, map, zone)?
         }
         "pdf" => match plot_choice(cv, &spec.opts)? {
-            Some(c) => pdf(&mut cv.project, &c, now, &cv.pt_settings.labels),
+            Some(c) => {
+                let map = if cv.visible_maps() && !cv.export.no_map {
+                    let win = plot::sheet_window(&c.area, &c.paper, true, &c.scale);
+                    let mm = ((win.max_x - win.min_x) * c.scale.mm_per_unit).max((win.max_y - win.min_y) * c.scale.mm_per_unit);
+                    let max_px = 4096f64.min((mm / 25.4 * 150.0).round());
+                    crate::civilmaps::map_picture(cv, [win.min_x, win.min_y, win.max_x, win.max_y], max_px, true, now)
+                        .map(|m| (m.0, m.1, m.2, win, m.3, m.4))
+                } else {
+                    None
+                };
+                pdf(&mut cv.project, &c, now, &cv.pt_settings.labels, map)
+            }
             None => Outcome::Nothing(t("cv.plot.none", &[])),
         },
         "glb" => glb(&mut cv.project, cv.exag, dark),

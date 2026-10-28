@@ -841,10 +841,12 @@ dependencies = [
  "cc-takeoff",
  "egui",
  "egui-wgpu",
+ "image",
  "indexmap",
  "libm",
  "rayon",
  "serde_json",
+ "url",
  "web-time",
 ]
 

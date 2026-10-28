@@ -29,7 +29,7 @@ mod recovery;
 mod web {
     use std::sync::{Arc, Mutex, PoisonError};
 
-    use cc_ui_egui::{ImportedFile, Params, Services, UiApp};
+    use cc_ui_egui::{Fetched, ImportedFile, Params, Services, UiApp};
     use wasm_bindgen::JsCast;
 
     const NO_WEBGPU: &str = "This preview needs WebGPU: use Chrome or Edge, Safari 26+, Firefox 141+ on Windows / 145+ on Apple-silicon Macs, or CadCraft Studio.";
@@ -135,6 +135,9 @@ mod web {
                         let picked: Arc<Mutex<Option<Vec<ImportedFile>>>> = Arc::new(Mutex::new(None));
                         let pick_slot = Arc::clone(&picked);
                         let pick_ctx = ctx.clone();
+                        let fetched: Arc<Mutex<Vec<Fetched>>> = Arc::new(Mutex::new(Vec::new()));
+                        let fetch_out = Arc::clone(&fetched);
+                        let fetch_ctx = ctx.clone();
                         let services = Services {
                             pick_files: Some(Box::new(move |kind: &str, multiple: bool| {
                                 let slot = Arc::clone(&pick_slot);
@@ -242,6 +245,18 @@ mod web {
                             open_pdf: Some(Box::new(open_pdf)),
                             pick_folder: None,
                             recovery: Some(crate::recovery::service()),
+                            // CivilCraft's map layers (gis-map-ui.js FETCH_OPTS: cors, no credentials, no referrer)
+                            fetch: Some(Box::new(move |url: &str| {
+                                let out = Arc::clone(&fetch_out);
+                                let ctx = fetch_ctx.clone();
+                                let url = url.to_string();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    let result = fetch_bytes(&url).await;
+                                    out.lock().unwrap_or_else(PoisonError::into_inner).push(Fetched { url, result });
+                                    ctx.request_repaint();
+                                });
+                            })),
+                            fetched: Some(fetched),
                         };
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {
@@ -268,6 +283,31 @@ mod web {
                 Err(_) => set_status(NO_WEBGPU),
             }
         });
+    }
+
+    /// A map server's answer: (content type, bytes), at most 32 MB; "http:<status> <text>" or "net:" on failure.
+    async fn fetch_bytes(url: &str) -> Result<(String, Vec<u8>), String> {
+        let init = web_sys::RequestInit::new();
+        init.set_method("GET");
+        init.set_mode(web_sys::RequestMode::Cors);
+        init.set_credentials(web_sys::RequestCredentials::Omit);
+        init.set_referrer_policy(web_sys::ReferrerPolicy::NoReferrer);
+        let req = web_sys::Request::new_with_str_and_init(url, &init).map_err(|_| "net:".to_string())?;
+        let win = web_sys::window().ok_or("net:")?;
+        let resp = wasm_bindgen_futures::JsFuture::from(win.fetch_with_request(&req)).await.map_err(|_| "net:".to_string())?;
+        let resp: web_sys::Response = resp.dyn_into().map_err(|_| "net:".to_string())?;
+        if !resp.ok() {
+            return Err(format!("http:{} {}", resp.status(), resp.status_text().chars().take(60).collect::<String>()));
+        }
+        let ty = resp.headers().get("content-type").ok().flatten().unwrap_or_default();
+        let buf = wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(|_| "net:".to_string())?)
+            .await
+            .map_err(|_| "net:".to_string())?;
+        let arr = js_sys::Uint8Array::new(&buf);
+        if arr.length() > 32 * 1024 * 1024 {
+            return Err("http:413 too large".into());
+        }
+        Ok((ty, arr.to_vec()))
     }
 
     /// Save on the web: the bytes as a download (a Blob URL on a temporary link).
