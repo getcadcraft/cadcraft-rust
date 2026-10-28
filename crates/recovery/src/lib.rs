@@ -151,13 +151,16 @@ pub fn rec_key(app: &str, session: &str, doc: &str) -> String {
 }
 
 /// A new session id: 32 hex digits (0.5 `newId()`: a random UUID).
+///
+/// The clock comes from cc-clock, never `std::time::SystemTime`: std's clock panics on `wasm32-unknown-unknown`
+/// ("time not implemented on this platform"), which stopped the web build at start (M4.47).
 pub fn new_session_id() -> String {
     use std::hash::{BuildHasher, Hasher};
     let mut out = String::with_capacity(32);
     for k in 0..2u64 {
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
         h.write_u64(k);
-        h.write_u128(std::time::UNIX_EPOCH.elapsed().map_or(0, |d| d.as_nanos()));
+        h.write_u64(cc_clock::now_ms().to_bits());
         out.push_str(&format!("{:016x}", h.finish()));
     }
     out

@@ -774,6 +774,7 @@ dependencies = [
 name = "cc-recovery"
 version = "0.0.1"
 dependencies = [
+ "cc-clock",
  "serde_json",
 ]
 

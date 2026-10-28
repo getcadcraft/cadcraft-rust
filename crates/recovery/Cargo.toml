@@ -16,4 +16,5 @@ layer = 5
 workspace = true
 
 [dependencies]
+cc-clock.workspace = true
 serde_json.workspace = true
