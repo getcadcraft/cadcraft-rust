@@ -1,0 +1,24 @@
+[package]
+name = "cc-lisp"
+description = "CadCraft L2: CadCraft's LISP (0.5 lisp/): the reader, the evaluator, the built-in, vl-, vla- and DCL functions; the drawing side is a Host."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 3
+
+[lints]
+workspace = true
+
+[dependencies]
+# JS number and string semantics (toFixed, toExponential, Number(), String(), trim)
+cc-cad.workspace = true
+# units.js formatLength / parseLength (rtos, distof) and V8's Math functions (jsmath)
+cc-cad-geom.workspace = true
+libm = "0.2.16"
+serde_json.workspace = true

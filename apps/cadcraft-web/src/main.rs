@@ -112,8 +112,12 @@ mod web {
                                 let ctx = pick_ctx.clone();
                                 let pictures = kind == "pictures";
                                 let library = kind == "library";
+                                let lisp = kind == "lisp";
                                 wasm_bindgen_futures::spawn_local(async move {
-                                    let d = if pictures {
+                                    let d = if lisp {
+                                        rfd::AsyncFileDialog::new()
+                                            .add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua"])
+                                    } else if pictures {
                                         rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
                                     } else if library {
                                         rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])

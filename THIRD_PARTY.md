@@ -8,7 +8,7 @@ Every direct dependency, why it is here, and its licence. `cargo deny check` enf
 | thiserror | io-dwg, engine | error types | MIT OR Apache-2.0 |
 | encoding_rs | io-dwg, io-civil | DWG code-page text (windows-125x, Shift-JIS, GBK, Big5, EUC-KR …); .dbf code pages from the .cpg (TextDecoder labels) | (Apache-2.0 OR MIT) AND BSD-3-Clause |
 | rayon | io-dwg, io-skp, io-cad, engine (native only) | parallel object decoding / conversion / page decompression; PUBLISH's sheets (display lists, page deflate) | MIT OR Apache-2.0 |
-| libm | cad-geom, m3d, io-m3d, takeoff, io-takeoff, part | fdlibm maths (tan, atan, atan2, acos) bit-identical to V8, so geometry matches the 0.5 JS exactly | MIT |
+| libm | cad-geom, m3d, io-m3d, takeoff, io-takeoff, part, lisp | fdlibm maths (tan, atan, atan2, acos) bit-identical to V8, so geometry matches the 0.5 JS exactly | MIT |
 | unicode-general-category | io-m3d | Unicode general categories for the Collada writer's NCName check (the JS uses `\p{L}`/`\p{N}`… regex classes); build.rs only writes a lookup table into OUT_DIR | Apache-2.0 |
 | hayro (0.8) | io-takeoff | pure-Rust PDF reader and renderer: page boxes, labels and attachments for the plan set, ink rasters for auto count, the vector paths snapping reads (the JS uses pdf.js) | Apache-2.0 OR MIT |
 | sha2 | io-takeoff | SHA-256 of a PDF's bytes: a sheet is known by its file's hash, as `pdfset.js` does with SubtleCrypto | MIT OR Apache-2.0 |

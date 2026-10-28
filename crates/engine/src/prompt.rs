@@ -107,6 +107,16 @@ impl Prompter {
     pub fn ask(&self, req: Request) -> Ask {
         Ask { p: self.clone(), req: Some(req) }
     }
+    /// Put an answer in the slot (a routine answering the command it runs: the command's next poll takes it).
+    pub fn deliver(&self, a: Result<Answer, CmdError>) {
+        self.0.borrow_mut().answer = Some(a);
+    }
+    /// Forget the question and any answer (a command dropped).
+    pub fn clear(&self) {
+        let mut s = self.0.borrow_mut();
+        s.request = None;
+        s.answer = None;
+    }
 }
 
 /// The future of one question.
@@ -171,6 +181,10 @@ impl Runner {
             return;
         }
         self.prompter.0.borrow_mut().answer = Some(Ok(a));
+        self.poll();
+    }
+    /// Poll the command without an answer (it paused for the window).
+    pub fn poll_now(&mut self) {
         self.poll();
     }
     /// Esc.

@@ -126,6 +126,16 @@ pub struct HostState {
     pub ss_name: Option<String>,
     /// a line for the status bar (LASSOMODE says what a drag now does)
     pub status: Option<String>,
+    /// APPLOAD / ALIASEDIT asked for their dialogs; DELBLOCKS for its block list (title, names)
+    pub appload_req: bool,
+    pub alias_req: bool,
+    pub blocks_req: Option<(String, Vec<String>)>,
+    /// the person's aliases file (REINIT applies it)
+    pub alias_file: Option<String>,
+    /// a routine's open DCL dialog; a routine waits for its next event; the status the last one closed with
+    pub dcl: Option<crate::lispdlg::DclView>,
+    pub dcl_waiting: bool,
+    pub dcl_closed: Option<i32>,
 }
 
 /// What a command asked the window's picker for.
@@ -424,6 +434,61 @@ impl Host for UiHost {
     fn can_pick_files(&self) -> bool {
         self.0.borrow().can_pick
     }
+    fn appload(&mut self) -> bool {
+        self.0.borrow_mut().appload_req = true;
+        true
+    }
+    fn alias_edit(&mut self) -> bool {
+        self.0.borrow_mut().alias_req = true;
+        true
+    }
+    fn alias_text(&self) -> Option<String> {
+        self.0.borrow().alias_file.clone()
+    }
+    fn choose_blocks(&mut self, title: &str, names: &[String]) -> cc_engine::Pick<Option<Vec<String>>> {
+        self.0.borrow_mut().blocks_req = Some((title.to_string(), names.to_vec()));
+        cc_engine::Pick::Later
+    }
+    fn pick_tolerance(&self) -> Option<f64> {
+        Some(self.0.borrow().pick_tol)
+    }
+    fn pumps(&self) -> bool {
+        true
+    }
+    /// dcl-ui.js `open`: a dialog already open closes with 0 first.
+    fn dialog_open(&mut self, tree: &cc_lisp::host::Tile) -> bool {
+        let mut h = self.0.borrow_mut();
+        h.dcl = Some(crate::lispdlg::DclView::new(tree));
+        h.dcl_closed = None;
+        h.dcl_waiting = false;
+        true
+    }
+    fn dialog_op(&mut self, op: cc_lisp::host::DlgOp) -> Option<Option<String>> {
+        let mut h = self.0.borrow_mut();
+        if let cc_lisp::host::DlgOp::Done(s) = op {
+            if h.dcl.take().is_none() {
+                return Some(None);
+            }
+            h.dcl_closed = Some(s);
+            return Some(Some(String::new()));
+        }
+        Some(h.dcl.as_mut().and_then(|v| v.op(op)))
+    }
+    /// dcl-ui.js `run`: a queued event at once, the closing status once closed, else later.
+    fn dialog_run(&mut self) -> cc_engine::Pick<cc_lisp::host::DlgEvent> {
+        let mut h = self.0.borrow_mut();
+        let ev = match h.dcl.as_mut() {
+            None => Some(cc_lisp::host::DlgEvent::Done(Some(h.dcl_closed.take().unwrap_or(0)))),
+            Some(v) => v.next_event(),
+        };
+        match ev {
+            Some(ev) => cc_engine::Pick::Now(ev),
+            None => {
+                h.dcl_waiting = true;
+                cc_engine::Pick::Later
+            }
+        }
+    }
     fn pick_radius(&self) -> Option<f64> {
         Some(self.0.borrow().pick_tol)
     }
@@ -540,7 +605,7 @@ impl Editor {
     pub fn prompt(&self) -> String {
         if self.eng.busy() { self.eng.prompt_line() } else { "Command:".to_string() }
     }
-    fn refresh_prompt(&mut self) {
+    pub(crate) fn refresh_prompt(&mut self) {
         let p = self.prompt();
         self.hs.borrow_mut().prompt = p;
     }
@@ -745,7 +810,10 @@ impl Editor {
             let echo = format!("{} {}", self.eng.prompt_line(), line);
             self.hs.borrow_mut().push_log(&echo);
         }
-        self.eng.text(&line);
+        // "(…" and "!symbol": LISP (appload.js lispLine)
+        if !self.eng.lisp_line(&line) {
+            self.eng.text(&line);
+        }
         self.refresh_prompt();
     }
 
@@ -758,7 +826,7 @@ impl Editor {
     /// Esc: cancel the command, else drop the selection.
     pub fn escape(&mut self) {
         self.pending_box = None;
-        if !self.eng.escape() {
+        if !self.eng.lisp_cancel() && !self.eng.escape() {
             self.hs.borrow_mut().selection.clear();
         }
         self.hs.borrow_mut().preview.clear();

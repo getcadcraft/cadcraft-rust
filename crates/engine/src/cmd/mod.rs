@@ -77,6 +77,7 @@ pub struct Memo {
 }
 
 /// One command.
+#[derive(Clone, Copy)]
 pub struct CmdDef {
     pub name: &'static str,
     pub aliases: &'static [&'static str],
@@ -278,7 +279,39 @@ pub static COMMANDS: &[CmdDef] = &[
     def("STLOUT", &[], |c| Box::pin(solid3d::stlout(c))),
     def("OBJOUT", &[], |c| Box::pin(solid3d::objout(c))),
     def("GLBOUT", &[], |c| Box::pin(solid3d::glbout(c))),
+    // lisp/install.js: APPLOAD, the hidden _LISPLOAD / _LISPEVAL, ALIASEDIT, REINIT, DELBLOCKS (the routines' own commands
+    // are added while the session runs: crate::lisp)
+    quiet(def("APPLOAD", &["AP"], |c| Box::pin(crate::lisp::appload(c)))),
+    quiet(def("_LISPLOAD", &[], |c| Box::pin(crate::lisp::lispload(c)))),
+    quiet(def("_LISPEVAL", &[], |c| Box::pin(crate::lisp::lispeval(c)))),
+    quiet(def("ALIASEDIT", &[], |c| Box::pin(crate::lisp::aliasedit(c)))),
+    quiet(def("REINIT", &[], |c| Box::pin(crate::lisp::reinit(c)))),
+    def("DELBLOCKS", &[], |c| Box::pin(crate::lisp::delblocks::delblocks(c))),
 ];
+
+/// A command by name or alias with the routines' commands and the person's aliases (lisp/install.js puts them in
+/// commands.js's maps): a name first (the built-in ones, then the routines'), then an alias (the person's over the
+/// built-in ones).
+pub fn lookup_with(name: &str, lisp: &[CmdDef], user: &[(String, String)]) -> Option<CmdDef> {
+    let raw = cc_cad::js::trim(name).to_uppercase();
+    if raw.starts_with(['-', '_']) {
+        if let Some(c) = COMMANDS.iter().find(|c| c.name == raw) {
+            return Some(*c);
+        }
+        if let Some(c) = lisp.iter().find(|c| c.name == raw) {
+            return Some(*c);
+        }
+    }
+    let u = raw.trim_start_matches(['_', '.', '\'', '-']);
+    let by_name = |n: &str| COMMANDS.iter().find(|c| c.name == n).or_else(|| lisp.iter().find(|c| c.name == n)).copied();
+    if let Some(c) = by_name(u) {
+        return Some(c);
+    }
+    if let Some((_, target)) = user.iter().find(|(a, _)| a == u) {
+        return by_name(target);
+    }
+    COMMANDS.iter().find(|c| c.aliases.contains(&u)).copied()
+}
 
 /// A command by name or alias (case-insensitive; a leading `_ . ' -` is ignored).
 pub fn lookup(name: &str) -> Option<&'static CmdDef> {

@@ -2,6 +2,39 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.40 CadCraft's LISP (agent, work/cadlisp)
+
+- New crate cc-lisp (L3; lisp/*.js of the 0.5 app: reader, interp, builtins, vl, vla, dcl, cadfns, missing, wild):
+  AutoLISP / Visual LISP with every 0.5 built-in, *error* handling, vl-catch-all-apply, safearrays and variants, DCL
+  parsing and the dialog functions, ActiveX (vla-) objects through the host. The evaluator is an explicit stack
+  machine (no Rust recursion: deep programs and deep source cannot overflow the stack); a run has caps — 500M steps,
+  6M frames, string and array sizes — and a stop flag checked every 4096 steps; host calls are futures, so a routine
+  waits for the person without a thread.
+- cc-engine `lisp/` (install.js, session.js, host-cad.js, dxflist.js, vla-host.js, appload.js's command-line side,
+  aliases.js, delblocks.js): APPLOAD (AP), _LISPLOAD / _LISPEVAL, routines' C: commands in the command table, (command …)
+  / command-s / vl-cmdf driving the real commands (PAUSE waits for the person), entget / entmod / entmake / entdel /
+  ssget filters / tables / trans / getvar / setvar on the drawing, getpoint … getkword with initget, ALIASEDIT, REINIT,
+  DELBLOCKS. Each routine is one undo step. CDATE / DATE read the host's clock and `cc_clock::Zone`.
+- Window: "(…" and "!symbol" at the command line (Space is a space inside "(…", lines continue until balanced, a value
+  typed at a prompt answers it), Esc stops a busy routine (it pauses every few thousand steps and the window runs it on
+  each frame), the Load applications dialog (load, unload, Startup Suite, History, refused compiled / native files), a
+  routine's DCL dialogs, the alias editor, DELBLOCKS' block list; .lsp / .dcl dropped on a drawing load.
+- MCP: `script_run` with `language: "lisp"` (cad.mjs runLisp: one undo step labelled SCRIPT, printed, added / changed /
+  removed, a command left asking is ended with Esc). `cadcraft-cli lisp <programs.json> [--bench N]`.
+- Fuzz targets `lisp_eval` (reader, DCL parser, evaluator under small caps) and `cad_lisp` (programs on a drawing): 24k and 11k runs in 90 s each, clean (the first gate found the interned command names reported as leaked from a thread-local table; they live in a process-wide static now).
+- Parity: lispdiff (pure interpreter, hand cases + seeded generator) 2366/2366 programs × seeds 1–6, 0 differences;
+  kdiff-cadlisp 12 hand-written LISP scenarios 217/217 records and 30 generated drawing programs 354/354; mcpdiff-cadlisp
+  304/304 messages (7 LISP script_run calls, no known differences left).
+- Timing (release, best of 5): the 2366 generated programs 1.8–2.1× the JS; fib 22 3.0×, a 300k-step loop 2.7×,
+  lists 2.2×, reals 2.0–2.5×, strings 1.1–1.6×, wcmatch 4.8× (a glob walk and the last pattern cached; it was 0.4×
+  with a compiled NFA per call).
+- Spec gaps (written in the code): an unpaired UTF-16 surrogate prints as U+FFFD (text is UTF-8 at the edges); the JS
+  reader / call depth is V8's stack, ours the frame cap; a command a hidden run leaves asking is dropped at its end
+  (0.5 leaves it, and the next (command …) hangs); host-cad.js's PAUSE never sees a cancelled command (it tests the
+  error's `name`), so a routine goes on after Esc at a PAUSE, as there; "(command \"<a LISP command>\")" from LISP
+  hangs 0.5 and is not compared; the ICU collation of DELBLOCKS' list is approximated.
+- Not done: the Startup Suite, History and the aliases file are kept for the window's life only (0.5 keeps them in
+  localStorage); DCL images are blank frames as in 0.5; LISP's own es-MX catalog text is not wired in the window.
 ## 2026-10-27 — M4.30–M4.34 Plot Open to print, Properties sections, window settings and lasso, VIEWBASE, SHEETSET (agent, work/cadsheets)
 
 - M4.30: the Plot dialog's Open to print (`plot.print`; `Services::open_pdf`: desktop = this run's temp folder and the

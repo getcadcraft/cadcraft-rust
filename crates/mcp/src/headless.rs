@@ -446,7 +446,10 @@ impl Headless {
                 let id = arg_str(a, "doc").unwrap_or("").to_string();
                 self.cad(&id)?;
                 if arg_str(a, "language") == Some("lisp") {
-                    return Err("This CadCraft build has no LISP.".into());
+                    let prefix = self.undo_prefix.clone();
+                    let c = self.cad(&id)?;
+                    let r = cad::run_lisp(&mut c.eng, arg_str(a, "script").unwrap_or(""), &prefix);
+                    return Ok(trim_run(r));
                 }
                 let lines: Vec<Value> = cad::script_lines(arg_str(a, "script").unwrap_or("")).into_iter().map(Value::String).collect();
                 self.run_cad(&id, &Value::Array(lines), None, Some("SCRIPT"))

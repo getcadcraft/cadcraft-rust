@@ -1075,6 +1075,60 @@ pub fn run_input(eng: &mut Engine, input: &Value, select: Option<&[u64]>, label:
     })
 }
 
+/// cad.mjs `runLisp`: LISP text loaded and run as one step (`_LISPLOAD` under "SCRIPT", the file "script.lsp") →
+/// `{printed, commands, added, changed, removed, waiting, undo, error}`; a command still asking at the end is ended
+/// with Esc. `error`: the line that says the file failed.
+pub fn run_lisp(eng: &mut Engine, text: &str, prefix: &str) -> Value {
+    let label = "SCRIPT";
+    let inner = std::rc::Rc::new(std::cell::RefCell::new(Some(std::mem::replace(&mut *eng.host_mut(), Box::new(Lent)))));
+    let st = std::rc::Rc::new(std::cell::RefCell::new(RecState::default()));
+    *eng.host_mut() = Box::new(Rec { inner: inner.clone(), st: st.clone() });
+    let before = snapshot(&eng.doc());
+    let mark = eng.doc().mark();
+    eng.lisp_load(vec![cc_engine::lisp::AppFile { name: "script.lsp".into(), text: text.to_string(), kind: "lsp".into() }], label);
+    let mut waiting = Value::Null;
+    if eng.busy() {
+        let kind = eng.expects();
+        let prompt = if kind.is_some() { eng.prompt_line() } else { String::new() };
+        waiting = json!({"command": eng.running(), "kind": kind.as_ref().map(kind_name), "prompt": prompt});
+        eng.escape();
+    }
+    eng.doc_mut().squash(mark, &format!("{prefix}{label}"));
+    let after = snapshot(&eng.doc());
+    let before_map: HashMap<u64, &Entity> = before.iter().map(|(k, v)| (*k, v)).collect();
+    let after_ids: std::collections::HashSet<u64> = after.iter().map(|(k, _)| *k).collect();
+    let (mut added, mut changed, mut removed) = (Vec::new(), Vec::new(), Vec::new());
+    for (id, e) in &after {
+        match before_map.get(id) {
+            None => added.push(*id),
+            Some(b) if *b != e => changed.push(*id),
+            _ => {}
+        }
+    }
+    for (id, _) in &before {
+        if !after_ids.contains(id) {
+            removed.push(*id);
+        }
+    }
+    let undo = {
+        let d = eng.doc();
+        if d.undo_stack.len() > mark { d.undo_stack.last().map(|s| Value::String(s.label.clone())) } else { None }
+    };
+    if let Some(h) = inner.borrow_mut().take() {
+        *eng.host_mut() = h;
+    }
+    let printed = st.borrow().printed.clone();
+    let cmds = st.borrow().cmds.clone();
+    let failed = printed.iter().find(|l| {
+        let low = l.to_lowercase();
+        (low.contains("could not be loaded") || low.contains("error")) && l.contains(".lsp")
+    });
+    json!({
+        "printed": printed, "commands": cmds, "added": added, "changed": changed, "removed": removed, "waiting": waiting,
+        "undo": undo, "error": failed.cloned(),
+    })
+}
+
 /// agents.js `undoSteps`: up to `steps` steps; only those labelled with `prefix` unless `any`.
 pub fn undo_steps(doc: &mut Doc, steps: u64, any: bool, prefix: &str) -> Vec<Value> {
     let mut undone = Vec::new();

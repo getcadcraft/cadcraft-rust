@@ -225,6 +225,60 @@ pub trait Host {
     }
     /// `host.cursor = p`: the 3D tab moves the cursor the commands see (a point on the ground under the pointer).
     fn set_cursor(&mut self, _p: P2) {}
+    /// `host.appload` (APPLOAD): open the Load applications dialog → false when the host has none (the command line
+    /// lists the loaded applications).
+    fn appload(&mut self) -> bool {
+        false
+    }
+    /// `host.aliasEdit` (ALIASEDIT): open the alias editor → false when the host has none.
+    fn alias_edit(&mut self) -> bool {
+        false
+    }
+    /// `host.aliasText()` (REINIT): the person's aliases file, None when the host keeps none.
+    fn alias_text(&self) -> Option<String> {
+        None
+    }
+    /// `host.chooseBlocks({ title, names })` (DELBLOCKS Name): the names picked (None: cancelled); a dialog that answers
+    /// later delivers them through [`Engine::deliver_choice`], one per line.
+    fn choose_blocks(&mut self, _title: &str, _names: &[String]) -> Pick<Option<Vec<String>>> {
+        Pick::Unsupported
+    }
+    /// `host.viewTwist()`: the view's turn (a routine's VIEWTWIST and (trans … 2)).
+    fn view_twist(&self) -> Option<f64> {
+        None
+    }
+    /// `host.pickTolerance()` in drawing units (a routine's ssget at a point, osnap).
+    fn pick_tolerance(&self) -> Option<f64> {
+        None
+    }
+    /// The view's size in pixels (SCREENSIZE).
+    fn screen_px(&self) -> Option<(f64, f64)> {
+        None
+    }
+    /// Does the window poll a routine that pauses ([`Engine::pump`] every frame)? Then a long routine lets Esc through.
+    fn pumps(&self) -> bool {
+        false
+    }
+    /// Can the window pick a text file for a routine's getfiled?
+    fn has_getfiled(&self) -> bool {
+        false
+    }
+    /// getfiled: a text file the person picks (its name and bytes); later through [`Engine::deliver_files`].
+    fn pick_text_file(&mut self, _title: &str, _accept: &str) -> Pick<Option<PickedFile>> {
+        Pick::Unsupported
+    }
+    /// A routine's DCL dialog (dcl-ui.js): open it → false when the host has no dialogs.
+    fn dialog_open(&mut self, _tree: &cc_lisp::host::Tile) -> bool {
+        false
+    }
+    /// An operation on the open dialog → its answer (None: the host has no dialogs).
+    fn dialog_op(&mut self, _op: cc_lisp::host::DlgOp) -> Option<Option<String>> {
+        None
+    }
+    /// The open dialog's next event; a dialog that answers later delivers it through [`Engine::deliver_dialog_event`].
+    fn dialog_run(&mut self) -> Pick<cc_lisp::host::DlgEvent> {
+        Pick::Unsupported
+    }
 }
 
 /// A window "Select objects" was given: a rectangle, or a lasso's outline (STRETCH stretches what they hold).
@@ -374,6 +428,10 @@ pub enum Reply {
     Item(Option<(serde_json::Value, Option<String>)>),
     /// `{ done3d: true }`: the 3D tab's tool made its edit (ws3d-core.js `check`)
     Done3d,
+    /// text typed where any text is taken (`{ option: '_typed', value }` with a routine's initget 128)
+    Arbitrary(String),
+    /// a routine's dialog: what happened in it
+    Dialog(cc_lisp::host::DlgEvent),
 }
 impl Reply {
     pub fn point(&self) -> Option<P2> {
@@ -408,6 +466,8 @@ pub struct Opts {
     pub ws_tool: bool,
     /// `height: {rings, z0}`: on the 3D tab a click gives the height along Z under the cursor
     pub height: Option<crate::ws3d::HeightSpec>,
+    /// any text answers the question as it is (a routine's initget 128)
+    pub any_text: bool,
 }
 
 /// Rubber-band entities for a cursor position.
@@ -418,6 +478,8 @@ pub(crate) struct Waiting {
     pub prompt: String,
     pub opts: Opts,
     pub set: IdSet,
+    /// which question this is (a routine's (command …) tells a new prompt from the same one by it)
+    pub seq: u64,
 }
 
 /// The value OFFSET remembers: a distance or Through.
@@ -466,6 +528,21 @@ pub struct State {
     pub z3: Option<f64>,
     /// the points the running command was given on the 3D tab, with their z (a base point's z)
     pub z3_pts: Vec<(P2, f64)>,
+    /// the serial number of the last question asked
+    pub wait_seq: u64,
+    /// CadCraft's LISP in this window (lisp/session.js: made on first use)
+    pub lisp: Option<Rc<crate::lisp::LispSession>>,
+    /// the commands loaded routines made ((defun c:NAME …)), and the person's aliases (ALIASEDIT / REINIT)
+    pub lisp_cmds: Vec<cmd::CmdDef>,
+    pub user_aliases: Vec<(String, String)>,
+    /// what _LISPLOAD / _LISPEVAL run (`engine.lispPending`)
+    pub lisp_pending: Option<crate::lisp::LispJob>,
+    /// a routine paused for the window (every few thousand steps): poll it again
+    pub wants_poll: bool,
+    /// the time and zone DATE / CDATE read (the host's clock; None = the system's)
+    pub clock: Option<(f64, cc_clock::Zone)>,
+    /// the interpreter's caps (None: cc-lisp's defaults)
+    pub lisp_limits: Option<cc_lisp::Limits>,
 }
 
 /// What the engine and its commands share.
@@ -504,11 +581,234 @@ impl Shared {
         let ucs_ang = if w.opts.ucs { ang_of(active_ucs(&self.doc.borrow())) } else { 0.0 };
         prompt_text(&w.prompt, w.kind == Kind::Angle, w.kind == Kind::Point, &w.opts.options, w.opts.default.as_ref(), ucs_ang)
     }
+    /// The waiting question's kind, options and selection.
+    pub(crate) fn waiting_info(&self) -> Option<(Kind, Opts, IdSet)> {
+        let st = self.st.borrow();
+        st.waiting.as_ref().map(|w| (w.kind.clone(), w.opts.clone(), w.set.clone()))
+    }
+    /// The waiting question's serial number.
+    pub(crate) fn wait_seq(&self) -> Option<u64> {
+        self.st.borrow().waiting.as_ref().map(|w| w.seq)
+    }
+    pub(crate) fn lunits(&self) -> f64 {
+        self.doc.borrow().meta.get("lunits").map_or(2.0, js::to_number)
+    }
+    /// Change the selection being built by the waiting "Select objects" → a copy of it.
+    pub(crate) fn with_set(&self, f: impl FnOnce(&mut IdSet)) -> IdSet {
+        let mut st = self.st.borrow_mut();
+        match st.waiting.as_mut() {
+            Some(w) => {
+                f(&mut w.set);
+                w.set.clone()
+            }
+            None => IdSet::default(),
+        }
+    }
+    /// resolve's state part: the waiting question is answered with `v` → false when nothing was waiting.
+    pub(crate) fn take_reply(&self, v: Reply) -> bool {
+        let mut st = self.st.borrow_mut();
+        let Some(w) = st.waiting.take() else { return false };
+        if let Reply::Point(p, _) = &v
+            && w.kind == Kind::Point
+        {
+            st.last_point = Some(*p);
+        }
+        st.reply = Some((v, w.set));
+        true
+    }
+
+    /// `engine.text(raw)` while a question waits: what it does to the question.
+    pub(crate) fn text_act(&self, raw: &str) -> Act {
+        let typed = js::trim(raw).to_string();
+        let Some((kind, opts, set)) = self.waiting_info() else { return Act::Stay };
+        if kind == Kind::Text {
+            return Act::Resolve(Reply::Str(raw.to_string()));
+        }
+        if kind == Kind::Select && typed.is_empty() {
+            return Act::Resolve(Reply::Set(set));
+        }
+        // Enter where a point or an object is required (and there is no default) ends the command
+        if typed.is_empty() && matches!(kind, Kind::Point | Kind::Entity) && !opts.none && opts.default.is_none() {
+            return Act::Escape;
+        }
+        if typed.is_empty() {
+            return Act::Resolve(def_reply(&opts.default));
+        }
+        if let Some(o) = match_option(&typed, &opts.options) {
+            return Act::Resolve(Reply::Opt(o.key.clone()));
+        }
+        if let Some(acc) = opts.accept
+            && let Some(v) = acc(&typed)
+        {
+            return Act::Resolve(Reply::Typed(v));
+        }
+        // initget 128: any text answers the question as it is
+        if opts.any_text {
+            return Act::Resolve(Reply::Arbitrary(typed));
+        }
+        let lunits = self.lunits();
+        match kind {
+            Kind::Point => {
+                let pc = {
+                    let st = self.st.borrow();
+                    PointCtx {
+                        lunits,
+                        ucs: active_ucs(&self.doc.borrow()),
+                        last_point: st.last_point,
+                        base: opts.base.or(st.base),
+                        cursor: self.host.borrow().cursor(),
+                    }
+                };
+                if let Some(p) = parse_point(&typed, &pc) {
+                    return Act::Resolve(Reply::Point(p, None));
+                }
+            }
+            Kind::Distance => {
+                if let Some(n) = parse_length(&typed, lunits)
+                    && n >= 0.0
+                {
+                    return Act::Resolve(Reply::Num(n));
+                }
+            }
+            Kind::Number => {
+                if opts.length {
+                    if let Some(n) = parse_length(&typed, lunits) {
+                        return Act::Resolve(Reply::Num(n));
+                    }
+                } else if is_plain_number(&typed, true) {
+                    return Act::Resolve(Reply::Num(plain_number(&typed)));
+                }
+            }
+            Kind::Angle => {
+                if is_plain_number(&typed, false) {
+                    let u = if opts.ucs { ang_of(active_ucs(&self.doc.borrow())) } else { 0.0 };
+                    return Act::Resolve(Reply::Num(rad(plain_number(&typed)) + u));
+                }
+            }
+            Kind::Select => {
+                let u = typed.to_uppercase();
+                if u == "ALL" {
+                    let ids: Vec<u64> = {
+                        let d = self.doc.borrow();
+                        d.entities().filter(|e| d.editable(e)).filter_map(|e| e.id).collect()
+                    };
+                    let set = self.with_set(|s| {
+                        for id in ids {
+                            s.add(id);
+                        }
+                    });
+                    let mut h = self.host.borrow_mut();
+                    h.set_selection(&set.0);
+                    h.print(&format!("{} found", set.len()));
+                    return Act::Stay;
+                }
+                if u == "L" || u == "LAST" {
+                    let last = self.doc.borrow().entities().last().and_then(|e| e.id);
+                    if let Some(id) = last.filter(|i| *i != 0) {
+                        let set = self.with_set(|s| {
+                            s.add(id);
+                        });
+                        let mut h = self.host.borrow_mut();
+                        h.set_selection(&set.0);
+                        h.print("1 found");
+                    }
+                    return Act::Stay;
+                }
+            }
+            _ => {}
+        }
+        let key = match kind {
+            Kind::Point => "cmd.invalid.point",
+            Kind::Distance => "cmd.invalid.distance",
+            Kind::Number => "cmd.invalid.number",
+            Kind::Angle => "cmd.invalid.angle",
+            Kind::Keyword => "cmd.invalid.keyword",
+            Kind::Select => "cmd.invalid.select",
+            Kind::Entity => "cmd.invalid.entity",
+            Kind::Text | Kind::File => "cmd.invalid_input",
+        };
+        let msg = self.t(key);
+        self.print(&msg);
+        let p = self.prompt_text();
+        self.host.borrow_mut().prompt(&p);
+        Act::Stay
+    }
+
+    /// `engine.click(point, raw)` while a question waits → what it does, and whether the click was taken (false: the
+    /// host starts a selection window).
+    pub(crate) fn click_act(&self, point: P2, tan: Option<Tan>, raw: P2) -> (Act, bool) {
+        let Some((kind, opts, set)) = self.waiting_info() else { return (Act::Stay, false) };
+        match kind {
+            Kind::Point => (Act::Resolve(Reply::Point(point, tan)), true),
+            Kind::Distance | Kind::Angle => match opts.base {
+                Some(b) => (Act::Resolve(Reply::Num(if kind == Kind::Distance { dist(b, point) } else { angle_of(b, point) })), true),
+                None => {
+                    {
+                        let mut st = self.st.borrow_mut();
+                        if let Some(w) = st.waiting.as_mut() {
+                            w.opts.base = Some(point);
+                        }
+                        st.base = Some(point);
+                    }
+                    let msg = self.t("cmd.specify_second_point");
+                    self.host.borrow_mut().prompt(&msg);
+                    (Act::Stay, true)
+                }
+            },
+            Kind::Select => {
+                let id = self.host.borrow().pick_at(&self.doc.borrow(), raw);
+                let Some(id) = id else { return (Act::Stay, false) };
+                let shift = self.host.borrow().shift();
+                let set = self.with_set(|s| {
+                    if opts.remove || (s.has(id) && shift) {
+                        s.delete(id);
+                    } else {
+                        s.add(id);
+                    }
+                });
+                self.host.borrow_mut().set_selection(&set.0);
+                if opts.single {
+                    return (Act::Resolve(Reply::Set(set)), true);
+                }
+                (Act::Stay, true)
+            }
+            Kind::Entity => {
+                let id = self.host.borrow().pick_at(&self.doc.borrow(), raw);
+                let shift = self.host.borrow().shift();
+                let _ = set;
+                if let Some(id) = id {
+                    return (Act::Resolve(Reply::Pick { id, at: raw, shift }), true);
+                }
+                if opts.empty {
+                    return (Act::Resolve(Reply::Empty { at: raw, shift }), true);
+                }
+                let msg = self.t("cmd.nothing_found_there");
+                self.print(&msg);
+                (Act::Stay, true)
+            }
+            _ => (Act::Stay, false),
+        }
+    }
+
+    /// A command by name or alias: the built-in ones, the routines' and the person's aliases (commands.js `lookup`
+    /// with lisp/install.js's additions).
+    pub fn lookup(&self, name: &str) -> Option<cmd::CmdDef> {
+        let st = self.st.borrow();
+        cmd::lookup_with(name, &st.lisp_cmds, &st.user_aliases)
+    }
+
     /// `engine.preview(cursor)`: the rubber band for a cursor position.
     pub fn preview_at(&self, cursor: P2) -> Vec<Entity> {
         let f = self.st.borrow().preview_fn.clone();
         f.map_or_else(Vec::new, |f| f(self, cursor))
     }
+}
+
+/// What an input does to the waiting question.
+pub(crate) enum Act {
+    Resolve(Reply),
+    Escape,
+    Stay,
 }
 
 fn def_reply(d: &Option<Def>) -> Reply {
@@ -602,11 +902,60 @@ impl Engine {
 
     /// Start a command by name or alias.
     pub fn run(&mut self, name: &str) {
-        let Some(c) = cmd::lookup(name) else {
+        let Some(c) = self.sh.lookup(name) else {
             let msg = self.sh.tv("cmd.unknown", &[("name", name.to_uppercase())]);
             self.sh.print(&msg);
             return;
         };
+        self.run_def(c);
+    }
+
+    /// Run a hidden command under a label (lisp/install.js `runHidden`): the command line echoes the label
+    /// ("Command: (+ 1 2)", "Command: APPLOAD") and Undo names it, as for a typed command.
+    pub fn run_hidden(&mut self, name: &str, label: &str, job: Option<crate::lisp::LispJob>) {
+        let Some(mut c) = self.sh.lookup(name) else { return };
+        if self.busy() {
+            self.escape();
+        }
+        self.sh.st.borrow_mut().lisp_pending = job;
+        c.name = crate::lisp::static_name(&cc_cad::js::slice16(label, 200));
+        self.run_def(c);
+    }
+
+    /// Caps for the window's LISP (steps, frames, strings, arrays): set before the first routine runs.
+    pub fn set_lisp_limits(&mut self, limits: cc_lisp::Limits) {
+        self.sh.st.borrow_mut().lisp_limits = Some(limits);
+    }
+
+    /// The time and zone DATE / CDATE read (None: the system's clock and zone).
+    pub fn set_clock(&mut self, clock: Option<(f64, cc_clock::Zone)>) {
+        self.sh.st.borrow_mut().clock = clock;
+    }
+
+    /// A routine paused for the window (every few thousand steps): let it run on. → true when it is still busy.
+    pub fn pump(&mut self) -> bool {
+        let due = std::mem::take(&mut self.sh.st.borrow_mut().wants_poll);
+        if due {
+            self.runner.poll_now();
+            self.after_poll();
+        }
+        self.sh.st.borrow().wants_poll
+    }
+
+    /// Stop a routine that is busy (not waiting for an answer): Esc while it runs (appload.js `cancelEdit`).
+    pub fn stop_lisp(&mut self) -> bool {
+        let sess = self.sh.st.borrow().lisp.clone();
+        match sess {
+            Some(s) if s.busy() && self.expects().is_none() => {
+                s.stop(&self.sh);
+                self.pump();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn run_def(&mut self, c: cmd::CmdDef) {
         if self.busy() {
             self.escape();
         }
@@ -674,30 +1023,22 @@ impl Engine {
     }
     /// Answer the waiting question; `z` = the z of a point picked on the 3D tab.
     pub(crate) fn resolve_z(&mut self, v: Reply, z: Option<f64>) {
-        {
-            let mut st = self.sh.st.borrow_mut();
-            let Some(w) = st.waiting.take() else { return };
-            st.z3 = z;
-            if let Reply::Point(p, _) = &v
-                && w.kind == Kind::Point
-            {
-                st.last_point = Some(*p);
-            }
-            st.reply = Some((v, w.set));
+        if !self.sh.take_reply(v) {
+            return;
         }
+        self.sh.st.borrow_mut().z3 = z;
         self.runner.answer(Answer::None);
         self.after_poll();
     }
 
     pub(crate) fn waiting_info(&self) -> Option<(Kind, Opts, IdSet)> {
-        let st = self.sh.st.borrow();
-        st.waiting.as_ref().map(|w| (w.kind.clone(), w.opts.clone(), w.set.clone()))
+        self.sh.waiting_info()
     }
 
     /// A line typed at the command line.
     pub fn text(&mut self, raw: &str) {
-        let typed = js::trim(raw).to_string();
-        let Some((kind, opts, set)) = self.waiting_info() else {
+        if self.waiting_info().is_none() {
+            let typed = js::trim(raw).to_string();
             if typed.is_empty() {
                 let last = self.sh.st.borrow().last;
                 if let Some(l) = last {
@@ -707,130 +1048,19 @@ impl Engine {
             }
             self.run(&typed);
             return;
-        };
-        if kind == Kind::Text {
-            return self.resolve(Reply::Str(raw.to_string()));
         }
-        if kind == Kind::Select && typed.is_empty() {
-            return self.resolve(Reply::Set(set));
-        }
-        // Enter where a point or an object is required (and there is no default) ends the command
-        if typed.is_empty() && matches!(kind, Kind::Point | Kind::Entity) && !opts.none && opts.default.is_none() {
-            self.escape();
-            return;
-        }
-        if typed.is_empty() {
-            return self.resolve(def_reply(&opts.default));
-        }
-        if let Some(o) = match_option(&typed, &opts.options) {
-            return self.resolve(Reply::Opt(o.key.clone()));
-        }
-        if let Some(acc) = opts.accept
-            && let Some(v) = acc(&typed)
-        {
-            return self.resolve(Reply::Typed(v));
-        }
-        let lunits = self.lunits();
-        match kind {
-            Kind::Point => {
-                let pc = {
-                    let st = self.sh.st.borrow();
-                    PointCtx {
-                        lunits,
-                        ucs: active_ucs(&self.sh.doc.borrow()),
-                        last_point: st.last_point,
-                        base: opts.base.or(st.base),
-                        cursor: self.sh.host.borrow().cursor(),
-                    }
-                };
-                if let Some(p) = parse_point(&typed, &pc) {
-                    return self.resolve(Reply::Point(p, None));
-                }
+        match self.sh.text_act(raw) {
+            Act::Resolve(v) => self.resolve(v),
+            Act::Escape => {
+                self.escape();
             }
-            Kind::Distance => {
-                if let Some(n) = parse_length(&typed, lunits)
-                    && n >= 0.0
-                {
-                    return self.resolve(Reply::Num(n));
-                }
-            }
-            Kind::Number => {
-                if opts.length {
-                    if let Some(n) = parse_length(&typed, lunits) {
-                        return self.resolve(Reply::Num(n));
-                    }
-                } else if is_plain_number(&typed, true) {
-                    return self.resolve(Reply::Num(plain_number(&typed)));
-                }
-            }
-            Kind::Angle => {
-                if is_plain_number(&typed, false) {
-                    let u = if opts.ucs { ang_of(active_ucs(&self.sh.doc.borrow())) } else { 0.0 };
-                    return self.resolve(Reply::Num(rad(plain_number(&typed)) + u));
-                }
-            }
-            Kind::Select => {
-                let u = typed.to_uppercase();
-                if u == "ALL" {
-                    let ids: Vec<u64> = {
-                        let d = self.sh.doc.borrow();
-                        d.entities().filter(|e| d.editable(e)).filter_map(|e| e.id).collect()
-                    };
-                    let set = self.with_set(|s| {
-                        for id in ids {
-                            s.add(id);
-                        }
-                    });
-                    let mut h = self.sh.host.borrow_mut();
-                    h.set_selection(&set.0);
-                    h.print(&format!("{} found", set.len()));
-                    return;
-                }
-                if u == "L" || u == "LAST" {
-                    let last = self.sh.doc.borrow().entities().last().and_then(|e| e.id);
-                    if let Some(id) = last.filter(|i| *i != 0) {
-                        let set = self.with_set(|s| {
-                            s.add(id);
-                        });
-                        let mut h = self.sh.host.borrow_mut();
-                        h.set_selection(&set.0);
-                        h.print("1 found");
-                    }
-                    return;
-                }
-            }
-            _ => {}
+            Act::Stay => {}
         }
-        let key = match kind {
-            Kind::Point => "cmd.invalid.point",
-            Kind::Distance => "cmd.invalid.distance",
-            Kind::Number => "cmd.invalid.number",
-            Kind::Angle => "cmd.invalid.angle",
-            Kind::Keyword => "cmd.invalid.keyword",
-            Kind::Select => "cmd.invalid.select",
-            Kind::Entity => "cmd.invalid.entity",
-            Kind::Text | Kind::File => "cmd.invalid_input",
-        };
-        let msg = self.sh.t(key);
-        self.sh.print(&msg);
-        let p = self.sh.prompt_text();
-        self.sh.host.borrow_mut().prompt(&p);
-    }
-
-    fn lunits(&self) -> f64 {
-        self.sh.doc.borrow().meta.get("lunits").map_or(2.0, js::to_number)
     }
 
     /// Change the selection being built by the waiting "Select objects" → a copy of it.
     pub(crate) fn with_set(&self, f: impl FnOnce(&mut IdSet)) -> IdSet {
-        let mut st = self.sh.st.borrow_mut();
-        match st.waiting.as_mut() {
-            Some(w) => {
-                f(&mut w.set);
-                w.set.clone()
-            }
-            None => IdSet::default(),
-        }
+        self.sh.with_set(f)
     }
 
     /// The drawing a picker that answered [`Pick::Later`] has read (None = cancelled).
@@ -851,6 +1081,12 @@ impl Engine {
             self.resolve(Reply::Item(it));
         }
     }
+    /// What happened in a routine's dialog (a host whose `dialog_run` answered [`Pick::Later`]).
+    pub fn deliver_dialog_event(&mut self, ev: cc_lisp::host::DlgEvent) {
+        if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
+            self.resolve(Reply::Dialog(ev));
+        }
+    }
     /// The files a picker that answered [`Pick::Later`] has read (empty = cancelled).
     pub fn deliver_files(&mut self, f: Vec<PickedFile>) {
         if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
@@ -861,63 +1097,15 @@ impl Engine {
     /// A click: `point` after snaps and ortho (with a deferred tangent when the snap gave one), `raw` the cursor.
     /// → false when the host should start a selection window instead.
     pub fn click(&mut self, point: P2, tan: Option<Tan>, raw: P2) -> bool {
-        let Some((kind, opts, set)) = self.waiting_info() else { return false };
-        match kind {
-            Kind::Point => {
-                self.resolve(Reply::Point(point, tan));
-                true
+        let (act, taken) = self.sh.click_act(point, tan, raw);
+        match act {
+            Act::Resolve(v) => self.resolve(v),
+            Act::Escape => {
+                self.escape();
             }
-            Kind::Distance | Kind::Angle => {
-                match opts.base {
-                    Some(b) => self.resolve(Reply::Num(if kind == Kind::Distance { dist(b, point) } else { angle_of(b, point) })),
-                    None => {
-                        {
-                            let mut st = self.sh.st.borrow_mut();
-                            if let Some(w) = st.waiting.as_mut() {
-                                w.opts.base = Some(point);
-                            }
-                            st.base = Some(point);
-                        }
-                        let msg = self.sh.t("cmd.specify_second_point");
-                        self.sh.host.borrow_mut().prompt(&msg);
-                    }
-                }
-                true
-            }
-            Kind::Select => {
-                let id = self.sh.host.borrow().pick_at(&self.sh.doc.borrow(), raw);
-                let Some(id) = id else { return false };
-                let shift = self.sh.host.borrow().shift();
-                let set = self.with_set(|s| {
-                    if opts.remove || (s.has(id) && shift) {
-                        s.delete(id);
-                    } else {
-                        s.add(id);
-                    }
-                });
-                self.sh.host.borrow_mut().set_selection(&set.0);
-                if opts.single {
-                    self.resolve(Reply::Set(set));
-                }
-                let _ = set;
-                true
-            }
-            Kind::Entity => {
-                let id = self.sh.host.borrow().pick_at(&self.sh.doc.borrow(), raw);
-                let shift = self.sh.host.borrow().shift();
-                if let Some(id) = id {
-                    self.resolve(Reply::Pick { id, at: raw, shift });
-                } else if opts.empty {
-                    self.resolve(Reply::Empty { at: raw, shift });
-                } else {
-                    let msg = self.sh.t("cmd.nothing_found_there");
-                    self.sh.print(&msg);
-                }
-                let _ = set;
-                true
-            }
-            _ => false,
+            Act::Stay => {}
         }
+        taken
     }
 
     /// A selection window while selecting.
@@ -996,7 +1184,7 @@ impl Engine {
 #[derive(Clone)]
 pub struct Ctx {
     pub(crate) sh: Rc<Shared>,
-    pr: Prompter,
+    pub(crate) pr: Prompter,
 }
 
 pub type R<T = ()> = Result<T, CmdError>;
@@ -1037,7 +1225,9 @@ impl Ctx {
         {
             let mut st = self.st();
             st.base = opts.base;
-            st.waiting = Some(Waiting { kind, prompt, opts, set });
+            st.wait_seq = st.wait_seq.wrapping_add(1);
+            let seq = st.wait_seq;
+            st.waiting = Some(Waiting { kind, prompt, opts, set, seq });
         }
         let p = self.sh.prompt_text();
         self.sh.host.borrow_mut().prompt(&p);
@@ -1181,6 +1371,11 @@ impl Ctx {
 
     /// `c.select(prompt, { fresh, options })`: as [`Ctx::select`], and the command's own options answer `Sel::Opt`.
     pub async fn select_with(&self, prompt: Option<String>, fresh: bool, own: Vec<Opt>) -> R<Sel> {
+        self.select_opts(prompt, fresh, own, false).await
+    }
+
+    /// `c.select(prompt, { fresh, options, single })`: `single` = one pick ends it (a routine's ssget ":S").
+    pub async fn select_opts(&self, prompt: Option<String>, fresh: bool, own: Vec<Opt>, single: bool) -> R<Sel> {
         let pre: Vec<u64> = {
             let d = self.doc();
             self.sh.host.borrow().selection().into_iter().filter(|id| d.get(*id).is_some_and(|e| d.editable(e))).collect()
@@ -1198,7 +1393,7 @@ impl Ctx {
         loop {
             let mut options = own.clone();
             options.extend(select_options(&self.sh.lang));
-            let opts = Opts { none: true, remove, options, ..Opts::default() };
+            let opts = Opts { none: true, remove, options, single, ..Opts::default() };
             let p = if remove { self.t("sel.remove.prompt") } else { prompt.clone() };
             let (r, s) = self.ask_set(Kind::Select, p, opts, set).await?;
             set = s;

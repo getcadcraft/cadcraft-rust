@@ -175,6 +175,8 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
         rfd::FileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg", "PNG", "JPG", "JPEG"])
     } else if kind == "library" {
         rfd::FileDialog::new().add_filter("Library items", &["json", "JSON"])
+    } else if kind == "lisp" {
+        rfd::FileDialog::new().add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua", "LSP", "DCL"])
     } else {
         rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"])
     };

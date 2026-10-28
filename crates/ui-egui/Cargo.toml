@@ -35,6 +35,7 @@ cc-drawing.workspace = true
 cc-cad.workspace = true
 cc-cad-geom.workspace = true
 cc-engine.workspace = true
+cc-lisp.workspace = true
 cc-geom.workspace = true
 serde_json.workspace = true
 indexmap = "2.14"

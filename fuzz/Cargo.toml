@@ -36,6 +36,8 @@ cc-mcp = { path = "../crates/mcp" }
 cc-live = { path = "../crates/live" }
 cc-engine = { path = "../crates/engine" }
 cc-gcons = { path = "../crates/gcons" }
+cc-lisp = { path = "../crates/lisp" }
+cc-geom = { path = "../crates/geom" }
 
 [[bin]]
 name = "dwg_read"
@@ -362,6 +364,20 @@ bench = false
 [[bin]]
 name = "cad_sheetset"
 path = "fuzz_targets/cad_sheetset.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lisp_eval"
+path = "fuzz_targets/lisp_eval.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cad_lisp"
+path = "fuzz_targets/cad_lisp.rs"
 test = false
 doc = false
 bench = false

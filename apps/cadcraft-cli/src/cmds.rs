@@ -5,7 +5,9 @@
 //! only `{ ms, printed, running }`, for timing commands on big drawings). An input sets the stub host first
 //! (`cursor: {x, y}`, `shift: bool`, `select: [ids]` = the selection before the input, `dragPath: [{x, y}…] | null`) and then does one of
 //! `text: "line"` · `click: {x, y}` (+ `raw: {x, y}`, `tan: {c: {cx, cy, r}, near: {x, y}}`) ·
-//! `window: {minX, minY, maxX, maxY}` (+ `crossing`) · `path: [{x, y}, …]` · `escape: true`.
+//! `window: {minX, minY, maxX, maxY}` (+ `crossing`) · `path: [{x, y}, …]` · `escape: true` ·
+//! `lisp: "line"` (a line typed at the command line that may be LISP: appload.js `lispLine`, else `text`) ·
+//! `lispLoad: [{name, text, kind}]` (APPLOAD's files: `_LISPLOAD`). `now` (ms) fixes DATE / CDATE's clock.
 //! The stub picks the nearest object within 0.5 (geom distToEntity) and windows with geom inWindow, as
 //! bin/test-cadcraft.mjs does; its view is 100 × 50 and every other ZOOM Previous finds a previous view.
 //!
@@ -65,6 +67,8 @@ struct Stub {
     extras: bool,
     lasso: bool,
     linked: bool,
+    /// the script's `now`: the clock the JS side fixes (Date.now)
+    now: Option<f64>,
 }
 
 /// Standard base64 (the script's picture bytes) → bytes; None on anything else.
@@ -212,6 +216,9 @@ impl Host for Stub {
         Some(P2::new(0.0, 0.0))
     }
     fn now_ms(&self) -> Option<f64> {
+        if let Some(n) = self.now {
+            return Some(n);
+        }
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).ok().map(|d| d.as_secs_f64() * 1000.0)
     }
     // the page's split panes and viewport work, logged as kdiff.mjs's stub logs them
@@ -456,8 +463,12 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         extras: script.get("extras").and_then(Value::as_bool).unwrap_or(false),
         lasso: true,
         linked: false,
+        now: script.get("now").and_then(Value::as_f64),
     };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
+    if let Some(now) = script.get("now").and_then(Value::as_f64) {
+        eng.set_clock(Some((now, cc_clock::Zone::System)));
+    }
     let empty = Vec::new();
     let inputs = script.get("inputs").and_then(Value::as_array).unwrap_or(&empty);
     let mut out = Vec::with_capacity(inputs.len());
@@ -491,6 +502,21 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         let mut ret = Value::Null;
         if let Some(t) = inp.get("text") {
             eng.text(t.as_str().unwrap_or(""));
+        } else if let Some(t) = inp.get("lisp") {
+            let line = t.as_str().unwrap_or("");
+            if !eng.lisp_line(line) {
+                eng.text(line);
+            }
+        } else if let Some(files) = inp.get("lispLoad").and_then(Value::as_array) {
+            let files = files
+                .iter()
+                .map(|f| cc_engine::lisp::AppFile {
+                    name: f.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
+                    text: f.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+                    kind: f.get("kind").and_then(Value::as_str).unwrap_or("lsp").to_string(),
+                })
+                .collect();
+            eng.lisp_load(files, "APPLOAD");
         } else if let Some(c) = p_of(inp.get("click")) {
             let raw = p_of(inp.get("raw")).unwrap_or(c);
             let tan = inp.get("tan").and_then(|t| {
@@ -630,7 +656,12 @@ pub fn cmds(rest: &[&str]) -> ExitCode {
                 return ExitCode::from(1);
             }
         };
-    println!("{}", Value::Array(run_script(&script)));
+    // `tzName`: the zone CDATE reads (an IANA name), as the harness runs the JS under TZ=…
+    let records = match script.get("tzName").and_then(Value::as_str) {
+        Some(tz) => cc_clock::with_zone_name(tz, || run_script(&script)).unwrap_or_else(|_| run_script(&script)),
+        None => run_script(&script),
+    };
+    println!("{}", Value::Array(records));
     ExitCode::SUCCESS
 }
 

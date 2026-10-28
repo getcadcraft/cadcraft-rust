@@ -49,6 +49,7 @@ pub mod edit;
 pub mod hub;
 pub mod ifc3d;
 pub mod libdlg;
+pub mod lispdlg;
 pub mod markupbcf;
 pub mod markupchest;
 pub mod markupcompare;
@@ -276,6 +277,8 @@ pub struct UiApp {
     pub choose: Option<libdlg::ChooseDlg>,
     /// the library panel (LIBRARY, INSERT Library)
     pub lib: libdlg::LibPanel,
+    /// APPLOAD, the alias editor, DELBLOCKS' list (lispdlg.rs)
+    pub lisp: lispdlg::LispUi,
     /// the Parameters panel and the constraints on the drawing (PARAMETERS, M4.23)
     pub par: parpanel::ParPanel,
     /// SHORTCUTS' keys editor and COMPARESETTINGS' dialog (M4.32)
@@ -367,6 +370,7 @@ impl Default for UiApp {
             plot: plotdlg::PlotDlg::default(),
             choose: None,
             lib: libdlg::LibPanel::default(),
+            lisp: lispdlg::LispUi::default(),
             par: parpanel::ParPanel::default(),
             winset: winsetdlg::WinSet::default(),
             sheetset: sheetsetdlg::SheetSetPanel::default(),
@@ -427,6 +431,10 @@ impl UiApp {
     pub fn open_file(&mut self, f: &ImportedFile) {
         // a library item onto the model being edited: placing starts (the model stays)
         if self.bimh.ed.is_some() && bimplace::open_item(self, f) {
+            return;
+        }
+        // a .lsp / .dcl dropped on the drawing being edited loads (appload.js); compiled files are refused with why
+        if lispdlg::open_app_file(self, f) {
             return;
         }
         self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
@@ -1517,6 +1525,7 @@ impl UiApp {
             id if id.starts_with("tab3d.") => return cad3dtab::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
             id if id.starts_with("choose.") || id.starts_with("lib.") => return libdlg::run(self, id, params),
+            id if id.starts_with("lisp.") => return lispdlg::run(self, id, params),
             id if id.starts_with("par.") => return parpanel::run(self, id, params),
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
@@ -1567,6 +1576,7 @@ impl UiApp {
         cadprops::sync(self);
         winsetdlg::sync(self);
         sheetsetdlg::sync(self);
+        lispdlg::sync(self);
         if let Some(ed) = self.editor.as_ref() {
             // PARAMETERS opens the panel; notes from edits the window made itself (grips, Properties)
             if std::mem::take(&mut ed.hs.borrow_mut().par_open) {
@@ -1770,6 +1780,10 @@ impl UiApp {
         if !self.held.is_empty() {
             ctx.request_repaint();
         }
+        if lispdlg::pump(self) {
+            self.sync_editor();
+            ctx.request_repaint();
+        }
         if !self.fonts_done {
             theme::install_fonts(&ctx);
             self.fonts_done = true;
@@ -1840,6 +1854,7 @@ impl UiApp {
         winsetdlg::window(self, &ctx);
         sheetsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
+        lispdlg::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
         self.tabs(ui);
@@ -2637,8 +2652,11 @@ impl UiApp {
                     }
                 });
             });
-        // Space sends the line too, except while a command asks for text
-        if ed.line.ends_with(' ') && ed.eng.expects() != Some(cc_engine::prompt::Kind::Text) {
+        // Space sends the line too, except while a command asks for text or a "(…" is typed (appload.js)
+        if ed.line.ends_with(' ')
+            && ed.eng.expects() != Some(cc_engine::prompt::Kind::Text)
+            && !ed.eng.lisp_typing(ed.line.trim_end_matches(' '))
+        {
             ed.line.pop();
             submit = true;
         }

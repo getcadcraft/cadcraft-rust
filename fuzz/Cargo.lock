@@ -157,6 +157,7 @@ dependencies = [
  "cc-detail",
  "cc-engine",
  "cc-gcons",
+ "cc-geom",
  "cc-io-cad",
  "cc-io-civil",
  "cc-io-detail",
@@ -166,6 +167,7 @@ dependencies = [
  "cc-io-markup",
  "cc-io-skp",
  "cc-io-takeoff",
+ "cc-lisp",
  "cc-live",
  "cc-m3d",
  "cc-m3d-tools",
@@ -272,12 +274,14 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-cad-geom",
+ "cc-clock",
  "cc-drawing",
  "cc-gcons",
  "cc-geom",
  "cc-io-cad",
  "cc-io-dwg",
  "cc-io-m3d",
+ "cc-lisp",
  "cc-m3d",
  "cc-m3d-tools",
  "cc-manifold",
@@ -425,6 +429,16 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cc-lisp"
+version = "0.0.1"
+dependencies = [
+ "cc-cad",
+ "cc-cad-geom",
+ "libm",
+ "serde_json",
 ]
 
 [[package]]

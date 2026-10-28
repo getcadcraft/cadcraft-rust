@@ -19,6 +19,7 @@
 //!                                                --bench N: best-of-N write time after one warm-up
 //!   cadcraft-cli mcp [--root DIR]… [--allow …]     CadCraft's tools for an AI assistant over stdio (MCP), mcp.rs
 //!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
+//!   cadcraft-cli lisp <programs.json> [--bench N]   dev: CadCraft's LISP with no drawing (forks/tools/lispdiff.mjs), lisp.rs
 //!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
 //!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
 //!   cadcraft-cli manifold <cases.json> [--bench N]   dev: boolean scripts through cc-manifold (forks/tools/mfdiff.mjs) → JSON
@@ -51,6 +52,7 @@ mod detail;
 mod hull;
 mod ifc;
 mod iocad;
+mod lisp;
 mod m3d;
 mod m3dio;
 mod m3dtools;
@@ -94,6 +96,7 @@ fn main() -> ExitCode {
         "write" => write(&rest),
         "dynvis" => dynvis(&rest),
         "cmds" => cmds::cmds(&rest),
+        "lisp" => lisp::lisp(&rest),
         "mcp" => mcp::run(&rest.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),

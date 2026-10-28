@@ -1036,6 +1036,15 @@ impl Doc {
         let Some(before) = self.spaces.get_mut(&space).and_then(|m| m.remove(&id)) else { return Ok(()) };
         self.push(Op::Ent { space, id, before: Some(Box::new(before)), after: None })
     }
+    /// Put an object back under its own id (a routine's second entdel undeletes it): `map.set(id, e)` with its undo op.
+    pub fn reinsert_in(&mut self, id: u64, e: Entity, space: SpaceId) -> Result<(), DocError> {
+        self.must_be_in_change()?;
+        let mut ent = e;
+        ent.id = Some(id);
+        let after = matches!(ent.geo, Geo::Viewport(_)).then(|| Box::new(ent.clone()));
+        let before = self.spaces.entry(space).or_default().replace(id, ent).map(Box::new);
+        self.push(Op::Ent { space, id, before, after })
+    }
     /// Add or replace a block definition (entities lose their ids; base `x || 0`, `y || 0`).
     pub fn define_block(&mut self, b: &Block) -> Result<Block, DocError> {
         self.must_be_in_change()?;
