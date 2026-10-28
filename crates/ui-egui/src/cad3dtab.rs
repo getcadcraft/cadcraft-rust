@@ -45,6 +45,15 @@ pub struct Tab3d {
     clock: Option<web_time::Instant>,
     /// the last middle click (ms), for the double click that fits
     last_mid: Option<f64>,
+    /// a press on the view cube (the cube takes it)
+    cube_press: bool,
+    /// touch: one finger's press waits until it moves or lifts (where, when), so a long press (Enter) or a second
+    /// finger leaves no point behind
+    held_touch: Option<(Pos2, f64)>,
+    /// touch: the long press said Enter (its lift does nothing)
+    long_done: bool,
+    /// touch: two or three fingers are working the camera (until every finger lifts)
+    multi: bool,
 }
 
 impl Tab3d {
@@ -617,73 +626,186 @@ fn tip_box(painter: &egui::Painter, at: Pos2, text: &str, t: &Tokens) {
     painter.galley(at + egui::vec2(4.0, 2.0), g, t.text_strong);
 }
 
-/// The view cube (top right): the six sides as the camera sees them; a click looks from that side.
+/// The view cube's half-size and centre (top right of the view), and how far its compass reaches (cube units).
+const CUBE_S: f32 = 22.0;
+const RING_R: f32 = 70.0 / 32.0;
+const RING_LETTER: f32 = 88.0 / 32.0;
+fn cube_centre(rect: Rect) -> Pos2 {
+    Pos2::new(rect.max.x - 78.0, rect.min.y + 74.0)
+}
+/// Is a point on the cube or its compass (the cube takes the pointer there)?
+fn in_cube(rect: Rect, p: Pos2) -> bool {
+    p.distance(cube_centre(rect)) <= CUBE_S * (RING_LETTER + 0.6)
+        || Rect::from_center_size(wcs_at(rect), egui::vec2(72.0, 20.0)).contains(p)
+}
+fn wcs_at(rect: Rect) -> Pos2 {
+    let c = cube_centre(rect);
+    Pos2::new(c.x, c.y + CUBE_S * (RING_LETTER + 0.9))
+}
+
+/// The view cube (viewcube.js, top right): the six sides as the camera sees them, words on the faces that face it, the
+/// compass ring with N / E / S / W under the cube, the coordinate-system menu (WCS) and the Home button. A click on a
+/// side looks from it, a letter turns the view to look from that side, dragging the cube orbits.
 fn cube(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
     let Some(ed) = app.editor.as_ref() else { return };
     let Some(ax) = ed.eng.with_ws3d(|ws, _| ws.tools.host.cam.axes()) else { return };
     let t = app.tokens;
-    let size = 36.0_f32;
-    let c = Pos2::new(rect.max.x - 70.0, rect.min.y + 66.0);
-    // screen position of a direction: camera x right, y up
+    let s = CUBE_S;
+    let c = cube_centre(rect);
+    // the screen position of a point in cube units (cube centred at the origin, half-size 1)
     let to = |d: P3| -> Pos2 {
         let x = d[0] * ax.x[0] + d[1] * ax.x[1] + d[2] * ax.x[2];
         let y = d[0] * ax.y[0] + d[1] * ax.y[1] + d[2] * ax.y[2];
-        Pos2::new(c.x + x as f32 * size, c.y - y as f32 * size)
+        Pos2::new(c.x + x as f32 * s, c.y - y as f32 * s)
     };
-    let faces: [(&str, &str, P3, [P3; 2]); 6] = [
-        ("top", "viewcube.top", [0.0, 0.0, 1.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-        ("bottom", "viewcube.bottom", [0.0, 0.0, -1.0], [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]),
-        ("front", "viewcube.front", [0.0, -1.0, 0.0], [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
-        ("back", "viewcube.back", [0.0, 1.0, 0.0], [[-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
-        ("left", "viewcube.left", [-1.0, 0.0, 0.0], [[0.0, -1.0, 0.0], [0.0, 0.0, 1.0]]),
-        ("right", "viewcube.right", [1.0, 0.0, 0.0], [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
-    ];
+    let tr = |k: &str, d: &str| {
+        let w = crate::edit::lang_text(k, &[]);
+        if w == k { d.to_string() } else { w }
+    };
     let painter = ui.painter_at(rect);
-    let mut clicked: Option<&str> = None;
-    let (pos, click) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_clicked()));
+    let (pos, click, drag) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_clicked(), i.pointer.is_decidedly_dragging()));
+    let mut act: Option<String> = None;
+    // the compass ring (z = −1) and its letters
+    let ring: Vec<Pos2> = (0..=48)
+        .map(|k| {
+            let a = f64::from(k) / 48.0 * std::f64::consts::TAU;
+            to([f64::from(RING_R) * a.cos(), f64::from(RING_R) * a.sin(), -1.0])
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        ring,
+        Stroke::new(5.0, Color32::from_rgba_unmultiplied(t.text_dim.r(), t.text_dim.g(), t.text_dim.b(), 70)),
+    ));
+    let rc = to([0.0, 0.0, -1.0]);
+    for (k, d, label) in [("n", [0.0, 1.0], "N"), ("e", [1.0, 0.0], "E"), ("s", [0.0, -1.0], "S"), ("w", [-1.0, 0.0], "W")] {
+        let p = to([d[0] * f64::from(RING_LETTER), d[1] * f64::from(RING_LETTER), -1.0]);
+        // as the ring closes to a line the letters pointing at the eye fade (viewcube.js letterVisibility)
+        let vis = (p.distance(rc) / (RING_LETTER * s)).clamp(0.0, 1.0);
+        if vis < 0.35 {
+            continue;
+        }
+        let hot = pos.is_some_and(|q| q.distance(p) < 9.0);
+        let col = if hot { t.accent } else { Color32::from_rgba_unmultiplied(t.text.r(), t.text.g(), t.text.b(), (255.0 * vis) as u8) };
+        painter.text(p, egui::Align2::CENTER_CENTER, tr(&format!("viewcube.letter.{k}"), label), egui::FontId::proportional(11.0), col);
+        if hot && click && !drag {
+            act = Some(format!("letter:{k}"));
+        }
+    }
+    let faces: [(&str, &str, P3, [P3; 2]); 6] = [
+        ("top", "Top", [0.0, 0.0, 1.0], [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
+        ("bottom", "Bottom", [0.0, 0.0, -1.0], [[1.0, 0.0, 0.0], [0.0, -1.0, 0.0]]),
+        ("front", "Front", [0.0, -1.0, 0.0], [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        ("back", "Back", [0.0, 1.0, 0.0], [[-1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]),
+        ("left", "Left", [-1.0, 0.0, 0.0], [[0.0, -1.0, 0.0], [0.0, 0.0, 1.0]]),
+        ("right", "Right", [1.0, 0.0, 0.0], [[0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]),
+    ];
     let facing = |n: P3| n[0] * ax.z[0] + n[1] * ax.z[1] + n[2] * ax.z[2];
     let mut order = faces;
     order.sort_by(|a, b| facing(a.2).partial_cmp(&facing(b.2)).unwrap_or(std::cmp::Ordering::Equal));
-    for (name, key, n, [u, v]) in order {
+    for (name, word, n, [u, v]) in order {
         let f = facing(n);
         if f <= 0.02 {
             continue;
         }
-        let corner = |su: f64, sv: f64| {
-            to([
-                n[0] * 0.5 + (u[0] * su + v[0] * sv) * 0.5,
-                n[1] * 0.5 + (u[1] * su + v[1] * sv) * 0.5,
-                n[2] * 0.5 + (u[2] * su + v[2] * sv) * 0.5,
-            ])
-        };
+        let corner = |su: f64, sv: f64| to([n[0] + u[0] * su + v[0] * sv, n[1] + u[1] * su + v[1] * sv, n[2] + u[2] * su + v[2] * sv]);
         let pts = vec![corner(-1.0, -1.0), corner(1.0, -1.0), corner(1.0, 1.0), corner(-1.0, 1.0)];
         let shade = (150.0 + 90.0 * f) as u8;
         let fill = Color32::from_rgb(shade, shade, shade.saturating_add(8));
-        let hit = pos.is_some_and(|p| egui::emath::Rect::from_points(&pts).contains(p));
+        let hit = pos.is_some_and(|p| point_in(&pts, p));
         painter.add(egui::Shape::convex_polygon(
             pts.clone(),
             if hit { Color32::from_rgb(0x9f, 0xc0, 0xf5) } else { fill },
             Stroke::new(1.0, t.divider),
         ));
-        if f > 0.35 {
-            let label = crate::edit::lang_text(key, &[]);
-            let label = if label == key { name.to_string() } else { label };
-            let mid = to([n[0] * 0.5, n[1] * 0.5, n[2] * 0.5]);
-            painter.text(
-                mid,
-                egui::Align2::CENTER_CENTER,
-                label.to_uppercase(),
-                egui::FontId::proportional(8.5),
-                Color32::from_rgb(0x20, 0x24, 0x2a),
-            );
+        // the word only where the face is seen well enough, sized to the face (no two words run into each other)
+        let wide = corner(-1.0, 0.0).distance(corner(1.0, 0.0));
+        let tall = corner(0.0, -1.0).distance(corner(0.0, 1.0));
+        let label = tr(&format!("viewcube.face.{name}"), word);
+        let size = (wide / (label.chars().count().max(1) as f32 * 0.62)).min(tall * 0.42).min(10.5);
+        if f > 0.3 && size >= 6.0 {
+            painter.text(to(n), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(size), Color32::from_rgb(0x20, 0x24, 0x2a));
         }
-        if hit && click {
-            clicked = Some(name);
+        if hit && click && !drag {
+            act = Some(name.to_string());
         }
     }
-    if let Some(n) = clicked {
-        let _ = run(app, "tab3d.cube", &Params { name: Some(n.into()), ..Default::default() });
+    // Home (viewcube.js's house button) and the coordinate-system menu
+    let home = Rect::from_center_size(Pos2::new(c.x - s * 2.6, c.y - s * 2.2), egui::vec2(18.0, 18.0));
+    let home_hot = pos.is_some_and(|p| home.contains(p));
+    painter.text(
+        home.center(),
+        egui::Align2::CENTER_CENTER,
+        "⌂",
+        egui::FontId::proportional(14.0),
+        if home_hot { t.accent } else { t.text_dim },
+    );
+    if home_hot && click {
+        act = Some("home".into());
     }
+    let wcs = Rect::from_center_size(wcs_at(rect), egui::vec2(72.0, 20.0));
+    let mut menu_ui = ui.new_child(egui::UiBuilder::new().max_rect(wcs));
+    egui::ComboBox::new("tab3d_wcs", "")
+        .selected_text(egui::RichText::new("WCS").small())
+        .width(60.0)
+        .wrap_mode(egui::TextWrapMode::Extend)
+        .show_ui(&mut menu_ui, |ui| {
+            let _ = ui.selectable_label(true, "WCS");
+        })
+        .response
+        .on_hover_text(tr("viewcube.menu", "Coordinate system"));
+    // dragging the cube orbits (viewcube.js without onDrag turns the view itself)
+    let (press, delta, down) = ui.input(|i| (i.pointer.press_origin(), i.pointer.delta(), i.pointer.primary_down()));
+    if down && drag && press.is_some_and(|p| p.distance(c) <= s * RING_R) {
+        let (dx, dy) = (f64::from(delta.x), f64::from(delta.y));
+        if let Some(ed) = app.editor.as_ref() {
+            ed.eng.with_ws3d(|ws, _| ws.tools.host.cam.orbit(dx, dy));
+        }
+    }
+    match act.as_deref() {
+        None => {}
+        Some("home") => run_line(app, "VIEW I"),
+        Some(l) if l.starts_with("letter:") => {
+            let k = l.trim_start_matches("letter:");
+            let side = match k {
+                "n" => [0.0, 1.0],
+                "e" => [1.0, 0.0],
+                "s" => [0.0, -1.0],
+                _ => [-1.0, 0.0],
+            };
+            if let Some(ed) = app.editor.as_ref() {
+                // look from that side, keeping the tilt (viewcube.js viewFromLetter)
+                ed.eng.with_ws3d(|ws, _| {
+                    let cam = &mut ws.tools.host.cam;
+                    let z = ax.z[2].clamp(-0.9999, 0.9999);
+                    let h = (1.0 - z * z).sqrt();
+                    let dir = [-side[0] * h, -side[1] * h, -z];
+                    cc_m3d_tools::viewcube_camera::apply_view(cam, dir, None);
+                });
+            }
+        }
+        Some(n) => {
+            let _ = run(app, "tab3d.cube", &Params { name: Some(n.into()), ..Default::default() });
+        }
+    }
+}
+
+/// Is p inside the convex polygon?
+fn point_in(pts: &[Pos2], p: Pos2) -> bool {
+    let n = pts.len();
+    let mut sign = 0.0_f32;
+    for i in 0..n {
+        let (Some(a), Some(b)) = (pts.get(i), pts.get((i + 1) % n.max(1))) else { return false };
+        let cr = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+        if cr.abs() < 1e-6 {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cr.signum();
+        } else if cr.signum() != sign {
+            return false;
+        }
+    }
+    true
 }
 
 /// The bar at the bottom of the view (ws3d.js `.cc-3d-bar`): the tool's tip, the visual style.
@@ -702,6 +824,7 @@ fn bar(app: &UiApp, ui: &egui::Ui, rect: Rect) {
 
 /// The pointer on the 3D view (ws3d.js): left to the workspace, middle / right to the camera, the wheel zooms.
 fn input(app: &mut UiApp, ui: &egui::Ui, resp: &egui::Response, rect: Rect) {
+    let (touch, multi) = ui.input(|i| (i.any_touches(), i.multi_touch()));
     let (pos, mods, scroll, pressed, released, delta) = ui.input(|i| {
         (
             i.pointer.hover_pos(),
@@ -727,7 +850,89 @@ fn input(app: &mut UiApp, ui: &egui::Ui, resp: &egui::Response, rect: Rect) {
         time: Some(now),
     };
     let mut changed = false;
+    // touch (ws3d.js, S.8): two fingers pinch and pan, three fingers orbit; what a first finger began is cancelled
+    if let Some(m) = multi.filter(|m| m.num_touches >= 2) {
+        if !tab.multi {
+            tab.multi = true;
+            tab.held_touch = None;
+            // a tool the first finger started is stopped (unless a command drives it)
+            let busy = ed.eng.busy();
+            ed.eng.with_ws3d(|ws, d| {
+                if ws.tools.busy() && !busy {
+                    let _ = ws.tcall(d, cc_m3d_tools::tools::Tools::escape);
+                }
+            });
+            tab.held = None;
+        }
+        let (dx, dy) = (f64::from(m.translation_delta.x), f64::from(m.translation_delta.y));
+        let c = m.center_pos - rect.min;
+        let z = f64::from(m.zoom_delta);
+        ed.eng.with_ws3d(|ws, _| {
+            let cam = &mut ws.tools.host.cam;
+            if m.num_touches >= 3 {
+                cam.orbit(dx, dy);
+            } else {
+                cam.pan(dx, dy);
+                if z > 0.0 && (z - 1.0).abs() > 1e-6 {
+                    cam.zoom_at(1.0 / z, Some(f64::from(c.x)), Some(f64::from(c.y)), None);
+                }
+            }
+        });
+        return;
+    }
+    if tab.multi {
+        if !touch || released.iter().any(|r| *r) {
+            tab.multi = false;
+        }
+        return;
+    }
+    // a press on the view cube or its compass is the cube's
+    if pos.is_some_and(|p| in_cube(rect, p)) && pressed.iter().any(|x| *x) {
+        tab.cube_press = true;
+    }
+    if tab.cube_press {
+        if released.iter().any(|r| *r) {
+            tab.cube_press = false;
+        }
+        return;
+    }
+    // touch, one finger: the press waits; moving past 6 px makes it count, a lift is a tap, a long press is Enter
+    if let Some((p0, t0)) = tab.held_touch {
+        let moved = pos.is_some_and(|p| p.distance(p0) > 6.0);
+        if moved {
+            tab.held_touch = None;
+            tab.held = Some(egui::PointerButton::Primary);
+            ed.eng.ws_down(ev(p0));
+            changed = true;
+        } else if released[0] {
+            tab.held_touch = None;
+            ed.eng.ws_down(ev(p0));
+            ed.eng.ws_up(ev(p0));
+            app.sync_editor();
+            return;
+        } else if now - t0 >= 550.0 {
+            tab.held_touch = None;
+            tab.long_done = true;
+            ed.submit();
+            app.sync_editor();
+            return;
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            return;
+        }
+    }
+    if tab.long_done {
+        if released[0] || !touch {
+            tab.long_done = false;
+        }
+        return;
+    }
     if inside && let Some(p) = pos {
+        if pressed[0] && touch {
+            tab.held_touch = Some((p, now));
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            return;
+        }
         if pressed[0] {
             tab.held = Some(egui::PointerButton::Primary);
             ed.eng.ws_down(ev(p));
