@@ -37,6 +37,8 @@ cc-io-m3d.workspace = true
 # the 3D tab (ws3d-core.js, M4.25): ModelCraft's tools, camera and inference; the booleans (boolean3d.js)
 cc-m3d-tools.workspace = true
 cc-manifold.workspace = true
+# point clouds under the drawing (cloud-cad.js, pointcloud.js): CivilCraft's LAS / LAZ reader, and pointcloud.js beside it
+cc-io-civil.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 # libplace.js slugify (NFKD, accents dropped)

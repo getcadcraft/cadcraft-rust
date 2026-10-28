@@ -142,6 +142,7 @@ mod web {
                                 let pictures = kind == "pictures";
                                 let library = kind == "library";
                                 let lisp = kind == "lisp";
+                                let cloud = kind == "cloud";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if lisp {
                                         rfd::AsyncFileDialog::new()
@@ -150,6 +151,8 @@ mod web {
                                         rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
                                     } else if library {
                                         rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])
+                                    } else if cloud {
+                                        rfd::AsyncFileDialog::new().add_filter("Point clouds", &["las", "laz", "xyz", "pts"])
                                     } else {
                                         rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
                                     };
@@ -178,6 +181,10 @@ mod web {
                                             &[
                                                 "dwg",
                                                 "dxf",
+                                                "las",
+                                                "laz",
+                                                "pts",
+                                                "xyz",
                                                 "modelcraft",
                                                 "ifc",
                                                 "skp",

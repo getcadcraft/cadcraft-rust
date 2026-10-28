@@ -22,6 +22,7 @@
 )]
 
 pub mod mesh3d;
+pub mod points3;
 pub mod pt;
 pub mod still;
 

@@ -150,9 +150,19 @@ fn bad(key: &str) -> String {
 
 /// `readLasHeader(file)`.
 pub fn read_las_header(file: &InFile) -> R<Header> {
+    read_las_header_with(file, true)
+}
+
+/// `readLasHeader(lenient(file, 200 MB))` (pointcloud.js `lasInfo`): a viewer keeps only a budget of points, so the
+/// terrain limit (200 MB) does not apply; the caller checks its own (2000 MB).
+pub fn read_las_header_lenient(file: &InFile) -> R<Header> {
+    read_las_header_with(file, false)
+}
+
+fn read_las_header_with(file: &InFile, terrain_limit: bool) -> R<Header> {
     let b = &file.bytes[..];
     let size = b.len() as f64;
-    if size > limits::FILE_BYTES {
+    if terrain_limit && size > limits::FILE_BYTES {
         return Err(too_big(&file.name, size));
     }
     if size < 227.0 {
@@ -404,6 +414,39 @@ pub fn scan_points(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, 
     if h.compressed { scan_laz(file, h, on_point) } else { scan_las(file, h, on_point) }
 }
 
+/// Every point record's bytes in file order (pointcloud.js `scanLas` reads intensity, class and colour besides x y z,
+/// so it decodes the records itself): a LAS file 4 MB of whole records at a time (a short last piece ends the scan
+/// after its whole records), a LAZ file through the decompressor — `min(count, …)` points, a point under 20 bytes
+/// refused, a decoder that stops adding the "stopped" note to `notes`. → records read.
+pub fn scan_records(file: &InFile, h: &Header, notes: &mut Vec<String>, on_rec: &mut dyn FnMut(&[u8]) -> R<()>) -> R<f64> {
+    if h.compressed {
+        return scan_laz_records(file, h, notes, 20.0, on_rec);
+    }
+    let l = h.record_length;
+    let per = 1.0f64.max((4.0 * 1048576.0 / l).floor());
+    let total = h.available;
+    let mut read = 0.0;
+    let mut i = 0.0;
+    let len = terrain::count_of(l);
+    while i < total {
+        let n = per.min(total - i);
+        let start = h.offset_to_points + i * l;
+        let dv = slice(&file.bytes, start, start + n * l);
+        let m = (dv.len() as f64 / l).floor();
+        if len > 0 {
+            for rec in dv.chunks_exact(len) {
+                on_rec(rec)?;
+            }
+        }
+        read += m;
+        if m < n {
+            break;
+        }
+        i += per;
+    }
+    Ok(read)
+}
+
 fn scan_las(file: &InFile, h: &Header, on_point: &mut dyn FnMut(f64, f64, f64, f64)) -> R<f64> {
     let l = h.record_length;
     let per = 1.0f64.max((2.0 * 1048576.0 / l).floor());
@@ -492,13 +535,23 @@ fn layered_chunk_end(b: &[u8], pos: usize, record: usize, words: usize) -> Optio
 // catch_unwind guards below turn that into an error; in the browser a panic aborts the page and loses the user's
 // work (AGENTS § 4), so the web build does not decode LAZ until a decoder that cannot panic is in place.
 #[cfg(target_arch = "wasm32")]
-fn scan_laz(_file: &InFile, h: &mut Header, _on_point: &mut dyn FnMut(f64, f64, f64, f64)) -> R<f64> {
-    h.notes.push(tr!("las.laz.stopped", read = locale_int(0.0), n = locale_int(h.count)));
+fn scan_laz_records(_file: &InFile, h: &Header, notes: &mut Vec<String>, _min: f64, _on_rec: &mut dyn FnMut(&[u8]) -> R<()>) -> R<f64> {
+    notes.push(tr!("las.laz.stopped", read = locale_int(0.0), n = locale_int(h.count)));
     Err(bad("las.bad.laz_open"))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f64, f64)) -> R<f64> {
+    let min = cc_civil::js::usize_of(h.format).and_then(|i| MIN_LEN.get(i)).copied().unwrap_or(f64::NAN);
+    let mut notes = Vec::new();
+    let hh: &Header = h;
+    let r = scan_laz_records(file, hh, &mut notes, min, &mut |rec| decode(hh, rec, 0.0, on_point));
+    h.notes.append(&mut notes);
+    r
+}
+
+/// The LAZ points' records (laz-rs); `min`: the shortest point the caller takes (`las.bad.laz_len` below it).
+#[cfg(not(target_arch = "wasm32"))]
+fn scan_laz_records(file: &InFile, h: &Header, notes: &mut Vec<String>, min: f64, on_rec: &mut dyn FnMut(&[u8]) -> R<()>) -> R<f64> {
     let b = &file.bytes[..];
     // laz-perf reads the LASzip record and the chunk table itself; laz-rs is given them
     let vlr = h.vlrs.iter().find(|v| v.user == "laszip encoded" && v.id == 22204.0).cloned().ok_or_else(|| bad("las.bad.laz_open"))?;
@@ -514,7 +567,7 @@ fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f6
     // a LASzip point takes at least a few bits: a count far past what the bytes can hold is a damaged header (the
     // bound keeps a decoder that pads past the end from running for billions of points)
     let n = h.count.min(h.size * 64.0);
-    if (len as f64) < cc_civil::js::usize_of(h.format).and_then(|i| MIN_LEN.get(i)).copied().unwrap_or(f64::NAN) {
+    if (len as f64) < min || min.is_nan() {
         return Err(bad("las.bad.laz_len"));
     }
     if h.vlr_overrun || !chunk_table_sane(b, h.offset_to_points) {
@@ -551,7 +604,7 @@ fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f6
         {
             let next = chunk_at.and_then(|at| layered_chunk_end(b, at, len, k));
             let Some(next) = next else {
-                h.notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
+                notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
                 break;
             };
             chunk_at = Some(next);
@@ -564,10 +617,10 @@ fn scan_laz(file: &InFile, h: &mut Header, on_point: &mut dyn FnMut(f64, f64, f6
         left_in_chunk = left_in_chunk.saturating_sub(1);
         let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| dec.decompress_one(&mut buf)));
         if !matches!(ok, Ok(Ok(()))) {
-            h.notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
+            notes.push(tr!("las.laz.stopped", read = locale_int(i), n = locale_int(n)));
             break;
         }
-        decode(h, &buf, 0.0, on_point)?;
+        on_rec(&buf)?;
         read += 1.0;
         i += 1.0;
     }

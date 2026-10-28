@@ -20,11 +20,27 @@ pub struct Scene3D {
     pub max: [f64; 3],
     /// the picking tree, made on the first pick
     pub picker: Arc<std::sync::OnceLock<Picker>>,
+    /// a point cloud drawn with the scene (CadCraft's 3D tab: the cloud under the drawing)
+    pub cloud: Option<CloudLayer>,
+}
+
+/// A point cloud in a 3D scene: its points and colours (shared, not copied) and how they are drawn.
+#[derive(Clone, Debug)]
+pub struct CloudLayer {
+    pub cloud: Arc<cc_io_civil::pointcloud::Cloud>,
+    pub colors: Arc<Vec<u8>>,
+    pub draw: cc_render::points3::CloudDraw,
+}
+impl CloudLayer {
+    /// What the GPU copy was made from (the same arrays: no upload).
+    fn key(&self) -> (usize, usize) {
+        (Arc::as_ptr(&self.cloud) as usize, Arc::as_ptr(&self.colors) as usize)
+    }
 }
 
 impl Scene3D {
     pub fn new(id: u64, meshes: Vec<MeshData>, instances: Vec<Instance3>, min: [f64; 3], max: [f64; 3]) -> Scene3D {
-        Scene3D { id, version: 0, meshes: Arc::new(meshes), instances: Arc::new(instances), min, max, picker: Arc::default() }
+        Scene3D { id, version: 0, meshes: Arc::new(meshes), instances: Arc::new(instances), min, max, picker: Arc::default(), cloud: None }
     }
     /// Hide some instances (a storey, a class): not drawn, not picked.
     pub fn set_hidden(&mut self, hidden: &dyn Fn(usize) -> bool) {
@@ -149,6 +165,10 @@ pub struct Gpu3 {
     /// what the target shows now: (scene id, version, camera, style)
     shown: Option<(u64, u64, Cam3, Style3)>,
     pub last: Stats3,
+    /// point clouds: the pipeline, the cloud on the GPU (and what it was made from), what the target shows of it
+    points: cc_render::points3::Points3,
+    cloud: Option<((usize, usize), cc_render::points3::GpuCloud)>,
+    shown_cloud: Option<((usize, usize), cc_render::points3::CloudDraw)>,
 }
 
 /// Install the 3D renderer next to the 2D one (hosts call [`crate::canvas::install_gpu`], which calls this).
@@ -164,6 +184,9 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         tex_loaded: 0,
         shown: None,
         last: Stats3::default(),
+        points: cc_render::points3::Points3::new(&rs.device),
+        cloud: None,
+        shown_cloud: None,
     };
     rs.renderer.write().callback_resources.insert(g);
 }
@@ -225,6 +248,16 @@ impl egui_wgpu::CallbackTrait for Callback {
             g.shown = None;
         }
         let key = (self.scene.id, self.scene.version, self.cam, self.style);
+        // a point cloud: uploaded once per cloud (and colours), drawn after the scene into the same target
+        let ckey = self.scene.cloud.as_ref().map(|c| (c.key(), c.draw));
+        if let Some(c) = &self.scene.cloud
+            && g.cloud.as_ref().is_none_or(|(k, _)| *k != c.key())
+        {
+            g.cloud = Some((c.key(), cc_render::points3::GpuCloud::upload(device, &c.cloud.pos, &c.colors)));
+        }
+        if g.shown_cloud != ckey {
+            g.shown = None;
+        }
         if g.shown != Some(key)
             && let (Some((t, _)), Some(set)) = (&g.target, &g.instances)
         {
@@ -236,7 +269,11 @@ impl egui_wgpu::CallbackTrait for Callback {
                 &self.cam,
                 &self.style,
             );
+            if let (Some(c), Some((_, gc))) = (&self.scene.cloud, &g.cloud) {
+                g.points.render(device, queue, t, &self.cam, gc, &c.draw);
+            }
             g.shown = Some(key);
+            g.shown_cloud = ckey;
         }
         Vec::new()
     }

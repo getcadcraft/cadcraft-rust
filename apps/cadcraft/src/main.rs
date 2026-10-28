@@ -181,6 +181,13 @@ fn pick_open() -> Option<Result<ImportedFile, String>> {
                 "dxf",
                 "DWG",
                 "DXF",
+                // point clouds go under the drawing (cloud-cad.js, 0.5 SG.1)
+                "las",
+                "laz",
+                "pts",
+                "xyz",
+                "LAS",
+                "LAZ",
                 "modelcraft",
                 "ifc",
                 "IFC",
@@ -218,6 +225,8 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
         rfd::FileDialog::new().add_filter("Library items", &["json", "JSON"])
     } else if kind == "lisp" {
         rfd::FileDialog::new().add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua", "LSP", "DCL"])
+    } else if kind == "cloud" {
+        rfd::FileDialog::new().add_filter("Point clouds", &["las", "laz", "xyz", "pts", "LAS", "LAZ", "XYZ", "PTS"])
     } else {
         rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"])
     };

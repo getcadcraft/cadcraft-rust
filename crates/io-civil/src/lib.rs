@@ -43,6 +43,7 @@ pub mod kml;
 pub mod landxml;
 pub mod las;
 pub mod plot;
+pub mod pointcloud;
 pub mod raster;
 pub mod scene;
 pub mod script;

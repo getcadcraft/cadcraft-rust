@@ -447,15 +447,15 @@ impl Default for Style3 {
 pub struct Target3 {
     pub width: u32,
     pub height: u32,
-    msaa: wgpu::TextureView,
+    pub(crate) msaa: wgpu::TextureView,
     pub color: wgpu::Texture,
     pub view: wgpu::TextureView,
-    depth: wgpu::TextureView,
+    pub(crate) depth: wgpu::TextureView,
 }
 
 /// The colour format of [`Target3`].
 pub const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const SAMPLES: u32 = 4;
+pub(crate) const SAMPLES: u32 = 4;
 
 impl Target3 {
     pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Target3 {

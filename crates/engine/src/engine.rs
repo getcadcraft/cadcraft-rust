@@ -284,6 +284,18 @@ pub trait Host {
     fn dialog_run(&mut self) -> Pick<cc_lisp::host::DlgEvent> {
         Pick::Unsupported
     }
+    /// `host.cloud` (cloud-cad.js `CloudAttach`): the window's point cloud — one per window, under whichever drawing
+    /// shows, never part of the drawing; None when the host has none (POINTCLOUDATTACH then says so).
+    fn cloud(&self) -> Option<Rc<RefCell<crate::cloud::CloudAttach>>> {
+        None
+    }
+    /// `host.pickCloud()` (POINTCLOUDATTACH): a LAS / LAZ / XYZ / PTS file (name and bytes), or None; later through
+    /// [`Engine::deliver_files`].
+    fn pick_cloud(&mut self) -> Pick<Option<PickedFile>> {
+        Pick::Unsupported
+    }
+    /// `host.zoomCloud()`: fit the view to the cloud's box (drawing units).
+    fn zoom_cloud(&mut self, _b: Bounds) {}
 }
 
 /// A window "Select objects" was given: a rectangle, or a lasso's outline (STRETCH stretches what they hold).
@@ -1096,6 +1108,11 @@ impl Engine {
             self.resolve(Reply::Dialog(ev));
         }
     }
+    /// cadcraft.js `openLocal` for a point cloud (OPEN, a dropped file): attached at its own coordinates, under the
+    /// drawing; what happened is printed. → true when it was attached.
+    pub fn open_cloud(&mut self, file: PickedFile) -> bool {
+        crate::cmd::cloud::attach_now(&self.sh, file)
+    }
     /// The files a picker that answered [`Pick::Later`] has read (empty = cancelled).
     pub fn deliver_files(&mut self, f: Vec<PickedFile>) {
         if matches!(self.waiting_info(), Some((Kind::File, _, _))) {
@@ -1301,6 +1318,19 @@ impl Ctx {
             Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
                 Reply::Files(f) => Ok(Some(f)),
                 _ => Ok(Some(Vec::new())),
+            },
+        }
+    }
+
+    /// `await c.host.pickCloud()`: None when the host cannot pick one, Some(None) when nothing was picked.
+    pub async fn pick_cloud(&self, prompt: String) -> R<Option<Option<PickedFile>>> {
+        let p = self.sh.host.borrow_mut().pick_cloud();
+        match p {
+            Pick::Unsupported => Ok(None),
+            Pick::Now(f) => Ok(Some(f)),
+            Pick::Later => match self.ask(Kind::File, prompt, Opts::default()).await? {
+                Reply::Files(f) => Ok(Some(f.into_iter().next())),
+                _ => Ok(Some(None)),
             },
         }
     }

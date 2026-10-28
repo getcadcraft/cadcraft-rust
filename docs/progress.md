@@ -2,6 +2,56 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.50 point clouds under the drawing, M4.51 SWBOUT (agent, work/cadcloud)
+
+The last two pieces of CadCraft 0.5's command table.
+
+- **POINTCLOUDATTACH (PCATTACH) / POINTCLOUD (PC)** (cloud-cad.js over pointcloud.js): a LAS / LAZ / XYZ / PTS cloud
+  under the drawing at the file's own coordinates (Enter) or with its lower-left corner at a point; Slice, Height,
+  Thickness, Color (file / height / intensity / class / one), Size, Visible, Zoom, Detach. A building-size scan starts
+  as a plan cut 1.2 m above its lowest point. The window's Open (and a dropped LAS / LAZ / PTS, or an XYZ while a
+  drawing is open) attaches a cloud as 0.5's openLocal does. One cloud per window (it stays when another drawing
+  opens), never in the DWG / DXF, never in undo.
+- **Engine change (io-civil, said so in the task):** `las::read_las_header_lenient` (pointcloud.js reads past
+  CivilCraft's 200 MB terrain limit, to its own 2000 MB) and `las::scan_records` (every raw record — pointcloud.js reads
+  intensity, class and colour, not just x y z; LAZ through the same laz-rs path, now `scan_laz_records`, which
+  CivilCraft's `scan_points` keeps using). New `cc_io_civil::pointcloud` (pointcloud.js: sniff, info, the even keep
+  budget, colours, slices, the plan snap grid — a dense cell table where the JS keys a Map, same answers — summary)
+  and `cc_engine::cloud` (CloudAttach: units, slice spec, snap, the z-buffered picture drawn in bands of rows in
+  parallel, matrix3d) with the commands in `cmd/cloud.rs`. The crs catalog is loaded before a LAS header is read, as
+  the page loads crs-db.json. Tests: `io-civil/tests/pointcloud.rs` (LAS files made in the test), `engine/tests/cloud.rs`.
+- **The window:** the picture as a texture under the linework (model, and each sheet viewport through its window), Node
+  snap to the drawn points (priority 3, label "Point cloud"), the picker for PCATTACH ("Point clouds" filter) and the
+  cloud on the **3D tab** (new `cc_render::points3`: round sprites of the cloud's size, depth-tested with the solids,
+  the slice as a band; placement and camera combined in f64 so survey coordinates stay steady; the far plane takes the
+  cloud in). The ribbon's point cloud buttons (M4.45) now run. LAZ in the web build is refused as CivilCraft's web
+  build refuses it (no LAZ decoding in wasm: "This LAZ file could not be opened").
+- **SWBOUT (SWMACRO)** (swsketch.js `docToSwb`, in `cc_gcons::swsketch`): the SolidWorks macro, handed to the host's
+  download. `Number(v.toFixed(f))` is worked out exactly from the double's bits and `toPrecision(15)` skipped when the
+  shortest form already fits (200,000-value test against the text conversions); 2.1–2.3× the JS.
+- **Parity (0 differences):** `kdiff-cadcloud.mjs` (kdiff.mjs + the cloud stub host, laz-perf 0.0.7 and crs-db.json as
+  the page loads them; records carry the cloud's state with its arrays hashed; inputs that snap to and draw the cloud):
+  6 cloud scenarios **224/224** (LAS 1.2 formats 0 / 2 / 3, LAS 1.4 formats 7 / 8, LAZ 1.2 / 1.4, XYZ, PTS; refusals;
+  drawing units; sheets; saves), 4 SWBOUT scenarios **176/176**; full run seed 1 (90 scenarios + 8 random scripts)
+  **5250/5250**. `pcbench-cadcloud.mjs`: 13 files incl. 10.6 M-point LAS, 3 M-point LAZ and XYZ — read, keep, colours,
+  the 1600 × 1000 picture (every point and the slice) and 1000 snaps **identical**. `idiff-cadcloud.mjs --save --cloud`
+  (the room scan attached, slice off, coloured by height, then saved): **7 × 78/78** byte-identical. SWBOUT on 208 DWG /
+  DXF files (dwg-corpus, dwg-samples, carey, fixtures): **208/208** identical bytes and lines.
+- **Speed** (best of 3, ms, JS / Rust; 1600 × 1000 pane): big-90mb.las (3 M read, 2 M kept): open 119 / 53 (2.2×),
+  colours 65 / 26, draw 69 / 20 (3.4×), redraw 86 / 11 (8.1×), snap grid 508 / 53 (9.6×), 1000 snaps 10.8 / 2.3;
+  big-210mb (10.6 M read): open 243 / 85 (2.9×), draw 36 / 22, redraw 31 / 12, grid 83 / 35; 3 M-point LAZ: open 772 /
+  307 (2.5×); 3 M-point XYZ: open 870 / 269 (3.2×); room LAS: open 17.8 / 1.3. A slice's draw (few points: the pane's
+  clear dominates) 2.2 / 2.7 and the first draw of a process (Rayon's pool starting) are the slower ones. SWBOUT on
+  ar1all (5,634 lines): 38 / 18 ms.
+- Fuzz: new target `cad_pointcloud` (cloud reader, colours, slice, grid, draw), 300 s, 28,848 runs, nothing found.
+- Large files made once (LARGE-FILES.md): `generated/pointcloud/big-90mb-3000000.laz`, `big-3000000.xyz`
+  (`forks/tools/pointcloud-mklaz`).
+- Screenshots: `forks/lead/shots/cadcloud/01-attach.png` … `08-ribbon-insert.png` (slice, every point, height colours
+  with the snap marker, the 10.6 M-point cloud, a sheet's viewports, the 3D tab with every point and with the slice,
+  the ribbon button).
+- Not done: the picture is made again on every pan / zoom (no overscan; 11 ms for 2 M points); a cloud file is read
+  whole before the 2000 MB check; the 3D tab's Zoom Extents takes the drawing's box, not the cloud's (as 0.5).
+
 ## 2026-10-28 — M4.48 3D tab after the drafting merge: bases with and without z, the unit read, NaN clicks (agent, work/cad3dfix)
 
 - The merged kdiff (kdiff-draftmerge) found more 3D-tab differences already in main; with M4.27–M4.29 and these, its

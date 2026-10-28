@@ -38,6 +38,7 @@ pub mod civilsections;
 pub mod civilsheets;
 pub mod civiltools;
 pub mod civilview;
+pub mod cloudview;
 pub mod detail3d;
 pub mod detailexport;
 pub mod detailpanel;
@@ -469,6 +470,10 @@ impl UiApp {
         }
         // a .lsp / .dcl dropped on the drawing being edited loads (appload.js); compiled files are refused with why
         if lispdlg::open_app_file(self, f) {
+            return;
+        }
+        // a point cloud goes under the drawing at its own coordinates (cadcraft.js openLocal, 0.5 SG.1)
+        if cloudview::open_cloud(self, f) {
             return;
         }
         self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
@@ -1675,6 +1680,7 @@ impl UiApp {
             let (kind, multiple) = match req {
                 edit::PickReq::Drawing => ("drawing", false),
                 edit::PickReq::Pictures { multiple } => ("pictures", multiple),
+                edit::PickReq::Cloud => ("cloud", false),
             };
             match self.services.pick_files.as_mut().map(|f| f(kind, multiple)) {
                 Some(Some(files)) => deliver_pick(ed, req, files),
@@ -2441,7 +2447,12 @@ impl UiApp {
         }
         let pictures = self.picture_textures(ui.ctx());
         let Some(doc) = &self.doc else { return };
+        let underlay = match self.editor.as_ref() {
+            Some(ed) => cloudview::underlay_for(ui.ctx(), ed, rect, ppp, &doc.drawing, self.space, &view),
+            None => Vec::new(),
+        };
         let frame = canvas::Frame {
+            underlay: &underlay,
             pictures: &pictures,
             drawing: &doc.drawing,
             geometry: &doc.geometry,
@@ -2611,12 +2622,19 @@ impl UiApp {
                 "cen" => {
                     painter.circle_stroke(c, 6.0, st);
                 }
+                "cloud" => {
+                    // a point cloud's point: Node's marker (a circle with a cross)
+                    painter.circle_stroke(c, 6.0, st);
+                    painter.line_segment([c + egui::vec2(-6.0, -6.0), c + egui::vec2(6.0, 6.0)], st);
+                    painter.line_segment([c + egui::vec2(-6.0, 6.0), c + egui::vec2(6.0, -6.0)], st);
+                }
                 _ => {
                     painter.line_segment([c + egui::vec2(-6.0, -6.0), c + egui::vec2(6.0, 6.0)], st);
                     painter.line_segment([c + egui::vec2(-6.0, 6.0), c + egui::vec2(6.0, -6.0)], st);
                 }
             }
-            painter.text(c + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, s.kind, egui::FontId::proportional(11.0), st.color);
+            let label = if s.kind == "cloud" { edit::lang_text("pc.snap", &[]) } else { s.kind.to_string() };
+            painter.text(c + egui::vec2(10.0, 10.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), st.color);
         }
         // the selection window: blue solid (window) / green dashed-looking (crossing), as CadCraft draws it
         let hover = ui.ctx().pointer_hover_pos();
@@ -2807,7 +2825,7 @@ fn deliver_pick(ed: &mut edit::Editor, req: edit::PickReq, files: Vec<ImportedFi
             });
             ed.eng.deliver_drawing(got);
         }
-        edit::PickReq::Pictures { .. } => {
+        edit::PickReq::Pictures { .. } | edit::PickReq::Cloud => {
             ed.eng.deliver_files(files.into_iter().map(|f| cc_engine::PickedFile { name: f.name, bytes: f.bytes }).collect());
         }
     }

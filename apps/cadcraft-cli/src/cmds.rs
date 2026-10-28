@@ -69,6 +69,9 @@ struct Stub {
     linked: bool,
     /// the script's `now`: the clock the JS side fixes (Date.now)
     now: Option<f64>,
+    /// the window's point cloud (cloud-cad.js `host.cloud`) and what `host.pickCloud()` hands over (M4.50)
+    cloud: Rc<RefCell<cc_engine::cloud::CloudAttach>>,
+    clouds: std::collections::VecDeque<Option<cc_engine::PickedFile>>,
 }
 
 /// Standard base64 (the script's picture bytes) → bytes; None on anything else.
@@ -357,6 +360,20 @@ impl Host for Stub {
     fn set_cursor(&mut self, p: P2) {
         self.log.borrow_mut().cursor = Some(p);
     }
+    // a point cloud under the drawing, as kdiff-cadcloud.mjs's stub has it (M4.50)
+    fn cloud(&self) -> Option<Rc<RefCell<cc_engine::cloud::CloudAttach>>> {
+        Some(Rc::clone(&self.cloud))
+    }
+    fn pick_cloud(&mut self) -> cc_engine::Pick<Option<cc_engine::PickedFile>> {
+        self.log.borrow_mut().events.push(json!(["pickCloud"]));
+        cc_engine::Pick::Now(self.clouds.pop_front().flatten())
+    }
+    fn zoom_cloud(&mut self, b: Bounds) {
+        self.log
+            .borrow_mut()
+            .events
+            .push(json!(["zoomCloud", { "minX": num(b.min_x), "minY": num(b.min_y), "maxX": num(b.max_x), "maxY": num(b.max_y) }]));
+    }
 }
 
 /// FNV-1a (64-bit) of bytes, as hex: a saved DWG in the records (kdiff-cad3d.mjs hashes the JS bytes the same way).
@@ -439,6 +456,7 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
     let lang = Lang::new(script.get("strings").unwrap_or(&Value::Null));
     let log = Rc::new(RefCell::new(Log { cursor: Some(P2::new(0.0, 0.0)), ..Log::default() }));
     let spaces: Sheets = Rc::default();
+    let cloud: Rc<RefCell<cc_engine::cloud::CloudAttach>> = Rc::default();
     let (drawings, pictures) = files_of(script);
     let library = script
         .get("files")
@@ -467,6 +485,8 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         lasso: true,
         linked: false,
         now: script.get("now").and_then(Value::as_f64),
+        cloud: Rc::clone(&cloud),
+        clouds: crate::cloudcli::clouds_of(script, &b64),
     };
     let mut eng = Engine::new(doc, Box::new(stub), lang);
     if let Some(now) = script.get("now").and_then(Value::as_f64) {
@@ -547,6 +567,16 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
             ret = Value::Bool(eng.open3d());
         } else if inp.get("hide3d").is_some() {
             eng.hide3d();
+        } else if let Some(f) = inp.get("openCloud") {
+            // the window's Open with a point cloud (cadcraft.js openLocal → attachFile)
+            if let Some(f) = crate::cloudcli::file_of(f, &b64) {
+                eng.open_cloud(f);
+            }
+        } else if inp.get("cloudSnap").is_some() || inp.get("cloudDraw").is_some() {
+            let units = cc_engine::cmd::cloud::units_of(&eng.doc());
+            if let Some(e) = crate::cloudcli::input(&mut cloud.borrow_mut(), inp, &units) {
+                log.borrow_mut().events.push(e);
+            }
         } else if let Some(w) = inp.get("ws") {
             let e = ev3_of(w);
             match w.get("kind").and_then(Value::as_str).unwrap_or("click") {
@@ -625,6 +655,11 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         });
         drop(l);
         let mut rec = rec;
+        // M4.50: the point cloud under the drawing, while one is attached
+        let units = cc_engine::cmd::cloud::units_of(&eng.doc());
+        if let (Some(c), Some(o)) = (crate::cloudcli::state(&mut cloud.borrow_mut(), &units), rec.as_object_mut()) {
+            o.insert("cloud".into(), c);
+        }
         // M4.25: the 3D tab, once it was opened (and its model is the drawing's model)
         if let (Some(w), Some(o)) = (ws_state(&eng), rec.as_object_mut()) {
             o.insert("ws".into(), w);

@@ -78,6 +78,13 @@ ask questions (`Prompter::ask`), answered by a runtime-free `Runner` (the host f
 (`cc-ui-egui::edit`) owns the Editor: pick, window, object snap (view.js priorities), ortho, preview; after each
 change the canvas rebuilds its display model with `cc_cad_geom::display::doc_drawing`.
 
+A point cloud under the drawing (M4.50, cloud-cad.js) is the host's, not the drawing's: `cc_engine::cloud::CloudAttach`
+(one per window; the UI keeps it in `cloudview.rs`) over `cc_io_civil::pointcloud` (pointcloud.js: LAS / LAZ through
+CivilCraft's reader — `las::scan_records` hands over each raw record — and XYZ / PTS text). The 2D view draws its
+picture (the engine's z-buffered splat, bands of rows in parallel) as a texture under the linework, object snap takes
+its points after the drawing's own, and the 3D tab draws it on the GPU (`cc_render::points3`: round sprites, the
+placement and camera combined in f64 so survey coordinates stay steady). SWBOUT (M4.51) is `cc_gcons::swsketch`.
+
 Files: `cc_io_cad::import_dwg` (dwg-import.js over `read_dwg`) / `read_dxf` → `Doc::load`; `write_dxf` (R12),
 `write_dxf2000`, `dwg_save::save_dwg` (dwg-save.js → `cc_io_dwg::write_dwg_opts`). All byte-identical to the 0.5 JS
 (harnesses outside the repo: gdiff, kdiff, wdiff, idiff). V8's sin/cos are fdlibm's: `cc-cad-geom::jsmath` ports them.

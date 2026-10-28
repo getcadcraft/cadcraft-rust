@@ -4,6 +4,7 @@ pub mod arrange;
 pub mod block;
 pub mod blockcopy;
 pub mod clipcmd;
+pub mod cloud;
 pub mod corner;
 pub mod dim;
 pub mod draw;
@@ -261,6 +262,9 @@ pub static COMMANDS: &[CmdDef] = &[
     CmdDef { no_repeat: true, keep_selection: true, ..def("ZOOM", &["Z"], |c| Box::pin(view::zoom(c))) },
     CmdDef { no_repeat: true, ..def("UNDO", &["U"], |c| Box::pin(view::undo(c))) },
     CmdDef { no_repeat: true, ..def("REDO", &[], |c| Box::pin(view::redo(c))) },
+    // a point cloud under the drawing (cloud-cad.js, 0.5 SG.1)
+    quiet(def("POINTCLOUDATTACH", &["PCATTACH", "POINTCLOUDATT"], |c| Box::pin(cloud::pointcloudattach(c)))),
+    quiet(def("POINTCLOUD", &["PC"], |c| Box::pin(cloud::pointcloud(c)))),
     // the 3D commands (commands3d.js install3d, installed last as in 0.5)
     def("EXTRUDE", &["EXT"], |c| Box::pin(solid3d::extrude(c))),
     def("SWEEP", &[], |c| Box::pin(solid3d::sweep(c))),

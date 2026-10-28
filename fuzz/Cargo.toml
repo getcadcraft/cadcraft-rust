@@ -381,3 +381,10 @@ path = "fuzz_targets/cad_lisp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "cad_pointcloud"
+path = "fuzz_targets/cad_pointcloud.rs"
+test = false
+doc = false
+bench = false

@@ -105,6 +105,8 @@ pub struct Frame<'a> {
     pub line_px: f32,
     /// the picture files loaded as textures, by the name a drawing gives them (`SpaceImage::file`)
     pub pictures: &'a HashMap<String, egui::TextureId>,
+    /// a point cloud under the drawing (cloudview.rs): its pictures, where they go and their clips
+    pub underlay: &'a [(egui::TextureId, Rect, Rect)],
 }
 
 fn rgba(c: Color32) -> [f32; 4] {
@@ -189,6 +191,8 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
             slot += 1;
         }
     }
+    // a point cloud under the drawing (view.js underlay: after the background, before the linework)
+    crate::cloudview::paint(&painter, f.underlay);
     // pictures under the linework (pictures.js draws them after the fills): the model's inside each viewport, then the
     // space's own
     if paper && let Some(mi) = model {

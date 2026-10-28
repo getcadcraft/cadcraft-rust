@@ -19,6 +19,7 @@
 //!                                                --bench N: best-of-N write time after one warm-up
 //!   cadcraft-cli mcp [--root DIR]… [--allow …]     CadCraft's tools for an AI assistant over stdio (MCP), mcp.rs
 //!   cadcraft-cli cmds <script.json>              dev: drive the command line with a stub host (forks/tools/kdiff.mjs) → JSON
+//!   cadcraft-cli cloudbench <file> [units]         dev: a point cloud opened, drawn and snapped to, hashed and timed (pcbench-cadcloud.mjs)
 //!   cadcraft-cli lisp <programs.json> [--bench N]   dev: CadCraft's LISP with no drawing (forks/tools/lispdiff.mjs), lisp.rs
 //!   cadcraft-cli import <file.dwg|file.dxf> [--doc]  dev: the drafting app's doc.load input (or Doc snapshot), iocad.rs
 //!   cadcraft-cli dxf-out <in.dwg|in.dxf> <out.dxf>   dev: import → Doc → DXF R12 (writeDxf), iocad.rs
@@ -46,6 +47,7 @@
 
 mod bim;
 mod civil;
+mod cloudcli;
 mod cmds;
 mod crosssection;
 mod detail;
@@ -97,6 +99,7 @@ fn main() -> ExitCode {
         "dynvis" => dynvis(&rest),
         "cmds" => cmds::cmds(&rest),
         "lisp" => lisp::lisp(&rest),
+        "cloudbench" => cloudcli::bench(&rest),
         "mcp" => mcp::run(&rest.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),

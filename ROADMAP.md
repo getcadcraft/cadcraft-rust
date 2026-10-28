@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-10-28 M4.50–M4.51: POINTCLOUDATTACH / POINTCLOUD (pointcloud.js over io-civil raw LAS / LAZ records; the cloud under the drawing, its snap, sheet viewports, the 3D tab on the GPU) and SWBOUT: kdiff 224/224 + 176/176, full seed 1 5250/5250, 13 clouds identical (10.6 M points), saves 7 × 78/78, SWBOUT 208/208 files; open 2.2–3.2×, redraw 2.7–8×, snap grid 2.3–10× the JS.
 - 2026-10-27 M15.3: web speed: a browser CPU profile showed 74 % of a cold Carey read in dlmalloc's memory growth and V8's GC; wasmalloc on the web: Carey first read 1,835 → 417 ms (JS 975), open → first frame 2,686 → 717 ms (JS 1,730); display list trig as V8 (web = desktop = 0.5 JS exactly on 149 DWGs + 156 DXFs); wasm-opt pinned (Ubuntu's binaryen 108 broke the build: the live test site does not start).
 - 2026-10-21 M11.17: GeoTIFF tiles under one pixel refused (civil_raster fuzz timeout: a 7.7e-304 TileLength walked ~1e305 tile rows); regression test + seed.
 - 2026-10-21 M4.40: CadCraft's LISP (new crate cc-lisp; APPLOAD, (command …), DCL dialogs, vla-, ALIASEDIT / REINIT / DELBLOCKS; MCP script_run lisp): lispdiff 6 × 2366/2366, kdiff-cadlisp 571/571, mcpdiff 304/304; 1.8–4.8× the JS.

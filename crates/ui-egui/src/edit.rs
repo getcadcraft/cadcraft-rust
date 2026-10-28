@@ -56,6 +56,7 @@ fn snap_priority(kind: &str) -> u8 {
         "mid" | "cen" | "ins" => 1,
         "quad" | "perp" | "tan" => 2,
         "near" => 9,
+        "cloud" => 3,
         _ => 5,
     }
 }
@@ -145,6 +146,8 @@ pub enum PickReq {
     Drawing,
     /// PNG / JPEG files (IMAGEATTACH: one; IMAGE: several)
     Pictures { multiple: bool },
+    /// a LAS / LAZ / XYZ / PTS point cloud (POINTCLOUDATTACH)
+    Cloud,
 }
 
 impl HostState {
@@ -505,6 +508,21 @@ impl Host for UiHost {
         self.0.borrow_mut().pick_req = Some(PickReq::Pictures { multiple });
         cc_engine::Pick::Later
     }
+    /// the window's point cloud (one per window: it stays when another drawing opens)
+    fn cloud(&self) -> Option<Rc<RefCell<cc_engine::cloud::CloudAttach>>> {
+        Some(crate::cloudview::cloud())
+    }
+    fn pick_cloud(&mut self) -> cc_engine::Pick<Option<cc_engine::PickedFile>> {
+        if !self.0.borrow().can_pick {
+            return cc_engine::Pick::Unsupported;
+        }
+        self.0.borrow_mut().pick_req = Some(PickReq::Cloud);
+        cc_engine::Pick::Later
+    }
+    /// cadcraft.js `zoomCloud`: `view.fitPoints([min, max])` (margin 0.9, as a Zoom window)
+    fn zoom_cloud(&mut self, b: Bounds) {
+        self.0.borrow_mut().zoom.push(Zoom::Window(P2::new(b.min_x, b.min_y), P2::new(b.max_x, b.max_y), false));
+    }
 }
 
 /// The viewport (turned on) of the open sheet under a point.
@@ -624,7 +642,11 @@ impl Editor {
         let base = self.eng.state().base;
         let shift = self.hs.borrow().shift;
         if self.osnap && !shift && px_per_unit > 0.0 {
-            let s = snap(&self.eng.doc(), raw, 10.0 / px_per_unit, SNAP_KINDS, base);
+            let r = 10.0 / px_per_unit;
+            let s = snap(&self.eng.doc(), raw, r, SNAP_KINDS, base);
+            // view.js snapExtra: a point cloud's points (Node), after the drawing's own
+            let pr = s.as_ref().map_or(u8::MAX, |s| snap_priority(s.kind));
+            let s = crate::cloudview::snap(self, raw, r, s.as_ref(), pr).or(s);
             if let Some(s) = s {
                 let p = P2::new(s.x, s.y);
                 self.snap = Some(s);

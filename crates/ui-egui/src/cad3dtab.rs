@@ -460,9 +460,15 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
         let extra = ws.selection_lines(doc, &sel2d);
         (cam, style, extra)
     });
-    let Some((cam, style, extra)) = painted else { return };
+    let Some((mut cam, style, extra)) = painted else { return };
     if let Some(sc) = app.tab3d.scene.as_ref() {
-        crate::view3d::paint(ui, rect, sc, &cam, &style);
+        // the point cloud under the drawing (ws3d.js cloudChanged): its lowest point on the ground
+        let cloud = app.editor.as_ref().and_then(|ed| crate::cloudview::layer3d(ed, ppp));
+        if let Some(c) = &cloud {
+            crate::cloudview::reach(&mut cam, c);
+        }
+        let sc = crate::view3d::Scene3D { cloud, ..sc.clone() };
+        crate::view3d::paint(ui, rect, &sc, &cam, &style);
     }
     let Some(ed) = app.editor.as_ref() else { return };
     ed.eng.with_ws3d(|ws, _| overlay(ui, rect, ws, &extra, &t));
