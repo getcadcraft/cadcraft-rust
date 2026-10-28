@@ -300,6 +300,20 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: search=<text> | fits | near=<lat, long> | choose=<EPSG code> | prj (the picker) | mode=grid|ground|local | csf= | be= | bn= (base E, N) | ae= | an= | az= (the factor's point) | compute | usef | cp=<0|1|2>:<n|ge|gn|ll|xy>=<value> | pick=factor|cp0|cp1|cp2 (then a plan click) | grid=file|off|cdn:<name> | apply | remove | close} → gis-crs-ui.js's dialog; Apply may ask (civil.ask)",
     ),
+    (
+        "civil.terrain",
+        "Terrain import dialog",
+        "",
+        "{name: area=extents|view|all | margin=<n> | spacing=<n> | mode=nearest|lowest|average | z=m|ft|ftUS | as=points|surface | class=<c>:on|off | adopt=on|off | pickfile | pickproj | go | cancel} → gis-terrain-ui.js's dialog (an elevation grid or LiDAR file opened); go imports (one undo step; may ask to replace the surface)",
+    ),
+    ("civil.terrain.info", "Terrain import facts", "", "{} → the terrain dialog's facts, systems, settings and plan, on the status line"),
+    (
+        "civil.geotiff",
+        "Surface as a GeoTIFF",
+        "",
+        "{name: open | close | surface=eg|fg | cell=<size> | go} → an elevation grid of the surface through the save service",
+    ),
+    ("civil.geotiff.info", "GeoTIFF export facts", "", "{} → the GeoTIFF section's size and system lines, on the status line"),
     ("civil.crs.info", "Coordinates facts", "", "{} → what the Coordinates window shows, on the status line"),
     (
         "civil.ask",
@@ -2049,6 +2063,36 @@ pub fn is_map_file(lower: &str) -> bool {
     [".png", ".jpg", ".jpeg", ".pgw", ".pngw", ".jgw", ".jpgw", ".jpegw", ".tfw", ".tifw", ".wld"].iter().any(|e| lower.ends_with(e))
 }
 
+/// A file CivilCraft's terrain, GeoTIFF picture or CAD linework openers take.
+pub fn is_terrain_file(lower: &str) -> bool {
+    [".las", ".laz", ".asc", ".tif", ".tiff"].iter().any(|e| lower.ends_with(e))
+}
+
+/// gis-terrain-ui.js / gis-map-ui.js / gis-cad-ui.js openers: LiDAR and ASCII grids, elevation TIFFs → the terrain
+/// dialog; an RGB TIFF → a map layer picture (with a world file and .prj already opened); DWG / DXF → linework.
+pub fn open_terrain(app: &mut UiApp, f: &ImportedFile) {
+    let Some(cv) = app.civil.as_mut() else { return };
+    let lower = f.name.to_ascii_lowercase();
+    let tif = lower.ends_with(".tif") || lower.ends_with(".tiff");
+    let world = cv.maps.files.iter().find(|(n, _)| {
+        let l = n.to_ascii_lowercase();
+        [".tfw", ".tifw", ".wld"].iter().any(|e| l.ends_with(e))
+    });
+    if tif && (world.is_some() || !crate::civilterrain::is_elevation_tiff(&f.bytes)) {
+        let w = world.map(|(_, b)| b.clone());
+        let prj = cv
+            .maps
+            .files
+            .iter()
+            .find(|(n, _)| n.to_ascii_lowercase().ends_with(".prj"))
+            .map(|(n, b)| (n.clone(), String::from_utf8_lossy(b).into_owned()));
+        cv.maps.files.clear();
+        cv.pic_tiff(&f.name, &f.bytes, w.as_deref(), prj);
+        return;
+    }
+    cv.terrain_open(&f.name, f.bytes.clone());
+}
+
 /// A GIS file CivilCraft's import dialog takes (gis-vector-ui.js VECTOR, a GeoJSON .json, a shapefile's parts).
 pub fn is_gis_file(lower: &str, bytes: &[u8]) -> bool {
     let head: String = String::from_utf8_lossy(bytes.get(..bytes.len().min(4096)).unwrap_or(&[])).into_owned();
@@ -2491,6 +2535,18 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         "civil.gis.use" => cv.use_open(&name)?,
         "civil.gis.use.dlg" => cv.use_cmd(&name)?,
         "civil.gis.use.info" => cv.message = cv.use_info()?,
+        "civil.terrain" => cv.terrain_cmd(&name)?,
+        "civil.terrain.info" => cv.message = cv.terrain_info()?,
+        "civil.geotiff" => {
+            if name == "go" || name.starts_with("go@") {
+                let (fname, bytes) = cv.geotiff_go()?;
+                let save = app.services.save.as_mut().ok_or("civil.geotiff: saving is not available here")?;
+                save(&fname, bytes)?;
+            } else {
+                cv.geotiff_cmd(&name)?;
+            }
+        }
+        "civil.geotiff.info" => cv.message = cv.geotiff_info()?,
         "civil.gis.pick" => {
             // GIS › Import: the platform's picker; the files go through Open (the GIS openers)
             match app.services.pick_files.as_mut().map(|f| f("gis", true)) {
@@ -2861,6 +2917,8 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         crate::civilgisx::export_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilcrs::crs_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgis3::use_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilterrain::terrain_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilterrain::geotiff_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilcrs::ask_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilmaps::window(cv, ui.ctx(), &t, &mut iacts);
         for (id, k) in iacts {

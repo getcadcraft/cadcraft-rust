@@ -531,6 +531,12 @@ impl UiApp {
         if lispdlg::open_app_file(self, f) {
             return;
         }
+        // CivilCraft open: elevation grids and LiDAR (gis-terrain-ui.js opener, first), RGB GeoTIFF pictures, DWG / DXF
+        // linework go into the project
+        if self.civil.is_some() && civilview::is_terrain_file(&f.name.to_ascii_lowercase()) {
+            civilview::open_terrain(self, f);
+            return;
+        }
         // a point cloud goes under the drawing at its own coordinates (cadcraft.js openLocal, 0.5 SG.1)
         if cloudview::open_cloud(self, f) {
             return;

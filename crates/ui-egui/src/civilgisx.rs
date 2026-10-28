@@ -621,6 +621,12 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
         if !d.said.is_empty() {
             ui.label(egui::RichText::new(&d.said).small().color(tk.text));
         }
+        // builder B's spot: the surface as a GeoTIFF elevation grid (gis-terrain-ui.js geotiffSection)
+        if cv.gis3.geotiff.is_some() {
+            ui.separator();
+            ui.label(egui::RichText::new(t0("tui.gt.head")).strong().color(tk.text_strong));
+            crate::civilterrain::geotiff_section(cv, ui, tk, acts);
+        }
         ui.horizontal(|ui| {
             if ui.button(t0("vec.close")).clicked() {
                 acts.push(("civil.gis.export", "close".into()));
@@ -654,6 +660,8 @@ impl CivilView {
             format = "shp".into();
         }
         self.gis_export_dlg = Some(GisExportDlg { keys, format, said: String::new() });
+        // the GeoTIFF section is filled each time the dialog opens
+        let _ = self.geotiff_cmd("open");
     }
 
     /// `civil.gis.export=` choices: tick=<key> | untick=<key> | format=<fmt> | kinds=<a+b+…> (comma-separated).
