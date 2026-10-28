@@ -301,6 +301,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: search=<text> | fits | near=<lat, long> | choose=<EPSG code> | prj (the picker) | mode=grid|ground|local | csf= | be= | bn= (base E, N) | ae= | an= | az= (the factor's point) | compute | usef | cp=<0|1|2>:<n|ge|gn|ll|xy>=<value> | pick=factor|cp0|cp1|cp2 (then a plan click) | grid=file|off|cdn:<name> | apply | remove | close} → gis-crs-ui.js's dialog; Apply may ask (civil.ask)",
     ),
     (
+        "civil.color3d",
+        "3D surface colour",
+        "",
+        "{name: bands | single | map} → the 3D view's surfaces by elevation bands, one colour, or with the map layers draped on them",
+    ),
+    (
         "civil.cad",
         "Drawing linework dialog",
         "",
@@ -1859,11 +1865,38 @@ impl CivilView {
     }
 
     fn show_3d(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens, dark: bool) {
-        let stale = self.site3.as_ref().is_none_or(|s| s.version != self.project.version || (s.exag - self.exag).abs() > 1e-9);
+        // 0.4 V3: map layers draped on the surfaces (the picture made again as more of a map arrives)
+        let color = if self.gis3.color3d.is_empty() { "bands".to_string() } else { self.gis3.color3d.clone() };
+        let mut drape: Option<([f64; 4], u32, u32, Vec<u8>)> = None;
+        let mut dkey = String::new();
+        if color == "map" {
+            self.gis3.drape_note = t0("v3d.map.none");
+            if let Some(b) = civil3d::surfaces_box(&mut self.project)
+                && let Some((w, h, px, attr, complete)) = self.maps_drape(b, crate::civildrape::DRAPE_PX, now_ms())
+            {
+                dkey = format!(
+                    "{}|{complete}|{}",
+                    cc_civil::project::js_stringify(&Value::Array(self.maps_list())),
+                    b.map(|v| v.to_string()).join(",")
+                );
+                self.gis3.drape_note = attr;
+                if !complete {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+                }
+                drape = Some((b, w, h, px));
+            }
+        } else {
+            self.gis3.drape_note.clear();
+        }
+        let stale = self.site3.as_ref().is_none_or(|s| {
+            s.version != self.project.version || (s.exag - self.exag).abs() > 1e-9 || s.color != color || s.drape_key != dkey
+        });
         if stale {
             let keep = self.site3.as_ref().map(|s| (s.view.cam, s.version));
             self.s3_seq = self.s3_seq.wrapping_add(1);
-            let mut s = civil3d::build(&mut self.project, dark, self.exag, (1 << 41) + self.s3_seq);
+            let d = drape.as_ref().map(|(b, w, h, px)| (*b, *w, *h, px.as_slice()));
+            let mut s = civil3d::build_with(&mut self.project, dark, self.exag, (1 << 41) + self.s3_seq, &color, d);
+            s.drape_key = dkey.clone();
             self.timings.insert("site3d", s.build_ms);
             if let Some((cam, _)) = keep {
                 s.view.cam = cam;
@@ -1910,7 +1943,15 @@ impl CivilView {
         let c = t.canvas_bg;
         s.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
         s.view.style.edges = false;
+        s.view.style.textures = s.color == "map";
         let resp = crate::view3d::show(ui, rect, &s.scene, &mut s.view);
+        if !self.gis3.drape_note.is_empty() {
+            let painter = ui.painter_at(rect);
+            let g = painter.layout(self.gis3.drape_note.clone(), egui::FontId::proportional(11.0), t.text, (rect.width() - 24.0).max(80.0));
+            let at = egui::pos2(rect.min.x + 10.0, rect.max.y - g.size().y - 10.0);
+            painter.rect_filled(Rect::from_min_size(at, g.size()).expand(4.0), 2.0, t.panel.gamma_multiply(0.9));
+            painter.galley(at, g, t.text);
+        }
         let halo = if dark { Color32::from_rgb(0x1b, 0x1c, 0x1e) } else { Color32::WHITE };
         civil3d::paint_labels(ui, rect, s, t.text, halo);
         if resp.clicked_by(egui::PointerButton::Primary)
@@ -2564,6 +2605,12 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.geotiff.info" => cv.message = cv.geotiff_info()?,
+        "civil.color3d" => {
+            if !["bands", "single", "map"].contains(&name.as_str()) {
+                return Err("civil.color3d: bands, single or map".into());
+            }
+            cv.gis3.color3d = name.clone();
+        }
         "civil.cad" => cv.cad_cmd(&name)?,
         "civil.cad.info" => cv.message = cv.cad_info()?,
         "civil.cad.pick" => {
@@ -2838,6 +2885,20 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                                 cmd.push(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
                             }
                         }
+                        // site-view3d.js: the surface colour (elevation bands, one colour, the map layers draped)
+                        let col = if cv.gis3.color3d.is_empty() { "bands".to_string() } else { cv.gis3.color3d.clone() };
+                        egui::ComboBox::new("civil_color3d", "")
+                            .selected_text(t0(&format!("v3d.color.{col}")))
+                            .width(120.0)
+                            .show_ui(ui, |ui| {
+                                for c in ["bands", "single", "map"] {
+                                    if ui.selectable_label(col == c, t0(&format!("v3d.color.{c}"))).clicked() {
+                                        cmd.push(("civil.color3d", Params { name: Some(c.into()), ..Default::default() }));
+                                    }
+                                }
+                            })
+                            .response
+                            .on_hover_text(t0("v3d.color.title"));
                         let mut ex = cv.exag;
                         egui::ComboBox::new("civil_exag", "").selected_text(tr!("v3d.exag.opt", x = ex)).width(104.0).show_ui(ui, |ui| {
                             for e in cc_civil::site3d::EXAGGERATIONS {

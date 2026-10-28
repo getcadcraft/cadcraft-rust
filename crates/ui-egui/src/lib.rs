@@ -32,6 +32,7 @@ pub mod civilcad;
 pub mod civilcrs;
 pub mod civildialogs;
 pub mod civildrain;
+pub mod civildrape;
 pub mod civildrive;
 pub mod civilexport;
 pub mod civilgis;

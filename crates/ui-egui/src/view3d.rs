@@ -22,6 +22,8 @@ pub struct Scene3D {
     pub picker: Arc<std::sync::OnceLock<Picker>>,
     /// a point cloud drawn with the scene (CadCraft's 3D tab: the cloud under the drawing)
     pub cloud: Option<CloudLayer>,
+    /// texture layers this scene brings itself (CivilCraft's map drape): (layer, TEX_SIZE² RGBA), uploaded with it
+    pub textures: Arc<Vec<(u32, Vec<u8>)>>,
 }
 
 /// A point cloud in a 3D scene: its points and colours (shared, not copied) and how they are drawn.
@@ -40,7 +42,17 @@ impl CloudLayer {
 
 impl Scene3D {
     pub fn new(id: u64, meshes: Vec<MeshData>, instances: Vec<Instance3>, min: [f64; 3], max: [f64; 3]) -> Scene3D {
-        Scene3D { id, version: 0, meshes: Arc::new(meshes), instances: Arc::new(instances), min, max, picker: Arc::default(), cloud: None }
+        Scene3D {
+            id,
+            version: 0,
+            meshes: Arc::new(meshes),
+            instances: Arc::new(instances),
+            min,
+            max,
+            picker: Arc::default(),
+            cloud: None,
+            textures: Arc::default(),
+        }
     }
     /// Hide some instances (a storey, a class): not drawn, not picked.
     pub fn set_hidden(&mut self, hidden: &dyn Fn(usize) -> bool) {
@@ -212,10 +224,11 @@ impl egui_wgpu::CallbackTrait for Callback {
         if g.scene != self.scene.id {
             g.meshes = self.scene.meshes.iter().map(|m| GpuMesh::upload(device, m)).collect();
             // the material textures this scene shows, drawn by code once each (textures.js at aspect 1: a square layer)
+            let own: u64 = self.scene.textures.iter().filter(|(l, _)| *l < 64).fold(0, |a, (l, _)| a | (1u64 << l));
             for m in self.scene.meshes.iter() {
                 for t in &m.tex {
                     let layer = t[2];
-                    if layer < 0.0 || layer >= 64.0 {
+                    if layer < 0.0 || layer >= 64.0 || own & (1u64 << (layer as u32)) != 0 {
                         continue;
                     }
                     let bit = 1u64 << (layer as u32);
@@ -229,6 +242,13 @@ impl egui_wgpu::CallbackTrait for Callback {
                         let t = cc_m3d_tools::matlib::make_texture_aspect(&spec, cc_render::mesh3d::TEX_SIZE as usize, 1.0);
                         g.renderer.set_texture(queue, layer as u32, &t.albedo);
                     }
+                }
+            }
+            // the scene's own layers (a map drape): uploaded now; a library material there is drawn again when needed
+            for (layer, rgba) in self.scene.textures.iter() {
+                g.renderer.set_texture(queue, *layer, rgba);
+                if *layer < 64 {
+                    g.tex_loaded &= !(1u64 << layer);
                 }
             }
             g.scene = self.scene.id;

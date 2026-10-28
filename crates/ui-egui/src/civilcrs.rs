@@ -216,6 +216,10 @@ pub struct Gis3 {
     pub geotiff: Option<crate::civilterrain::GeoTiffDlg>,
     /// the DWG / DXF linework dialog
     pub cad: Option<Box<crate::civilcad::CadDlg>>,
+    /// the 3D view's surface colour: "" / bands, single, map (site-view3d.js state.color)
+    pub color3d: String,
+    /// the drape's note (no map layer to drape, the layers' attribution)
+    pub drape_note: String,
     /// a picture waiting for its system (gis-map-ui.js crsForFile)
     pub pic_wait: Option<crate::civilpics::PicWait>,
 }

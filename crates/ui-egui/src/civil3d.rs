@@ -26,6 +26,9 @@ pub struct Site3 {
     pub build_ms: f64,
     /// the project version it was built from
     pub version: u64,
+    /// the surface colour it was built with (bands, single, map) and, draped, what the picture was made from
+    pub color: String,
+    pub drape_key: String,
 }
 
 fn hex_rgba(s: &str) -> [u8; 4] {
@@ -72,16 +75,46 @@ fn ribbons(pos: &[f32], w: f64, col: [u8; 4], out: &mut MeshData) {
 
 /// Build the site scene of `p` (civilcraft.js 3D view: `siteInput` → `buildSite3D`).
 pub fn build(p: &mut Project, dark: bool, exag: f64, id: u64) -> Site3 {
+    build_with(p, dark, exag, id, "bands", None)
+}
+
+/// The surfaces' box (site-view3d.js drapeFor: existing ground and graded, project coordinates).
+pub fn surfaces_box(p: &mut Project) -> Option<[f64; 4]> {
+    let mut b: Option<[f64; 4]> = None;
+    let mut add = |x: cc_civil::tin::Bounds| {
+        b = Some(match b {
+            None => [x.min_x, x.min_y, x.max_x, x.max_y],
+            Some(o) => [o[0].min(x.min_x), o[1].min(x.min_y), o[2].max(x.max_x), o[3].max(x.max_y)],
+        });
+    };
+    if let Some(s) = p.eg().surface.as_ref() {
+        add(s.bounds());
+    }
+    if let Some(s) = p.graded().surface.as_ref() {
+        add(s.bounds());
+    }
+    b
+}
+
+/// The site scene coloured by elevation bands, one colour, or (`drape`: the box and the picture, w × h RGBA north up)
+/// the map layers draped on the surfaces.
+pub fn build_with(p: &mut Project, dark: bool, exag: f64, id: u64, color: &str, drape: Option<([f64; 4], u32, u32, &[u8])>) -> Site3 {
     let t0 = web_time::Instant::now();
     let input = site3d::site_input(p);
     let opts = Opts {
         exag: Some(serde_json::json!(exag)),
-        color: Some("bands".into()),
+        color: Some(if drape.is_some() {
+            "map".into()
+        } else if color == "map" {
+            "bands".into()
+        } else {
+            color.to_string()
+        }),
         band_count: None,
         dark,
         colors: Vec::new(),
         show: Show::default(),
-        drape: None,
+        drape: drape.map(|d| d.0),
     };
     let sc: Scene = site3d::build_site3d(&input, &opts);
     drop(input);
@@ -103,6 +136,9 @@ pub fn build(p: &mut Project, dark: bool, exag: f64, id: u64) -> Site3 {
         let n = pos.len() as u32;
         d.indices = m.indices.iter().copied().filter(|&i| i < n).collect();
         d.indices.truncate(d.indices.len() / 3 * 3);
+        if let (Some(uvs), true) = (&m.uvs, drape.is_some()) {
+            d = crate::civildrape::drape_mesh(&d, uvs);
+        }
         tris += (d.indices.len() / 3) as u64;
         meshes.push(d);
     }
@@ -136,8 +172,12 @@ pub fn build(p: &mut Project, dark: bool, exag: f64, id: u64) -> Site3 {
     let mut view = View3::default();
     view.cam.eye = [0.6, -1.0, 0.75];
     view.cam.target = [0.0, 0.0, 0.0];
+    let mut scene = Scene3D::new(id, meshes, instances, min, max);
+    if let Some((_, w, h, px)) = drape {
+        scene.textures = std::sync::Arc::new(crate::civildrape::tiles(w, h, px));
+    }
     Site3 {
-        scene: Scene3D::new(id, meshes, instances, min, max),
+        scene,
         view,
         labels,
         origin,
@@ -147,6 +187,8 @@ pub fn build(p: &mut Project, dark: bool, exag: f64, id: u64) -> Site3 {
         segments: segs,
         build_ms: t0.elapsed().as_secs_f64() * 1000.0,
         version: p.version,
+        color: color.to_string(),
+        drape_key: String::new(),
     }
 }
 
