@@ -1478,7 +1478,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             .frame(egui::Frame::new().fill(tok.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
             .show(ui, |ui| crate::detailpanel::bar(dv, ui, &tok, &mut acts));
         let frame = egui::Frame::new().fill(tok.panel).inner_margin(8);
-        egui::Panel::left("detail_left").default_size(250.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+        egui::Panel::left("detail_left").default_size(272.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 crate::detailpanel::left_head(dv, ui, &tok, &mut acts);
                 crate::detailprops::left_setup(dv, ui, &tok, &mut acts);

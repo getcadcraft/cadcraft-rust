@@ -242,7 +242,7 @@ impl BimTools {
                             ui.selectable_value(&mut r.op, op.to_string(), bt(&format!("find.op.{op}"), &[]));
                         }
                     });
-                    if many && ui.small_button("Remove").on_hover_text(bt("find.remove", &[])).clicked() {
+                    if many && ui.small_button(bt("pc.remove", &[])).on_hover_text(bt("find.remove", &[])).clicked() {
                         remove = Some(i);
                     }
                 });
@@ -274,7 +274,7 @@ impl BimTools {
             if ui.add_enabled(has, egui::Button::new("Hide them")).clicked() {
                 act = self.found.clone().map(BimAct::Hide);
             }
-            if ui.small_button("Show all").clicked() {
+            if ui.small_button(bt("vis.showall", &[])).clicked() {
                 act = Some(BimAct::ShowAll);
             }
         });

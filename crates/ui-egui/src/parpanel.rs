@@ -508,10 +508,10 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
             }
             ui.label(RichText::new(format!("{what}.")).small());
             ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
+                if ui.button(t("dlg.qs.cancel")).clicked() {
                     cancel = true;
                 }
-                if ui.button("Apply").clicked() {
+                if ui.button(crate::lang::t0(&cc_civil::i18n::CATALOG, "crs.d.apply")).clicked() {
                     apply = true;
                 }
             });

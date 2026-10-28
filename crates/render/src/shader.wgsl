@@ -10,7 +10,8 @@ struct View {
     ink: vec4<f32>,         // colour of "ink" entities (ACI 7)
     line_px: f32,           // line width in physical pixels
     fill_alpha: f32,        // pattern fills are drawn at this alpha
-    _pad: vec2<f32>,
+    print: f32,             // print view: everything in ink, lines as wide as their weight
+    px_per_mm: f32,         // physical px per paper mm (sheets in print view), else 0
 };
 @group(0) @binding(0) var<uniform> view: View;
 
@@ -20,10 +21,21 @@ fn to_clip(p: vec2<f32>) -> vec2<f32> {
     return r * view.scale;
 }
 
+// the alpha byte: the line weight in 0.05 mm steps, + 128 for a true colour (below: "ink")
+fn alpha8(c: vec4<f32>) -> f32 { return round(c.a * 255.0); }
+
 fn colour(c: vec4<f32>) -> vec4<f32> {
-    // alpha 0 marks "ink"
-    if (c.a == 0.0) { return view.ink; }
-    return c;
+    if (alpha8(c) < 127.5 || view.print > 0.5) { return view.ink; }
+    return vec4<f32>(c.rgb, 1.0);
+}
+
+// line width in physical pixels: a hairline, or in print view the weight (dwg-view.js: at least its screen weight,
+// 0.25 mm = 1 px, on a sheet its true width on paper)
+fn width_px(c: vec4<f32>) -> f32 {
+    if (view.print < 0.5) { return view.line_px; }
+    let a = alpha8(c);
+    let lw = select(a, a - 128.0, a > 127.5) * 0.05;
+    return max(view.line_px * max(1.0, floor(lw / 0.25 + 0.5)), lw * view.px_per_mm);
 }
 
 struct LineOut {
@@ -42,7 +54,7 @@ fn vs_line(@builtin(vertex_index) vi: u32, @location(0) a: vec2<f32>, @location(
     let len = length(dir);
     if (len < 1e-6) { dir = vec2<f32>(1.0, 0.0); } else { dir = dir / len; }
     let n = vec2<f32>(-dir.y, dir.x);
-    let half = view.line_px * 0.5 + 0.75;       // + AA fringe
+    let half = width_px(c) * 0.5 + 0.75;        // + AA fringe
     // quad corners: 0 a-, 1 a+, 2 b-, 3 b+  (two triangles: 0 1 2, 2 1 3)
     var corner = array<vec2<f32>, 6>(vec2<f32>(0.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0));
     let k = corner[vi];
@@ -58,7 +70,7 @@ fn vs_line(@builtin(vertex_index) vi: u32, @location(0) a: vec2<f32>, @location(
 
 @fragment
 fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
-    let edge = view.line_px * 0.5;
+    let edge = in.half - 0.75;
     let a = clamp(edge + 0.75 - abs(in.dist), 0.0, 1.0);
     return vec4<f32>(in.colour.rgb, in.colour.a * a);
 }

@@ -526,7 +526,7 @@ impl PdfView {
     /// The sheet list (page labels).
     pub fn sheets(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         if !self.store.markups.is_empty() {
-            let label = format!("Markups ({} on this sheet, {} in all)", self.page_markups(), self.store.markups.len());
+            let label = format!("{} ({} / {})", t0("tab.list"), self.page_markups(), self.store.markups.len());
             if ui.checkbox(&mut self.show_markups, egui::RichText::new(label).color(t.text)).changed() {
                 // the page is drawn with or without its annotations' own appearances
                 self.tex = None;
@@ -1211,7 +1211,7 @@ impl PdfView {
     pub fn tool_bar(&mut self, ui: &mut egui::Ui, t: &Tokens) -> bool {
         let mut save = false;
         ui.horizontal_wrapped(|ui| {
-            for (m, label) in [("markup", "Markup"), ("takeoff", "Takeoff")] {
+            for (m, label) in [("markup", t0("input.m.markup")), ("takeoff", cc_takeoff::i18n::t("group.takeoff"))] {
                 if ui.selectable_label(self.mode == m, egui::RichText::new(label).strong()).clicked() {
                     self.mode = m;
                     self.takeoff.pts.clear();
@@ -1219,7 +1219,7 @@ impl PdfView {
             }
             ui.separator();
             if self.mode == "takeoff" {
-                ui.label(egui::RichText::new("Pick an item on the right, then click the sheet: a count at each click; double-click or Enter ends a length or area; Esc drops it").color(t.text_dim));
+                ui.label(egui::RichText::new(cc_takeoff::i18n::t("stage.canvas")).color(t.text_dim));
                 return;
             }
             let key = self.sheet_key();

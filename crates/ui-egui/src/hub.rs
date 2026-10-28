@@ -36,6 +36,11 @@ pub fn sample_command(slug: &str) -> Option<&'static str> {
     }
 }
 
+/// The language now, as a tag.
+pub fn loc() -> &'static str {
+    cc_lang::locale().code()
+}
+
 fn lang_of(locale: &str) -> cc_lang::Locale {
     cc_lang::Locale::parse(locale).unwrap_or_default()
 }
@@ -127,9 +132,16 @@ pub fn app_for(name: &str) -> &'static str {
 
 /// Relative time, as host.js `whenText` with `Intl.RelativeTimeFormat('en', { numeric: 'auto' })`: "now", "5 minutes
 /// ago", "2 hours ago", "yesterday", "3 days ago"; a week or more away, the date on `zone`'s wall clock ("Oct 12,
-/// 2026": `toLocaleDateString('en', { dateStyle: 'medium' })`). Spec gap: English only (the JS follows the page's
-/// language).
+/// 2026": `toLocaleDateString('en', { dateStyle: 'medium' })`). In es-MX, as `Intl.RelativeTimeFormat('es-MX')`:
+/// "ahora", "hace 5 minutos", "ayer", "anteayer", "dentro de 2 horas", and the date as "2 oct 2026".
+pub fn when(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
+    when_text(ms, now, zone)
+}
+
 fn when_text(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
+    if cc_lang::is_es() {
+        return when_text_es(ms, now, zone);
+    }
     // Math.round: halves toward +∞
     let js_round = |x: f64| (x + 0.5).floor();
     let diff = js_round((ms - now) / 1000.0);
@@ -162,6 +174,46 @@ fn when_text(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
     }
 }
 
+fn when_text_es(ms: f64, now: f64, zone: cc_clock::Zone) -> String {
+    let js_round = |x: f64| (x + 0.5).floor();
+    let diff = js_round((ms - now) / 1000.0);
+    if !diff.is_finite() {
+        return String::new();
+    }
+    let abs = diff.abs();
+    let rel = |n: f64, one: &str, many: &str| {
+        let k = n.abs();
+        let units = format!("{k} {}", if k == 1.0 { one } else { many });
+        if n < 0.0 { format!("hace {units}") } else { format!("dentro de {units}") }
+    };
+    if abs < 45.0 {
+        "ahora".into()
+    } else if abs < 3600.0 {
+        rel(js_round(diff / 60.0), "minuto", "minutos")
+    } else if abs < 86_400.0 {
+        rel(js_round(diff / 3600.0), "hora", "horas")
+    } else if abs < 7.0 * 86_400.0 {
+        let n = js_round(diff / 86_400.0);
+        match n {
+            -1.0 => "ayer".into(),
+            -2.0 => "anteayer".into(),
+            1.0 => "mañana".into(),
+            2.0 => "pasado mañana".into(),
+            _ => rel(n, "día", "días"),
+        }
+    } else {
+        // toLocaleDateString('es-MX', { dateStyle: 'medium' }) → "2 oct 2026"
+        const MESES: [&str; 12] = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
+        let en = cc_markup::js::short_date_en(zone.local_ms(ms));
+        // "Oct 2, 2026" → its parts
+        let mut it = en.split([' ', ',']).filter(|x| !x.is_empty());
+        let (m, d, y) = (it.next().unwrap_or(""), it.next().unwrap_or(""), it.next().unwrap_or(""));
+        const EN: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        let mes = EN.iter().position(|x| *x == m).and_then(|i| MESES.get(i)).copied().unwrap_or(m);
+        format!("{d} {mes} {y}")
+    }
+}
+
 fn layer(slug: &str, dark: bool) -> Color32 {
     APPS.iter().find(|a| a.0 == slug).map_or(Color32::GRAY, |a| {
         let c = if dark { a.3 } else { a.2 };
@@ -184,6 +236,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(t(&loc, "studio.name")).size(22.0).strong().color(t0.text_strong));
                     ui.label(RichText::new("Rust test version").small().color(t0.text_dim));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(t(&loc, "settings.button")).on_hover_text(t(&loc, "settings.title")).clicked() {
+                            *act.borrow_mut() = Some(("settings.open".into(), Params::default()));
+                        }
+                    });
                 });
                 ui.add_space(10.0);
                 let wide = ui.available_width() > 980.0;
@@ -223,7 +280,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                                                     Some(_) => {
                                                         if ui
                                                             .button(t(&loc, "tile.open"))
-                                                            .on_hover_text(format!("{name}: open its sample"))
+                                                            .on_hover_text(word(&loc, slug, "tagline"))
                                                             .clicked()
                                                         {
                                                             *act.borrow_mut() = Some((
@@ -233,10 +290,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                                                         }
                                                     }
                                                     None => {
-                                                        if ui
-                                                            .button(t(&loc, "open.button"))
-                                                            .on_hover_text(format!("{name}: open a file"))
-                                                            .clicked()
+                                                        if ui.button(t(&loc, "open.button")).on_hover_text(t(&loc, "open.title")).clicked()
                                                         {
                                                             *act.borrow_mut() = Some(("file.open".into(), Params::default()));
                                                         }
@@ -244,8 +298,8 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                                                 }
                                                 if *slug == "cadcraft"
                                                     && ui
-                                                        .button("New drawing")
-                                                        .on_hover_text("An empty drawing to draft in (Ctrl+N)")
+                                                        .button(crate::lang::t0(&crate::lang::CADCRAFT, "app.new_drawing"))
+                                                        .on_hover_text(crate::lang::t0(&crate::lang::CADCRAFT, "input.cmd.file.new"))
                                                         .clicked()
                                                 {
                                                     *act.borrow_mut() = Some(("file.new".into(), Params::default()));
@@ -397,6 +451,10 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     Err(t(&loc, "recent.gone"))
                 }
             }
+        }
+        "hub.clear" => {
+            app.hub.recent.clear();
+            Ok(())
         }
         "hub.filter" => {
             app.hub.filter = params.name.clone().unwrap_or_default();

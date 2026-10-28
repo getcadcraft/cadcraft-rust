@@ -59,6 +59,21 @@ pub fn t0(cat: &Catalog, key: &str) -> String {
     t(cat, key, &[])
 }
 
+/// A CadCraft word (no fills).
+pub fn cad(key: &str) -> String {
+    t0(&CADCRAFT, key)
+}
+
+/// A ModelCraft word (no fills).
+pub fn mc(key: &str) -> String {
+    t0(&MODELCRAFT, key)
+}
+
+/// A BimCraft word (no fills).
+pub fn bim(key: &str) -> String {
+    t0(BIMCRAFT, key)
+}
+
 /// A shell word (Settings, Help, Recent files …).
 pub fn shell(key: &str, vars: &[(&str, String)]) -> String {
     t(&SHELL, key, vars)

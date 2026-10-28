@@ -239,7 +239,7 @@ fn out(app: &mut UiApp, name: Option<&str>, to_print: bool) -> Result<(), String
             None => return Err("Saving is not available here.".into()),
         };
         if saved.is_none() {
-            app.plot.status = "Not saved.".into();
+            app.plot.status = t("app.not_saved");
             return Ok(());
         }
     }

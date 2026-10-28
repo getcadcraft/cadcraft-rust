@@ -65,6 +65,31 @@ fn save_recent(app: &UiApp) {
     let _ = cc_mcp::confine::write_file_atomic(&p, serde_json::Value::Array(list).to_string().as_bytes());
 }
 
+/// Settings (language, theme, panel text size): `settings.json` in the config folder. A damaged file is kept as
+/// `settings.json.bad` and the defaults are used.
+fn settings_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("settings.json"))
+}
+
+fn load_settings(app: &mut UiApp) {
+    let Some(p) = settings_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    match serde_json::from_slice::<serde_json::Value>(&text) {
+        Ok(v) if text.len() <= 1 << 16 => app.load_settings(&v),
+        _ => {
+            let _ = std::fs::rename(&p, p.with_extension("json.bad"));
+        }
+    }
+}
+
+fn save_settings(app: &UiApp) {
+    let Some(p) = settings_path() else { return };
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, app.settings_json().to_string().as_bytes());
+}
+
 /// What MarkupCraft keeps between runs (tool chest, picture, signature, tool settings): `markupcraft.json` in the config
 /// folder (the JS keeps them in the browser's localStorage).
 fn mc_prefs_path() -> Option<std::path::PathBuf> {
@@ -184,6 +209,7 @@ impl eframe::App for App {
         save_cv_prefs(&self.app);
         save_cad_prefs(&self.app);
         save_input_prefs(&self.app);
+        save_settings(&self.app);
     }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
@@ -404,6 +430,7 @@ fn main() -> eframe::Result {
             load_cv_prefs(&mut app);
             load_cad_prefs(&mut app);
             load_input_prefs(&mut app);
+            load_settings(&mut app);
             if let Some(l) = control_line {
                 app.message = l;
             }

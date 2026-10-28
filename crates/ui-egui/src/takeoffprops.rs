@@ -543,26 +543,25 @@ impl TakeoffMode {
         };
         let cur = self.cur_area.as_deref().and_then(|c| areas.iter().find(|a| s(a.get("id")) == c)).map_or_else(|| t("area.none"), label);
         let mut pick: Option<String> = None;
-        egui::ComboBox::new("tk_area", t("area.label")).selected_text(cur).width(ui.available_width().clamp(80.0, 200.0)).show_ui(
-            ui,
-            |ui| {
-                if ui.selectable_label(self.cur_area.is_none(), t("area.none")).clicked() {
-                    pick = Some(String::new());
+        // the label above the picker: a long word (es-MX "Área de licitación") leaves the picker its width
+        ui.label(egui::RichText::new(t("area.label")).small());
+        egui::ComboBox::new("tk_area", "").selected_text(cur).width(ui.available_width().clamp(80.0, 260.0)).show_ui(ui, |ui| {
+            if ui.selectable_label(self.cur_area.is_none(), t("area.none")).clicked() {
+                pick = Some(String::new());
+            }
+            for a in &areas {
+                let id = s(a.get("id"));
+                if ui.selectable_label(self.cur_area.as_deref() == Some(id.as_str()), label(a)).clicked() {
+                    pick = Some(id);
                 }
-                for a in &areas {
-                    let id = s(a.get("id"));
-                    if ui.selectable_label(self.cur_area.as_deref() == Some(id.as_str()), label(a)).clicked() {
-                        pick = Some(id);
-                    }
-                }
-                if ui.selectable_label(false, t("area.new")).clicked() {
-                    self.area_dialog = Some(String::new());
-                }
-                if !areas.is_empty() && ui.selectable_label(false, t("area.manage")).clicked() {
-                    self.manage_areas = true;
-                }
-            },
-        );
+            }
+            if ui.selectable_label(false, t("area.new")).clicked() {
+                self.area_dialog = Some(String::new());
+            }
+            if !areas.is_empty() && ui.selectable_label(false, t("area.manage")).clicked() {
+                self.manage_areas = true;
+            }
+        });
         if let Some(p) = pick {
             let _ = self.area_edit(&format!("cur:{p}"));
         }

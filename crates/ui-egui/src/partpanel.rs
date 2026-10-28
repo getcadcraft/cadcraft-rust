@@ -198,7 +198,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     ui.separator();
     let st = pv.view.style;
     let mut edges = st.edges;
-    if ui.checkbox(&mut edges, "Edges").changed() {
+    if ui.checkbox(&mut edges, cc_part::i18n::t0("app.fillet.edges")).changed() {
         pv.view.style.edges = edges;
     }
 }
@@ -848,7 +848,9 @@ fn facts(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
             ui.end_row();
         }
     });
-    ui.label(RichText::new(format!("{} ms", f3(pv.regen_ms))).small().color(t.text_dim)).on_hover_text("Rebuild time (mesh kernel)");
+    ui.label(
+        RichText::new(cc_part::i18n::t("app.build.rebuilt", &[("ms", cc_part::i18n::F::S(f3(pv.regen_ms)))])).small().color(t.text_dim),
+    );
 }
 
 /// `toLocaleString('en-US')` for a whole number.

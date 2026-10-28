@@ -34,6 +34,7 @@ Test data and fuzz seeds (outside `assets/`, listed for the record):
 
 | File | Author | Source | Licence |
 |---|---|---|---|
+| crates/ui-egui/help/<app>/*.md, crates/ui-egui/help/common/*.md | CadCraft | the 0.5 Markdown help of the eight apps (`public_html/assets/apps/<app>/dev/help/*.md`) and the basics every app shares (`public_html/assets/help/common/*.md`), frozen at 594ab3e, unchanged; compiled into the help panel (help_files.rs) | Apache-2.0 |
 | crates/io-cad/tests/data/base-plan.dxf | CadCraft | CadCraft's own public test fixture (getcadcraft.com `fixtures/dwg/base-plan.dxf`); also the `cad_dxf_read` fuzz seed `fuzz/seeds/cad_dxf_read/base-plan.dxf` | Apache-2.0 |
 | crates/io-cad/tests/data/save-fixture.json | CadCraft | generated from the synthetic drawing in CadCraft's `tools/cadcraft-test/dwg-save-check.mjs` (no client data) | Apache-2.0 |
 | fuzz/seeds/cad_dxf_read/save-fixture-2000.dxf | CadCraft | that fixture saved as DXF 2000 by cc-io-cad | Apache-2.0 |

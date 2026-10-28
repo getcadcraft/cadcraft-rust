@@ -11,8 +11,8 @@
 //!   `input.m.<label>`, `input.style.<id>`, `toolbar.*`, `ui.*`).
 //!
 //! Everything a button does goes through `UiApp::run` (`input.run {name: id}`), so the CLI and tests reach it.
-//! Spec gap: the shell's own words (`shell.input.*`: "it is not in this version", the style legend) are not in the
-//! app's catalog; they are written here in plain English, as the shell's en.json has them.
+//! The shell's own words (`shell.input.*`: "it is not in this version", the style legend) come from 0.5's shell
+//! catalog ([`crate::lang::SHELL`]); the keys-only Settings and Help open the shell's Settings and help panel.
 
 use egui::{Color32, Pos2, Rect, RichText, Stroke, Vec2};
 use serde_json::{Value, json};
@@ -917,6 +917,9 @@ pub fn action(cmd: &'static str) -> Act {
         "toggle:ortho" => Act::Ui("edit.ortho", None),
         "toggle:polar" => Act::Ui("edit.polar", None),
         "tab:1" => Act::Ui("space.select", Some(0)),
+        // the shell's Settings and help (settings.rs, help.rs)
+        "app:settings" => Act::Ui("settings.open", None),
+        "app:help" => Act::Ui("help.toggle", None),
         c if c.starts_with("toggle:") || c.starts_with("tab:") || c.starts_with("app:") => Act::Missing,
         c => Act::Engine(c),
     }
@@ -939,7 +942,8 @@ fn press(app: &mut UiApp, cmd: &'static str, label: &str) -> Result<(), String> 
         }
         Act::Missing => {
             // app-input-ui.js: shell.input.cant / shell.input.why.nothere
-            app.message = format!("{label}: it is not in this version.");
+            let why = crate::lang::shell("shell.input.why.nothere", &[]);
+            app.message = crate::lang::shell("shell.input.cant", &[("cmd", label.to_string()), ("why", why)]);
             Ok(())
         }
     }

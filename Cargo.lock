@@ -365,6 +365,7 @@ name = "cadcraft-web"
 version = "0.0.1"
 dependencies = [
  "cc-io-dwg",
+ "cc-lang",
  "cc-recovery",
  "cc-ui-egui",
  "eframe",
@@ -372,6 +373,7 @@ dependencies = [
  "egui-wgpu",
  "js-sys",
  "rfd",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasmalloc",

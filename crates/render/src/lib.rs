@@ -116,6 +116,10 @@ pub struct ViewUniform {
     pub ink: [f32; 4],
     pub line_px: f32,
     pub fill_alpha: f32,
+    /// print view (dwg-view.js `setPrint`): every line and fill in `ink`, lines as wide as their weight
+    pub print: f32,
+    /// physical pixels per millimetre of paper (sheets in print view; 0 in model space: screen weights only)
+    pub px_per_mm: f32,
 }
 
 impl ViewUniform {
@@ -130,6 +134,8 @@ impl ViewUniform {
             ink,
             line_px,
             fill_alpha: 0.18,
+            print: 0.0,
+            px_per_mm: 0.0,
         }
     }
     fn bytes(&self) -> [u8; 64] {
@@ -149,8 +155,8 @@ impl ViewUniform {
             self.ink[3],
             self.line_px,
             self.fill_alpha,
-            0.0,
-            0.0,
+            self.print,
+            self.px_per_mm,
         ];
         for (chunk, v) in out.as_chunks_mut::<4>().0.iter_mut().zip(vals) {
             chunk.copy_from_slice(&v.to_le_bytes());
@@ -191,10 +197,14 @@ impl std::fmt::Debug for SpaceMesh {
 const LINE_STRIDE: u64 = 20;
 const FILL_STRIDE: u64 = 16;
 
-fn rgba(c: Color) -> [u8; 4] {
+/// A batch's colour and line weight as the vertex's four bytes: RGB, then the alpha byte = the weight in 0.05 mm
+/// steps (0–127; a weight not given = 0.25 mm), + 128 for a true colour (below 128: "ink"). The shader decodes it;
+/// bytes written with alpha 255 read as a true colour.
+fn rgba(c: Color, lw: f64) -> [u8; 4] {
+    let code = if lw.is_finite() && lw >= 0.0 { (lw / 0.05).round().clamp(0.0, 127.0) as u8 } else { 5 };
     match c {
-        Color::Ink => [0, 0, 0, 0],
-        Color::Rgb(n) => [((n >> 16) & 0xFF) as u8, ((n >> 8) & 0xFF) as u8, (n & 0xFF) as u8, 255],
+        Color::Ink => [0, 0, 0, code],
+        Color::Rgb(n) => [((n >> 16) & 0xFF) as u8, ((n >> 8) & 0xFF) as u8, (n & 0xFF) as u8, 128 + code],
     }
 }
 
@@ -235,7 +245,7 @@ pub fn build_geometry(space: &Space) -> SpaceGeometry {
     let mut tess = FillTessellator::new();
     let fill_opts = FillOptions::default().with_fill_rule(FillRule::EvenOdd).with_tolerance(0.01);
     for (bi, batch) in space.batches.iter().enumerate() {
-        let col = rgba(batch.color);
+        let col = rgba(batch.color, batch.lw);
         let l0 = g.segments();
         for pl in &batch.lines {
             let pts: Vec<(f32, f32)> = rel_points(pl, ox, oy);

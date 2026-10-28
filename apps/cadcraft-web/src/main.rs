@@ -32,6 +32,8 @@ mod web {
     use cc_ui_egui::{Fetched, ImportedFile, Params, Services, UiApp};
     use wasm_bindgen::JsCast;
 
+    const SETTINGS_KEY: &str = "cadcraft.rust.settings";
+
     const NO_WEBGPU: &str = "This preview needs WebGPU: use Chrome or Edge, Safari 26+, Firefox 141+ on Windows / 145+ on Apple-silicon Macs, or CadCraft Studio.";
 
     struct App {
@@ -40,6 +42,8 @@ mod web {
         shown: u64,
         /// `?bench`: every drawing opened (the sample, or one dropped on the page) runs the frame benchmark
         bench: bool,
+        /// the settings last written to the browser's storage
+        saved: String,
     }
     impl eframe::App for App {
         fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -56,6 +60,14 @@ mod web {
             }
             if let Some(r) = self.app.bench_result.take() {
                 web_sys::console::log_1(&r.into());
+            }
+            // Settings live in the browser's storage (a per-viewer convenience: nothing breaks without it)
+            let now = self.app.settings_json().to_string();
+            if now != self.saved {
+                if let Some(st) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+                    let _ = st.set_item(SETTINGS_KEY, &now);
+                }
+                self.saved = now;
             }
         }
         fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -259,6 +271,25 @@ mod web {
                             fetched: Some(fetched),
                         };
                         let mut app = UiApp::new(services);
+                        // the language: kept setting, else ?lang=, else the browser's (0.5's "Automatic")
+                        let kept = web_sys::window()
+                            .and_then(|w| w.local_storage().ok().flatten())
+                            .and_then(|st| st.get_item(SETTINGS_KEY).ok().flatten())
+                            .filter(|t| t.len() <= 1 << 16)
+                            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+                        let url_lang = search.split(['?', '&']).find_map(|p| p.strip_prefix("lang=")).and_then(cc_lang::Locale::parse);
+                        match (kept, url_lang) {
+                            (_, Some(l)) => app.set_locale(l),
+                            (Some(v), None) => app.load_settings(&v),
+                            (None, None) => {
+                                if let Some(l) =
+                                    web_sys::window().and_then(|w| w.navigator().language()).and_then(|l| cc_lang::Locale::parse(&l))
+                                {
+                                    app.set_locale(l);
+                                }
+                            }
+                        }
+                        let saved = app.settings_json().to_string();
                         if sample || bench_frames {
                             let _ = app.run("file.sample", &Params::default());
                         }
@@ -274,7 +305,7 @@ mod web {
                         if ifc {
                             let _ = app.run("file.sample.ifc", &Params::default());
                         }
-                        Ok(Box::new(App { app, shown: 0, bench: bench_frames }))
+                        Ok(Box::new(App { app, shown: 0, bench: bench_frames, saved }))
                     }),
                 )
                 .await;

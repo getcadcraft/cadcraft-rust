@@ -21,6 +21,8 @@ pub struct Loaded {
     pub geometry_ms: f64,
     pub notes: Vec<String>,
     pub bytes: usize,
+    /// layer handle (upper case) → layer name: what sheets' viewports name their frozen layers by
+    pub layer_handles: std::collections::HashMap<String, String>,
 }
 
 fn next_id() -> u64 {
@@ -88,6 +90,15 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
     let notes: Vec<String> =
         report.and_then(|r| r.arr("notes")).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let version = model.str("version").unwrap_or("").to_string();
+    let layer_handles = model
+        .arr("layers")
+        .map(|ls| {
+            ls.iter()
+                .filter_map(|l| l.as_obj())
+                .filter_map(|l| Some((l.str("handle")?.to_ascii_uppercase(), l.str("name")?.to_string())))
+                .collect()
+        })
+        .unwrap_or_default();
     let t = web_time::Instant::now();
     let drawing = cc_io_dwg::compile::compile_drawing(&model, &version, &xrefs);
     let compile_ms = ms(t);
@@ -105,6 +116,7 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
         geometry_ms,
         notes,
         bytes: bytes.len(),
+        layer_handles,
     })
 }
 
@@ -122,6 +134,7 @@ pub fn from_drawing(name: &str, drawing: Drawing) -> Loaded {
         geometry_ms: ms(t),
         notes: Vec::new(),
         bytes: 0,
+        layer_handles: std::collections::HashMap::new(),
     }
 }
 

@@ -55,6 +55,8 @@ pub mod detailtools;
 pub mod detailview;
 pub mod document;
 pub mod edit;
+pub mod help;
+mod help_files;
 pub mod hub;
 pub mod ifc3d;
 pub mod lang;
@@ -92,6 +94,7 @@ pub mod qsdlg;
 pub mod recover;
 pub mod recoverdlg;
 pub mod ribbon;
+pub mod settings;
 pub mod sheetsetdlg;
 pub mod takeoff3d;
 pub mod takeoffedit;
@@ -102,6 +105,7 @@ pub mod takeofftools;
 pub mod theme;
 pub mod tkbench;
 pub mod view3d;
+pub mod viewer;
 pub mod winsetdlg;
 
 use std::collections::{HashMap, HashSet};
@@ -379,6 +383,12 @@ pub struct UiApp {
     pub ribbon: ribbon::Bar,
     /// recovery copies of the drawing being edited and the "Recover your work?" dialog (recover.rs)
     pub recovery: recover::Recovery,
+    /// Settings: language, theme, panel text size (settings.rs)
+    pub settings: settings::Settings,
+    /// the drawing viewer's print view, Drawing panel, Find, added links and pictures (viewer.rs)
+    pub viewer: viewer::Viewer,
+    /// the help panel (help.rs: the 0.5 Markdown help)
+    pub help: help::Help,
 }
 
 impl Default for UiApp {
@@ -453,6 +463,9 @@ impl Default for UiApp {
             bimh: bimedit::Host::default(),
             ribbon: ribbon::Bar::default(),
             recovery: recover::Recovery::default(),
+            settings: settings::Settings::default(),
+            viewer: viewer::Viewer::default(),
+            help: help::Help::default(),
         }
     }
 }
@@ -502,6 +515,12 @@ impl UiApp {
         if cloudview::open_cloud(self, f) {
             return;
         }
+        // a picture or a missing linked drawing dropped on the drawing shown: added to it
+        if viewer::dropped(self, f) {
+            return;
+        }
+        self.viewer.added.clear();
+        self.viewer.unreadable.clear();
         self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
         bimedit::opened(self);
         if detailview::open_file(self, f) {
@@ -631,13 +650,16 @@ impl UiApp {
                 let mut view = view3d::View3::default();
                 self.style3(&mut view);
                 let tris: usize = v.pieces.iter().filter_map(|p| v.meshes.get(p.mesh)).map(|m| m.idx.len() / 3).sum();
-                self.message = format!(
-                    "{}: {} products, {} pieces, {} triangles · read + geometry {:.0} ms · middle / right drag orbits, Shift pans, wheel zooms",
-                    f.name,
-                    v.products,
-                    v.pieces.len(),
-                    tris,
-                    read_ms
+                let _ = tris;
+                self.message = lang::t(
+                    lang::BIMCRAFT,
+                    "ifc.opened",
+                    &[
+                        ("file", f.name.clone()),
+                        ("count", viewer::num(v.products as u64)),
+                        ("n", v.products.to_string()),
+                        ("s", format!("{:.1}", read_ms / 1000.0)),
+                    ],
                 );
                 self.doc = None;
                 self.editor = None;
@@ -838,19 +860,21 @@ impl UiApp {
         let mut redo = false;
         let mut edit: Option<String> = None;
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-        egui::Panel::left("mc_tools").exact_size(116.0).frame(frame).show(ui, |ui| {
-            ui.label(RichText::new("Tools").strong().color(t.text_strong));
+        egui::Panel::left("mc_tools").exact_size(136.0).frame(frame).show(ui, |ui| {
+            ui.label(RichText::new(lang::cad("ui.tools")).strong().color(t.text_strong));
             ui.separator();
-            for (name, label) in modelcraft::PALETTE {
+            for (name, _) in modelcraft::PALETTE {
                 let on = cur == *name;
-                if ui.add_sized([104.0, 22.0], egui::Button::new(*label).selected(on)).clicked() {
+                let label = modelcraft::mt(&format!("ui.tool.{name}"), &[]);
+                let tip = modelcraft::mt(&format!("ui.tool.{name}.title"), &[]);
+                if ui.add_sized([124.0, 22.0], egui::Button::new(label).selected(on)).on_hover_text(tip).clicked() {
                     pick = Some(name);
                 }
             }
             ui.separator();
-            ui.horizontal(|ui| {
-                undo = ui.button("Undo").clicked();
-                redo = ui.button("Redo").clicked();
+            ui.horizontal_wrapped(|ui| {
+                undo = ui.button(lang::mc("ui.tool.undo")).on_hover_text(lang::mc("ui.tool.undo.title")).clicked();
+                redo = ui.button(lang::mc("ui.tool.redo")).on_hover_text(lang::mc("ui.tool.redo.title")).clicked();
             });
             ui.separator();
             edit = mcedit::palette_menus(ui);
@@ -899,18 +923,18 @@ impl UiApp {
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
         egui::Panel::left("model3").default_size(230.0).size_range(160.0..=380.0).resizable(true).frame(frame).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Model").strong().color(t.text_strong));
-                if ui.small_button("Show all").clicked() {
+                ui.label(RichText::new(lang::cad("app.tab.model")).strong().color(t.text_strong));
+                if ui.small_button(lang::cad("opt.showall")).clicked() {
                     toggle = Some("*".into());
                 }
             });
-            ui.checkbox(&mut cut.0, RichText::new("Section cut").color(t.text)).on_hover_text("Cut the model with a horizontal plane");
+            ui.checkbox(&mut cut.0, RichText::new(lang::mc("app.undo.sec_active")).color(t.text));
             if cut.0 {
                 ui.add(egui::Slider::new(&mut cut.1, 0.0..=1.0).show_value(false).text("height"));
             }
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                for (title, list, prefix) in [("Storeys", &storeys, "s:"), ("Classes", &classes, "c:")] {
+                for (title, list, prefix) in [(lang::bim("ui.storeys"), &storeys, "s:"), (lang::bim("color.field.cls"), &classes, "c:")] {
                     egui::CollapsingHeader::new(RichText::new(title).color(t.text_strong)).default_open(true).show(ui, |ui| {
                         for (name, n) in list.iter() {
                             let key = format!("{prefix}{name}");
@@ -993,7 +1017,7 @@ impl UiApp {
         let max_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
         let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
         egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(frame).show(ui, |ui| {
-            ui.label(RichText::new("Properties").strong().color(t.text_strong));
+            ui.label(RichText::new(lang::cad("ui.properties")).strong().color(t.text_strong));
             ui.separator();
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
                 bimedit::props_top(self, ui);
@@ -1135,6 +1159,7 @@ impl UiApp {
                     }
                     Err(e) => {
                         self.message = format!("{}: {e}", rec.name);
+                        self.viewer.unreadable.push(cc_cad::pictures::picture_key(&rec.name));
                         None
                     }
                 };
@@ -1156,8 +1181,13 @@ impl UiApp {
         match res {
             Ok(l) => {
                 self.editor = None;
-                self.message =
-                    format!("{} · read {:.0} ms · compile {:.0} ms · GPU data {:.0} ms", l.name, l.read_ms, l.compile_ms, l.geometry_ms);
+                let s = (l.read_ms + l.compile_ms + l.geometry_ms) / 1000.0;
+                self.message = lang::t(lang::BIMCRAFT, "dwg.opened", &[("file", l.name.clone()), ("s", format!("{s:.1}"))]);
+                self.viewer.mark = None;
+                if let Some(f) = self.viewer.find.as_mut() {
+                    f.hits.clear();
+                    f.ran = false;
+                }
                 self.views = vec![None; l.drawing.spaces.len()];
                 self.space = 0;
                 self.hidden = l.drawing.layers.iter().filter(|x| !x.on).map(|x| x.name.clone()).collect();
@@ -1510,7 +1540,7 @@ impl UiApp {
                 self.space = 0;
                 self.hidden.clear();
                 self.error = None;
-                self.message = "New drawing: type a command (LINE, CIRCLE, …) and press Enter".into();
+                self.message = format!("{} {}", lang::cad("app.new_drawing_2"), lang::shell("shell.input.cl.ready", &[]));
                 self.sync_editor();
             }
             "cmd.line" => {
@@ -1537,13 +1567,19 @@ impl UiApp {
                     ed.ortho = !ed.ortho;
                     ed.ortho
                 };
-                self.message = format!("{} {}", if id == "edit.osnap" { "Object snap" } else { "Ortho" }, if on { "on" } else { "off" });
+                // 0.5 shows the state on the button only: the button's word and the catalog's On / Off
+                let what = lang::cad(if id == "edit.osnap" { "app.object_snap" } else { "ui.ortho" });
+                self.message = format!("{what}: {}", lang::cad(if on { "props.f.on" } else { "opt.off" }));
             }
             "edit.polar" => {
                 let ed = self.editor.as_mut().ok_or("edit.polar: no drawing is open for editing")?;
                 ed.polar = !ed.polar;
                 let inc = ed.hs.borrow().polar_inc;
-                self.message = format!("Polar tracking {} (every {}°)", if ed.polar { "on" } else { "off" }, cc_engine::input::fmt(inc));
+                self.message = if ed.polar {
+                    lang::t(&lang::CADCRAFT, "status.polar.on", &[("inc", cc_engine::input::fmt(inc))])
+                } else {
+                    lang::cad("status.polar.off")
+                };
             }
             "view.zoom" => {
                 let f = params.factor.filter(|f| f.is_finite() && *f > 0.0).ok_or("view.zoom: factor must be a number > 0")?;
@@ -1578,20 +1614,9 @@ impl UiApp {
             }
             "layer.all" => self.hidden.clear(),
             "theme.toggle" => {
-                self.preset = if self.preset == Preset::Dark { Preset::Light } else { Preset::Dark };
-                self.tokens = Tokens::preset(self.preset);
-                self.theme_dirty = true;
-                if self.mc.is_none()
-                    && let Some(model) = self.model3.take()
-                {
-                    let view = self.scene3.as_ref().map(|(_, v)| *v);
-                    self.show_model(model, "Model");
-                    if let (Some(v), Some((_, nv))) = (view, self.scene3.as_mut()) {
-                        let style = nv.style;
-                        *nv = v;
-                        nv.style = style;
-                    }
-                }
+                let p = if self.preset == Preset::Dark { Preset::Light } else { Preset::Dark };
+                self.settings.theme = if p == Preset::Dark { "model" } else { "paper" }.into();
+                self.set_preset(p);
             }
             id if id.starts_with("civil.") => return civilview::run(self, id, params),
             id if id.starts_with("takeoff.") || id.starts_with("markup.") || matches!(id, "pdf.zoom" | "pdf.file") => {
@@ -1599,6 +1624,9 @@ impl UiApp {
             }
             id if id.starts_with("detail.") => return detailview::run(self, id, params),
             id if id.starts_with("hub.") => return hub::run(self, id, params),
+            id if id.starts_with("settings.") => return settings::run(self, id, params),
+            id if id.starts_with("viewer.") => return viewer::run(self, id, params),
+            id if id.starts_with("help.") => return help::run(self, id, params),
             id if id.starts_with("props.") => return cadprops::run(self, id, params),
             id if id.starts_with("tab3d.") => return cad3dtab::run(self, id, params),
             id if id.starts_with("plot.") => return plotdlg::run(self, id, params),
@@ -1940,6 +1968,8 @@ impl UiApp {
         if self.editor.is_some() && self.cadprops.open {
             cadprops::panel(self, ui);
         }
+        settings::window(self, &ctx);
+        viewer::frame(self, &ctx);
         plotdlg::window(self, &ctx);
         cadprops::quick_window(self, &ctx);
         winsetdlg::window(self, &ctx);
@@ -1948,6 +1978,9 @@ impl UiApp {
         lispdlg::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
+        help::panel(self, ui);
+        viewer::info_panel(self, ui);
+        viewer::find_panel(self, ui);
         self.tabs(ui);
         if self.part.is_some() {
             partpanel::ui(self, ui);
@@ -1957,7 +1990,7 @@ impl UiApp {
             let t = self.tokens;
             let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
             egui::Panel::left("pdf_sheets").default_size(180.0).size_range(120.0..=320.0).resizable(true).frame(frame).show(ui, |ui| {
-                ui.label(RichText::new("Sheets").strong().color(t.text_strong));
+                ui.label(RichText::new(cc_markup::i18n::t0("sheets.h")).strong().color(t.text_strong));
                 ui.separator();
                 pdf.sheets_and_spaces(ui, &t);
             });
@@ -2126,170 +2159,258 @@ impl UiApp {
             .exact_size(34.0)
             .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin::symmetric(8, 4)))
             .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
-                    if ui
-                        .button(RichText::new("CadCraft").strong().color(t.text_strong))
-                        .on_hover_text(hub::t(self.hub.loc(), "window.hub.title"))
-                        .clicked()
-                    {
-                        self.run_ui("hub.home", &Params::default());
-                    }
-                    ui.label(RichText::new("Rust test version").small().color(t.text_dim));
+                // the shell's buttons (Help, Settings, Recent files) stay at the right end
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.app_bar_shell(ui);
                     ui.separator();
-                    if ui.button("Open…").on_hover_text("Open a DWG or DXF (Ctrl+O)").clicked() {
-                        self.run_ui("file.open", &Params::default());
-                    }
-                    if ui.button("Sample").on_hover_text("Open the built-in sample drawing").clicked() {
-                        self.run_ui("file.sample", &Params::default());
-                    }
-                    if ui.button("3D sample").on_hover_text("Open a sample 3D model (ModelCraft's model kernel)").clicked() {
-                        self.run_ui("view.model.sample", &Params::default());
-                    }
-                    if ui.button("Site sample").on_hover_text("Open CivilCraft's sample site (survey points, surface, contours)").clicked()
-                    {
-                        self.run_ui("civil.sample", &Params::default());
-                    }
-                    if ui.button("Part sample").on_hover_text("Open PartCraft's sample part (a bracket with parameters)").clicked() {
-                        self.run_ui("part.sample", &Params::default());
-                    }
-                    if ui
-                        .button("Steel sample")
-                        .on_hover_text("Open DetailCraft's sample frame (members, connections, footings, rebar)")
-                        .clicked()
-                    {
-                        self.run_ui("detail.sample", &Params::default());
-                    }
-                    if ui.button(bimtools::bt("new.button", &[])).on_hover_text(bimtools::bt("new.title", &[])).clicked() {
-                        self.bimh.new_dlg = Some(bimedit::NewDlg::default());
-                    }
-                    if ui.button("New").on_hover_text("A new drawing to draft in (Ctrl+N)").clicked() {
-                        self.run_ui("file.new", &Params::default());
-                    }
-                    if self.editor.is_none()
-                        && ui
-                            .add_enabled(self.source.is_some(), egui::Button::new("Edit"))
-                            .on_hover_text("Edit this drawing: draft, then save it as DWG or DXF")
-                            .clicked()
-                    {
-                        self.run_ui("file.edit", &Params::default());
-                    }
-                    if self.mc.is_some() {
-                        let mut pick: Option<&str> = None;
-                        ui.menu_button("Export", |ui| {
-                            for (f, label, _) in cc_m3d_files::EXPORT_FORMATS {
-                                if ui.button(*label).clicked() {
-                                    pick = Some(f);
-                                    ui.close();
-                                }
-                            }
-                        })
-                        .response
-                        .on_hover_text("Save the model as a ModelCraft file, glTF, OBJ, STL, Collada, IFC, DXF or DWG");
-                        if let Some(f) = pick {
-                            self.run_ui("file.export", &Params { name: Some(f.into()), ..Default::default() });
-                        }
-                    }
-                    if self.editor.is_some() {
-                        let mut pick: Option<&str> = None;
-                        ui.menu_button("Save as", |ui| {
-                            for f in cc_io_cad::SAVE_FORMATS {
-                                let label = match *f {
-                                    "dxf2000" => "DXF 2000".to_string(),
-                                    "dxf12" => "DXF R12".to_string(),
-                                    v => format!("DWG {v}"),
-                                };
-                                if ui.button(label).clicked() {
-                                    pick = Some(f);
-                                    ui.close();
-                                }
-                            }
-                        })
-                        .response
-                        .on_hover_text("Save the drawing as DWG (2000–2018) or DXF (Ctrl+S: the last format)");
-                        if let Some(f) = pick {
-                            self.run_ui("file.save", &Params { name: Some(f.to_string()), ..Default::default() });
-                        }
-                    }
-                    if ui
-                        .add_enabled(
-                            self.doc.is_some()
-                                || self.scene3.is_some()
-                                || self.mc.is_some()
-                                || self.pdf.is_some()
-                                || self.civil.is_some()
-                                || self.part.is_some(),
-                            egui::Button::new("Fit"),
-                        )
-                        .on_hover_text("Zoom to the drawing or model (Home)")
-                        .clicked()
-                    {
-                        self.run_ui("view.fit", &Params::default());
-                    }
-                    if self.scene3.is_some() || self.mc.is_some() {
-                        ui.separator();
-                        for (name, label) in
-                            [("iso", "Iso"), ("top", "Top"), ("front", "Front"), ("right", "Right"), ("back", "Back"), ("left", "Left")]
-                        {
-                            if ui.button(label).on_hover_text(format!("{label} view")).clicked() {
-                                self.run_ui("view.standard", &Params { name: Some(name.into()), ..Default::default() });
-                            }
-                        }
-                        let persp = self
-                            .scene3
-                            .as_ref()
-                            .map_or_else(|| self.mc.as_ref().is_some_and(|m| m.tools.host.cam.persp), |(_, v)| v.cam.persp);
-                        if ui.button(if persp { "Parallel" } else { "Perspective" }).on_hover_text("Switch the projection").clicked() {
-                            self.run_ui("view.projection", &Params::default());
-                        }
-                        let st = self.mc.as_ref().map(|m| m.style).or_else(|| self.scene3.as_ref().map(|(_, v)| v.style));
-                        if let Some(st) = st {
-                            let cur = if !st.faces {
-                                "Wireframe"
-                            } else if st.xray {
-                                "X-ray"
-                            } else if st.hidden_line {
-                                "Hidden line"
-                            } else {
-                                "Shaded"
-                            };
-                            let mut pick: Option<&str> = None;
-                            egui::ComboBox::new("style3", "Style").selected_text(cur).width(96.0).show_ui(ui, |ui| {
-                                for (id, label) in
-                                    [("shaded", "Shaded"), ("hidden", "Hidden line"), ("wire", "Wireframe"), ("xray", "X-ray")]
+                    // a narrow window scrolls the bar rather than cutting it off
+                    egui::ScrollArea::horizontal()
+                        .id_salt("app_bar_scroll")
+                        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+                        .show(ui, |ui| {
+                            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                if ui
+                                    .button(RichText::new("CadCraft").strong().color(t.text_strong))
+                                    .on_hover_text(hub::t(self.hub.loc(), "window.hub.title"))
+                                    .clicked()
                                 {
-                                    if ui.selectable_label(cur == label, label).clicked() {
-                                        pick = Some(id);
+                                    self.run_ui("hub.home", &Params::default());
+                                }
+                                ui.label(RichText::new("Rust test version").small().color(t.text_dim));
+                                ui.separator();
+                                if ui.button(lang::cad("input.cmd.file.open")).on_hover_text(lang::cad("ui.open_dwg_dxf_ctrl")).clicked() {
+                                    self.run_ui("file.open", &Params::default());
+                                }
+                                // the apps' samples (the start screen's tiles open the same)
+                                let mut sample: Option<&str> = None;
+                                ui.menu_button(lang::t0(&cc_detail::i18n::CATALOG, "page.tool.sample"), |ui| {
+                                    for (slug, name, _, _) in hub::APPS {
+                                        if let Some(cmd) = hub::sample_command(slug)
+                                            && ui.button(name).on_hover_text(hub::word(hub::loc(), slug, "short")).clicked()
+                                        {
+                                            sample = Some(cmd);
+                                            ui.close();
+                                        }
+                                    }
+                                });
+                                if let Some(cmd) = sample {
+                                    self.run_ui(cmd, &Params::default());
+                                }
+                                if ui.button(bimtools::bt("new.button", &[])).on_hover_text(bimtools::bt("new.title", &[])).clicked() {
+                                    self.bimh.new_dlg = Some(bimedit::NewDlg::default());
+                                }
+                                if ui
+                                    .button(lang::cad("ui.new"))
+                                    .on_hover_text(format!("{} (Ctrl+N)", lang::cad("ui.new_drawing")))
+                                    .clicked()
+                                {
+                                    self.run_ui("file.new", &Params::default());
+                                }
+                                if self.editor.is_none()
+                                    && ui
+                                        .add_enabled(self.source.is_some(), egui::Button::new(lang::cad("opt.edit")))
+                                        .on_hover_text(lang::cad("input.grp.edit"))
+                                        .clicked()
+                                {
+                                    self.run_ui("file.edit", &Params::default());
+                                }
+                                if self.mc.is_some() {
+                                    let mut pick: Option<&str> = None;
+                                    ui.menu_button(lang::mc("ui.export"), |ui| {
+                                        for (f, label, _) in cc_m3d_files::EXPORT_FORMATS {
+                                            if ui.button(*label).clicked() {
+                                                pick = Some(f);
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text(lang::mc("ui.export.title"));
+                                    if let Some(f) = pick {
+                                        self.run_ui("file.export", &Params { name: Some(f.into()), ..Default::default() });
                                     }
                                 }
+                                if self.editor.is_some() {
+                                    let mut pick: Option<&str> = None;
+                                    ui.menu_button(lang::cad("ui.save_as"), |ui| {
+                                        for f in cc_io_cad::SAVE_FORMATS {
+                                            let label = match *f {
+                                                "dxf2000" => "DXF 2000".to_string(),
+                                                "dxf12" => "DXF R12".to_string(),
+                                                v => format!("DWG {v}"),
+                                            };
+                                            if ui.button(label).clicked() {
+                                                pick = Some(f);
+                                                ui.close();
+                                            }
+                                        }
+                                    })
+                                    .response
+                                    .on_hover_text(format!("{} (Ctrl+S)", lang::cad("ui.save_as")));
+                                    if let Some(f) = pick {
+                                        self.run_ui("file.save", &Params { name: Some(f.to_string()), ..Default::default() });
+                                    }
+                                }
+                                if ui
+                                    .add_enabled(
+                                        self.doc.is_some()
+                                            || self.scene3.is_some()
+                                            || self.mc.is_some()
+                                            || self.pdf.is_some()
+                                            || self.civil.is_some()
+                                            || self.part.is_some(),
+                                        egui::Button::new(lang::bim("dwg.tab.fit")),
+                                    )
+                                    .on_hover_text(lang::bim("dwg.tab.fit.title"))
+                                    .clicked()
+                                {
+                                    self.run_ui("view.fit", &Params::default());
+                                }
+                                if self.scene3.is_some() || self.mc.is_some() {
+                                    ui.separator();
+                                    for name in ["iso", "top", "front", "right", "back", "left"] {
+                                        if ui
+                                            .button(lang::mc(&format!("ui.views.{name}")))
+                                            .on_hover_text(lang::mc("ui.views.title"))
+                                            .clicked()
+                                        {
+                                            self.run_ui("view.standard", &Params { name: Some(name.into()), ..Default::default() });
+                                        }
+                                    }
+                                    let persp = self
+                                        .scene3
+                                        .as_ref()
+                                        .map_or_else(|| self.mc.as_ref().is_some_and(|m| m.tools.host.cam.persp), |(_, v)| v.cam.persp);
+                                    if ui.button(lang::cad(if persp { "ui.parallel" } else { "ui.perspective" })).clicked() {
+                                        self.run_ui("view.projection", &Params::default());
+                                    }
+                                    let st = self.mc.as_ref().map(|m| m.style).or_else(|| self.scene3.as_ref().map(|(_, v)| v.style));
+                                    if let Some(st) = st {
+                                        let cur = if !st.faces {
+                                            "wire"
+                                        } else if st.xray {
+                                            "xray"
+                                        } else if st.hidden_line {
+                                            "hidden"
+                                        } else {
+                                            "shaded"
+                                        };
+                                        let word = |id: &str| lang::mc(&format!("ui.style.mode.{id}"));
+                                        let mut pick: Option<&str> = None;
+                                        egui::ComboBox::new("style3", lang::mc("ui.style")).selected_text(word(cur)).width(96.0).show_ui(
+                                            ui,
+                                            |ui| {
+                                                for id in ["shaded", "hidden", "wire", "xray"] {
+                                                    if ui.selectable_label(cur == id, word(id)).clicked() {
+                                                        pick = Some(id);
+                                                    }
+                                                }
+                                            },
+                                        );
+                                        let mut edges = st.edges;
+                                        if ui.checkbox(&mut edges, lang::mc("ui.style.edges")).changed() {
+                                            pick = Some("edges");
+                                        }
+                                        if let Some(p) = pick {
+                                            self.run_ui("view.style", &Params { name: Some(p.into()), ..Default::default() });
+                                        }
+                                    }
+                                }
+                                if ui.add_enabled(self.doc.is_some(), egui::Button::new(lang::cad("ui.layers"))).clicked() {
+                                    self.show_layers = !self.show_layers;
+                                }
+                                let next = if self.preset == Preset::Dark { "shell.bar.paper" } else { "shell.bar.model" };
+                                if ui.button(lang::shell(next, &[])).on_hover_text(lang::shell(&format!("{next}.title"), &[])).clicked() {
+                                    self.run_ui("theme.toggle", &Params::default());
+                                }
+                                self.app_bar_more(ui);
+                                if let Some(d) = &self.doc {
+                                    ui.separator();
+                                    ui.label(RichText::new(&d.name).color(t.text));
+                                    let rel = if d.drawing.release.is_empty() {
+                                        d.drawing.version.clone()
+                                    } else {
+                                        lang::t(
+                                            lang::BIMCRAFT,
+                                            "dwg.format.release",
+                                            &[("release", d.drawing.release.clone()), ("tag", d.drawing.version.clone())],
+                                        )
+                                    };
+                                    ui.label(RichText::new(rel).small().color(t.text_dim));
+                                }
                             });
-                            let mut edges = st.edges;
-                            if ui.checkbox(&mut edges, "Edges").changed() {
-                                pick = Some("edges");
-                            }
-                            if let Some(p) = pick {
-                                self.run_ui("view.style", &Params { name: Some(p.into()), ..Default::default() });
-                            }
-                        }
-                    }
-                    if ui.add_enabled(self.doc.is_some(), egui::Button::new("Layers")).clicked() {
-                        self.show_layers = !self.show_layers;
-                    }
-                    let label = if self.preset == Preset::Dark { "Light" } else { "Dark" };
-                    if ui.button(label).on_hover_text("Switch the theme").clicked() {
-                        self.run_ui("theme.toggle", &Params::default());
-                    }
-                    if let Some(d) = &self.doc {
-                        ui.separator();
-                        ui.label(RichText::new(&d.name).color(t.text));
-                        let rel = if d.drawing.release.is_empty() {
-                            d.drawing.version.clone()
-                        } else {
-                            format!("AutoCAD {} format", d.drawing.release)
-                        };
-                        ui.label(RichText::new(rel).small().color(t.text_dim));
-                    }
+                        });
                 });
             });
+    }
+
+    /// The viewer's buttons (print view, Find, the Drawing panel).
+    fn app_bar_more(&mut self, ui: &mut egui::Ui) {
+        let mut act: Option<(&str, Params)> = None;
+        if viewer::active(self) {
+            ui.separator();
+            if ui.selectable_label(self.viewer.print, lang::bim("dwg.tab.print")).on_hover_text(lang::bim("dwg.tab.print.title")).clicked()
+            {
+                act = Some(("viewer.print", Params::default()));
+            }
+            if ui
+                .selectable_label(self.viewer.find.is_some(), lang::cad("dlg.find.what"))
+                .on_hover_text(format!("{} (Ctrl+F)", lang::cad("dlg.find.title")))
+                .clicked()
+            {
+                act = Some(if self.viewer.find.is_some() {
+                    ("viewer.find.close", Params::default())
+                } else {
+                    ("viewer.find", Params::default())
+                });
+            }
+            if ui.selectable_label(self.viewer.info, lang::bim("info.h.drawing")).clicked() {
+                act = Some(("viewer.info", Params::default()));
+            }
+        }
+        if let Some((id, p)) = act {
+            self.run_ui(id, &p);
+        }
+    }
+
+    /// Help, Settings and Recent files (laid out right to left at the bar's right end).
+    fn app_bar_shell(&mut self, ui: &mut egui::Ui) {
+        let mut act: Option<(&str, Params)> = None;
+        if ui
+            .selectable_label(self.help.open, lang::cad("input.cmd.app.help"))
+            .on_hover_text(lang::shell("shell.bar.help.title", &[("key", "F1".into())]))
+            .clicked()
+        {
+            act = Some(("help.toggle", Params::default()));
+        }
+        if ui.button(lang::shell("shell.bar.settings", &[])).on_hover_text(settings::title(self)).clicked() {
+            act = Some(("settings.open", Params::default()));
+        }
+        let recent = self.hub.recent.clone();
+        ui.menu_button(lang::shell("shell.recent.title", &[]), |ui| {
+            if recent.is_empty() {
+                ui.label(hub::t(hub::loc(), "recent.empty"));
+            }
+            let now = hub::now_ms();
+            for (i, r) in recent.iter().enumerate().take(15) {
+                let when = lang::shell("shell.recent.opened", &[("when", hub::when(r.when, now, self.zone))]);
+                let b = ui.add_enabled(r.dir.is_some(), egui::Button::new(&r.name)).on_hover_text(when);
+                if b.clicked() {
+                    act = Some(("hub.recent", Params { index: Some(i), ..Default::default() }));
+                    ui.close();
+                }
+            }
+            if !recent.is_empty() {
+                ui.separator();
+                if ui.button(lang::shell("shell.recent.clear", &[])).clicked() {
+                    act = Some(("hub.clear", Params::default()));
+                    ui.close();
+                }
+            }
+        });
+        if let Some((id, p)) = act {
+            self.run_ui(id, &p);
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -2301,10 +2422,12 @@ impl UiApp {
                 ui.horizontal_centered(|ui| {
                     if let Some(e) = &self.error {
                         ui.label(RichText::new(e).color(Color32::from_rgb(0xe0, 0x6c, 0x5c)));
+                    } else if let Some((x, y)) = self.cursor.filter(|_| viewer::active(self)) {
+                        ui.label(RichText::new(viewer::coords(x, y)).monospace().color(t.text));
                     } else if let Some((x, y)) = self.cursor {
                         ui.label(RichText::new(format!("{x:.4}, {y:.4}")).monospace().color(t.text));
                     } else {
-                        ui.label(RichText::new("Drop a DWG or DXF here, or Open…").color(t.text_dim));
+                        ui.label(RichText::new(lang::cad("ui.drop_dwg_dxf_open")).color(t.text_dim));
                     }
                     ui.separator();
                     ui.label(RichText::new(&self.message).small().color(t.text_dim));
@@ -2340,8 +2463,8 @@ impl UiApp {
             ui,
             |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("Layers ({})", layers.len())).strong().color(t.text_strong));
-                    if ui.small_button("Show all").clicked() {
+                    ui.label(RichText::new(format!("{} ({})", lang::cad("ui.layers"), layers.len())).strong().color(t.text_strong));
+                    if ui.small_button(lang::cad("opt.showall")).clicked() {
                         all = true;
                     }
                 });
@@ -2371,7 +2494,13 @@ impl UiApp {
     fn tabs(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
         let Some(doc) = &self.doc else { return };
-        let names: Vec<(String, bool)> = doc.drawing.spaces.iter().map(|s| (s.name.clone(), s.kind == SpaceKind::Paper)).collect();
+        // model space by the app's word for it (the file's own name for it is "Model" in every language)
+        let names: Vec<(String, bool)> = doc
+            .drawing
+            .spaces
+            .iter()
+            .map(|s| (if s.kind == SpaceKind::Model { lang::cad("app.tab.model") } else { s.name.clone() }, s.kind == SpaceKind::Paper))
+            .collect();
         let editing = self.editor.is_some();
         if names.len() <= 1 && !editing {
             return;
@@ -2432,7 +2561,7 @@ impl UiApp {
             ui.painter().text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Open a DWG or DXF, drop one here, or open the sample.",
+                lang::cad("ui.drop_dwg_dxf_open"),
                 egui::FontId::proportional(15.0),
                 t.text_dim,
             );
@@ -2458,8 +2587,10 @@ impl UiApp {
             self.pending_fit = false;
         }
         let editing = self.editor.is_some();
+        // touch: two fingers pinch-zoom and pan (viewer.rs)
+        let touching = viewer::touch(ui, rect, &mut view, ppp);
         // input: drag pans (any button; drafting: middle / right), wheel zooms about the pointer, double click fits
-        if resp.dragged() && !(editing && resp.dragged_by(egui::PointerButton::Primary)) {
+        if !touching && resp.dragged() && !(editing && resp.dragged_by(egui::PointerButton::Primary)) {
             let d = resp.drag_delta();
             view.pan(f64::from(d.x) * ppp, f64::from(d.y) * ppp);
         }
@@ -2470,7 +2601,7 @@ impl UiApp {
             if scroll != 0.0 {
                 view.zoom_at(sx, sy, (f64::from(scroll) / 200.0).exp());
             }
-            if zoom != 1.0 {
+            if zoom != 1.0 && !touching {
                 view.zoom_at(sx, sy, f64::from(zoom));
             }
             self.cursor = Some(view.to_world(sx, sy));
@@ -2500,6 +2631,9 @@ impl UiApp {
             hidden: &self.hidden,
             tokens: &self.tokens,
             line_px: ppp as f32,
+            print: self.viewer.print && self.editor.is_none(),
+            layer_handles: Some(&doc.layer_handles),
+            mark: self.viewer.mark.filter(|m| m.0 == self.space).map(|m| (m.1, m.2)),
         };
         self.last_stats = canvas::paint(ui, rect, &frame);
         if editing {

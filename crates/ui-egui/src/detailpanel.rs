@@ -121,8 +121,11 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
                 acts.push(Act::Run("detail.export", "shop".into()));
             }
             ui.separator();
-            // plain English: the 0.5 app turns the view with its view cube, which has no words
-            for (v, label) in [("iso", "Iso"), ("top", "Top"), ("front", "Front"), ("right", "Right")] {
+            // the 0.5 app turns the view with its view cube: its faces' words (and ModelCraft's Iso)
+            for (v, key) in
+                [("iso", "ui.views.iso"), ("top", "viewcube.face.top"), ("front", "viewcube.face.front"), ("right", "viewcube.face.right")]
+            {
+                let label = if v == "iso" { crate::lang::mc(key) } else { crate::lang::t0(&cc_detail::i18n::CATALOG, key) };
                 if ui.small_button(label).clicked() {
                     acts.push(Act::Run("detail.camera", v.into()));
                 }
@@ -231,7 +234,7 @@ pub(crate) fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &
 /// A labelled row: label on the left, the widget on the right.
 pub(crate) fn row(ui: &mut Ui, tk: &Tokens, label: &str, add: impl FnOnce(&mut Ui, egui::Id)) {
     ui.horizontal(|ui| {
-        let l = ui.add_sized([96.0, 18.0], egui::Label::new(RichText::new(label).color(tk.text_dim)).truncate());
+        let l = ui.add_sized([112.0, 18.0], egui::Label::new(RichText::new(label).color(tk.text_dim)).truncate());
         add(ui, l.id);
     });
 }

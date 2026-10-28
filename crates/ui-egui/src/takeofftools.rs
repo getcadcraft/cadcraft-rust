@@ -615,11 +615,16 @@ impl TakeoffMode {
 
     /// The right-hand panel: the sheet's scale, the items with their quantities, the estimate's totals.
     pub fn panel(&mut self, ui: &mut egui::Ui, t: &Tokens, sheet: &str, user_unit: f64) {
-        ui.label(RichText::new("Takeoff").strong().color(t.text_strong));
+        ui.label(RichText::new(cc_takeoff::i18n::t("group.takeoff")).strong().color(t.text_strong));
         // scale
-        let cur = self.tk.scale_of(sheet).and_then(|s| s.get("label")).and_then(Value::as_str).unwrap_or("Not scaled").to_string();
+        let cur = self
+            .tk
+            .scale_of(sheet)
+            .and_then(|s| s.get("label"))
+            .and_then(Value::as_str)
+            .map_or_else(|| cc_takeoff::i18n::t("sheetbar.noscale"), str::to_string);
         let mut pick: Option<&'static str> = None;
-        let l = ui.label(RichText::new("Sheet scale").small());
+        let l = ui.label(RichText::new(cc_takeoff::i18n::t("scale.preset.aria")).small());
         let _ = egui::ComboBox::from_id_salt("tk_scale")
             .selected_text(cur)
             .width(ui.available_width().clamp(80.0, 220.0))
@@ -636,7 +641,7 @@ impl TakeoffMode {
             self.set_preset(sheet, k, user_unit);
         }
         ui.horizontal_wrapped(|ui| {
-            let draw = self.item_type().map_or_else(|| "Draw".to_string(), |ty| cc_takeoff::i18n::t(&format!("tool.{ty}")));
+            let draw = self.item_type().map_or_else(|| cc_takeoff::i18n::t("tool.linear"), |ty| cc_takeoff::i18n::t(&format!("tool.{ty}")));
             for (tool, label) in
                 [("select", cc_takeoff::i18n::t("tool.select")), ("draw", draw), ("circle", cc_takeoff::i18n::t("tool.circle"))]
             {
@@ -699,7 +704,7 @@ impl TakeoffMode {
                 if ui.selectable_label(on, format!("{name}  ·  {amount}")).clicked() {
                     select = Some(id.clone());
                 }
-                if ui.small_button("Remove").clicked() {
+                if ui.small_button(cc_takeoff::i18n::t("packs.remove")).clicked() {
                     remove = Some(id.clone());
                 }
             });
@@ -720,13 +725,21 @@ impl TakeoffMode {
         }
         // add an item
         ui.add_space(4.0);
-        ui.add(egui::TextEdit::singleline(&mut self.new_name).hint_text("New item name").desired_width(ui.available_width()));
+        ui.add(
+            egui::TextEdit::singleline(&mut self.new_name)
+                .hint_text(cc_takeoff::i18n::t("items.new.placeholder"))
+                .desired_width(ui.available_width()),
+        );
         ui.horizontal(|ui| {
-            for (ty, label) in [("count", "Count"), ("linear", "Linear"), ("area", "Area")] {
+            for (ty, label) in [
+                ("count", cc_takeoff::i18n::t("type.count")),
+                ("linear", cc_takeoff::i18n::t("type.linear")),
+                ("area", cc_takeoff::i18n::t("type.area")),
+            ] {
                 ui.radio_value(&mut self.new_type, ty.to_string(), label);
             }
         });
-        if ui.button("Add item").clicked() {
+        if ui.button(cc_takeoff::i18n::t("items.new")).clicked() {
             let name = if self.new_name.trim().is_empty() {
                 format!("Item {}", self.tk.items().len() + 1)
             } else {
@@ -765,9 +778,14 @@ impl TakeoffMode {
         self.group_window(ui.ctx());
         ui.separator();
         let e = cc_takeoff::model::base_estimate(&self.tk.state);
-        ui.label(format!("{} marks · estimate ${:.2}", self.tk.marks().len(), e.total / 100.0));
+        ui.label(format!(
+            "{} · {} ${:.2}",
+            cc_takeoff::i18n::tn("n.marks", self.tk.marks().len() as f64),
+            cc_takeoff::i18n::t("x.sheet.estimate"),
+            e.total / 100.0
+        ));
         if e.unscaled > 0.0 {
-            ui.label(RichText::new(format!("{} marks are on sheets without a scale", qty(e.unscaled))).color(t.text_dim));
+            ui.label(RichText::new(cc_takeoff::i18n::tn("qty.warn.unscaled", e.unscaled)).color(t.text_dim));
         }
         self.by_area(ui, t);
         self.autocount_panel(ui, t);

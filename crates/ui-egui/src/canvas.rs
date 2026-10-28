@@ -32,6 +32,8 @@ struct DrawItem {
     uniform: ViewUniform,
     /// physical pixels in the framebuffer: x, y, w, h
     scissor: Option<[u32; 4]>,
+    /// this draw's own batch visibility (a viewport with layers frozen in it), else the space's
+    visible: Option<Arc<Vec<bool>>>,
 }
 
 struct CanvasCallback {
@@ -86,7 +88,7 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
                 }
                 None => pass.set_scissor_rect(cx, cy, cw, ch),
             }
-            let vis = self.visible.get(d.space);
+            let vis = d.visible.as_deref().or_else(|| self.visible.get(d.space));
             gpu.renderer.draw(pass, mesh, d.slot, &|b| vis.and_then(|v| v.get(b)).copied().unwrap_or(true));
         }
         pass.set_scissor_rect(cx, cy, cw, ch);
@@ -107,7 +109,17 @@ pub struct Frame<'a> {
     pub pictures: &'a HashMap<String, egui::TextureId>,
     /// a point cloud under the drawing (cloudview.rs): its pictures, where they go and their clips
     pub underlay: &'a [(egui::TextureId, Rect, Rect)],
+    /// print view (dwg-view.js `setPrint`): black on white paper, layers that never print hidden, line weights
+    pub print: bool,
+    /// layer handle (upper case) → name: what a viewport's frozen-layer handles name (None: names already)
+    pub layer_handles: Option<&'a HashMap<String, String>>,
+    /// a point ringed in this space (a Find result), world coordinates
+    pub mark: Option<(f64, f64)>,
 }
+
+/// The print view's colours (dwg-view.js theme() with `print`): white paper, black ink, a grey desk round sheets.
+pub const PRINT_DESK: Color32 = Color32::from_rgb(0xc9, 0xce, 0xd3);
+pub const PRINT_LINE: Color32 = Color32::from_rgb(0x80, 0x86, 0x8c);
 
 fn rgba(c: Color32) -> [f32; 4] {
     let f = |u: u8| f32::from(u) / 255.0;
@@ -144,8 +156,25 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     let t = f.tokens;
     let Some(space) = f.drawing.spaces.get(f.space) else { return FrameStats::default() };
     let paper = space.kind == SpaceKind::Paper;
-    painter.rect_filled(rect, 0.0, if paper { t.desk } else { t.canvas_bg });
-    let ink = if paper { t.sheet_ink } else { t.ink };
+    let print = f.print;
+    let bg = match (print, paper) {
+        (true, true) => PRINT_DESK,
+        (true, false) => Color32::WHITE,
+        (false, true) => t.desk,
+        (false, false) => t.canvas_bg,
+    };
+    painter.rect_filled(rect, 0.0, bg);
+    let ink = if print {
+        Color32::BLACK
+    } else if paper {
+        t.sheet_ink
+    } else {
+        t.ink
+    };
+    // a layer shows unless turned off, or (print view) it never prints
+    let no_plot: std::collections::HashSet<&str> =
+        if print { f.drawing.layers.iter().filter(|l| !l.plot).map(|l| l.name.as_str()).collect() } else { Default::default() };
+    let shown = |layer: &str| !f.hidden.contains(layer) && !no_plot.contains(layer);
     // views are in physical pixels
     let view = f.view;
     let to_pt = |v: &View2D, x: f64, y: f64| {
@@ -155,11 +184,29 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     if paper && let Some(p) = space.paper {
         let a = to_pt(&view, p.min_x, p.max_y);
         let b = to_pt(&view, p.max_x, p.min_y);
-        painter.rect_filled(Rect::from_two_pos(a, b), 0.0, t.sheet);
+        painter.rect_filled(Rect::from_two_pos(a, b), 0.0, if print { Color32::WHITE } else { t.sheet });
     }
     // visibility per batch
-    let visible: Vec<Vec<bool>> =
-        f.drawing.spaces.iter().map(|s| s.batches.iter().map(|b| !f.hidden.contains(&b.layer)).collect()).collect();
+    let visible: Vec<Vec<bool>> = f.drawing.spaces.iter().map(|s| s.batches.iter().map(|b| shown(&b.layer)).collect()).collect();
+    // physical px per paper mm (print view on a sheet: weights at their true width)
+    let mm_per_unit = if space.paper_unit.as_deref() == Some("mm") { 1.0 } else { 25.4 };
+    let px_per_mm = if print && paper { (view.zoom / mm_per_unit) as f32 } else { 0.0 };
+    let uniform = |v: &View2D, origin: (f64, f64)| {
+        let mut u = ViewUniform::new(v, origin, rgba(ink), f.line_px);
+        u.print = if print { 1.0 } else { 0.0 };
+        u.px_per_mm = px_per_mm;
+        u
+    };
+    // per viewport: the model's layers frozen in it (VP.1), by name
+    let frozen_in = |vp: &Viewport| -> std::collections::HashSet<String> {
+        vp.frozen
+            .iter()
+            .filter_map(|h| match f.layer_handles {
+                Some(m) => m.get(&h.to_ascii_uppercase()).cloned(),
+                None => Some(h.clone()),
+            })
+            .collect()
+    };
     let mut draws = Vec::new();
     let mut slot = 0u32;
     let model = f.drawing.spaces.iter().position(|s| s.kind == SpaceKind::Model);
@@ -186,8 +233,18 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
             let oy = f64::from(rect.min.y * ppp);
             let sc =
                 [(ox + minx).max(0.0) as u32, (oy + miny).max(0.0) as u32, (maxx - minx).max(0.0) as u32, (maxy - miny).max(0.0) as u32];
-            draws.push(DrawItem { space: mi, slot, uniform: ViewUniform::new(&mv, morigin, rgba(ink), f.line_px), scissor: Some(sc) });
-            vp_views.push((mv, minx, miny, maxx, maxy));
+            let frozen = frozen_in(vp);
+            let own = (!frozen.is_empty()).then(|| {
+                Arc::new(
+                    f.drawing
+                        .spaces
+                        .get(mi)
+                        .map(|ms| ms.batches.iter().map(|b| shown(&b.layer) && !frozen.contains(&b.layer)).collect())
+                        .unwrap_or_default(),
+                )
+            });
+            draws.push(DrawItem { space: mi, slot, uniform: uniform(&mv, morigin), scissor: Some(sc), visible: own });
+            vp_views.push((mv, minx, miny, maxx, maxy, frozen));
             slot += 1;
         }
     }
@@ -196,14 +253,14 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     // pictures under the linework (pictures.js draws them after the fills): the model's inside each viewport, then the
     // space's own
     if paper && let Some(mi) = model {
-        for (mv, x0, y0, x1, y1) in &vp_views {
+        for (mv, x0, y0, x1, y1, frozen) in &vp_views {
             let clip = Rect::from_min_max(
                 Pos2::new(rect.min.x + (*x0 as f32) / ppp, rect.min.y + (*y0 as f32) / ppp),
                 Pos2::new(rect.min.x + (*x1 as f32) / ppp, rect.min.y + (*y1 as f32) / ppp),
             );
             let vpp = painter.with_clip_rect(clip.intersect(rect));
             for im in f.drawing.spaces.get(mi).map(|s| s.images.as_slice()).unwrap_or(&[]) {
-                if f.hidden.contains(&im.layer) {
+                if !shown(&im.layer) || frozen.contains(&im.layer) {
                     continue;
                 }
                 if let Some(tex) = f.pictures.get(&im.file)
@@ -215,7 +272,7 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
         }
     }
     for im in &space.images {
-        if f.hidden.contains(&im.layer) {
+        if !shown(&im.layer) {
             continue;
         }
         if let Some(tex) = f.pictures.get(&im.file)
@@ -225,23 +282,23 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
         }
     }
     let origin = f.geometry.get(f.space).map(|g| g.origin).unwrap_or((0.0, 0.0));
-    draws.push(DrawItem { space: f.space, slot, uniform: ViewUniform::new(&view, origin, rgba(ink), f.line_px), scissor: None });
+    draws.push(DrawItem { space: f.space, slot, uniform: uniform(&view, origin), scissor: None, visible: None });
     let n_draws = draws.len();
     let cb = CanvasCallback { id: f.id, geometry: Arc::clone(f.geometry), draws, visible: Arc::new(visible) };
     painter.add(egui_wgpu::Callback::new_paint_callback(rect, cb));
     // raster images whose file is not loaded: their frame (as the JS viewer shows a missing one); a drawing being
     // edited has the frame as an object of its own
     for im in &space.images {
-        if f.hidden.contains(&im.layer) || im.clip.is_some() || f.pictures.contains_key(&im.file) {
+        if !shown(&im.layer) || im.clip.is_some() || f.pictures.contains_key(&im.file) {
             continue;
         }
         let m = im.m;
         let corner = |u: f64, v: f64| to_pt(&view, m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5]);
         let pts = vec![corner(0.0, 0.0), corner(im.w, 0.0), corner(im.w, im.h), corner(0.0, im.h), corner(0.0, 0.0)];
-        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, ink)));
+        painter.add(egui::Shape::line(pts, egui::Stroke::new(1.0, if print { PRINT_LINE } else { ink })));
     }
-    // viewport frames
-    for (_, x0, y0, x1, y1) in &vp_views {
+    // viewport frames (on screen only: they never print)
+    for (_, x0, y0, x1, y1, _) in vp_views.iter().filter(|_| !print) {
         let r = Rect::from_min_max(
             Pos2::new(rect.min.x + (*x0 as f32) / ppp, rect.min.y + (*y0 as f32) / ppp),
             Pos2::new(rect.min.x + (*x1 as f32) / ppp, rect.min.y + (*y1 as f32) / ppp),
@@ -251,13 +308,13 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     // texts: the space's own, and the model's inside each viewport
     let mut texts = 0usize;
     let budget = 30_000usize;
-    let mut draw_texts = |sp: &cc_drawing::Space, v: &View2D, clip: Rect| {
+    let mut draw_texts = |sp: &cc_drawing::Space, v: &View2D, clip: Rect, frozen: Option<&std::collections::HashSet<String>>| {
         let p2 = painter.with_clip_rect(clip);
         for b in &sp.batches {
-            if f.hidden.contains(&b.layer) {
+            if !shown(&b.layer) || frozen.is_some_and(|fz| fz.contains(&b.layer)) {
                 continue;
             }
-            let col = colour32(b.color, ink);
+            let col = if print { ink } else { colour32(b.color, ink) };
             for tx in &b.texts {
                 if texts >= budget {
                     return;
@@ -296,18 +353,23 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     if let Some(mi) = model
         && paper
     {
-        for (vi, (mv, x0, y0, x1, y1)) in vp_views.iter().enumerate() {
-            let _ = vi;
+        for (mv, x0, y0, x1, y1, frozen) in &vp_views {
             let clip = Rect::from_min_max(
                 Pos2::new(rect.min.x + (*x0 as f32) / ppp, rect.min.y + (*y0 as f32) / ppp),
                 Pos2::new(rect.min.x + (*x1 as f32) / ppp, rect.min.y + (*y1 as f32) / ppp),
             )
             .intersect(rect);
             if let Some(ms) = f.drawing.spaces.get(mi) {
-                draw_texts(ms, mv, clip);
+                draw_texts(ms, mv, clip, Some(frozen));
             }
         }
     }
-    draw_texts(space, &view, rect);
+    draw_texts(space, &view, rect, None);
+    // the ring round a point picked from a list (dwg-view.js focusModelPoint)
+    if let Some((x, y)) = f.mark {
+        let c = to_pt(&view, x, y);
+        painter.circle_stroke(c, 22.0, egui::Stroke::new(3.0, t.accent));
+        painter.circle_stroke(c, 30.0, egui::Stroke::new(1.0, t.accent));
+    }
     FrameStats { draw_items: n_draws, texts }
 }
