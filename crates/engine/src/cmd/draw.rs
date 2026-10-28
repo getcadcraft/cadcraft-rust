@@ -88,14 +88,21 @@ fn based(b: P2) -> Opts {
 // ---- LINE
 
 pub async fn line(c: Ctx) -> R {
+    // on the 3D tab a point answered keeps its z as the next question's base; commands.js passes copies ({x, y})
+    // where it makes them (the last point, a tangent's touch point, a segment undone): those bases have none
+    let mut prev_raw = true;
     let (first, ftan) = match c.point(c.t("cmd.mea.p1"), none()).await? {
         Reply::Point(p, t) => (p, t),
         _ => match c.st().last_point {
-            Some(p) => (p, None),
+            Some(p) => {
+                prev_raw = false;
+                (p, None)
+            }
             None => return Ok(()),
         },
     };
     let mut start = first;
+    let mut start_raw = prev_raw;
     let mut prev = first;
     let mut deferred = ftan;
     let mut made: Vec<(u64, P2)> = Vec::new();
@@ -113,7 +120,10 @@ pub async fn line(c: Ctx) -> R {
             options.push(c.opt("C", "Close"));
         }
         let base = if deferred.is_some() { None } else { Some(prev) };
-        let r = c.point(c.t("cmd.line.specify_next_point"), Opts { base, options, none: true, ..Opts::default() }).await?;
+        let r = c
+            .point(c.t("cmd.line.specify_next_point"), Opts { base, options, none: true, flat_base: !prev_raw, ..Opts::default() })
+            .await?;
+        let mut p_made = false;
         let (mut p, ptan, key) = match r {
             Reply::Null => return Ok(()),
             Reply::Point(q, t) => (q, t, None),
@@ -134,11 +144,14 @@ pub async fn line(c: Ctx) -> R {
                 (true, Some(a), Some(b)) => {
                     prev = *a;
                     p = *b;
+                    p_made = true;
                 }
                 (_, Some(a), _) => prev = *a,
                 _ => {}
             }
             start = prev;
+            start_raw = false;
+            prev_raw = false;
             deferred = None;
         }
         match key.as_deref() {
@@ -149,6 +162,7 @@ pub async fn line(c: Ctx) -> R {
                 };
                 c.change("LINE", |d| d.remove(id))?;
                 prev = made.last().map_or(start, |m| m.1);
+                prev_raw = made.is_empty() && start_raw;
                 c.st().last_point = Some(prev);
                 continue;
             }
@@ -166,6 +180,8 @@ pub async fn line(c: Ctx) -> R {
         let e = c.add(ent(&c, line_g(prev, p)))?;
         made.push((e.id.unwrap_or(0), p));
         prev = p;
+        // `p = {x: p.x, y: p.y}` when this end snapped Tangent; a tangent's touch point is made too
+        prev_raw = ptan.is_none() && key.is_none() && !p_made;
     }
 }
 
@@ -231,7 +247,8 @@ pub async fn pline(c: Ctx) -> R {
         };
         let last = pts.last().map(Vertex::p).unwrap_or(start);
         let prompt = if arc_mode { c.t("cmd.pline.specify_endpoint_arc") } else { c.t("cmd.line.specify_next_point") };
-        let r = c.point(prompt, Opts { base: Some(last), options, none: true, ..Opts::default() }).await?;
+        // the vertices are copies ({x, y, b}): no z
+        let r = c.point(prompt, Opts { base: Some(last), options, none: true, flat_base: true, ..Opts::default() }).await?;
         match r {
             Reply::Opt(k) => match k.as_str() {
                 "A" => arc_mode = true,
@@ -518,7 +535,7 @@ pub async fn ellipse(c: Ctx) -> R {
     c.preview(Some(Rc::new(move |_, cur| {
         vec![Entity::new(make((((cur.x - center.x) * -major.y + (cur.y - center.y) * major.x) / l).abs()))]
     })));
-    let d = c.distance(c.t("cmd.ellipse.specify_distance_other_axis"), based(center)).await?;
+    let d = c.distance(c.t("cmd.ellipse.specify_distance_other_axis"), Opts { flat_base: true, ..based(center) }).await?;
     let Reply::Num(d) = d else { return Ok(()) };
     if d == 0.0 || d.is_nan() {
         return Ok(());

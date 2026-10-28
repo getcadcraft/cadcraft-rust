@@ -521,7 +521,12 @@ pub async fn revcloud_cmd(c: Ctx) -> R {
                         })));
                     }
                     let options = if pts.len() > 1 { vec![c.opt("U", &c.t("opt.undo"))] } else { Vec::new() };
-                    let q = c.point(c.t("cmd.rc.next"), Opts { base: pts.last().copied(), none: true, options, ..Opts::default() }).await?;
+                    let q = c
+                        .point(
+                            c.t("cmd.rc.next"),
+                            Opts { base: pts.last().copied(), none: true, options, flat_base: true, ..Opts::default() },
+                        )
+                        .await?;
                     match q {
                         Reply::Opt(k) if k == "U" => {
                             pts.pop();

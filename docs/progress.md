@@ -2,6 +2,20 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.48 3D tab after the drafting merge: bases with and without z, the unit read, NaN clicks (agent, work/cad3dfix)
+
+- The merged kdiff (kdiff-draftmerge) found more 3D-tab differences already in main; with M4.27–M4.29 and these, its
+  random scripts (copied to tools/kdiff-cad3dfix.mjs: the page's 3D handlers may throw, `--skip`) give seeds 1–8 × 24 at
+  0 differences (seed 7 script 20 skipped: the frozen 0.5 JS runs out of memory at REVCLOUD's second point clicked on
+  the 3D tab, a 0.5 bug) and its 80 scenarios 3730/3730.
+  - A point answered on the 3D tab keeps its z only while a command passes that very answer as the next base:
+    commands.js passes copies in LINE (after Undo, a tangent), PLINE, the selection and TRIM fences, REVCLOUD, AREA
+    (after the first point), IMAGE / XCLIP polygons, ELLIPSE's other axis, MEASUREGEOM's arc end — those bases are
+    marked `flat_base` (the preview then lies at the cursor's z, as 0.5 draws it).
+  - The model takes the drawing's unit when the tools read it (`th.units`; m3d-tools `Host::units_read`), not on every
+    event: after UNITS undo / redo a select-tool hover leaves the model's unit as it was, as 0.5 does.
+  - The CLI reads the harness's null coordinates as NaN (JSON has none): a click there still happens, as in the JS.
+
 ## 2026-10-28 — M4.28–M4.29 3D tab: the model read with the file; view cube, compass, touch (agent, work/cad3dfix)
 
 - M4.28: a drawing's 3D model is read when the drawing opens (doc.js load → model3d.js fromFile), not when the 3D tab

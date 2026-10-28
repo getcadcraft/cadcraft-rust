@@ -564,9 +564,8 @@ impl Ws3d {
     /// Before the tools run: the kernel's stacks emptied, and the drawing's last step lent to it when that is a 3D one.
     fn prep(&mut self, doc: &Doc) {
         self.ensure_lines2d(doc);
+        self.tools.host.units_read.set(false);
         let m = &mut self.tools.host.model;
-        // th.units reads model.syncUnits()
-        m.units = m3::display_unit(&units_of(doc)).to_string();
         m.undo_stack.clear();
         m.redo_stack.clear();
         self.lent = false;
@@ -622,6 +621,10 @@ impl Ws3d {
         let path0 = self.tools.host.path.clone();
         let sel0 = self.tools.host.sel.clone();
         let r = f(&mut self.tools);
+        // `th.units` is model.syncUnits(): the model takes the drawing's unit when the tools read it
+        if self.tools.host.units_read.take() {
+            self.tools.host.model.units = m3::display_unit(&units_of(doc)).to_string();
+        }
         self.drain();
         let path = self.tools.host.path.clone();
         if path != path0 {

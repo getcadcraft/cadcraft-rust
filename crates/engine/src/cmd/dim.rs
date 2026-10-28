@@ -213,7 +213,7 @@ pub async fn dimangular(c: Ctx) -> R {
                 Geo::Circle(ci) => {
                     let cen = P2::new(ci.cx, ci.cy);
                     let p1 = polar(cen, angle_of(cen, at), ci.r);
-                    let b = c.must_point(c.t("cmd.mea.end2"), Opts { base: Some(cen), ..Opts::default() }).await?;
+                    let b = c.must_point(c.t("cmd.mea.end2"), Opts { base: Some(cen), flat_base: true, ..Opts::default() }).await?;
                     Rc::new(move |cur| Some((cen, p1, b, cur)))
                 }
                 Geo::Line(l1) => {

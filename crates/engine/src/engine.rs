@@ -1486,7 +1486,8 @@ impl Ctx {
                     })));
                     let options = if pts.is_empty() { Vec::new() } else { vec![self.opt("U", &self.t("opt.undo"))] };
                     let prompt = if pts.is_empty() { self.t("sel.fence.first") } else { self.t("sel.fence.next") };
-                    let p = self.point(prompt, Opts { base: last, none: true, options, ..Opts::default() }).await?;
+                    // the fence's points are copies ({x, y}): no z on the 3D tab
+                    let p = self.point(prompt, Opts { base: last, none: true, options, flat_base: true, ..Opts::default() }).await?;
                     match p {
                         Reply::Null => break,
                         Reply::Opt(k) if k == "U" => {

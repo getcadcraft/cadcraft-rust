@@ -725,7 +725,7 @@ pub async fn xclip(c: Ctx) -> R {
 pub(crate) async fn polygon(c: &Ctx, first: &str, more: &str) -> R<Option<Vec<P2>>> {
     let mut pts: Vec<P2> = Vec::new();
     loop {
-        let opts = Opts { base: pts.last().copied(), none: pts.len() >= 3, ..Opts::default() };
+        let opts = Opts { base: pts.last().copied(), none: pts.len() >= 3, flat_base: true, ..Opts::default() };
         let q = c.point(c.t(if pts.len() < 3 { first } else { more }), opts).await?;
         match q {
             Reply::Null => break,

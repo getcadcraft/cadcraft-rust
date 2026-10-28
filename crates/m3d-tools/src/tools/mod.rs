@@ -181,6 +181,9 @@ pub struct Host {
     /// live previews restore only the open context's definition (ModelCraft's `scope()`); false: the whole model from
     /// its starting copy every frame, as CadCraft 0.5's older copy of tools.js / model.js does
     pub scoped_previews: bool,
+    /// the tools read the display unit since this was last cleared (a page whose unit getter has side effects —
+    /// CadCraft's `th.units` syncs the model's unit — acts on it)
+    pub units_read: std::cell::Cell<bool>,
 }
 
 impl Host {
@@ -206,6 +209,7 @@ impl Host {
             extra: None,
             linear_order: false,
             scoped_previews: true,
+            units_read: std::cell::Cell::new(false),
         }
     }
     /// The key of the extra edges in the scene (None: none).
@@ -275,6 +279,7 @@ impl Host {
     }
     /// `formatLength(m, units)`.
     pub fn fmt(&self, m: f64) -> String {
+        self.units_read.set(true);
         format_length(m, &self.units)
     }
 }
@@ -754,6 +759,7 @@ impl Tools {
     }
     /// The value box: a typed length, list, point, offset, count or factor.
     pub fn value(&mut self, text: &str) -> Res<bool> {
+        self.host.units_read.set(true);
         let Some(v) = parse_value(text, &self.host.units.clone()) else {
             self.host.print(t0("m3d.tool.type_a_length"));
             return Ok(false);

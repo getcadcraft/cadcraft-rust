@@ -374,8 +374,9 @@ fn ev3_of(v: &Value) -> cc_engine::ws3d::Ev3 {
     let n = |k: &str| v.get(k).and_then(Value::as_f64);
     let b = |k: &str| v.get(k).and_then(Value::as_bool).unwrap_or(false);
     cc_engine::ws3d::Ev3 {
-        x: n("x").unwrap_or(0.0),
-        y: n("y").unwrap_or(0.0),
+        // the JS's NaN pixels come as null
+        x: v.get("x").map_or(0.0, |x| if x.is_null() { f64::NAN } else { x.as_f64().unwrap_or(0.0) }),
+        y: v.get("y").map_or(0.0, |x| if x.is_null() { f64::NAN } else { x.as_f64().unwrap_or(0.0) }),
         shift: b("shift"),
         ctrl: b("ctrl"),
         alt: b("alt"),
@@ -405,7 +406,9 @@ fn precision6(x: f64) -> f64 {
 
 fn p_of(v: Option<&Value>) -> Option<P2> {
     let o = v?;
-    Some(P2::new(o.get("x")?.as_f64()?, o.get("y")?.as_f64()?))
+    // JSON has no NaN: the harness writes the JS's NaN coordinates as null (a click there still happens)
+    let n = |k: &str| o.get(k).and_then(|x| if x.is_null() { Some(f64::NAN) } else { x.as_f64() });
+    Some(P2::new(n("x")?, n("y")?))
 }
 
 fn kind_name(k: &Kind) -> &'static str {

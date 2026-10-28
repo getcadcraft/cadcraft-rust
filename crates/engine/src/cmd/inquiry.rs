@@ -65,7 +65,13 @@ async fn area_by_points(c: &Ctx, first: P2) -> R<Option<f64>> {
             })));
         }
         let options = if pts.len() > 1 { vec![c.opt("U", &c.t("opt.undo"))] } else { Vec::new() };
-        let p = c.point(c.t("cmd.area.next"), Opts { base: pts.last().copied(), none: true, options, ..Opts::default() }).await?;
+        // the first point is the answer itself (its z on the 3D tab); the rest are copies
+        let p = c
+            .point(
+                c.t("cmd.area.next"),
+                Opts { base: pts.last().copied(), none: true, options, flat_base: pts.len() > 1, ..Opts::default() },
+            )
+            .await?;
         match p {
             Reply::Opt(k) if k == "U" => {
                 pts.pop();

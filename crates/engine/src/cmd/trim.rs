@@ -501,7 +501,9 @@ pub async fn trim_or_extend(c: Ctx, is_trim: bool) -> R {
                         })));
                         let options = if pts.is_empty() { Vec::new() } else { vec![c.opt("U", &c.t("opt.undo"))] };
                         let prompt = if pts.is_empty() { c.t("sel.fence.first") } else { c.t("sel.fence.next") };
-                        let p = c.point(prompt, Opts { base: pts.last().copied(), none: true, options, ..Opts::default() }).await?;
+                        let p = c
+                            .point(prompt, Opts { base: pts.last().copied(), none: true, options, flat_base: true, ..Opts::default() })
+                            .await?;
                         match p {
                             Reply::Opt(k) if k == "U" => {
                                 pts.pop();
