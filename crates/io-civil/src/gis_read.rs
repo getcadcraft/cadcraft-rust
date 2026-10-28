@@ -2,7 +2,7 @@
 //! source coordinate system, what an import will do (planImport) and the layers in project coordinates (buildLayers).
 //! `importInto` (one undo step on the project) sits on the project model.
 
-use crate::gis_geom::{BBox, ReadLayer, bounds, bounds_into, map_xy, map_z};
+use crate::gis_geom::{BBox, ReadLayer, bounds, bounds_into, map_xy, map_z_mut};
 use crate::gjs::utf8_lossy;
 use cc_civil::gis_state::Feature;
 use cc_civil::js::{J, slice16};
@@ -185,9 +185,9 @@ fn legacy_crs(s: &Source) -> bool {
 pub fn read_gis_files(files: &[(String, Vec<u8>)], max_features: usize) -> (Vec<Source>, Vec<String>) {
     let mut sources = Vec::new();
     let mut notes = Vec::new();
-    struct Flat {
+    struct Flat<'a> {
         name: String,
-        data: Vec<u8>,
+        data: std::borrow::Cow<'a, [u8]>,
         zip: Option<String>,
     }
     let mut flat: Vec<Flat> = Vec::new();
@@ -226,12 +226,12 @@ pub fn read_gis_files(files: &[(String, Vec<u8>)], max_features: usize) -> (Vec<
                     break;
                 }
                 match crate::zipfile::unzip_entry(data, en, crate::zipfile::MAX_ENTRY) {
-                    Ok(d) => flat.push(Flat { name: en.name.clone(), data: d, zip: Some(name.clone()) }),
+                    Ok(d) => flat.push(Flat { name: en.name.clone(), data: d.into(), zip: Some(name.clone()) }),
                     Err(err) => notes.push(tr!("gread.file.note", file = name.as_str(), note = err.0)),
                 }
             }
         } else {
-            flat.push(Flat { name: name.clone(), data: data.clone(), zip: None });
+            flat.push(Flat { name: name.clone(), data: data.as_slice().into(), zip: None });
         }
     }
     // shapefile sets
@@ -239,7 +239,7 @@ pub fn read_gis_files(files: &[(String, Vec<u8>)], max_features: usize) -> (Vec<
     let shp_files: Vec<&Flat> = flat.iter().filter(|f| is_shp_part(&f.name)).collect();
     let named: Vec<(String, Vec<u8>)> = shp_files
         .iter()
-        .map(|f| (format!("{}{}", f.zip.as_ref().map_or(String::new(), |z| format!("{z}/")), f.name), f.data.clone()))
+        .map(|f| (format!("{}{}", f.zip.as_ref().map_or(String::new(), |z| format!("{z}/")), f.name), f.data.to_vec()))
         .collect();
     for set in crate::shapefile::shapefile_sets(&named) {
         let file = format!("{}.shp", set.name);
@@ -279,7 +279,9 @@ pub fn read_gis_files(files: &[(String, Vec<u8>)], max_features: usize) -> (Vec<
         };
         match gis_file_kind(&f.name, &head) {
             Some("geojson") => {
-                let text = utf8_lossy(&f.data);
+                // the text as it stands when it is UTF-8 already (no copy of a big file)
+                let raw = f.data.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&f.data);
+                let text = String::from_utf8_lossy(raw);
                 let base = f.name.rsplit('/').next().unwrap_or(&f.name);
                 let stem = strip_ext_ci(base, &[".geojson", ".json"]);
                 match crate::geojson::read_geojson(&text, &stem, max_features) {
@@ -496,6 +498,16 @@ impl J for BuiltLayer {
 
 /// `buildLayers(sources, { project, units, overrides })`.
 pub fn build_layers(sources: &[Source], project: &Value, units: &str, overrides: &[(usize, Src)]) -> (Vec<BuiltLayer>, Vec<String>) {
+    build_layers_owned(sources.to_vec(), project, units, overrides)
+}
+
+/// [`build_layers`] taking the sources: features move into the layers instead of being copied.
+pub fn build_layers_owned(
+    sources: Vec<Source>,
+    project: &Value,
+    units: &str,
+    overrides: &[(usize, Src)],
+) -> (Vec<BuiltLayer>, Vec<String>) {
     let mut notes = Vec::new();
     let mut layers = Vec::new();
     let has_project = cc_civil::js::truthy(Some(project));
@@ -506,7 +518,7 @@ pub fn build_layers(sources: &[Source], project: &Value, units: &str, overrides:
     } else {
         1200.0 / 3937.0
     };
-    for (si, s) in sources.iter().enumerate() {
+    for (si, s) in sources.into_iter().enumerate() {
         let src = overrides.iter().find(|(i, _)| *i == si).map_or_else(|| s.src.clone(), |(_, o)| o.clone());
         let mut fwd: Option<crate::crs::Frame> = None;
         let mut zk = 1.0;
@@ -561,41 +573,44 @@ pub fn build_layers(sources: &[Source], project: &Value, units: &str, overrides:
                 zk = src_m / proj_m;
             }
         }
-        if ((s.format == "GeoJSON" && !legacy_crs(s)) || s.format == "KML") && !matches!(src, Src::Same | Src::None) {
+        if ((s.format == "GeoJSON" && !legacy_crs(&s)) || s.format == "KML") && !matches!(src, Src::Same | Src::None) {
             zk = 1.0 / proj_m;
         }
-        for l in &s.layers {
+        let any_z = s.layers.iter().any(|l| l.has_z);
+        for l in s.layers {
             let mut bad = 0usize;
-            let feats: Vec<Option<Feature>> = l
+            // each feature with whether its box is finite (bounds once)
+            let feats: Vec<Option<(Feature, bool)>> = l
                 .features
-                .iter()
+                .into_iter()
                 .map(|f| {
-                    let Some(g0) = &f.g else { return Some(f.clone()) };
+                    let Feature { g, p } = f;
+                    let Some(g0) = g else { return Some((Feature { g: None, p }, true)) };
                     if geo {
-                        let b = bounds(Some(g0));
+                        let b = bounds(Some(&g0));
                         if b.min_x < -180.000001 || b.max_x > 180.000001 || b.min_y < -90.000001 || b.max_y > 90.000001 {
                             bad = bad.saturating_add(1);
                             return None;
                         }
                     }
                     let mut g = match &fwd {
-                        Some(fr) => map_xy(g0, &mut |x, y| match fr.from(&src_def, x, y) {
+                        Some(fr) => map_xy(&g0, &mut |x, y| match fr.from(&src_def, x, y) {
                             Ok(p) => (p[0], p[1]),
                             Err(_) => (f64::NAN, f64::NAN),
                         }),
-                        None => g0.clone(),
+                        None => g0,
                     };
                     if zk != 1.0 {
-                        g = map_z(&g, &|z| z * zk);
+                        map_z_mut(&mut g, &|z| z * zk);
                     }
-                    Some(Feature { g: Some(g), p: f.p.clone() })
+                    let fin = bounds(Some(&g)).min_x.is_finite();
+                    Some((Feature { g: Some(g), p }, fin))
                 })
                 .collect();
             if bad > 0 {
                 notes.push(tr!("gread.outside", layer = l.name.as_str(), n = bad));
             }
-            let finite = |f: &Feature| f.g.as_ref().is_none_or(|g| bounds(Some(g)).min_x.is_finite());
-            if fwd.is_some() && feats.iter().flatten().any(|f| f.g.is_some() && !finite(f)) {
+            if fwd.is_some() && feats.iter().flatten().any(|(f, fin)| f.g.is_some() && !fin) {
                 notes.push(tr!("gread.someconvert", layer = l.name.as_str()));
             }
             let crs_text = match &src {
@@ -614,11 +629,11 @@ pub fn build_layers(sources: &[Source], project: &Value, units: &str, overrides:
                 geom: l.geom.clone(),
                 has_z: l.has_z,
                 fields: l.fields.clone(),
-                features: feats.into_iter().flatten().filter(|f| finite(f)).collect(),
+                features: feats.into_iter().flatten().filter(|(_, fin)| *fin).map(|(f, _)| f).collect(),
                 source: (s.file.clone(), s.format.to_string(), crs_text),
             });
         }
-        if zk != 1.0 && s.layers.iter().any(|l| l.has_z) {
+        if zk != 1.0 && any_z {
             let from = if s.format == "GeoJSON" || s.format == "KML" || geo {
                 unit_word("m").unwrap_or_default()
             } else {

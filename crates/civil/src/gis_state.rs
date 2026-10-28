@@ -131,8 +131,9 @@ impl J for Gis {
     }
 }
 
-/// The features of every layer, in layer insertion order (a JS Map).
-pub type Features = Vec<(String, Vec<Feature>)>;
+/// The features of every layer, in layer insertion order (a JS Map). A layer's list is shared (`Arc`): the undo step,
+/// the edit's copy and the project hold one list until one of them changes it (`Arc::make_mut`).
+pub type Features = Vec<(String, std::sync::Arc<Vec<Feature>>)>;
 
 /// `gisFeaturesJSON(map)` → `{ id: [[geometry, props], …] }`.
 pub fn gis_features_json(map: &Features) -> Value {
@@ -329,7 +330,7 @@ pub fn read_gis_state(gis: Option<&Value>, gis_features: Option<&Value>, notes: 
             notes.push(tr!("gstate.bad.features", n = bad, layer = layer.name.as_str()));
         }
         out.layers.push(layer);
-        features.push((id_text, fs));
+        features.push((id_text, std::sync::Arc::new(fs)));
     }
     if dropped > 0 {
         notes.push(tr!("gstate.bad.layers", n = dropped));

@@ -5,7 +5,6 @@ use crate::common::*;
 use crate::math::{abs, atan, atan2, cos, sin, sqrt};
 use crate::nadgrid::Subgrid;
 use crate::proj::{Datum, Out, Proj, Pt, wgs84};
-use crate::val::Val;
 use std::sync::Arc;
 
 type R<T> = Result<T, String>;
@@ -372,8 +371,7 @@ fn adjust_axis_from_enu(crs: &Proj, point: &Pt) -> Option<Pt> {
 
 fn check_not_wgs(s: &Proj, d: &Proj) -> bool {
     let shifted = |t: i32| t == PJD_3PARAM || t == PJD_7PARAM || t == PJD_GRIDSHIFT;
-    let w = Val::str("WGS84");
-    (shifted(s.datum.datum_type) && d.datum_code != w) || (shifted(d.datum.datum_type) && s.datum_code != w)
+    (shifted(s.datum.datum_type) && !d.datum_code.is_str("WGS84")) || (shifted(d.datum.datum_type) && !s.datum_code.is_str("WGS84"))
 }
 
 /// What transformInternal returns: a point, `undefined`, or a bare number (a forward's error code).
@@ -402,7 +400,7 @@ pub fn transform_internal(source: &Proj, dest: &Proj, mut point: Pt, enforce_axi
         }
         source = &w;
     }
-    if enforce_axis && source.axis != Val::str("enu") {
+    if enforce_axis && !source.axis.is_str("enu") {
         match adjust_axis_to_enu(source, &point) {
             Some(p) => point = p,
             None => return Err("Cannot read properties of null (reading 'x')".into()),
@@ -471,13 +469,13 @@ pub fn transform_internal(source: &Proj, dest: &Proj, mut point: Pt, enforce_axi
             point = Pt { x: point.x / tm, y: point.y / tm, z: zor(point.z), m: None };
         }
     }
-    if enforce_axis && dest.axis != Val::str("enu") {
+    if enforce_axis && !dest.axis.is_str("enu") {
         return Ok(match adjust_axis_from_enu(dest, &point) {
             Some(p) => TOut::P(p),
             None => TOut::Null,
         });
     }
-    if !has_z && dest.proj_name != Val::str("geocent") {
+    if !has_z && !dest.proj_name.is_str("geocent") {
         point.z = None;
     }
     Ok(TOut::P(point))

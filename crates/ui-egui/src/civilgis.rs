@@ -347,18 +347,23 @@ impl CivilView {
         let setting = d.set_crs && !had_crs;
         let target = d.target.clone().unwrap_or(Value::Null);
         let chosen = d.chosen();
-        let sources: Vec<gis_read::Source> = d
-            .sources
-            .iter()
+        // the dialog is done with: its sources are taken (the chosen layers moved, not copied)
+        let GisImport { sources: all, overrides, .. } = d;
+        let sources: Vec<gis_read::Source> = all
+            .into_iter()
             .enumerate()
-            .map(|(si, s)| {
-                let mut s = s.clone();
-                s.layers = s.layers.iter().enumerate().filter(|(li, _)| chosen.contains(&(si, *li))).map(|(_, l)| l.clone()).collect();
+            .map(|(si, mut s)| {
+                s.layers = std::mem::take(&mut s.layers)
+                    .into_iter()
+                    .enumerate()
+                    .filter(|(li, _)| chosen.contains(&(si, *li)))
+                    .map(|(_, l)| l)
+                    .collect();
                 s
             })
             .collect();
-        let (layers, notes) = gis_read::build_layers(&sources, &target, &units, &d.overrides);
-        let keep: Vec<gis_read::BuiltLayer> = layers.into_iter().filter(|l| l.features.iter().any(|f| f.g.is_some())).collect();
+        let (layers, notes) = gis_read::build_layers_owned(sources, &target, &units, &overrides);
+        let mut keep: Vec<gis_read::BuiltLayer> = layers.into_iter().filter(|l| l.features.iter().any(|f| f.g.is_some())).collect();
         let mut files: Vec<String> = Vec::new();
         for l in &keep {
             if !files.contains(&l.source.0) {
@@ -393,7 +398,7 @@ impl CivilView {
             let ls = gm.entry("layers").or_insert_with(|| Value::Array(Vec::new()));
             let Some(ls) = ls.as_array_mut() else { return Some(map) };
             let k0 = ls.len();
-            for (k, l) in (k0..).zip(keep.iter()) {
+            for (k, l) in (k0..).zip(keep.iter_mut()) {
                 if ls.len() >= cc_civil::gis_state::MAX_LAYERS {
                     break;
                 }
@@ -417,7 +422,8 @@ impl CivilView {
                     label: None,
                 };
                 ls.push(layer.j());
-                map.push((id, l.features.clone()));
+                // edit_gis runs this once: the layer's features move into the project
+                map.push((id, std::sync::Arc::new(std::mem::take(&mut l.features))));
             }
             m.insert("seq".into(), cc_civil::js::jnum(seq));
             Some(map)

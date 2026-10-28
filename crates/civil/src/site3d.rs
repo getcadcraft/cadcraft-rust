@@ -359,7 +359,7 @@ pub fn site_input(project: &mut Project) -> SiteInput {
             continue;
         }
         let id = crate::js::string_of(l.get("id"));
-        let features = project.gis_features.iter().find(|(k, _)| *k == id).map(|(_, f)| f.clone()).unwrap_or_default();
+        let features = project.gis_features.iter().find(|(k, _)| *k == id).map(|(_, f)| f.to_vec()).unwrap_or_default();
         gis.push(InGis { id, name: crate::js::string_of(l.get("name")), color: crate::js::string_of(l.get("color")), features });
     }
     SiteInput {

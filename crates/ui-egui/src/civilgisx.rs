@@ -424,27 +424,25 @@ impl CivilView {
             if b.features.is_empty() {
                 continue;
             }
-            let features: Vec<Feature> = b
-                .features
-                .iter()
+            let Built { features: built, has_z: b_has_z, fields: b_fields, coord_fields } = b;
+            let features: Vec<Feature> = built
+                .into_iter()
                 .map(|f| {
-                    let g = f.g.as_ref().map(|g| {
-                        cc_io_civil::gis_geom::map_xy(g, &mut |x, y| {
+                    let Feature { mut g, mut p } = f;
+                    if let Some(g) = g.as_mut() {
+                        cc_io_civil::gis_geom::map_xy_mut(g, &mut |x, y| {
                             let q = to_grid(x, y);
                             (q[0], q[1])
-                        })
-                    });
-                    let mut p = f.p.clone();
-                    if b.coord_fields
-                        && let Some(Geom::Pt(c)) = &g
-                    {
+                        });
+                    }
+                    if coord_fields && let Some(Geom::Pt(c)) = &g {
                         p.insert("E".into(), fnum(c.first().copied().unwrap_or(f64::NAN)));
                         p.insert("N".into(), fnum(c.get(1).copied().unwrap_or(f64::NAN)));
                     }
                     Feature { g, p }
                 })
                 .collect();
-            let has_z = b.has_z
+            let has_z = b_has_z
                 && features.iter().any(|f| match &f.g {
                     Some(Geom::Pt(c)) => c.len() > 2,
                     Some(_) => true,
@@ -458,7 +456,7 @@ impl CivilView {
                 file: safe_name(&k.file, &mut used),
                 geom: k.geom.clone(),
                 has_z,
-                fields: b.fields.clone(),
+                fields: b_fields,
                 features,
             });
         }
@@ -492,9 +490,15 @@ impl CivilView {
             cc_io_civil::crs::set_wkt_catalog();
             cc_io_civil::crs::prj_for(c)
         });
+        // crs::transform(crs, null) per point, with its converter made once (a converter that cannot be made fails
+        // every point, as each call would)
+        let conv = cc_io_civil::crs::converter(
+            cc_io_civil::crs::def_of(crs.as_ref().unwrap_or(&Value::Null)).as_deref(),
+            cc_io_civil::crs::def_of(&Value::Null).as_deref(),
+        );
         let to_ll = |x: f64, y: f64| -> (f64, f64) {
-            let c = crs.as_ref().map_or(Value::Null, Clone::clone);
-            match cc_io_civil::crs::transform(&c, &Value::Null, x, y) {
+            let Ok(t) = &conv else { return (f64::NAN, f64::NAN) };
+            match t.forward(x, y) {
                 Ok(v) => {
                     let [a, b] = cc_io_civil::crs::nn(v);
                     (a, b)

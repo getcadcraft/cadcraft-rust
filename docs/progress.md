@@ -2,6 +2,56 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M11.23–M11.25 CivilCraft speed: point files, GeoJSON, GIS import / export (agent, work/civspeed)
+
+- Profiled with perf (cpu-clock, `--profile profiling` with frame pointers, samples symbolised by speed2's prof.py),
+  timed with tools/cvbench-civil2.mjs (best of 3; the machine had a load of 15–30 from other agents, so the JS column
+  moves between runs: compare within a row). "Before" = a release build of 93199e4 run in the same session.
+- M11.23 (cc-civil points.rs, cc-cad js.rs): parsePoints split every row into a `Vec<char>` and owned cells, hashed
+  owned point numbers and made two copies per description; StringToNumber copied every literal. Now the cells are
+  borrowed from the text when the row holds no quote (one list reused), the numbers are checked borrowed in a set
+  sized once, a description without controls is kept as it is, and plain literals parse without a copy. Tests: the
+  borrowed split against the quote-aware one (4,000 awkward rows × 4 delimiters), the description clean-up, number
+  edge cases.
+- M11.24 (cc-io-civil gjparse.rs, geojson.rs): the GeoJSON reader built a serde_json tree of the whole file (every
+  position an array of `Value`s, every feature an IndexMap) and then copied it into features. gjparse reads the text
+  once into what readGeoJSON walks: a position's numbers go straight into the `Vec<f64>` the feature keeps, properties
+  are built as serde_json builds them (integers as integers, a repeated key keeps its first place and last value), and
+  the grammar, the 127-level nesting limit and the refusals (numbers past ±1.8e308, lone surrogate escapes, control
+  characters, trailing text) are serde_json's, so the same files are read or refused as before. Properties keep the
+  parsed keys and texts when nothing needs cleaning; fieldsOf reuses the previous feature's key slots. The writer
+  streams points and lines into the text (polygons are still converted and wound first) instead of building a tree.
+  The tree reader and writer stay as `read_geojson_tree` / `write_geojson_tree`, the references: tests/geojson_fast.rs
+  reads 30,000 generated texts and a broken copy of each both ways (layers, fields, notes, errors and every JSON value
+  equal) and writes 20,000 both ways; the civil_geojson fuzz target asserts the two readers agree.
+- M11.25 (gis_read.rs, gis_geom.rs, gis_state.rs, civilgis.rs, civilgisx.rs, cc-proj): read_gis_files no longer
+  copies the file (the 33 MB buffer and its text are borrowed); a project's GIS features are `Arc<Vec<Feature>>` per
+  layer, so edit_gis's copy and the undo step share them; the import dialog's chosen layers move into build_layers
+  (now `build_layers_owned`), which moves properties, converts z in place and computes each feature's box once; the
+  export moves the built features and converts them in place, and makes the lat/lon converter once instead of looking
+  it up (a clone of the system, two definition strings, a key and a lock) for every vertex; cc-proj compares its
+  datum / axis / projection names without making a string for each point.
+- Timings (ms, JS 0.5 / before / after, × = JS / after):
+
+  | what | JS 0.5 | before | after | × |
+  |---|---:|---:|---:|---:|
+  | Import points: read 500,000 rows (PNEZD) | 650 | 861 | 331 | 2.0 |
+  | GIS read: GeoJSON 60,000 points + 20,000 lines (33 MB) | 259 | 671 | 197 | 1.3 |
+  | GIS import into the project (EPSG:2277) | 256 | 353 | 144 | 1.8 |
+  | GIS export as shapefiles | 863 | 780 | 636 | 1.4 |
+  | GIS export as GeoPackage | 623 | 282 | 261 | 2.4 |
+  | GIS export as GeoJSON | 742 | 1,152 | 474 | 1.6 |
+
+- Parity: cvdiff seeds 1–3, every generator except the terrain ones (crs-terrain / raster / las / gtw need the site
+  tool's venv, which has no numpy on this workstation; untouched here) 19,508 calls 0 differ, and seeds 1–5 --exact
+  on the GIS / GeoJSON / points / proj generators 9,312 calls 0 differ; cvtooldiff-civil2 120/120 projects, 3,400/3,400
+  status lines, 42/42 files in UTC and America/Denver; cvuidiff-civil2 identical for the sample, the demo, a
+  2,000-point CSV and a project with GIS layers in both zones; the 500k survey + the 33 MB GeoJSON imported and saved,
+  then exported as GeoJSON, byte-identical before and after (59 MB project, 140 MB GeoJSON).
+- cvtooldiff's Rust column is a whole app run (start-up and a rendered frame per step), not an engine time: no
+  CivilCraft engine path measured there is below the JS.
+- Next: the shapefile export (1.4×) is the slowest of these relative to the JS; the import dialog's first parse of a
+  dropped point file is the same parser (now 2×).
 ## 2026-10-28 — M3.6–M3.8 the viewer's details, Settings, help, es-MX in every app (agent, work/viewer)
 
 - M3.6 `cc-lang` (L0): the language (en, es-MX; process-wide, pinned per thread in tests) and 0.5's catalog pairs

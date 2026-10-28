@@ -78,6 +78,10 @@ impl Val {
     pub fn str(s: &str) -> Val {
         Val::Str(s.to_string())
     }
+    /// `v === 'text'` (no string made).
+    pub fn is_str(&self, s: &str) -> bool {
+        matches!(self, Val::Str(x) if x == s)
+    }
     /// JS truthiness.
     pub fn truthy(&self) -> bool {
         match self {

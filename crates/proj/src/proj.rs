@@ -341,7 +341,7 @@ impl Proj {
     }
     /// `projName === 'longlat'`
     pub fn is_longlat(&self) -> bool {
-        self.proj_name == Val::str("longlat")
+        self.proj_name.is_str("longlat")
     }
     pub fn is_geocent(&self) -> bool {
         self.def.at("name") == Val::str("geocent")

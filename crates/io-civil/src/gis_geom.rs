@@ -219,6 +219,40 @@ pub fn map_z(g: &Geom, f: &dyn Fn(f64) -> f64) -> Geom {
         Geom::Pg(c) => Geom::Pg(c.iter().map(|poly| poly.iter().map(|r| r.iter().map(m).collect()).collect()).collect()),
     }
 }
+/// [`map_xy`] in place: the same geometry, no copy.
+pub fn map_xy_mut(g: &mut Geom, f: &mut dyn FnMut(f64, f64) -> (f64, f64)) {
+    let mut m = |p: &mut Pos| {
+        let (x, y) = f(p.g(0), p.g(1));
+        let z = (p.len() > 2).then(|| p.g(2));
+        p.clear();
+        p.push(x);
+        p.push(y);
+        if let Some(z) = z {
+            p.push(z);
+        }
+    };
+    match g {
+        Geom::Pt(c) => m(c),
+        Geom::Ln(c) => c.iter_mut().flatten().for_each(&mut m),
+        Geom::Pg(c) => c.iter_mut().flatten().flatten().for_each(&mut m),
+    }
+}
+/// [`map_z`] in place: the same geometry, no copy.
+pub fn map_z_mut(g: &mut Geom, f: &dyn Fn(f64) -> f64) {
+    let m = |p: &mut Pos| {
+        if p.len() > 2 {
+            p.truncate(3);
+            if let Some(z) = p.get_mut(2) {
+                *z = f(*z);
+            }
+        }
+    };
+    match g {
+        Geom::Pt(c) => m(c),
+        Geom::Ln(c) => c.iter_mut().flatten().for_each(m),
+        Geom::Pg(c) => c.iter_mut().flatten().flatten().for_each(m),
+    }
+}
 /// `vertexCount(g)`.
 pub fn vertex_count(g: Option<&Geom>) -> usize {
     match g {
