@@ -16,14 +16,12 @@ use cc_drawing::{Batch, Bounds, Color, Drawing, Fill, ImageRef, Layer, Space, Sp
 use crate::geom::{K, Prim, TAU, text_layout};
 use crate::walk::{Opts, PicOut, WalkOpts, WalkOut, walk};
 
-/// Linetype dashes per object on the canvas: past this the object draws continuous. A dense pattern on a long run
-/// (a 1/32" dot line along a wall) otherwise makes thousands of pieces per object, millions per drawing, and every
-/// edit rebuilds them (measured: ar1all OVERALL PLAN 2.35 M segments with the JS's 20 000 per run, vs 125 k drawn by
-/// the viewer, which draws no linetypes). Spec gap vs 0.5 (the JS canvas dashes up to 20 000 per run).
-pub const DISPLAY_MAX_DASHES: f64 = 400.0;
-
+/// The window draws linetypes as 0.5's canvas does (view.js walks with linetypes.js's own limit: a run past 20,000
+/// pieces draws continuous), so the screen, plots and the JS agree (M4.52; before, the window stopped at 400 dashes
+/// per object). A dense pattern makes millions of dashes (ar1all OVERALL PLAN: 2.35 M segments): they are kept one
+/// list per stroke with `PEN_UP` between them, and the cache walks only what an edit changed.
 fn display_opts() -> WalkOpts<'static> {
-    WalkOpts { max_dashes: Some(DISPLAY_MAX_DASHES), ..WalkOpts::default() }
+    WalkOpts { max_dashes: None, ..WalkOpts::default() }
 }
 
 /// Polyline points of an arc: a segment every 3.75° (96 per circle), at least 1 (a linetype's dash on an arc is a
@@ -61,11 +59,27 @@ struct Collect {
     viewports: Vec<Viewport>,
     /// pictures (walk's `out.picture`)
     images: Vec<SpaceImage>,
+    /// a stroke's separate runs (a linetype's dashes) in one polyline with `PEN_UP` between them (the window's
+    /// display; previews keep a polyline per run for their own painting)
+    joined: bool,
+    /// a primitive's points (reused)
+    scratch: Vec<f64>,
 }
 
 impl Collect {
     fn new(layer: &str) -> Self {
-        Collect { layer: layer.to_string(), batches: Vec::new(), bounds: Bounds::default(), viewports: Vec::new(), images: Vec::new() }
+        Collect {
+            layer: layer.to_string(),
+            batches: Vec::new(),
+            bounds: Bounds::default(),
+            viewports: Vec::new(),
+            images: Vec::new(),
+            joined: false,
+            scratch: Vec::new(),
+        }
+    }
+    fn joined(layer: &str) -> Self {
+        Collect { joined: true, ..Collect::new(layer) }
     }
     fn batch(&mut self, color: &str, lw: f64) -> Option<&mut Batch> {
         let c = color_of(color);
@@ -108,29 +122,59 @@ impl WalkOut for Collect {
     }
     fn stroke(&mut self, color: &str, prims: Vec<Prim>, lw: f64, _o: Option<Opts>) {
         let mut runs: Vec<Vec<f64>> = Vec::new();
+        // joined: every run goes into `all`, PEN_UP between them; `start` = where the current run begins in it
+        let mut all: Vec<f64> = Vec::new();
+        let mut start = 0usize;
         let mut cur: Vec<f64> = Vec::new();
         let (mut lx, mut ly) = (f64::INFINITY, f64::INFINITY);
+        let mut pts = std::mem::take(&mut self.scratch);
         for q in &prims {
-            let mut pts = Vec::new();
+            pts.clear();
             match q.k {
                 K::L => pts.extend_from_slice(&[q.x1, q.y1, q.x2, q.y2]),
                 K::A => arc_points(q, &mut pts),
             }
             let (Some(&sx), Some(&sy)) = (pts.first(), pts.get(1)) else { continue };
+            let run = if self.joined { &mut all } else { &mut cur };
             if (sx - lx).abs() > 1e-9 || (sy - ly).abs() > 1e-9 {
-                if cur.len() >= 4 {
-                    runs.push(std::mem::take(&mut cur));
+                if self.joined {
+                    // a run shorter than one segment is dropped, as below
+                    if all.len().saturating_sub(start) < 4 {
+                        all.truncate(start);
+                    }
+                    if !all.is_empty() {
+                        all.extend_from_slice(&cc_drawing::PEN_UP);
+                    }
+                    start = all.len();
+                    all.extend_from_slice(&pts);
+                } else {
+                    if run.len() >= 4 {
+                        runs.push(std::mem::take(run));
+                    }
+                    cur.clear();
+                    cur.extend_from_slice(&pts);
                 }
-                cur.clear();
-                cur.extend_from_slice(&pts);
             } else {
-                cur.extend_from_slice(pts.get(2..).unwrap_or(&[]));
+                run.extend_from_slice(pts.get(2..).unwrap_or(&[]));
             }
-            if let [.., x, y] = cur.as_slice() {
+            let last = if self.joined { &all } else { &cur };
+            if let [.., x, y] = last.as_slice() {
                 (lx, ly) = (*x, *y);
             }
         }
-        if cur.len() >= 4 {
+        self.scratch = pts;
+        if self.joined {
+            if all.len().saturating_sub(start) < 4 {
+                all.truncate(start);
+                // and the PEN_UP before the dropped run
+                if all.len() >= 2 && all.as_chunks::<2>().0.last().is_some_and(|p| cc_drawing::is_pen_up(p[0], p[1])) {
+                    all.truncate(all.len().saturating_sub(2));
+                }
+            }
+            if !all.is_empty() {
+                runs.push(all);
+            }
+        } else if cur.len() >= 4 {
             runs.push(cur);
         }
         for r in &runs {
@@ -228,7 +272,7 @@ fn space_of(doc: &Doc, space: SpaceId, key: String, name: String, kind: SpaceKin
             g.push(e);
         }
     }
-    let mut out = Collect::new("");
+    let mut out = Collect::joined("");
     let opts = display_opts();
     for (l, ents) in &groups {
         out.layer.clone_from(l);
@@ -272,7 +316,7 @@ struct PieceCollect {
 
 impl PieceCollect {
     fn flush(&mut self) {
-        let c = std::mem::replace(&mut self.cur, Collect::new(&self.layer));
+        let c = std::mem::replace(&mut self.cur, Collect::joined(&self.layer));
         self.pieces.push(Piece { batches: c.batches, bounds: c.bounds, viewports: c.viewports, images: c.images });
     }
 }
@@ -441,7 +485,8 @@ impl DisplayCache {
             let mut fresh: Vec<Piece> = Vec::new();
             if !stale.is_empty() {
                 let list: Vec<Entity> = stale.iter().map(|e| (*e).clone()).collect();
-                let mut pc = PieceCollect { layer: (*layer).to_string(), pieces: Vec::with_capacity(list.len()), cur: Collect::new(layer) };
+                let mut pc =
+                    PieceCollect { layer: (*layer).to_string(), pieces: Vec::with_capacity(list.len()), cur: Collect::joined(layer) };
                 walk(doc, &list, &mut pc, &opts);
                 pc.flush();
                 fresh = pc.pieces;
@@ -551,6 +596,44 @@ mod tests {
         assert!(m.bounds.min_x <= 0.0 && m.bounds.max_x >= 10.0 && m.bounds.max_y > 20.0);
     }
 
+    /// M4.52: the window dashes as 0.5's canvas (20,000 pieces per run, not 400 per object), each stroke's dashes in
+    /// one polyline with PEN_UP between them, the same segments as one polyline per dash.
+    #[test]
+    fn dense_linetypes_dash_as_the_js_canvas() {
+        let mut d = Doc::new();
+        d.load(&json!({
+            "meta": { "insunits": 1 },
+            "layers": [{ "name": "0" }, { "name": "D", "linetype": "DOTTY" }],
+            "linetypes": [{ "name": "DOTTY", "pattern": [0.5, -0.5] }],
+            "entities": [
+                { "type": "line", "x1": 0, "y1": 0, "x2": 1000, "y2": 0, "layer": "D" },
+                { "type": "line", "x1": 0, "y1": 5, "x2": 10001, "y2": 5, "layer": "D" },
+                { "type": "circle", "cx": 0, "cy": 50, "r": 10, "layer": "D" }
+            ]
+        }));
+        let dr = doc_drawing(&d);
+        let lines: Vec<&Vec<f64>> = dr.spaces[0].batches.iter().flat_map(|b| &b.lines).collect();
+        assert_eq!(lines.len(), 3, "one polyline per stroke");
+        let pieces = |l: &Vec<f64>| l.as_chunks::<2>().0.iter().filter(|p| cc_drawing::is_pen_up(p[0], p[1])).count() + 1;
+        // 1000 long, period 1, two pieces per period: 2,000 ≤ 20,000 → 1,000 dashes (it was continuous past 400)
+        assert_eq!(pieces(lines[0]), 1000);
+        // 10001 long: 20,002 pieces > 20,000 → continuous, as linetypes.js
+        assert_eq!(pieces(lines[1]), 1);
+        assert_eq!(lines[1].len(), 4);
+        assert!(pieces(lines[2]) > 1, "the circle is dashed");
+        // the same segments a polyline per dash gives
+        let mut sep = Collect::new("D");
+        walk(&d, &d.model().cloned().collect::<Vec<_>>(), &mut sep, &display_opts());
+        let segs = |ls: &mut dyn Iterator<Item = &Vec<f64>>| -> usize {
+            ls.map(|l| l.as_chunks::<2>().0.split(|p| cc_drawing::is_pen_up(p[0], p[1])).map(|r| r.len().saturating_sub(1)).sum::<usize>())
+                .sum()
+        };
+        let joined = segs(&mut dr.spaces[0].batches.iter().flat_map(|b| &b.lines));
+        let separate = segs(&mut sep.batches.iter().flat_map(|b| &b.lines));
+        assert_eq!(joined, separate);
+        assert!(sep.batches.iter().flat_map(|b| &b.lines).all(|l| l.iter().all(|v| v.is_finite())), "previews: no PEN_UP");
+    }
+
     #[test]
     fn the_cache_draws_what_a_full_walk_draws() {
         let mut d = Doc::new();
@@ -570,7 +653,8 @@ mod tests {
         }));
         let mut cache = DisplayCache::new();
         let check = |cache: &mut DisplayCache, d: &Doc, what: &str| {
-            assert_eq!(cache.drawing(d), doc_drawing(d), "{what}");
+            // compared as text: a PEN_UP pair holds a NaN, which is never == itself
+            assert_eq!(format!("{:?}", cache.drawing(d)), format!("{:?}", doc_drawing(d)), "{what}");
         };
         check(&mut cache, &d, "first build");
         assert_eq!(cache.reused, 0);

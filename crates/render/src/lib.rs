@@ -244,18 +244,34 @@ pub fn build_geometry(space: &Space) -> SpaceGeometry {
     let mut g = SpaceGeometry { origin, ..Default::default() };
     let mut tess = FillTessellator::new();
     let fill_opts = FillOptions::default().with_fill_rule(FillRule::EvenOdd).with_tolerance(0.01);
+    // the segments' bytes in one allocation (a drawing with dense linetypes has millions of two-point dashes)
+    let points: usize = space.batches.iter().flat_map(|b| &b.lines).map(Vec::len).sum();
+    g.line_bytes.reserve(points.saturating_div(2).saturating_mul(LINE_STRIDE as usize));
     for (bi, batch) in space.batches.iter().enumerate() {
         let col = rgba(batch.color, batch.lw);
         let l0 = g.segments();
         for pl in &batch.lines {
-            let pts: Vec<(f32, f32)> = rel_points(pl, ox, oy);
-            for w in pts.windows(2) {
-                if let [a, b2] = *w {
-                    for v in [a.0, a.1, b2.0, b2.1] {
-                        g.line_bytes.extend_from_slice(&v.to_le_bytes());
+            // as rel_points: the finite points, each joined to the one before (a PEN_UP pair lifts the pen)
+            let mut prev: Option<[f32; 2]> = None;
+            for p in pl.as_chunks::<2>().0 {
+                if !(p[0].is_finite() && p[1].is_finite()) {
+                    if cc_drawing::is_pen_up(p[0], p[1]) {
+                        prev = None;
                     }
-                    g.line_bytes.extend_from_slice(&col);
+                    continue;
                 }
+                let b2 = [(p[0] - ox) as f32, (p[1] - oy) as f32];
+                if let Some(a) = prev {
+                    let mut seg = [0u8; LINE_STRIDE as usize];
+                    for (chunk, v) in seg.as_chunks_mut::<4>().0.iter_mut().zip([a[0], a[1], b2[0], b2[1]]) {
+                        chunk.copy_from_slice(&v.to_le_bytes());
+                    }
+                    if let Some(c) = seg.get_mut(16..20) {
+                        c.copy_from_slice(&col);
+                    }
+                    g.line_bytes.extend_from_slice(&seg);
+                }
+                prev = Some(b2);
             }
         }
         let l1 = g.segments();
@@ -519,5 +535,73 @@ mod tests {
         assert_eq!(g.segments(), 2);
         assert_eq!(g.fill_vertices(), 3);
         assert_eq!(g.origin, (5.0, 5.0));
+    }
+}
+
+#[cfg(test)]
+mod line_bytes_tests {
+    use super::*;
+    use cc_drawing::{Batch, Bounds, SpaceKind};
+
+    fn batch(lines: Vec<Vec<f64>>, color: Color, lw: f64) -> Batch {
+        Batch { layer: "0".into(), color, lw, lines, fills: Vec::new(), texts: Vec::new() }
+    }
+
+    /// The segments' bytes as they were made before M4.52 (a point list per polyline, then its pairs).
+    fn reference(space: &Space, origin: (f64, f64)) -> Vec<u8> {
+        let mut out = Vec::new();
+        for batch in &space.batches {
+            let col = rgba(batch.color, batch.lw);
+            for pl in &batch.lines {
+                let pts = rel_points(pl, origin.0, origin.1);
+                for w in pts.windows(2) {
+                    if let [a, b] = *w {
+                        for v in [a.0, a.1, b.0, b.1] {
+                            out.extend_from_slice(&v.to_le_bytes());
+                        }
+                        out.extend_from_slice(&col);
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn segments_as_before() {
+        let lines = vec![
+            vec![0.0, 0.0, 10.0, 5.0, 20.0, -3.5],
+            vec![1.0, 1.0],
+            vec![],
+            vec![f64::NAN, 2.0, 3.0, 4.0, f64::INFINITY, 0.0, 5.0, 6.0, 7.0],
+            vec![1e9, -1e9, 1e9 + 0.25, -1e9 + 0.5],
+        ];
+        let mut bounds = Bounds::default();
+        bounds.grow(&[-2.0, -1.0, 30.0, 9.0]);
+        let space = Space {
+            key: "model".into(),
+            name: "Model".into(),
+            kind: SpaceKind::Model,
+            batches: vec![batch(lines.clone(), Color::Ink, -3.0), batch(lines, Color::Rgb(0x12_34_56), 0.35)],
+            bounds,
+            paper: None,
+            paper_unit: None,
+            viewports: Vec::new(),
+            images: Vec::new(),
+        };
+        let g = build_geometry(&space);
+        assert_eq!(g.line_bytes, reference(&space, g.origin));
+        assert_eq!(g.segments(), 2 * (2 + 1 + 1));
+        // a PEN_UP pair lifts the pen: the dashes of one list draw as the separate polylines they were
+        let [px, py] = cc_drawing::PEN_UP;
+        let one = vec![0.0, 0.0, 1.0, 0.0, px, py, 2.0, 0.0, 3.0, 0.0, 3.0, 1.0, px, py, 5.0, 5.0, 6.0, 6.0];
+        let split = vec![vec![0.0, 0.0, 1.0, 0.0], vec![2.0, 0.0, 3.0, 0.0, 3.0, 1.0], vec![5.0, 5.0, 6.0, 6.0]];
+        let mut a = space.clone();
+        a.batches = vec![batch(vec![one], Color::Ink, -3.0)];
+        let mut b = space.clone();
+        b.batches = vec![batch(split, Color::Ink, -3.0)];
+        let (ga, gb) = (build_geometry(&a), build_geometry(&b));
+        assert_eq!(ga.line_bytes, gb.line_bytes);
+        assert_eq!(ga.segments(), 4);
     }
 }

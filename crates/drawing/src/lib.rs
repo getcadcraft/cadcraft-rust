@@ -119,13 +119,24 @@ pub struct Text {
     pub mirror: bool,
 }
 
+/// A pair inside a polyline of [`Batch::lines`] that lifts the pen: the points after it start a new line. A drawing
+/// with a dense linetype has millions of two-point dashes; one list per object instead of one per dash saves an
+/// allocation each (cc-cad-geom's display, M4.52).
+pub const PEN_UP: [f64; 2] = [f64::NAN, f64::INFINITY];
+
+/// Is (x, y) the [`PEN_UP`] pair?
+pub fn is_pen_up(x: f64, y: f64) -> bool {
+    x.is_nan() && y == f64::INFINITY
+}
+
 /// Everything on one layer in one colour and one line weight.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Batch {
     pub layer: String,
     pub color: Color,
     pub lw: f64,
-    /// flat polylines [x0, y0, x1, y1, …]
+    /// flat polylines [x0, y0, x1, y1, …]; a [`PEN_UP`] pair inside one lifts the pen (CadCraft's editable drawing
+    /// keeps a linetype's dashes in one list this way); other non-finite points are skipped
     pub lines: Vec<Vec<f64>>,
     pub fills: Vec<Fill>,
     pub texts: Vec<Text>,

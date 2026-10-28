@@ -51,6 +51,9 @@ pub fn import(rest: &[&str]) -> ExitCode {
     if let Some(n) = bench {
         return bench_import(file, n);
     }
+    if let Some(n) = rest.iter().position(|a| *a == "--display").and_then(|i| rest.get(i + 1)).and_then(|s| s.parse::<usize>().ok()) {
+        return bench_display(file, n);
+    }
     let input = match load_input(file) {
         Ok(v) => v,
         Err((c, m)) => return err(&c, &m),
@@ -91,6 +94,60 @@ fn bench_import(file: &str, n: usize) -> ExitCode {
         best = best.min(t.elapsed().as_secs_f64() * 1000.0);
     }
     println!("{} best of {} = {best:.2} ms", if dxf { "read_dxf" } else { "import_dwg" }, n.max(1));
+    ExitCode::SUCCESS
+}
+
+/// `--display N`: the drafting window's display model of the drawing (cc-cad-geom `DisplayCache`): best-of-N time to
+/// build it whole (a drawing opened), and to build it again after one object moved (an edit); its line segments.
+fn bench_display(file: &str, n: usize) -> ExitCode {
+    let input = match load_input(file) {
+        Ok(v) => v,
+        Err((c, m)) => return err(&c, &m),
+    };
+    let mut d = Doc::new();
+    d.load(&input);
+    let segments = |dr: &cc_drawing::Drawing| -> usize {
+        dr.spaces
+            .iter()
+            .flat_map(|s| &s.batches)
+            .flat_map(|b| &b.lines)
+            .flat_map(|l| l.as_chunks::<2>().0.split(|p| cc_drawing::is_pen_up(p[0], p[1])))
+            .map(|r| r.len().saturating_sub(1))
+            .sum()
+    };
+    let mut full = f64::INFINITY;
+    let mut segs = 0;
+    for _ in 0..n.max(1) {
+        let mut cache = cc_cad_geom::display::DisplayCache::new();
+        let t = Instant::now();
+        let dr = cache.drawing(&d);
+        full = full.min(t.elapsed().as_secs_f64() * 1000.0);
+        segs = segments(&dr);
+    }
+    let mut cache = cc_cad_geom::display::DisplayCache::new();
+    let _ = cache.drawing(&d);
+    let first = d.model().find_map(|e| e.id);
+    let mut edit = f64::INFINITY;
+    let mut geom = f64::INFINITY;
+    for i in 0..n.max(1) {
+        if let Some(id) = first {
+            let _ = d.change("MOVE", |d| {
+                let mut e = d.get(id).cloned().ok_or_else(|| cc_cad::DocError::Failed("gone".into()))?;
+                e.color = Some(cc_cad::entity::Color::Num(if i % 2 == 0 { 1.0 } else { 2.0 }));
+                d.update(id, e)
+            });
+        }
+        let t = Instant::now();
+        let dr = cache.drawing(&d);
+        edit = edit.min(t.elapsed().as_secs_f64() * 1000.0);
+        // what the window does next: the GPU's vertex data for every space
+        let t = Instant::now();
+        let g: Vec<_> = dr.spaces.iter().map(cc_render::build_geometry).collect();
+        geom = geom.min(t.elapsed().as_secs_f64() * 1000.0);
+        drop(g);
+    }
+    let r2 = |x: f64| (x * 100.0).round() / 100.0;
+    println!("{}", serde_json::json!({ "segments": segs, "full_ms": r2(full), "edit_ms": r2(edit), "geometry_ms": r2(geom) }));
     ExitCode::SUCCESS
 }
 
