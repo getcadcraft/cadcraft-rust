@@ -8,6 +8,7 @@ pub mod corner;
 pub mod dim;
 pub mod draw;
 pub mod draw2;
+pub mod flatview;
 pub mod hatch;
 pub mod inquiry;
 pub mod layers;
@@ -221,6 +222,7 @@ pub static COMMANDS: &[CmdDef] = &[
     CmdDef { no_repeat: true, ..def("LAYOUT", &["LO", "NEWLAYOUT"], |c| Box::pin(layout::layout(c))) },
     def("MVIEW", &["MV"], |c| Box::pin(layout::mview(c))),
     quiet(def("VPORTS", &["VIEWPORTS"], |c| Box::pin(layout::vports(c)))),
+    def("VIEWBASE", &["FLATSHOT"], |c| Box::pin(flatview::viewbase(c))),
     quiet(def("SPLIT", &[], |c| Box::pin(winset::split(c)))),
     quiet(def("LINKVIEWS", &["SYNCVIEWS"], |c| Box::pin(winset::linkviews(c)))),
     quiet(def("OPENIN3D", &[], |c| Box::pin(winset::openin3d(c)))),

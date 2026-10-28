@@ -503,6 +503,14 @@ fn model_now(c: &Ctx) -> Model {
     m3::model_of(&c.doc(), &faces_name(c))
 }
 
+/// Read the drawing's model without changing it (VIEWBASE): the one the last 3D command left, kept for the next.
+pub(crate) fn with_model<T>(c: &Ctx, f: impl FnOnce(&Model) -> T) -> T {
+    let m = model_now(c);
+    let r = f(&m);
+    keep(c, m);
+    r
+}
+
 /// The drawing's model and its snapshot before an edit.
 fn model_before(c: &Ctx) -> (Model, String) {
     let mut m = model_now(c);
