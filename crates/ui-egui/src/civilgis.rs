@@ -998,6 +998,7 @@ pub fn gis_menu(ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>) {
             ("civil.gis.pick", "ui.tb.gis-import"),
             ("civil.gis.export", "ui.tb.gis-export"),
             ("civil.maps.open", "ui.tb.basemap"),
+            ("civil.cad.pick", "toolbar.cad"),
         ] {
             if ui.button(t0(key)).on_hover_text(t0(&format!("{key}.title"))).clicked() {
                 acts.push((cmd, String::new()));

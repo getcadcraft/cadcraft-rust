@@ -301,6 +301,19 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: search=<text> | fits | near=<lat, long> | choose=<EPSG code> | prj (the picker) | mode=grid|ground|local | csf= | be= | bn= (base E, N) | ae= | an= | az= (the factor's point) | compute | usef | cp=<0|1|2>:<n|ge|gn|ll|xy>=<value> | pick=factor|cp0|cp1|cp2 (then a plan click) | grid=file|off|cdn:<name> | apply | remove | close} → gis-crs-ui.js's dialog; Apply may ask (civil.ask)",
     ),
     (
+        "civil.cad",
+        "Drawing linework dialog",
+        "",
+        "{name: units=|ft|ft-us|m|mm|cm|in | layer=<name>:on|off | use=<layer>|<geom>:<index or -1> | block=<name>:on|off | blklayer=<name>:on|off | num=|desc=|z=<choice or attr:TAG> | go | cancel} → gis-cad-ui.js's dialog (a DWG or DXF opened); go adds GIS layers, survey points and surface uses (undo steps)",
+    ),
+    (
+        "civil.cad.info",
+        "Drawing linework facts",
+        "",
+        "{} → the drawing dialog's layers, units, blocks and what Add does, on the status line",
+    ),
+    ("civil.cad.pick", "Open a DWG / DXF as linework", "", "{} → the platform's picker (the drawing opens into the linework dialog)"),
+    (
         "civil.terrain",
         "Terrain import dialog",
         "",
@@ -2065,7 +2078,7 @@ pub fn is_map_file(lower: &str) -> bool {
 
 /// A file CivilCraft's terrain, GeoTIFF picture or CAD linework openers take.
 pub fn is_terrain_file(lower: &str) -> bool {
-    [".las", ".laz", ".asc", ".tif", ".tiff"].iter().any(|e| lower.ends_with(e))
+    [".las", ".laz", ".asc", ".tif", ".tiff", ".dwg", ".dxf"].iter().any(|e| lower.ends_with(e))
 }
 
 /// gis-terrain-ui.js / gis-map-ui.js / gis-cad-ui.js openers: LiDAR and ASCII grids, elevation TIFFs → the terrain
@@ -2073,6 +2086,10 @@ pub fn is_terrain_file(lower: &str) -> bool {
 pub fn open_terrain(app: &mut UiApp, f: &ImportedFile) {
     let Some(cv) = app.civil.as_mut() else { return };
     let lower = f.name.to_ascii_lowercase();
+    if lower.ends_with(".dwg") || lower.ends_with(".dxf") {
+        cv.cad_open(&f.name, &f.bytes);
+        return;
+    }
     let tif = lower.ends_with(".tif") || lower.ends_with(".tiff");
     let world = cv.maps.files.iter().find(|(n, _)| {
         let l = n.to_ascii_lowercase();
@@ -2547,6 +2564,25 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.geotiff.info" => cv.message = cv.geotiff_info()?,
+        "civil.cad" => cv.cad_cmd(&name)?,
+        "civil.cad.info" => cv.message = cv.cad_info()?,
+        "civil.cad.pick" => {
+            // gis-cad-ui.js 'cad-open': the platform's picker for a DWG / DXF (opened through Open)
+            match app.services.pick_files.as_mut().map(|f| f("drawing", true)) {
+                Some(Some(files)) => {
+                    for f in &files {
+                        app.open_bytes(&f.name, &f.bytes);
+                    }
+                }
+                Some(None) => {
+                    if let Some(cv) = app.civil.as_mut() {
+                        cv.gis3.pick_wait = Some(crate::civilcrs::Need::PickGis);
+                    }
+                }
+                None => {}
+            }
+            return Ok(());
+        }
         "civil.gis.pick" => {
             // GIS › Import: the platform's picker; the files go through Open (the GIS openers)
             match app.services.pick_files.as_mut().map(|f| f("gis", true)) {
@@ -2918,6 +2954,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         crate::civilcrs::crs_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilgis3::use_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilterrain::terrain_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilcad::cad_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilterrain::geotiff_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilcrs::ask_window(cv, ui.ctx(), &t, &mut iacts);
         crate::civilmaps::window(cv, ui.ctx(), &t, &mut iacts);

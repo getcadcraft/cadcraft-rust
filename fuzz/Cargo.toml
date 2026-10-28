@@ -402,3 +402,10 @@ path = "fuzz_targets/civil_prj.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "civil_cad"
+path = "fuzz_targets/civil_cad.rs"
+test = false
+doc = false
+bench = false
