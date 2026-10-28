@@ -547,8 +547,12 @@ pub fn run_inputs(doc: Doc, script: &Value) -> (Vec<Value>, Doc) {
         } else if let Some(w) = inp.get("ws") {
             let e = ev3_of(w);
             match w.get("kind").and_then(Value::as_str).unwrap_or("click") {
-                "down" => eng.ws_down(e),
-                "move" => eng.ws_move(e),
+                "down" => {
+                    eng.ws_down(e);
+                }
+                "move" => {
+                    eng.ws_move(e);
+                }
                 "up" => eng.ws_up(e),
                 _ => eng.ws_click(e),
             }

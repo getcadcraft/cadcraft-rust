@@ -47,9 +47,14 @@ async fn ask_tool(c: &Ctx, prompt: String) -> R<Reply> {
 /// `drive(c, ws, tool, prompt, {copy, angle})`: clicks and typed values go to a ModelCraft tool until it has made its
 /// edit (true) or Enter / Esc (false).
 async fn drive(c: &Ctx, tool: &str, prompt: String, copy: bool, angle: bool) -> R<bool> {
-    c.sh().with_ws(|ws, d| ws.begin(d, tool, copy));
+    if let Some(Err(m)) = c.sh().with_ws(|ws, d| ws.begin(d, tool, copy)) {
+        return Err(CmdError::Msg(m));
+    }
     let r = drive_loop(c, prompt, angle).await;
-    c.sh().with_ws(|ws, d| ws.end(d));
+    // `finally { ws.end() }`: a throw there is the command's error
+    if let Some(Err(m)) = c.sh().with_ws(|ws, d| ws.end(d)) {
+        return Err(CmdError::Msg(m));
+    }
     r
 }
 async fn drive_loop(c: &Ctx, prompt: String, angle: bool) -> R<bool> {
@@ -84,7 +89,9 @@ async fn select3d(c: &Ctx, what: &str) -> R<bool> {
     if c.sh().with_ws(|ws, _| !ws.tools.host.sel.is_empty()).unwrap_or(false) {
         return Ok(true);
     }
-    c.sh().with_ws(|ws, d| ws.set_tool(d, "select"));
+    if let Some(Err(m)) = c.sh().with_ws(|ws, d| ws.set_tool(d, "select")) {
+        return Err(CmdError::Msg(m));
+    }
     loop {
         let v = ask_tool(c, c.tv("cmd3d.select_in_3d", &[("what", what.to_string())])).await?;
         if v == Reply::Done3d {
@@ -123,12 +130,9 @@ pub async fn orbit3d(c: Ctx) -> R {
     if !need3d(&c) {
         return Ok(());
     }
-    c.sh().with_ws(|ws, d| {
-        ws.driving = Some(("orbit".into(), false));
-        ws.done = false;
-        ws.recorded = false;
-        ws.set_tool(d, "orbit");
-    });
+    if let Some(Err(m)) = c.sh().with_ws(|ws, d| ws.begin(d, "orbit", false)) {
+        return Err(CmdError::Msg(m));
+    }
     let r = async {
         loop {
             let v = ask_tool(&c, c.t("cmd3d.3dorbit.drag_orbit_press_enter")).await?;
@@ -143,7 +147,9 @@ pub async fn orbit3d(c: Ctx) -> R {
         }
     }
     .await;
-    c.sh().with_ws(|ws, d| ws.end(d));
+    if let Some(Err(m)) = c.sh().with_ws(|ws, d| ws.end(d)) {
+        return Err(CmdError::Msg(m));
+    }
     r
 }
 
@@ -230,7 +236,7 @@ fn run_boolean(c: &Ctx, op: &str, a: &[f64], b: &[f64]) {
     let tv = t2(c);
     let r = c.sh().with_ws(|ws, d| {
         let r = ws.tcall(d, |t| Ok(bool3d::boolean_solids(&mut t.host.model, op, a, b, &tv)));
-        r.unwrap_or_else(|| Err(String::new())).map(|iid| {
+        r.unwrap_or_else(|e| Err(e.to_string())).map(|iid| {
             let k = m3::k_of(d);
             (iid, volume_of(c, &ws.tools.host.model, &[iid], k))
         })
@@ -407,8 +413,19 @@ pub fn set_units(sh: &crate::engine::Shared, units: &str) -> (bool, f64) {
         let mut d = sh.doc.borrow_mut();
         d.meta.insert("units".into(), serde_json::Value::String(after.clone()));
         d.version = d.version.wrapping_add(1);
+        // `m?.syncUnits()`: the model in hand speaks the new unit (not a step)
+        if let Some(cur) = d.m3d.clone() {
+            let mut m = Model::new();
+            if m.restore(&cc_m3d::model::SnapRef::Str(std::rc::Rc::from(&*cur))).is_ok() {
+                m.units = m3::display_unit(&after).to_string();
+                d.m3d = Some(std::sync::Arc::from(m.snapshot().as_str()));
+            }
+        }
         drop(d);
-        sh.with_ws(|ws, _| ws.tools.host.model.units = m3::display_unit(&after).to_string());
+        sh.with_ws(|ws, d| {
+            ws.tools.host.model.units = m3::display_unit(&after).to_string();
+            ws.sync_to(d);
+        });
         return (false, ratio);
     }
     let scale = |m: &mut Model| -> cc_m3d::Res<()> {
@@ -492,6 +509,16 @@ thread_local! {
 
 /// The drawing's model (the one the last 3D command left while the drawing still holds its snapshot).
 fn model_now(c: &Ctx) -> Model {
+    // the 3D tab's model is the drawing's live model (model3d.js keeps one object; a snapshot read again would check,
+    // and refuse, what the live model already holds)
+    if let Some(m) = c.sh().with_ws(|ws, d| {
+        SRC.with(|s| *s.borrow_mut() = d.m3d.clone());
+        let mut m = ws.tools.host.model.clone();
+        m.old_previews = false;
+        m
+    }) {
+        return m;
+    }
     let cur = c.doc().m3d.clone();
     SRC.with(|s| *s.borrow_mut() = cur.clone());
     if let Some(a) = &cur
@@ -524,6 +551,11 @@ fn model_before(c: &Ctx) -> (Model, String) {
 /// Keep the model for the next 3D command when the drawing holds the snapshot it matches.
 fn keep(c: &Ctx, m: Model) {
     let src = SRC.with(|s| s.borrow_mut().take());
+    // straight to the 3D tab (not through `with_ws`, whose sync would read the new snapshot again first)
+    if let Some(ws) = c.sh().ws3d.borrow_mut().as_mut() {
+        ws.adopt(m, src.as_ref(), &c.doc());
+        return;
+    }
     if let (Some(src), Some(cur)) = (src, c.doc().m3d.clone())
         && std::sync::Arc::ptr_eq(&src, &cur)
     {

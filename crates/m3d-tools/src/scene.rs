@@ -305,6 +305,9 @@ pub struct Scene {
     pub guides: Vec<(f64, Guide)>,
     pub version: f64,
     pub keep: Option<Cut>,
+    /// CadCraft 0.5's older copy of infer.js has no trees: it walks every face and edge in scene order, so among
+    /// equally good candidates the first in that order wins. `linear` keeps that order (ModelCraft's trees do not).
+    pub linear: bool,
     faces: OnceCell<Vec<Rc<SFace>>>,
     edges: OnceCell<Vec<Rc<SEdge>>>,
 }
@@ -334,6 +337,7 @@ impl Scene {
             guides: model.guides.iter().map(|(id, g)| (id, g.clone())).collect(),
             version: model.version(),
             keep,
+            linear: false,
             faces: OnceCell::new(),
             edges: OnceCell::new(),
         }
@@ -379,6 +383,9 @@ impl Scene {
     }
     /// The nearest face a ray meets (filter(f) → false skips a face).
     pub fn hit(&self, ray: &Ray, filter: Option<&dyn Fn(&SFace) -> bool>) -> Option<Hit> {
+        if self.linear {
+            return self.hit_linear(ray, filter);
+        }
         let mut best: Option<Hit> = None;
         let lim = Cell::new(f64::INFINITY);
         let (o, d) = (ray.o, ray.d);
@@ -408,13 +415,36 @@ impl Scene {
         }
         best
     }
+    /// The older infer.js's `faceHit`: every face in scene order, its world triangles against the ray; the first of
+    /// equal t wins.
+    fn hit_linear(&self, ray: &Ray, filter: Option<&dyn Fn(&SFace) -> bool>) -> Option<Hit> {
+        let mut best: Option<Hit> = None;
+        for f in self.faces() {
+            if filter.is_some_and(|fl| !fl(f)) {
+                continue;
+            }
+            for [a, b, c] in &f.tris {
+                let Some(t) = cc_m3d::vec::ray_tri(ray.o, ray.d, *a, *b, *c) else { continue };
+                if best.as_ref().is_some_and(|h| t >= h.t) {
+                    continue;
+                }
+                let q = add(ray.o, mul(ray.d, t));
+                if cut_away(self.keep.as_ref(), q) {
+                    continue;
+                }
+                best = Some(Hit { t, f: f.clone(), p: q });
+            }
+        }
+        best
+    }
     /// Edges that may come within px pixels of the ray on screen (a superset; the caller measures).
     pub fn near(&self, cam: &Camera, ray: &Ray, px: f64) -> Vec<Rc<SEdge>> {
         let mut out = Vec::new();
+        let mut keys: Vec<(usize, usize)> = Vec::new();
         let (o, d) = (ray.o, ray.d);
         let k = if cam.persp { (2.0 * libm::tan((cam.fov * std::f64::consts::PI) / 360.0)) / cam.h * px } else { 0.0 };
         let flat = if cam.persp { 0.0 } else { cam.pixel_size0() * px };
-        for p in &self.insts {
+        for (pi, p) in self.insts.iter().enumerate() {
             if p.l.edges.is_empty() {
                 continue;
             }
@@ -435,9 +465,16 @@ impl Scene {
             p.l.etree.walk(test, |i| {
                 if let Some(e) = p.edge(i) {
                     out.push(e);
+                    keys.push((pi, i));
                 }
                 false
             });
+        }
+        if self.linear {
+            // the old infer.js's order: every edge in scene order
+            let mut both: Vec<((usize, usize), Rc<SEdge>)> = keys.into_iter().zip(out).collect();
+            both.sort_by_key(|x| x.0);
+            return both.into_iter().map(|x| x.1).collect();
         }
         out
     }
@@ -470,4 +507,40 @@ pub fn ray_tri_a(o: P3, d: P3, t: &[f64], q: usize) -> Option<f64> {
     }
     let tt = (e2x * qx + e2y * qy + e2z * qz) * inv;
     if tt > 0.0 { Some(tt) } else { None }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::camera::Camera;
+
+    /// M4.27 regression: CadCraft's older infer.js walks every edge in scene order, so of two edges ending at the same
+    /// corner the first in that order is the one an endpoint snap names (Move's reference edge); the trees' order
+    /// named another, and a copy landed elsewhere (kdiff random scripts). `linear` keeps scene order.
+    #[test]
+    fn linear_scenes_list_edges_and_hit_faces_in_scene_order() {
+        let mut m = Model::new();
+        let _ = m.change("box", |m| {
+            let Some(root) = m.root_mut() else { return Ok(()) };
+            let f = cc_m3d::ops::add_polygon(root, &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 1.0, 0.0], [0.0, 1.0, 0.0]], None)?;
+            if let Some(fid) = f.first() {
+                let _ = cc_m3d::ops::push_pull(root, *fid, 1.0);
+            }
+            Ok(())
+        });
+        let mut cache = LocalCache::new();
+        let mut sc = Scene::of(&m, &mut cache);
+        sc.linear = true;
+        let mut cam = Camera::new();
+        cam.fit(None, None);
+        let ray = cam.ray(400.0, 300.0);
+        let near = sc.near(&cam, &ray, 1.0e6);
+        let order: Vec<f64> = near.iter().map(|e| e.id).collect();
+        let all: Vec<f64> = sc.edges().iter().map(|e| e.id).filter(|id| order.contains(id)).collect();
+        assert_eq!(order, all, "near() keeps scene order when linear");
+        // a ray straight down the box: the hit is in world space, on the top face
+        let down = Ray { o: [0.5, 0.5, 5.0], d: [0.0, 0.0, -1.0] };
+        let h = sc.hit(&down, None);
+        assert!(h.is_some_and(|h| (h.p[2] - 1.0).abs() < 1e-12 || h.p[2].abs() < 1e-12), "a hit on the box");
+    }
 }

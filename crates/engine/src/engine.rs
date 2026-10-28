@@ -473,6 +473,8 @@ pub struct Opts {
     pub height: Option<crate::ws3d::HeightSpec>,
     /// any text answers the question as it is (a routine's initget 128)
     pub any_text: bool,
+    /// the base is a copy of a point the drawing keeps (no z, though it was picked on the 3D tab): `P(d.p2)`
+    pub flat_base: bool,
 }
 
 /// Rubber-band entities for a cursor position.

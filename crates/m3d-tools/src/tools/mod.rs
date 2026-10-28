@@ -176,6 +176,11 @@ pub struct Host {
     /// edges the page adds to the scene after the model's (CadCraft's 3D tab: the 2D drawing's lines on the ground, soft
     /// so they snap but are never picked; ws3d-core.js `th.scene()`), with the key they were made for
     extra: Option<(u64, Rc<crate::scene::Local>)>,
+    /// scenes keep the older infer.js's candidate order (CadCraft 0.5's copy): see [`crate::scene::Scene::linear`]
+    pub linear_order: bool,
+    /// live previews restore only the open context's definition (ModelCraft's `scope()`); false: the whole model from
+    /// its starting copy every frame, as CadCraft 0.5's older copy of tools.js / model.js does
+    pub scoped_previews: bool,
 }
 
 impl Host {
@@ -199,6 +204,8 @@ impl Host {
             model_gen: 0,
             cache: LocalCache::new(),
             extra: None,
+            linear_order: false,
+            scoped_previews: true,
         }
     }
     /// The key of the extra edges in the scene (None: none).
@@ -230,6 +237,7 @@ impl Host {
             return s.clone();
         }
         let mut sc = Scene::of(&self.model, &mut self.cache);
+        sc.linear = self.linear_order;
         if let Some((_, l)) = &self.extra {
             let keep = sc.keep;
             sc.insts.push(crate::scene::Placed::new("", IDENT, &[], l.clone(), keep));
@@ -1017,6 +1025,9 @@ impl Tools {
     }
     /// What a live preview changes: only the open context's own definition.
     pub fn scope(&self) -> Option<Vec<String>> {
+        if !self.host.scoped_previews {
+            return None;
+        }
         self.host.model.context(&self.host.path).map(|c| vec![c.def])
     }
     /// The model's matrix of the open context.

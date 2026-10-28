@@ -331,7 +331,8 @@ pub async fn chain(c: Ctx, baseline: bool) -> R {
         let p = c
             .point(
                 c.t("cmd.explode.specify_second_extension_line"),
-                Opts { none: true, base: Some(from), options: vec![c.opt("U", "Undo")], ..Opts::default() },
+                // commands.js chain() hands a copy of the dimension's point (`from`): no z on the 3D tab
+                Opts { none: true, base: Some(from), options: vec![c.opt("U", "Undo")], flat_base: true, ..Opts::default() },
             )
             .await?;
         match p {

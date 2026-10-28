@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.27 3D tab: 0.5's older kernel copy, at parity under random 3D input (agent, work/cad3dfix)
+
+- kdiff-cadsheets' random scripts found the 3D tab apart from 0.5 (a COPY landed elsewhere; then more). CadCraft 0.5
+  bundles an older copy of ModelCraft's infer.js / model.js / tools.js; the tab now follows it:
+  - candidates in scene order (no trees): of two edges ending at one corner the first in the scene names Move's
+    reference edge (the COPY case); faces are hit in world space, the first of equal t winning (m3d-tools
+    `Scene::linear`, `Host::linear_order`);
+  - previews restore the whole model from a snapshot string each frame (`Model::old_previews`, no `scope()`): a model
+    that cannot be read again (a placement past 10,000 km) makes the next move throw, as 0.5 does;
+  - every face through earcut on the tab (hit tests, the faces an edit splits) and in the volumes the commands print;
+  - a throw in the tab's handler ends it there (a click's later parts, `end()`, a command's `finally`), and a command
+    prints it; the commands use the tab's live model (a snapshot read again would refuse what the model holds);
+  - smaller ones: V8's sin / cos in fit and arcs; `setUnits` without solids gives the model in hand the new unit;
+    DIMCONTINUE / DIMBASELINE bases are copies without z (`Opts.flat_base`).
+- Harness: tools/kdiff-cadsheets-cad3dfix.mjs (the page's pointer and key handlers may throw: caught, as the browser
+  does; replaces kdiff-cadsheets.mjs at merge). Random scripts seeds 1–8 × 24: 8 × 3360/3360. Its 3D scenarios
+  635/635 (the full run's other differences are later-main features: lasso selection, VIEWBASE).
+- Regression tests: engine `tests/tab3d.rs` (a move of a model that cannot be read again ends the command; the tab's
+  scene order), m3d-tools `scene::tests` (scene order kept, world-space hits).
 ## 2026-10-27 — M15.3 web speed: the browser profile, the web allocator (agent, work/webspeed)
 
 - Profiled the decoder in headless Chromium 130 (DevTools-protocol CPU profile, names kept by a wasm-bindgen run without

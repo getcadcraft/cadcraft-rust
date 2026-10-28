@@ -33,6 +33,7 @@ use cc_cad_geom::walk::{Opts as WOpts, WalkOpts, WalkOut, walk};
 use cc_geom::P2;
 use cc_geom::bvh::{BoxTree, boxes_of};
 use cc_io_cad::m3dmodel as m3;
+use cc_m3d::jsmath::{fd_cos, fd_sin};
 use cc_m3d::model::{SnapRef, Step};
 use cc_m3d::ops::Sel;
 use cc_m3d::vec::{BBox, IDENT, P3, Plane, add, bbox_add, dist, mul, norm, ray_plane, sub};
@@ -182,7 +183,7 @@ impl WalkOut for Segs<'_> {
                 while i < m {
                     let a = q.a0 + sw * i / m;
                     let b = q.a0 + sw * (i + 1.0) / m;
-                    (self.seg)(color, q.cx + q.r * a.cos(), q.cy + q.r * a.sin(), q.cx + q.r * b.cos(), q.cy + q.r * b.sin());
+                    (self.seg)(color, q.cx + q.r * fd_cos(a), q.cy + q.r * fd_sin(a), q.cx + q.r * fd_cos(b), q.cy + q.r * fd_sin(b));
                     i += 1.0;
                 }
             } else {
@@ -222,13 +223,13 @@ fn segs_of(p: &Prim, put: &mut dyn FnMut(f64, f64, f64, f64)) {
     let sweep = p.a1 - p.a0;
     let n = js::max(2.0, (sweep.abs() / (TAU / 48.0)).ceil());
     let n = if n.is_finite() { n.min(1.0e5) } else { 2.0 };
-    let mut px = p.cx + p.r * p.a0.cos();
-    let mut py = p.cy + p.r * p.a0.sin();
+    let mut px = p.cx + p.r * fd_cos(p.a0);
+    let mut py = p.cy + p.r * fd_sin(p.a0);
     let mut i = 1.0;
     while i <= n {
         let a = p.a0 + (sweep * i) / n;
-        let x = p.cx + p.r * a.cos();
-        let y = p.cy + p.r * a.sin();
+        let x = p.cx + p.r * fd_cos(a);
+        let y = p.cy + p.r * fd_sin(a);
         put(px, py, x, y);
         px = x;
         py = y;
@@ -253,7 +254,7 @@ fn seg_pts(q: &Prim) -> Vec<P2> {
     let mut i = 0.0;
     while i <= m {
         let a = q.a0 + sw * i / m;
-        out.push(P2::new(q.cx + q.r * a.cos(), q.cy + q.r * a.sin()));
+        out.push(P2::new(q.cx + q.r * fd_cos(a), q.cy + q.r * fd_sin(a)));
         i += 1.0;
     }
     out
@@ -358,8 +359,13 @@ fn ev_json(e: &Ev3) -> Value {
 impl Ws3d {
     /// `new Workspace3D({doc, engine, host})`
     pub fn new(doc: &Doc, faces_name: &str) -> Option<Ws3d> {
-        let model = m3::model_of(doc, faces_name);
-        let host = THost::new(model, Camera::new());
+        let mut model = m3::model_of(doc, faces_name);
+        model.old_previews = true;
+        let mut host = THost::new(model, Camera::new());
+        // CadCraft 0.5 bundles the older infer.js (no trees): its candidates in scene order
+        host.linear_order = true;
+        // … and previews that restore the whole model from its starting copy (no scope)
+        host.scoped_previews = false;
         let mut tools = Tools::new(host).ok()?;
         tools.collide = false;
         // ws3d-core.js sets `this.tip = ''` after making its Tools
@@ -388,6 +394,21 @@ impl Ws3d {
         };
         ws.sync(doc, faces_name);
         Some(ws)
+    }
+
+    /// A command's model (made from this one) after its edit: the tools work on it from now on when the drawing holds
+    /// the snapshot it matches (`src`).
+    pub fn adopt(&mut self, mut m: cc_m3d::model::Model, src: Option<&Arc<str>>, doc: &Doc) {
+        let (Some(src), Some(cur)) = (src, doc.m3d.as_ref()) else { return };
+        if !Arc::ptr_eq(src, cur) {
+            return;
+        }
+        m.old_previews = true;
+        m.undo_stack.clear();
+        m.redo_stack.clear();
+        self.tools.host.set_model(m);
+        self.synced = Some(Arc::clone(cur));
+        self.validate();
     }
 
     /// The tools' model now matches the drawing's snapshot (an edit made outside `tcall`).
@@ -425,7 +446,9 @@ impl Ws3d {
                 None => false,
             };
             if !ok {
-                self.tools.host.set_model(m3::model_of(doc, faces_name));
+                let mut m = m3::model_of(doc, faces_name);
+                m.old_previews = true;
+                self.tools.host.set_model(m);
             }
             self.synced = cur;
             self.validate();
@@ -592,8 +615,9 @@ impl Ws3d {
     }
 
     /// Run the tools (`f`) with the drawing's history around them; their messages go to `out`. Opening a group prints
-    /// what is being edited (th.openContext); closing one selects it (th.closeContext).
-    pub fn tcall<R>(&mut self, doc: &mut Doc, f: impl FnOnce(&mut Tools) -> cc_m3d::Res<R>) -> Option<R> {
+    /// what is being edited (th.openContext); closing one selects it (th.closeContext). Err: what the JS throws (the
+    /// page's handler stops there; a command prints it).
+    pub fn tcall<R>(&mut self, doc: &mut Doc, f: impl FnOnce(&mut Tools) -> cc_m3d::Res<R>) -> cc_m3d::Res<R> {
         self.prep(doc);
         let path0 = self.tools.host.path.clone();
         let sel0 = self.tools.host.sel.clone();
@@ -615,7 +639,7 @@ impl Ws3d {
             }
         }
         self.finish(doc);
-        r.ok()
+        r
     }
 
     /// Keep the kernel's copy of a state the drawing's history holds (the newest 64).
@@ -715,7 +739,7 @@ impl Ws3d {
         let r = js::max(dist(bb.min, bb.max) / 2.0, 1e-3);
         let fov_min = (js::min(cam.fov, cam.fov * cam.aspect()) * std::f64::consts::PI) / 360.0;
         cam.target = c;
-        cam.eye = add(c, mul(d, (r / fov_min.sin()) * 1.08));
+        cam.eye = add(c, mul(d, (r / fd_sin(fov_min)) * 1.08));
         cam.clip(r);
     }
     /// `view(name)`: a standard view, Perspective / Parallel, or Extents.
@@ -877,34 +901,38 @@ impl Ws3d {
     // ---- driving ModelCraft's tools for a command ----
 
     /// `begin(tool, {copy})`
-    pub fn begin(&mut self, doc: &mut Doc, tool: &str, copy: bool) {
+    /// Err: what setting the tool threw (the tool in use failed to cancel).
+    pub fn begin(&mut self, doc: &mut Doc, tool: &str, copy: bool) -> Result<(), String> {
         self.driving = Some((tool.to_string(), copy));
         self.done = false;
         self.recorded = false;
-        self.tcall(doc, |t| t.set(tool, ToolArg::None));
+        self.tcall(doc, |t| t.set(tool, ToolArg::None)).map_err(|e| e.to_string())
     }
     /// `end()`
-    pub fn end(&mut self, doc: &mut Doc) {
+    /// Err: what the tool's escape threw (the rest of `end()` does not run, and the command ends with it).
+    pub fn end(&mut self, doc: &mut Doc) -> Result<(), String> {
         self.tcall(doc, |t| {
             if t.busy() {
                 t.escape()?;
             }
             Ok(())
-        });
+        })
+        .map_err(|e| e.to_string())?;
         self.driving = None;
         if self.opened_for_push {
             self.tools.host.path = Vec::new();
             self.tools.host.sel = Vec::new();
             self.opened_for_push = false;
         }
-        self.tcall(doc, |t| t.set("select", ToolArg::None));
+        let _ = self.tcall(doc, |t| t.set("select", ToolArg::None));
         self.tools.host.overlay = None;
         self.done = false;
         self.recorded = false;
+        Ok(())
     }
     /// The select tool (a command asks for the 3D selection).
-    pub fn set_tool(&mut self, doc: &mut Doc, name: &str) {
-        self.tcall(doc, |t| t.set(name, ToolArg::None));
+    pub fn set_tool(&mut self, doc: &mut Doc, name: &str) -> Result<(), String> {
+        self.tcall(doc, |t| t.set(name, ToolArg::None)).map_err(|e| e.to_string())
     }
 
     /// `value(text, {angle})`: a value typed at the command line while a tool runs. Lengths read in drawing units;
@@ -929,7 +957,7 @@ impl Ws3d {
                 // ws3d-core.js prints through `t`, which names the tool there: the JS throws
                 let Some(c) = self.tools.sel_center() else { return Err("t is not a function".into()) };
                 let copy = self.driving.as_ref().is_some_and(|d| d.1);
-                self.tcall(doc, |t| t.call("begin", &[json!(c), json!(copy)]));
+                self.tcall(doc, |t| t.call("begin", &[json!(c), json!(copy)])).map_err(|e| e.to_string())?;
             }
         }
         if name == "rotate" && angle {
@@ -941,11 +969,11 @@ impl Ws3d {
                 let c = if stage == 1 { Some(c1) } else { self.tools.sel_center() };
                 let Some(c) = c else { return Err("t is not a function".into()) };
                 let e = ev_json(&ev);
-                self.tcall(doc, |t| t.call("startAt", &[json!(c), e]));
+                self.tcall(doc, |t| t.call("startAt", &[json!(c), e])).map_err(|e| e.to_string())?;
             }
         }
         let typed = if angle { s } else { convert_lengths(&s, &units) };
-        let ok = self.tcall(doc, |t| t.value(&typed)).unwrap_or(false);
+        let ok = self.tcall(doc, |t| t.value(&typed)).map_err(|e| e.to_string())?;
         if ok {
             self.check();
         }
@@ -977,7 +1005,7 @@ impl Ws3d {
             return 0;
         }
         let path = self.tools.host.path.clone();
-        self.tcall(doc, |t| {
+        let _ = self.tcall(doc, |t| {
             t.host.model.change("Erase", |m| {
                 if let Some(c) = m.context(&path)
                     && let Some(d) = m.def_mut(&c.def)
@@ -1040,8 +1068,12 @@ impl Shared {
             let mut g = self.ws3d.borrow_mut();
             let ws = g.as_mut()?;
             let mut d = self.doc.borrow_mut();
-            ws.sync(&d, &self.faces_name());
-            let r = f(ws, &mut d);
+            // CadCraft 0.5's copy of the kernel triangulates every face with earcut (no triangle / quad shortcut):
+            // hit tests and the faces an edit splits follow it
+            let r = cc_m3d::def::with_plain_face_tris(|| {
+                ws.sync(&d, &self.faces_name());
+                f(ws, &mut d)
+            });
             d.view3d = Some(ws.view_state());
             Some(r)
         };
@@ -1139,14 +1171,15 @@ impl Engine {
     }
 
     /// `down(ev)`
-    pub fn ws_down(&mut self, ev: Ev3) {
+    /// `down(ev)` → false when the tool threw (the page's handler stops there).
+    pub fn ws_down(&mut self, ev: Ev3) -> bool {
         let mode = self.ws_mode();
         let go = self.sh.with_ws(|ws, d| {
             ws.last_ev = Some(ev);
             ws.mode = mode;
             ws.press_at = Some((ev.x, ev.y));
             if mode != Mode::Tool {
-                return false;
+                return None;
             }
             let mut e = ev.ev();
             // copy: the move tool takes Ctrl at the base-point click as "copy"
@@ -1163,29 +1196,33 @@ impl Engine {
                     ws.opened_for_push = true;
                 }
             }
-            ws.tcall(d, |t| t.down(&e));
-            true
+            Some(ws.tcall(d, |t| t.down(&e)).is_ok())
         });
-        if go == Some(true) {
-            self.ws_check();
+        match go {
+            Some(Some(true)) => {
+                self.ws_check();
+                true
+            }
+            Some(Some(false)) => false,
+            _ => true,
         }
     }
 
-    /// `move(ev)`
-    pub fn ws_move(&mut self, ev: Ev3) {
+    /// `move(ev)` → false when the tool threw.
+    pub fn ws_move(&mut self, ev: Ev3) -> bool {
         let now = self.ws_mode();
-        let mode = self.sh.with_ws(|ws, d| {
+        let r = self.sh.with_ws(|ws, d| {
             ws.last_ev = Some(ev);
             ws.mouse = Some((ev.x, ev.y));
             let mode = if ws.press_at.is_some() { ws.mode } else { now };
-            if mode == Mode::Tool {
-                ws.tcall(d, |t| t.mv(&ev.ev()));
-            }
-            mode
+            let ok = mode != Mode::Tool || ws.tcall(d, |t| t.mv(&ev.ev())).is_ok();
+            (mode, ok)
         });
-        if let Some(m) = mode.filter(|m| *m != Mode::Tool) {
-            self.ws_hover(m, ev);
+        let Some((mode, ok)) = r else { return true };
+        if mode != Mode::Tool {
+            self.ws_hover(mode, ev);
         }
+        ok
     }
 
     /// `up(ev)`
@@ -1194,14 +1231,14 @@ impl Engine {
             ws.last_ev = Some(ev);
             let mode = ws.mode;
             let at = ws.press_at.take();
-            if mode == Mode::Tool {
-                ws.tcall(d, |t| t.up(&ev.ev()));
-            }
-            (mode, at)
+            let ok = mode != Mode::Tool || ws.tcall(d, |t| t.up(&ev.ev())).is_ok();
+            (mode, at, ok)
         });
-        let Some((mode, at)) = r else { return };
+        let Some((mode, at, ok)) = r else { return };
         if mode == Mode::Tool {
-            self.ws_check();
+            if ok {
+                self.ws_check();
+            }
             return;
         }
         let moved = at.map(|(x, y)| js::hypot(ev.x - x, ev.y - y));
@@ -1220,8 +1257,10 @@ impl Engine {
 
     /// `click(x, y, mods)`: down and up in place (tests, keyboard users).
     pub fn ws_click(&mut self, ev: Ev3) {
-        self.ws_move(ev);
-        self.ws_down(ev);
+        // a throw in one part ends the click there, as in the page
+        if !self.ws_move(ev) || !self.ws_down(ev) {
+            return;
+        }
         self.ws_up(ev);
     }
 
@@ -1253,7 +1292,7 @@ impl Engine {
             }
             Mode::Flat => {
                 let st_base = self.sh.st.borrow().base;
-                let z = self.base_z(opts.base).or_else(|| self.base_z(st_base)).unwrap_or(0.0);
+                let z = if opts.flat_base { 0.0 } else { self.base_z(opts.base).or_else(|| self.base_z(st_base)).unwrap_or(0.0) };
                 let g = self.sh.with_ws(|ws, d| ws.ground_at(d, ev.x, ev.y, z)).flatten();
                 if let Some(g) = g {
                     let p = P2::new(g[0], g[1]);
@@ -1297,8 +1336,8 @@ impl Engine {
             return;
         };
         let st_base = self.sh.st.borrow().base;
-        let base_z = self.base_z(opts.base).or_else(|| self.base_z(st_base));
-        let ebase_z = self.base_z(st_base);
+        let (base_z, ebase_z) =
+            if opts.flat_base { (None, None) } else { (self.base_z(opts.base).or_else(|| self.base_z(st_base)), self.base_z(st_base)) };
         let r = self.sh.with_ws(|ws, d| {
             let mut o = Overlay { lines: Some(Vec::new()), ..Overlay::default() };
             let mut cursor: Option<[f64; 3]> = None;
@@ -1411,20 +1450,20 @@ impl Engine {
         let r = self.sh.with_ws(|ws, d| {
             let tool_busy = ws.tools.busy();
             if matches!(key, "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") && tool_busy && !typing_text {
-                ws.tcall(d, |t| t.key(key));
+                let _ = ws.tcall(d, |t| t.key(key));
                 return Some(true);
             }
             if matches!(key, "Control" | "Alt") && tool_busy {
-                ws.tcall(d, |t| t.key(key));
+                let _ = ws.tcall(d, |t| t.key(key));
                 return Some(true);
             }
             if key == "Shift" && tool_busy {
-                ws.tcall(d, |t| t.key("Shift"));
+                let _ = ws.tcall(d, |t| t.key("Shift"));
                 return Some(false);
             }
             if key == "Escape" && !busy_engine {
                 if tool_busy {
-                    ws.tcall(d, Tools::escape);
+                    let _ = ws.tcall(d, Tools::escape);
                     return Some(true);
                 }
                 if let Some(leaving) = ws.tools.host.path.last().copied() {
@@ -1456,7 +1495,7 @@ impl Engine {
     pub fn ws_key_up(&mut self, key: &str) {
         self.sh.with_ws(|ws, d| {
             if ws.active {
-                ws.tcall(d, |t| t.key_up(key));
+                let _ = ws.tcall(d, |t| t.key_up(key));
             }
         });
     }

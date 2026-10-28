@@ -496,7 +496,8 @@ pub fn solid_volumes(m: &Model) -> Vec<(f64, Option<f64>)> {
     let Some(root) = m.root() else { return out };
     for (iid, inst) in root.insts.iter() {
         let Some(d) = m.def(&inst.def) else { continue };
-        let info = cc_m3d::solids::solid_info(d);
+        // CadCraft 0.5's copy of the kernel: every face through earcut (the volume's sum follows its triangles)
+        let info = cc_m3d::def::with_plain_face_tris(|| cc_m3d::solids::solid_info(d));
         let mm = &inst.m;
         let g = |i: usize| mm.get(i).copied().unwrap_or(f64::NAN);
         let det = (g(0) * (g(5) * g(10) - g(9) * g(6)) - g(4) * (g(1) * g(10) - g(9) * g(2)) + g(8) * (g(1) * g(6) - g(5) * g(2))).abs();

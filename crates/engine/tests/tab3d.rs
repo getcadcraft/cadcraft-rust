@@ -173,3 +173,26 @@ fn openin3d_without_a_handoff_prints_the_0_5_line() {
     assert!(printed.iter().any(|p| p.starts_with("Opening in 3D is not available here yet")), "{printed:?}");
     assert!(!e.in3d());
 }
+
+/// M4.27 regression (kdiff random scripts): CadCraft 0.5's older model.js restores a preview from the whole model each
+/// frame and checks it, so a model holding a placement past 10,000 km makes the next move throw ("an instance is wrong") —
+/// the command ends with that error, as in the page; ModelCraft's scoped previews would have gone on.
+#[test]
+fn a_preview_of_a_model_that_cannot_be_read_again_ends_the_command() {
+    let (mut e, log) = engine();
+    ty(&mut e, &["BOX", "0,0", "10,10", "5"]);
+    assert!(e.open3d());
+    click(&mut e, [5.0, 5.0, 5.0], 1000.0);
+    ty(&mut e, &["MOVE", "@20000000000,0"]);
+    assert!(log.borrow().printed.iter().any(|p| p == "Moved."), "{:?}", log.borrow().printed);
+    ty(&mut e, &["MOVE", "@1,0"]);
+    let printed = log.borrow().printed.clone();
+    assert_eq!(
+        printed.last().map(String::as_str),
+        Some("Error: This is not a ModelCraft file we can open: an instance is wrong."),
+        "{printed:?}"
+    );
+    assert!(!e.busy());
+    // the tab's scene keeps the older infer.js's order (candidates in scene order, faces hit in world space)
+    assert_eq!(e.with_ws3d(|ws, _| (ws.tools.host.linear_order, ws.tools.host.scoped_previews)), Some((true, false)));
+}

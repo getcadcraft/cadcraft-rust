@@ -266,6 +266,9 @@ pub struct Model {
     /// Definitions an undo or redo put away, freed at the next change (a big one takes a millisecond to free: the
     /// undo answers at once, as the JS's garbage collector lets it).
     pub(crate) trash: Trash,
+    /// CadCraft 0.5 bundles an older copy of model.js whose `begin()` takes the whole model as a snapshot string and
+    /// whose previews and `abort()` restore from it (each restore reads, and checks, the whole model again)
+    pub old_previews: bool,
 }
 
 /// See [`Model::trash`]. A copy of the model starts with none.
@@ -315,6 +318,7 @@ impl Model {
             uid: String::new(),
             serial: 0,
             trash: Trash::default(),
+            old_previews: false,
         };
         m.reset();
         m
@@ -788,6 +792,11 @@ impl Model {
     // ---- live previews ----
 
     pub fn begin(&mut self) {
+        if self.old_previews {
+            let full: Rc<str> = self.snapshot().into();
+            self.pv = Some(Preview { full: Some(full), defs: OMap::new(), strs: OMap::new(), ids: None, next_id: None, mixed: true });
+            return;
+        }
         self.pv = Some(Preview {
             full: None,
             defs: OMap::new(),
