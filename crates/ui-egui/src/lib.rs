@@ -23,6 +23,7 @@ pub mod bimplan;
 pub mod bimtools;
 pub mod cad3dtab;
 pub mod cadprops;
+pub mod cadset;
 pub mod canvas;
 pub mod civil3d;
 pub mod civildialogs;
@@ -327,6 +328,8 @@ pub struct UiApp {
     pub editor: Option<edit::Editor>,
     /// the drafting editor's Properties panel (M4.11)
     pub cadprops: cadprops::CadProps,
+    /// Settings › CadCraft
+    pub cadset: cadset::CadSet,
     /// the drafting editor's 3D tab (M4.25)
     pub tab3d: cad3dtab::Tab3d,
     /// the drafting editor's Plot dialog (M4.12)
@@ -435,6 +438,7 @@ impl Default for UiApp {
             bench_result: None,
             editor: None,
             cadprops: cadprops::CadProps::default(),
+            cadset: cadset::CadSet::default(),
             tab3d: cad3dtab::Tab3d::default(),
             plot: plotdlg::PlotDlg::default(),
             choose: None,
@@ -1652,10 +1656,14 @@ impl UiApp {
 
     /// After any input to the editor: rebuild the display model if the drawing changed, apply ZOOM requests.
     pub fn sync_editor(&mut self) {
+        cadset::push(self);
         let Some(ed) = self.editor.as_mut() else { return };
-        if let Some(open) = ed.hs.borrow_mut().props_open.take() {
-            self.cadprops.open = open;
+        // PROPERTIES / PROPERTIESCLOSE: props.js open() / close() (close turns auto-hide on)
+        let props_req = ed.hs.borrow_mut().props_open.take();
+        if let Some(open) = props_req {
+            let _ = cadprops::run(self, if open { "props.open" } else { "props.close" }, &Params::default());
         }
+        let Some(ed) = self.editor.as_mut() else { return };
         let (plot_req, plot_win) = {
             let mut h = ed.hs.borrow_mut();
             (std::mem::take(&mut h.plot_open), h.plot_window.take())
@@ -1950,7 +1958,12 @@ impl UiApp {
             self.run_ui("plot.open", &Params::default());
         }
         if self.editor.is_some() && ctx.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Num1)) {
-            self.cadprops.open = !self.cadprops.open;
+            // props.js toggle(): the auto-hidden panel opens over the drawing (or folds again)
+            if self.cadprops.autohide {
+                self.cadprops.flyout = !self.cadprops.flyout;
+            } else {
+                self.cadprops.open = !self.cadprops.open;
+            }
         }
         self.app_bar(ui);
         if self.editor.is_some() {
@@ -1972,6 +1985,7 @@ impl UiApp {
         viewer::frame(self, &ctx);
         plotdlg::window(self, &ctx);
         cadprops::quick_window(self, &ctx);
+        cadprops::custom_window(self, &ctx);
         winsetdlg::window(self, &ctx);
         sheetsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
@@ -2491,6 +2505,25 @@ impl UiApp {
         }
     }
 
+    /// cadcraft.js `sheetSetHere()`: the open sheet set's sheets of this drawing, as (layout, number).
+    fn sheet_set_here(&self) -> Vec<(String, String)> {
+        let Some(set) = self.sheetset.set.as_ref() else { return Vec::new() };
+        let src = self.editor.as_ref().map_or(String::new(), |ed| {
+            let d = ed.eng.doc();
+            let m = |k: &str| d.meta.get(k).and_then(serde_json::Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+            m("source").or_else(|| m("name")).unwrap_or_default().to_lowercase()
+        });
+        let stem = src.strip_suffix(".dwg").or_else(|| src.strip_suffix(".dxf")).unwrap_or(&src).to_string();
+        let s = |v: &serde_json::Value, k: &str| v.get(k).and_then(serde_json::Value::as_str).unwrap_or("").to_string();
+        set.get("sheets")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|sh| src.is_empty() || s(sh, "file").to_lowercase().rsplit('/').next().unwrap_or("").starts_with(&stem))
+            .map(|sh| (s(sh, "layout"), s(sh, "number")))
+            .collect()
+    }
+
     fn tabs(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
         let Some(doc) = &self.doc else { return };
@@ -2505,6 +2538,13 @@ impl UiApp {
         if names.len() <= 1 && !editing {
             return;
         }
+        // Settings › CadCraft › Sheet tabs = numbers only (WL.9): the number on the tab, the whole name in its tooltip
+        let numbers: Vec<Option<String>> = if editing && self.cadset.tabs_number {
+            let here = self.sheet_set_here();
+            names.iter().map(|(n, paper)| if *paper { cadset::sheet_number_of(n, &here) } else { None }).collect()
+        } else {
+            Vec::new()
+        };
         let mut pick = None;
         let mut add = false;
         let mut open3d = false;
@@ -2515,8 +2555,13 @@ impl UiApp {
             .show(ui, |ui| {
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        for (i, (n, _)) in names.iter().enumerate() {
-                            if ui.selectable_label(i == self.space && !in3d, n).clicked() {
+                        for (i, (n, paper)) in names.iter().enumerate() {
+                            let label = numbers.get(i).cloned().flatten().unwrap_or_else(|| n.clone());
+                            let mut r = ui.selectable_label(i == self.space && !in3d, label);
+                            if *paper && editing {
+                                r = r.on_hover_text(crate::edit::lang_text("app.tab.sheet", &[("name", n.clone())]));
+                            }
+                            if r.clicked() {
                                 pick = Some(i);
                             }
                             // cadcraft.js renderTabs: Model, 3D, then the sheets
@@ -2840,10 +2885,12 @@ impl UiApp {
         }
         // crosshair
         if let Some(hp) = hover.filter(|p| rect.contains(*p)) {
+            // Settings › CadCraft › Cursor (view.js CURSOR_SIZES: arm and pick box)
+            let (arm, side, _) = self.cadset.cursor_spec();
             let st = egui::Stroke::new(1.0, t.ink.gamma_multiply(0.6));
-            painter.line_segment([egui::pos2(hp.x - 40.0, hp.y), egui::pos2(hp.x + 40.0, hp.y)], st);
-            painter.line_segment([egui::pos2(hp.x, hp.y - 40.0), egui::pos2(hp.x, hp.y + 40.0)], st);
-            painter.rect_stroke(egui::Rect::from_center_size(hp, egui::vec2(9.0, 9.0)), 0.0, st, egui::StrokeKind::Middle);
+            painter.line_segment([egui::pos2(hp.x - arm, hp.y), egui::pos2(hp.x + arm, hp.y)], st);
+            painter.line_segment([egui::pos2(hp.x, hp.y - arm), egui::pos2(hp.x, hp.y + arm)], st);
+            painter.rect_stroke(egui::Rect::from_center_size(hp, egui::vec2(side, side)), 0.0, st, egui::StrokeKind::Middle);
         }
     }
 
@@ -3018,6 +3065,75 @@ mod tests {
         assert!(app.run("nope", &Params::default()).is_err());
         app.run("layer.toggle", &Params { name: Some("A".into()), ..Default::default() }).unwrap();
         assert!(app.hidden.contains("A"));
+    }
+
+    /// M4.54: Settings › CadCraft and the Properties head (PICKADD, P.12's field list, Auto-hide), kept with Settings.
+    #[test]
+    fn cadcraft_settings_and_the_properties_head() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let mut app = UiApp::default();
+            app.run("file.new", &Params::default()).unwrap();
+            let run = |app: &mut UiApp, id: &str, name: &str| app.run(id, &Params { name: Some(name.into()), ..Default::default() });
+            for t in ["LINE", "0,0", "10,0", "", "CIRCLE", "0,0", "3"] {
+                run(&mut app, "cmd.line", t).unwrap();
+            }
+            // the PICKADD button is the Clicking objects setting
+            assert!(!app.editor.as_ref().unwrap().hs.borrow().pick_replace);
+            run(&mut app, "props.pickadd", "").unwrap();
+            assert!(app.cadset.pick_replace && app.editor.as_ref().unwrap().hs.borrow().pick_replace);
+            run(&mut app, "settings.set", "cad.pick=add").unwrap();
+            assert!(!app.editor.as_ref().unwrap().hs.borrow().pick_replace);
+            run(&mut app, "settings.set", "cad.paste=center").unwrap();
+            run(&mut app, "settings.set", "cad.cursor=large").unwrap();
+            assert!(app.editor.as_ref().unwrap().hs.borrow().paste_center);
+            assert_eq!(app.editor.as_ref().unwrap().hs.borrow().pick_px, 8.0);
+            assert!(run(&mut app, "settings.set", "cad.cursor=enormous").is_err());
+            // LASSOMODE and the setting are one
+            run(&mut app, "cmd.line", "LASSOMODE").unwrap();
+            run(&mut app, "cmd.line", "0").unwrap();
+            app.sync_editor();
+            assert!(app.cadset.lasso_box, "LASSOMODE 0 = rectangle");
+            run(&mut app, "settings.set", "cad.lasso=lasso").unwrap();
+            assert!(!app.editor.as_ref().unwrap().hs.borrow().lasso_box);
+            // P.12: nothing selected = no list; the line's fields, Linetype left out of the panel, shown in QP
+            assert!(run(&mut app, "props.custom", "").is_err());
+            let ids: Vec<u64> = app.editor.as_ref().unwrap().eng.doc().entities().filter_map(|e| e.id).collect();
+            app.editor.as_ref().unwrap().hs.borrow_mut().selection = ids.clone();
+            assert!(run(&mut app, "props.custom", "dim").is_err(), "no dimension is selected");
+            run(&mut app, "props.custom", "line").unwrap();
+            assert!(run(&mut app, "props.custom.set", "panel:nope=off").is_err());
+            run(&mut app, "props.custom.set", "panel:lt=off").unwrap();
+            run(&mut app, "props.custom.set", "qp:lt=on").unwrap();
+            run(&mut app, "props.custom.ok", "").unwrap();
+            assert_eq!(app.cadprops.hide.get("line"), Some(&vec!["lt".to_string()]));
+            assert_eq!(app.cadprops.qp.get("line"), Some(&vec!["layer".into(), "color".into(), "lt".into(), "len".into(), "ang".into()]));
+            run(&mut app, "props.custom", "all").unwrap();
+            run(&mut app, "props.custom.reset", "").unwrap();
+            assert!(!app.cadprops.hide.contains_key("all"));
+            // Auto-hide: PROPERTIESCLOSE turns it on (props.js close()), PROPERTIES opens the strip's panel
+            run(&mut app, "cmd.line", "PROPERTIESCLOSE").unwrap();
+            app.sync_editor();
+            assert!(app.cadprops.autohide && app.cadprops.open && !app.cadprops.flyout);
+            run(&mut app, "cmd.line", "PROPERTIES").unwrap();
+            app.sync_editor();
+            assert!(app.cadprops.flyout);
+            run(&mut app, "props.autohide", "off").unwrap();
+            assert!(!app.cadprops.autohide);
+            assert!(run(&mut app, "props.autohide", "maybe").is_err());
+            // all of it kept with Settings
+            run(&mut app, "props.autohide", "on").unwrap();
+            let v = app.settings_json();
+            let mut b = UiApp::default();
+            b.load_settings(&v);
+            assert_eq!(b.cadset.cursor, "large");
+            assert!(b.cadset.paste_center && !b.cadset.pick_replace);
+            assert!(b.cadprops.autohide);
+            assert_eq!(b.cadprops.hide.get("line"), Some(&vec!["lt".to_string()]));
+            b.load_settings(&serde_json::json!({"cadprops": {"hide": {"line": "lt", "x": [1, "a"]}, "autohide": "yes"}}));
+            assert!(
+                !b.cadprops.autohide && b.cadprops.hide.get("x") == Some(&vec!["a".to_string()]) && !b.cadprops.hide.contains_key("line")
+            );
+        });
     }
 
     #[test]

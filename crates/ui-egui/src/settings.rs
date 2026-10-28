@@ -40,7 +40,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "settings.set",
         "Settings: change one",
         "",
-        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system\" | \"zoom=<0.5–2>\"} → applies at once (every app)",
+        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.tabs=full|number\"} → applies at once",
     ),
 ];
 
@@ -76,7 +76,11 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     }
                     app.settings.zoom = z;
                 }
-                _ => return Err(format!("settings.set: no setting {k} (lang, theme, zoom)")),
+                _ if k.starts_with("cad.") => {
+                    app.cadset.set(k.trim_start_matches("cad."), v)?;
+                    crate::cadset::push(app);
+                }
+                _ => return Err(format!("settings.set: no setting {k} (lang, theme, zoom, cad.*)")),
             }
             Ok(())
         }
@@ -87,7 +91,13 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
 impl UiApp {
     /// Settings as the hosts keep them (`{"lang": "es-MX", "theme": "paper", "zoom": 1.15}`).
     pub fn settings_json(&self) -> Value {
-        json!({ "lang": cc_lang::locale().code(), "theme": self.settings.theme, "zoom": self.settings.zoom })
+        json!({
+            "lang": cc_lang::locale().code(),
+            "theme": self.settings.theme,
+            "zoom": self.settings.zoom,
+            "cadcraft": self.cadset.json(),
+            "cadprops": self.cadprops.prefs_json(),
+        })
     }
 
     /// Settings read back (a damaged or foreign value keeps the default).
@@ -101,6 +111,12 @@ impl UiApp {
         }
         if let Some(z) = v.get("zoom").and_then(Value::as_f64).filter(|z| (0.5..=2.0).contains(z)) {
             self.settings.zoom = z as f32;
+        }
+        if let Some(c) = v.get("cadcraft") {
+            self.cadset.load(c);
+        }
+        if let Some(p) = v.get("cadprops") {
+            self.cadprops.load_prefs(p);
         }
     }
 
@@ -217,6 +233,10 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 }
             });
         });
+        // the app's own section (0.5's app-settings.inc includes the build's settings.inc)
+        if app.active_app() == "cadcraft" {
+            crate::cadset::section(app, ui, &mut act);
+        }
         ui.add_space(10.0);
         if ui.button(s("shell.settings.done")).clicked() {
             done = true;

@@ -114,6 +114,12 @@ pub struct HostState {
     pub qp_toggle: bool,
     /// press and drag draws a rectangle (LASSOMODE 0), not a lasso (the default)
     pub lasso_box: bool,
+    /// Settings › CadCraft › Clicking objects = "Replaces the selection" (props.js's PICKADD button off)
+    pub pick_replace: bool,
+    /// Settings › CadCraft › Paste point = "Center" (else the lower-left corner)
+    pub paste_center: bool,
+    /// Settings › CadCraft › Cursor: the pick box's reach in screen px (view.js CURSOR_SIZES: 5 / 6 / 8)
+    pub pick_px: f64,
     /// SHORTCUTS / COMPARESETTINGS asked for their dialogs
     pub keys_open: bool,
     pub cmp_open: bool,
@@ -311,6 +317,9 @@ impl Host for UiHost {
     }
     fn lasso(&self) -> Option<bool> {
         Some(!self.0.borrow().lasso_box)
+    }
+    fn paste_base(&self) -> Option<String> {
+        self.0.borrow().paste_center.then(|| "center".to_string())
     }
     fn set_lasso(&mut self, on: bool) {
         let mut h = self.0.borrow_mut();
@@ -575,7 +584,7 @@ pub struct Editor {
 
 impl Editor {
     pub fn new(doc: Doc, name: &str) -> Self {
-        let hs = Rc::new(RefCell::new(HostState { pick_tol: 1.0, polar_inc: 90.0, ..HostState::default() }));
+        let hs = Rc::new(RefCell::new(HostState { pick_tol: 1.0, polar_inc: 90.0, pick_px: 6.0, ..HostState::default() }));
         let eng = Engine::new(doc, Box::new(UiHost(Rc::clone(&hs))), lang_en());
         let mut ed = Editor {
             eng,
@@ -683,7 +692,8 @@ impl Editor {
         let preview = if self.eng.busy() { self.eng.preview(p) } else { Vec::new() };
         let mut h = self.hs.borrow_mut();
         h.cursor = Some(p);
-        h.pick_tol = if px_per_unit > 0.0 { 6.0 / px_per_unit } else { 1.0 };
+        let px = if h.pick_px > 0.0 { h.pick_px } else { 6.0 };
+        h.pick_tol = if px_per_unit > 0.0 { px / px_per_unit } else { 1.0 };
         h.preview = preview;
     }
 
@@ -703,14 +713,18 @@ impl Editor {
         } else if self.eng.expects() == Some(Kind::Entity) {
             self.eng.click(raw, None, raw);
         } else if !self.eng.busy() {
-            let (tol, shift) = {
+            let (tol, shift, replace) = {
                 let h = self.hs.borrow();
-                (h.pick_tol, h.shift)
+                (h.pick_tol, h.shift, h.pick_replace)
             };
             let id = pick(&self.eng.doc(), raw, tol);
             let mut h = self.hs.borrow_mut();
             match id {
                 Some(id) => {
+                    // Settings › Clicking objects: adds (Shift removes) or replaces (Shift adds, or removes a selected one)
+                    if replace && !shift {
+                        h.selection.clear();
+                    }
                     if shift && h.selection.contains(&id) {
                         h.selection.retain(|x| *x != id);
                     } else if !h.selection.contains(&id) {
@@ -779,7 +793,11 @@ impl Editor {
                 cc_engine::lasso::lasso_hits(&ents, &pts, mode, Some(&d.blocks))
             };
             let mut h = self.hs.borrow_mut();
-            if h.shift {
+            // replaces: a window selects only what it takes, Shift adds (cadcraft.js finishBox / finishDrag)
+            if h.pick_replace && !h.shift {
+                h.selection.clear();
+            }
+            if h.shift && !h.pick_replace {
                 let off: std::collections::HashSet<u64> = ids.into_iter().collect();
                 h.selection.retain(|x| !off.contains(x));
             } else {
@@ -807,8 +825,12 @@ impl Editor {
         } else if !self.eng.busy() {
             let ids = pick_window(&self.eng.doc(), &rect, crossing);
             let mut h = self.hs.borrow_mut();
+            // replaces: a window selects only what it takes, Shift adds (cadcraft.js finishBox)
+            if h.pick_replace && !h.shift {
+                h.selection.clear();
+            }
             // hashed, not a scan of the selection per id (a window over 9,000 objects was quadratic)
-            if h.shift {
+            if h.shift && !h.pick_replace {
                 let off: std::collections::HashSet<u64> = ids.into_iter().collect();
                 h.selection.retain(|x| !off.contains(x));
             } else {
@@ -945,6 +967,44 @@ mod tests {
         assert_eq!(ed.hs.borrow().selection.len(), 2);
         ed.delete();
         assert_eq!(ed.eng.doc().entities().count(), 0);
+    }
+
+    /// Settings › CadCraft › Clicking objects (cadcraft.js): "adds" (Shift takes out) and "replaces" (Shift adds or
+    /// takes out a selected one; a window replaces, Shift+window adds).
+    #[test]
+    fn clicking_objects_adds_or_replaces() {
+        let mut ed = Editor::new(Doc::new(), "t");
+        for l in ["LINE", "0,0", "10,0", "", "LINE", "0,5", "10,5", ""] {
+            ed.type_line(l);
+        }
+        let ids: Vec<u64> = ed.eng.doc().entities().filter_map(|e| e.id).collect();
+        let click = |ed: &mut Editor, x: f64, y: f64, shift: bool| {
+            ed.hs.borrow_mut().shift = shift;
+            ed.hover(p(x, y), 10.0);
+            ed.click(p(x, y), 10.0);
+            ed.hs.borrow_mut().shift = false;
+        };
+        click(&mut ed, 5.0, 0.0, false);
+        click(&mut ed, 5.0, 5.0, false);
+        assert_eq!(ed.hs.borrow().selection, ids, "adds");
+        click(&mut ed, 5.0, 5.0, true);
+        assert_eq!(ed.hs.borrow().selection, ids[..1], "Shift takes out");
+        ed.hs.borrow_mut().pick_replace = true;
+        click(&mut ed, 5.0, 5.0, false);
+        assert_eq!(ed.hs.borrow().selection, ids[1..], "replaces");
+        click(&mut ed, 5.0, 0.0, true);
+        assert_eq!(ed.hs.borrow().selection, vec![ids[1], ids[0]], "Shift adds");
+        click(&mut ed, 5.0, 0.0, true);
+        assert_eq!(ed.hs.borrow().selection, ids[1..], "Shift on a selected one takes it out");
+        // a window around the first line only: replaces
+        click(&mut ed, -1.0, -1.0, false);
+        click(&mut ed, 11.0, 1.0, false);
+        assert_eq!(ed.hs.borrow().selection, ids[..1], "a window replaces");
+        // Shift + window adds
+        ed.hs.borrow_mut().shift = true;
+        ed.click(p(-1.0, 4.0), 10.0);
+        ed.click(p(11.0, 6.0), 10.0);
+        assert_eq!(ed.hs.borrow().selection, ids, "Shift + window adds");
     }
 
     #[test]

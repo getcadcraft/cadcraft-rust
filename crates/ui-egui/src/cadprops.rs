@@ -10,8 +10,10 @@
 //! linetype scale, the current layer's linetype and lineweight, new dimensions), the View (centre, height, width:
 //! typing moves the view) and Misc. Quick Properties (QPMODE) shows the most-used fields by the pointer.
 //!
-//! Not here (yet): choosing which fields show
-//! (P.12's gear), the PICKADD and Auto-hide buttons.
+//! The head's buttons as props.js: Quick select, Select objects, PICKADD (what a click does to the selection: Settings ›
+//! CadCraft's Clicking objects), the gear (P.12: which fields show for a kind of object, in the panel and in Quick
+//! Properties) and Auto-hide (P.1: the panel folds to a strip at the window's edge and opens over the drawing while
+//! the pointer is on it; PROPERTIESCLOSE turns it on, as 0.5's close()). The choices are kept with Settings.
 
 use cc_engine::props::{PCtx, PVal, ReadCtx, apply_value, defs_for, edit_text, group_label, groups_of, read_value};
 use egui::RichText;
@@ -39,6 +41,49 @@ pub struct CadProps {
     quick_at: Option<(Vec<u64>, egui::Pos2)>,
     /// _PROPPICK running for: (group, object ids, point name, vertex)
     pending_pick: Option<(String, Vec<u64>, String, i64)>,
+    /// P.1: auto-hide on (the panel is a strip at the edge), and the strip's panel open over the drawing
+    pub autohide: bool,
+    pub flyout: bool,
+    /// when the pointer left the open flyout (it folds 500 ms later)
+    left_at: Option<f64>,
+    /// P.12 (props.js pr.extra.hide / .qp): per kind of object, the fields left out of the panel and the fields
+    /// Quick Properties shows (absent = its standard set)
+    pub hide: std::collections::BTreeMap<String, Vec<String>>,
+    pub qp: std::collections::BTreeMap<String, Vec<String>>,
+    /// the gear's dialog: (kind, its rows)
+    pub custom: Option<(String, Vec<CustomRow>)>,
+    /// the kind's name for the list's title
+    custom_name: String,
+}
+
+/// One row of P.12's list: (field, label, shown in the panel, shown in Quick Properties).
+pub type CustomRow = (String, String, bool, bool);
+
+impl CadProps {
+    /// What the panel keeps between runs (props.js's prefs: auto-hide, the fields chosen per kind, Quick Properties on).
+    pub fn prefs_json(&self) -> Value {
+        serde_json::json!({ "autohide": self.autohide, "hide": self.hide, "qp": self.qp, "qpOn": self.quick })
+    }
+    /// Read back (untrusted: lists of short strings per kind; anything else is dropped).
+    pub fn load_prefs(&mut self, v: &Value) {
+        fn lists(v: Option<&Value>) -> std::collections::BTreeMap<String, Vec<String>> {
+            let mut out = std::collections::BTreeMap::new();
+            for (k, l) in v.and_then(Value::as_object).into_iter().flatten().take(64) {
+                let Some(a) = l.as_array() else { continue };
+                if k.len() > 40 {
+                    continue;
+                }
+                let keys: Vec<String> =
+                    a.iter().filter_map(Value::as_str).filter(|x| x.len() <= 40).take(200).map(str::to_string).collect();
+                out.insert(k.clone(), keys);
+            }
+            out
+        }
+        self.autohide = v.get("autohide").and_then(Value::as_bool).unwrap_or(false);
+        self.hide = lists(v.get("hide"));
+        self.qp = lists(v.get("qp"));
+        self.quick = v.get("qpOn").and_then(Value::as_bool).unwrap_or(false);
+    }
 }
 
 /// UI commands of the panel.
@@ -98,6 +143,33 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("props.quick", "Quick Properties on / off", "", "{} → the most-used fields by the pointer when you select (QPMODE)"),
     ("props.fold", "Properties: fold a section", "", "{name: section key} → folds or unfolds it"),
+    (
+        "props.pickadd",
+        "Properties: PICKADD",
+        "",
+        "{} → a click adds to the selection, or replaces it (the same setting as Settings › CadCraft › Clicking objects)",
+    ),
+    (
+        "props.autohide",
+        "Properties: auto-hide",
+        "",
+        "{name?: \"on\" | \"off\"} → the panel folds to the edge of the window (no name: switches)",
+    ),
+    (
+        "props.custom",
+        "Properties: choose the fields",
+        "",
+        "{name?: kind (\"all\", line, circle, …; default the group shown)} → opens the list of that kind's fields (selected objects of that kind needed)",
+    ),
+    (
+        "props.custom.set",
+        "Properties: choose a field",
+        "",
+        "{name: \"panel|qp:<field>=on|off\"} → in the open list: show the field in Properties / in Quick Properties",
+    ),
+    ("props.custom.ok", "Properties: fields chosen", "", "{} → keeps the list's choices for that kind"),
+    ("props.custom.reset", "Properties: standard fields", "", "{} → back to the standard set for that kind"),
+    ("props.custom.cancel", "Properties: close the list", "", "{}"),
 ];
 
 fn lang() -> cc_engine::Lang {
@@ -149,8 +221,69 @@ fn control_value(kind: &str, s: &str) -> Value {
 /// `props.*` commands.
 pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     match id {
-        "props.open" => app.cadprops.open = true,
-        "props.close" => app.cadprops.open = false,
+        // props.js open(): unfolds the auto-hidden panel over the drawing; close(): folds it (turning auto-hide on)
+        "props.open" => {
+            app.cadprops.open = true;
+            if app.cadprops.autohide {
+                app.cadprops.flyout = true;
+                app.cadprops.left_at = None;
+            }
+        }
+        "props.close" => {
+            app.cadprops.open = true;
+            if app.cadprops.autohide {
+                app.cadprops.flyout = false;
+            } else {
+                set_autohide(app, true);
+            }
+        }
+        "props.pickadd" => {
+            app.cadset.pick_replace = !app.cadset.pick_replace;
+            crate::cadset::push(app);
+        }
+        "props.autohide" => {
+            let on = match params.name.as_deref() {
+                Some("on") => true,
+                Some("off") => false,
+                None | Some("") => !app.cadprops.autohide,
+                Some(x) => return Err(format!("props.autohide: {x} is not on or off")),
+            };
+            set_autohide(app, on);
+        }
+        "props.custom" => customize(app, params.name.as_deref())?,
+        "props.custom.set" => {
+            let spec = params.name.clone().unwrap_or_default();
+            let (lhs, v) = spec.split_once('=').ok_or("props.custom.set: name = \"panel|qp:<field>=on|off\"")?;
+            let (w, key) = lhs.split_once(':').ok_or("props.custom.set: name = \"panel|qp:<field>=on|off\"")?;
+            let on = match v {
+                "on" | "true" | "1" => true,
+                "off" | "false" | "0" => false,
+                _ => return Err(format!("props.custom.set: {v} is not on or off")),
+            };
+            let (_, rows) = app.cadprops.custom.as_mut().ok_or("props.custom.set: the list is not open")?;
+            let row = rows.iter_mut().find(|r| r.0 == key).ok_or_else(|| format!("props.custom.set: no field {key} in the list"))?;
+            match w {
+                "panel" => row.2 = on,
+                "qp" => row.3 = on,
+                _ => return Err(format!("props.custom.set: {w} is not panel or qp")),
+            }
+        }
+        "props.custom.ok" => {
+            let (key, rows) = app.cadprops.custom.take().ok_or("props.custom.ok: the list is not open")?;
+            app.cadprops.hide.insert(key.clone(), rows.iter().filter(|r| !r.2).map(|r| r.0.clone()).collect());
+            app.cadprops.qp.insert(key, rows.iter().filter(|r| r.3).map(|r| r.0.clone()).collect());
+            app.cadprops.quick_dismissed.clear();
+        }
+        "props.custom.reset" => {
+            let (key, _) = app.cadprops.custom.take().ok_or("props.custom.reset: the list is not open")?;
+            app.cadprops.hide.remove(&key);
+            app.cadprops.qp.remove(&key);
+            app.cadprops.quick_dismissed.clear();
+        }
+        "props.custom.cancel" => {
+            app.cadprops.custom = None;
+            app.cadprops.quick_dismissed.clear();
+        }
         "props.group" => app.cadprops.group = params.name.clone(),
         "props.vertex" => app.cadprops.vertex = i64::try_from(params.index.unwrap_or(0)).unwrap_or(0),
         "props.units" => set_units(app, params.name.as_deref().unwrap_or(""))?,
@@ -501,6 +634,67 @@ fn point_label(name: &str, l: &cc_engine::Lang) -> String {
     l.s(&k)
 }
 
+/// props.js `setAutohide(on)`: the panel folds to a strip (or comes back), and the status bar says so.
+fn set_autohide(app: &mut UiApp, on: bool) {
+    app.cadprops.autohide = on;
+    app.cadprops.open = true;
+    app.cadprops.flyout = false;
+    app.cadprops.left_at = None;
+    // props.js status(): the status bar only (not the panel's note)
+    app.message = lang().s(if on { "props.autohide.on" } else { "props.autohide.off" });
+}
+
+/// props.js `customize(key)`: the kind's fields with two ticks each (in Properties, in Quick Properties).
+fn customize(app: &mut UiApp, key: Option<&str>) -> Result<(), String> {
+    let ed = app.editor.as_ref().ok_or("props.custom: no drawing is open for editing")?;
+    let key = match key.filter(|k| !k.is_empty()) {
+        Some(k) => k.to_string(),
+        None => group_now(app).map(|(k, _)| k).ok_or("props.custom: nothing is selected")?,
+    };
+    let sel = ed.hs.borrow().selection.clone();
+    let doc = ed.eng.doc();
+    let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).filter(|e| key == "all" || e.typ() == key).collect();
+    if ents.is_empty() {
+        return Err(format!("props.custom: no selected object is a {key}"));
+    }
+    let l = lang();
+    let c = PCtx { doc: &doc, ents: &ents, vertex: 0, lang: &l };
+    let defs = defs_for(&key, &c);
+    let hide: Vec<String> = app.cadprops.hide.get(&key).cloned().unwrap_or_default();
+    let qk: Vec<String> = app.cadprops.qp.get(&key).cloned().unwrap_or_else(|| qp_keys(&key).iter().map(|k| (*k).to_string()).collect());
+    let rows = defs
+        .iter()
+        .map(|d| {
+            let lab = d.label.clone().unwrap_or_else(|| d.key.clone());
+            let label = match d.pt {
+                Some((name, _)) => format!("{} {lab}", point_label(name, &l)),
+                None => lab,
+            };
+            (d.key.clone(), label, !hide.contains(&d.key), qk.contains(&d.key))
+        })
+        .collect();
+    // the title's name: "All" or the kind's (props.js TYPE_NAMES)
+    let name = if key == "all" {
+        l.s("props.group.all")
+    } else {
+        groups_of(&ents, &l).into_iter().find(|g| g.key == key).map(|g| g.label).unwrap_or_else(|| key.clone())
+    };
+    drop(doc);
+    app.cadprops.custom_name = name;
+    app.cadprops.custom = Some((key, rows));
+    Ok(())
+}
+
+/// P.12 `shownIn('panel')`: the kind's fields less the ones left out.
+fn shown_in_panel<'a>(
+    hide: &std::collections::BTreeMap<String, Vec<String>>,
+    key: &str,
+    defs: &'a [cc_engine::props::Def],
+) -> Vec<&'a cc_engine::props::Def> {
+    let off = hide.get(key);
+    defs.iter().filter(|d| off.is_none_or(|h| !h.contains(&d.key))).collect()
+}
+
 fn toggle_quick(app: &mut UiApp) {
     app.cadprops.quick = !app.cadprops.quick;
     app.cadprops.quick_dismissed.clear();
@@ -639,6 +833,34 @@ fn icon_button(ui: &mut egui::Ui, icon: &str, tip: &str, color: egui::Color32) -
             p.line_segment([at(10.0, 13.0), at(10.0, 18.0)], st);
             p.line_segment([at(2.0, 10.0), at(7.0, 10.0)], st);
             p.line_segment([at(13.0, 10.0), at(18.0, 10.0)], st);
+        }
+        "plus-square" | "1-square" => {
+            p.rect_stroke(egui::Rect::from_min_max(at(3.0, 3.0), at(17.0, 17.0)), 2.0 * k, st, egui::StrokeKind::Middle);
+            if icon == "plus-square" {
+                p.line_segment([at(10.0, 6.5), at(10.0, 13.5)], st);
+                p.line_segment([at(6.5, 10.0), at(13.5, 10.0)], st);
+            } else {
+                p.add(egui::Shape::line(vec![at(8.0, 8.0), at(10.5, 6.0), at(10.5, 14.0)], st));
+            }
+        }
+        "gear" => {
+            p.circle_stroke(at(10.0, 10.0), 2.5 * k, st);
+            p.circle_stroke(at(10.0, 10.0), 5.5 * k, st);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::FRAC_PI_4;
+                p.line_segment([at(10.0 + 5.5 * a.cos(), 10.0 + 5.5 * a.sin()), at(10.0 + 7.5 * a.cos(), 10.0 + 7.5 * a.sin())], st);
+            }
+        }
+        "pin" | "pin-fill" => {
+            // a push pin (filled: the panel is kept open; outline: it folds to the edge)
+            let body = vec![at(7.5, 4.0), at(12.5, 4.0), at(13.0, 10.0), at(7.0, 10.0)];
+            if icon == "pin-fill" {
+                p.add(egui::Shape::convex_polygon(body.clone(), color, egui::Stroke::NONE));
+            }
+            p.add(egui::Shape::closed_line(body, st));
+            p.line_segment([at(6.0, 3.0), at(14.0, 3.0)], st);
+            p.line_segment([at(4.5, 10.5), at(15.5, 10.5)], st);
+            p.line_segment([at(10.0, 10.5), at(10.0, 18.0)], st);
         }
         "funnel" => {
             p.add(egui::Shape::closed_line(
@@ -857,113 +1079,276 @@ struct Asks {
     run: Vec<(String, String)>,
 }
 
-/// The panel (a right-hand side panel while a drawing is open for editing).
+/// The panel (a right-hand side panel while a drawing is open for editing; with auto-hide a strip at the edge whose
+/// panel opens over the drawing while the pointer is on it).
 pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
-    let l = lang();
     let mut asks = Asks::default();
     let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-    egui::Panel::right("cad_props").default_size(270.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
-        let Some(ed) = app.editor.as_ref() else { return };
-        let sel = ed.hs.borrow().selection.clone();
-        if sel != app.cadprops.seen {
-            app.cadprops.seen = sel.clone();
-            app.cadprops.edits.clear();
-            app.cadprops.vertex = 0;
-            app.cadprops.note.clear();
+    if !app.cadprops.autohide {
+        egui::Panel::right("cad_props").default_size(270.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
+            body(app, ui, &mut asks);
+        });
+        apply(app, asks);
+        return;
+    }
+    // auto-hide (props.js P.1): the strip, and the panel over the drawing while the pointer is on either
+    let now = ui.input(|i| i.time);
+    let pointer = ui.input(|i| i.pointer.hover_pos());
+    let mut strip_rect = egui::Rect::NOTHING;
+    let mut strip_click = false;
+    egui::Panel::right("cad_props_strip").exact_size(24.0).resizable(false).frame(egui::Frame::new().fill(t.panel_darker)).show(ui, |ui| {
+        let rect = ui.max_rect();
+        let r = ui.allocate_rect(rect, egui::Sense::click()).on_hover_text(lang().s("props.autohide.open"));
+        strip_rect = rect;
+        strip_click = r.clicked();
+        let p = ui.painter();
+        let col = if r.hovered() { t.accent } else { t.text };
+        // the icon (sliders) and the panel's name read upwards, as the 0.5 strip
+        let c = egui::pos2(rect.center().x, rect.min.y + 16.0);
+        for (i, x) in [-4.0_f32, 0.0, 4.0].iter().enumerate() {
+            p.line_segment([egui::pos2(c.x + x, c.y - 6.0), egui::pos2(c.x + x, c.y + 6.0)], egui::Stroke::new(1.2, col));
+            let ky = [-2.0_f32, 3.0, -4.0].get(i).copied().unwrap_or(0.0);
+            p.rect_filled(egui::Rect::from_center_size(egui::pos2(c.x + x, c.y + ky), egui::vec2(3.5, 2.5)), 0.5, col);
         }
-        let doc = ed.eng.doc();
-        let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
-        let head = if ents.is_empty() {
-            match doc.layout() {
-                Some(lay) => l.t("props.sheet.h", &[("name", lay.name.clone())]),
-                None => l.s("props.current"),
-            }
-        } else if ents.len() == 1 {
-            ents.first().map(|e| type_name(e, &l)).unwrap_or_default()
-        } else {
-            l.t("props.n.objects", &[("n", ents.len().to_string())])
-        };
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(head).strong().color(t.text_strong));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("×").on_hover_text("PROPERTIESCLOSE").clicked() {
-                    asks.close = true;
-                }
-                if icon_button(ui, "cursor", &l.s("props.btn.select"), t.text) {
-                    asks.run.push(("cmd.line".into(), "SELECT".into()));
-                }
-                if icon_button(ui, "funnel", &l.s("props.btn.qselect"), t.text) {
-                    asks.run.push(("cmd.line".into(), "QSELECT".into()));
-                }
+        let g = p.layout_no_wrap(lang().s("props.title"), egui::FontId::proportional(12.0), col);
+        let w = g.size().x;
+        let at = egui::pos2(rect.center().x - g.size().y / 2.0, rect.min.y + 32.0 + w);
+        p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
+    });
+    if strip_click || pointer.is_some_and(|q| strip_rect.contains(q)) {
+        app.cadprops.flyout = true;
+        app.cadprops.left_at = None;
+    }
+    if !app.cadprops.flyout {
+        apply(app, asks);
+        return;
+    }
+    let width = 280.0;
+    let top = strip_rect.min.y;
+    let area = egui::Area::new(egui::Id::unique("cad_props_flyout"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(egui::pos2(strip_rect.min.x - width, top))
+        .show(ui.ctx(), |ui| {
+            frame.show(ui, |ui| {
+                ui.set_width(width - 12.0);
+                ui.set_height((strip_rect.height() - 12.0).max(80.0));
+                body(app, ui, &mut asks);
             });
         });
-        ui.separator();
-        if !app.cadprops.note.is_empty() {
-            ui.label(RichText::new(&app.cadprops.note).color(egui::Color32::from_rgb(0xe0, 0x80, 0x60)));
+    // props.js closeFlyout: folds 500 ms after the pointer leaves (not while one of its fields is being typed in, or
+    // the field list is open)
+    let inside = pointer.is_some_and(|q| area.response.rect.contains(q) || strip_rect.contains(q));
+    let typing = !app.cadprops.edits.is_empty();
+    if inside || typing || app.cadprops.custom.is_some() {
+        app.cadprops.left_at = None;
+    } else {
+        let since = *app.cadprops.left_at.get_or_insert(now);
+        if now - since > 0.5 {
+            app.cadprops.flyout = false;
+            app.cadprops.left_at = None;
+        } else {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
         }
-        let closed = app.cadprops.closed.clone();
-        if ents.is_empty() {
-            let edits = &mut app.cadprops.edits;
-            let vb = ed.hs.borrow().view_box;
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                none_selected(ui, &t, &l, &doc, vb, edits, &closed, &mut asks);
-            });
-            return;
+    }
+    apply(app, asks);
+}
+
+/// The panel's contents (docked, or over the drawing when auto-hidden).
+fn body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
+    let t = app.tokens;
+    let l = lang();
+    let Some(ed) = app.editor.as_ref() else { return };
+    let sel = ed.hs.borrow().selection.clone();
+    if sel != app.cadprops.seen {
+        app.cadprops.seen = sel.clone();
+        app.cadprops.edits.clear();
+        app.cadprops.vertex = 0;
+        app.cadprops.note.clear();
+    }
+    let doc = ed.eng.doc();
+    let ents: Vec<cc_cad::Entity> = sel.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+    let head = if ents.is_empty() {
+        match doc.layout() {
+            Some(lay) => l.t("props.sheet.h", &[("name", lay.name.clone())]),
+            None => l.s("props.current"),
         }
-        let groups = groups_of(&ents, &l);
-        let gkey = app
-            .cadprops
-            .group
-            .clone()
-            .filter(|k| groups.iter().any(|g| &g.key == k))
-            .or_else(|| groups.first().map(|g| g.key.clone()))
-            .unwrap_or_default();
-        if groups.len() > 1 {
-            let cur_label = groups.iter().find(|g| g.key == gkey).map(|g| group_label(g, &l)).unwrap_or_default();
-            egui::ComboBox::new("props_group", "").selected_text(cur_label).show_ui(ui, |ui| {
-                for g in &groups {
-                    if ui.selectable_label(g.key == gkey, group_label(g, &l)).clicked() {
-                        asks.group = Some(g.key.clone());
-                    }
-                }
-            });
-        }
-        let gids: Vec<u64> = groups.iter().find(|g| g.key == gkey).map(|g| g.ids.clone()).unwrap_or_default();
-        let gents: Vec<cc_cad::Entity> = gids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
-        let vertex = app.cadprops.vertex;
-        let c = PCtx { doc: &doc, ents: &gents, vertex, lang: &l };
-        let defs = defs_for(&gkey, &c);
-        let one = (gents.len() == 1).then(|| gents.first().cloned()).flatten();
-        let edits = &mut app.cadprops.edits;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for key in ALL_SECTIONS {
-                let ds: Vec<&cc_engine::props::Def> = defs.iter().filter(|d| d.sec == key).collect();
-                let extra = one.as_ref().is_some_and(|e| has_extra(&doc, e, key));
-                if ds.is_empty() && !extra {
-                    continue;
-                }
-                if !section(ui, &t, &closed, key, &l.s(&format!("props.sec.{key}")), &mut asks.folds) {
-                    continue;
-                }
-                if let Some(e) = one.as_ref() {
-                    extra_rows(ui, &t, &l, &doc, e, key, true, edits, &mut asks);
-                }
-                for d in ds {
-                    field_rows(ui, &t, &l, d, &c, edits, "p:", vertex, true, &mut asks.acts);
-                }
-                if let Some(e) = one.as_ref() {
-                    extra_rows(ui, &t, &l, &doc, e, key, false, edits, &mut asks);
-                }
+    } else if ents.len() == 1 {
+        ents.first().map(|e| type_name(e, &l)).unwrap_or_default()
+    } else {
+        l.t("props.n.objects", &[("n", ents.len().to_string())])
+    };
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(head).strong().color(t.text_strong));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button("×").on_hover_text("PROPERTIESCLOSE").clicked() {
+                asks.close = true;
             }
-            if gkey == "all" {
-                let parts: Vec<String> =
-                    groups.iter().filter(|g| g.key != "all").map(|g| format!("{} {}", g.ids.len(), g.label.to_lowercase())).collect();
-                ui.label(RichText::new(parts.join(", ")).small().color(t.text_dim));
+            // props.js head(): … PICKADD, the gear (a selection), Auto-hide
+            let ah = app.cadprops.autohide;
+            let pin_tip = l.s(if ah { "props.btn.autohide.on" } else { "props.btn.autohide.off" });
+            if icon_button(ui, if ah { "pin" } else { "pin-fill" }, &pin_tip, if ah { t.accent } else { t.text }) {
+                asks.run.push(("props.autohide".into(), String::new()));
+            }
+            if !ents.is_empty() && icon_button(ui, "gear", &l.s("props.btn.custom"), t.text) {
+                asks.run.push(("props.custom".into(), String::new()));
+            }
+            let add = !app.cadset.pick_replace;
+            let add_tip = l.s(if add { "props.btn.pickadd.on" } else { "props.btn.pickadd.off" });
+            if icon_button(ui, if add { "plus-square" } else { "1-square" }, &add_tip, if add { t.accent } else { t.text }) {
+                asks.run.push(("props.pickadd".into(), String::new()));
+            }
+            if icon_button(ui, "cursor", &l.s("props.btn.select"), t.text) {
+                asks.run.push(("cmd.line".into(), "SELECT".into()));
+            }
+            if icon_button(ui, "funnel", &l.s("props.btn.qselect"), t.text) {
+                asks.run.push(("cmd.line".into(), "QSELECT".into()));
             }
         });
     });
-    apply(app, asks);
+    ui.separator();
+    if !app.cadprops.note.is_empty() {
+        ui.label(RichText::new(&app.cadprops.note).color(egui::Color32::from_rgb(0xe0, 0x80, 0x60)));
+    }
+    let closed = app.cadprops.closed.clone();
+    if ents.is_empty() {
+        let edits = &mut app.cadprops.edits;
+        let vb = ed.hs.borrow().view_box;
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            none_selected(ui, &t, &l, &doc, vb, edits, &closed, asks);
+        });
+        return;
+    }
+    let groups = groups_of(&ents, &l);
+    let gkey = app
+        .cadprops
+        .group
+        .clone()
+        .filter(|k| groups.iter().any(|g| &g.key == k))
+        .or_else(|| groups.first().map(|g| g.key.clone()))
+        .unwrap_or_default();
+    if groups.len() > 1 {
+        let cur_label = groups.iter().find(|g| g.key == gkey).map(|g| group_label(g, &l)).unwrap_or_default();
+        egui::ComboBox::new("props_group", "").selected_text(cur_label).show_ui(ui, |ui| {
+            for g in &groups {
+                if ui.selectable_label(g.key == gkey, group_label(g, &l)).clicked() {
+                    asks.group = Some(g.key.clone());
+                }
+            }
+        });
+    }
+    let gids: Vec<u64> = groups.iter().find(|g| g.key == gkey).map(|g| g.ids.clone()).unwrap_or_default();
+    let gents: Vec<cc_cad::Entity> = gids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
+    let vertex = app.cadprops.vertex;
+    let c = PCtx { doc: &doc, ents: &gents, vertex, lang: &l };
+    let all_defs = defs_for(&gkey, &c);
+    // P.12: the fields chosen for this kind
+    let defs = shown_in_panel(&app.cadprops.hide, &gkey, &all_defs);
+    let one = (gents.len() == 1).then(|| gents.first().cloned()).flatten();
+    let edits = &mut app.cadprops.edits;
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        for key in ALL_SECTIONS {
+            let ds: Vec<&cc_engine::props::Def> = defs.iter().copied().filter(|d| d.sec == key).collect();
+            let extra = one.as_ref().is_some_and(|e| has_extra(&doc, e, key));
+            if ds.is_empty() && !extra {
+                continue;
+            }
+            if !section(ui, &t, &closed, key, &l.s(&format!("props.sec.{key}")), &mut asks.folds) {
+                continue;
+            }
+            if let Some(e) = one.as_ref() {
+                extra_rows(ui, &t, &l, &doc, e, key, true, edits, asks);
+            }
+            for d in ds {
+                field_rows(ui, &t, &l, d, &c, edits, "p:", vertex, true, &mut asks.acts);
+            }
+            if let Some(e) = one.as_ref() {
+                extra_rows(ui, &t, &l, &doc, e, key, false, edits, asks);
+            }
+        }
+        if gkey == "all" {
+            let parts: Vec<String> =
+                groups.iter().filter(|g| g.key != "all").map(|g| format!("{} {}", g.ids.len(), g.label.to_lowercase())).collect();
+            ui.label(RichText::new(parts.join(", ")).small().color(t.text_dim));
+        }
+    });
+}
+
+/// P.12's list (props.js `customize`): every field of the kind with a tick for Properties and one for Quick
+/// Properties; Done keeps them, "Back to the standard set" forgets them.
+pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
+    let Some((_, rows)) = app.cadprops.custom.clone() else { return };
+    let l = lang();
+    let t = app.tokens;
+    let name = app.cadprops.custom_name.clone();
+    let mut run: Vec<(&str, Option<String>)> = Vec::new();
+    let mut open = true;
+    egui::Window::new(l.t("props.custom.title", &[("type", name)]))
+        .id(egui::Id::unique("props_custom"))
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(380.0)
+        .show(ctx, |ui| {
+            ui.label(RichText::new(l.s("props.custom.text")).small().color(t.text_dim));
+            ui.add_space(4.0);
+            egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
+                egui::Grid::new("props_custom_grid").striped(true).num_columns(3).show(ui, |ui| {
+                    ui.label(RichText::new(l.s("props.custom.field")).strong());
+                    ui.label(RichText::new(l.s("props.title")).strong());
+                    ui.label(RichText::new(l.s("props.qp.title")).strong());
+                    ui.end_row();
+                    for (k, label, panel, qp) in &rows {
+                        let lab = ui.label(label);
+                        let (mut a, mut b) = (*panel, *qp);
+                        if ui
+                            .checkbox(&mut a, "")
+                            .labelled_by(lab.id)
+                            .on_hover_text(l.t("props.custom.inpanel", &[("what", label.clone())]))
+                            .changed()
+                        {
+                            run.push(("props.custom.set", Some(format!("panel:{k}={}", if a { "on" } else { "off" }))));
+                        }
+                        if ui
+                            .checkbox(&mut b, "")
+                            .labelled_by(lab.id)
+                            .on_hover_text(l.t("props.custom.inqp", &[("what", label.clone())]))
+                            .changed()
+                        {
+                            run.push(("props.custom.set", Some(format!("qp:{k}={}", if b { "on" } else { "off" }))));
+                        }
+                        ui.end_row();
+                    }
+                });
+            });
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                if ui.link(l.s("props.custom.reset")).clicked() {
+                    run.push(("props.custom.reset", None));
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button(l.s("props.custom.ok")).clicked() {
+                        run.push(("props.custom.ok", None));
+                    }
+                    if ui.button(l.s("props.custom.cancel")).clicked() {
+                        run.push(("props.custom.cancel", None));
+                    }
+                });
+            });
+        });
+    if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        run.push(("props.custom.cancel", None));
+    } else if ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        run.push(("props.custom.ok", None));
+    }
+    for (id, name) in run {
+        app.run_ui_pub(id, &Params { name, ..Default::default() });
+        if app.cadprops.custom.is_none() {
+            break;
+        }
+    }
 }
 
 /// Quick Properties' window (drawn whether or not the panel is open).
@@ -1373,7 +1758,11 @@ fn quick(app: &mut UiApp, ctx: &egui::Context, asks: &mut Asks) {
     let gents: Vec<cc_cad::Entity> = g.ids.iter().filter_map(|id| doc.get(*id).cloned()).collect();
     let c = PCtx { doc: &doc, ents: &gents, vertex: app.cadprops.vertex, lang: &l };
     let all = defs_for(&g.key, &c);
-    let defs: Vec<&cc_engine::props::Def> = qp_keys(&g.key).iter().filter_map(|k| all.iter().find(|d| d.key == *k)).collect();
+    // P.12 `shownIn('quick')`: the fields chosen for Quick Properties, else its standard set
+    let defs: Vec<&cc_engine::props::Def> = match app.cadprops.qp.get(&g.key) {
+        Some(keys) => keys.iter().filter_map(|k| all.iter().find(|d| &d.key == k)).collect(),
+        None => qp_keys(&g.key).iter().filter_map(|k| all.iter().find(|d| d.key == *k)).collect(),
+    };
     // beside the pointer where the selection was made
     let at = match &app.cadprops.quick_at {
         Some((s, p)) if *s == sel => *p,
