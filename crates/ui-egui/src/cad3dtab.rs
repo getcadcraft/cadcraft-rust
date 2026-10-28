@@ -28,6 +28,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("tab3d.close", "Model tab", "", "{} → back to the 2D model"),
     ("tab3d.orbit", "Orbit the 3D view", "", "{factor: pixels across, index?: pixels down} → turns the 3D view as a middle-drag does"),
     ("tab3d.cube", "View cube", "", "{name: top|bottom|front|back|left|right|iso} → looks from that side (the view cube's faces)"),
+    (
+        "tab3d.cube.step",
+        "View cube step",
+        "",
+        "{name: up|down|left|right|cw|ccw} → face-on views only: brings the side above / below / left / right to the front, or turns the view a quarter turn (the cube's arrows)",
+    ),
 ];
 
 /// The 3D tab's view state (the workspace itself is the engine's).
@@ -90,6 +96,22 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     cc_m3d_tools::viewcube_camera::apply_view(&mut ws.tools.host.cam, d, None);
                 })
                 .ok_or("tab3d.cube: the 3D tab is not open")?;
+        }
+        "tab3d.cube.step" => {
+            let which = params.name.clone().unwrap_or_default();
+            ed.eng
+                .with_ws3d(|ws, _| {
+                    let cam = &mut ws.tools.host.cam;
+                    let v = cc_m3d_tools::viewcube_camera::camera_view(cam);
+                    // viewcube.js shows the arrows only face-on
+                    cc_m3d_tools::viewcube_camera::face_on(v.dir, Some(v.up))
+                        .ok_or_else(|| "tab3d.cube.step: the view does not look straight at a side".to_string())?;
+                    let (dir, up) = cc_m3d_tools::viewcube_camera::step_view(v.dir, Some(v.up), &which)
+                        .ok_or_else(|| format!("tab3d.cube.step: no step {which} (up, down, left, right, cw, ccw)"))?;
+                    cc_m3d_tools::viewcube_camera::apply_view(cam, dir, Some(up));
+                    Ok::<(), String>(())
+                })
+                .ok_or("tab3d.cube.step: the 3D tab is not open")??;
         }
         other => return Err(format!("unknown command {other}")),
     }
@@ -735,6 +757,98 @@ fn cube(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
             act = Some(name.to_string());
         }
     }
+    // face-on: the step arrows (viewcube.js `vc-steps`: four triangles round the cube, two curved arrows top right)
+    let v = cc_m3d_tools::viewcube_camera::CubeView { dir: [-ax.z[0], -ax.z[1], -ax.z[2]], up: ax.y, persp: true };
+    if cc_m3d_tools::viewcube_camera::face_on(v.dir, Some(v.up)).is_some() {
+        let k = s / 32.0; // SVG units (cube half-size 32) → screen
+        let at = |x: f32, y: f32| Pos2::new(c.x + x * k, c.y + y * k);
+        let fill = Color32::from_rgba_unmultiplied(t.text_dim.r(), t.text_dim.g(), t.text_dim.b(), 178);
+        let edge = Stroke::new(1.0, t.panel);
+        let tri = |cx: f32, cy: f32, ang: f32| -> Vec<Pos2> {
+            [[9.0_f32, 0.0], [-4.0, -7.0], [-4.0, 7.0]]
+                .iter()
+                .map(|[x, y]| at(cx + x * ang.cos() - y * ang.sin(), cy + x * ang.sin() + y * ang.cos()))
+                .collect()
+        };
+        let half = std::f32::consts::FRAC_PI_2;
+        let tris = [
+            ("up", tri(0.0, -46.0, -half), [-10.0, -56.0]),
+            ("down", tri(0.0, 46.0, half), [-10.0, 36.0]),
+            ("left", tri(-46.0, 0.0, std::f32::consts::PI), [-56.0, -10.0]),
+            ("right", tri(46.0, 0.0, 0.0), [36.0, -10.0]),
+        ];
+        let mut hot_step: Option<&str> = None;
+        for (name, pts, bb) in &tris {
+            let hit = Rect::from_min_size(at(bb[0], bb[1]), egui::vec2(20.0 * k, 20.0 * k));
+            let hot = pos.is_some_and(|p| hit.contains(p) || point_in(pts, p));
+            painter.add(egui::Shape::convex_polygon(pts.clone(), if hot { t.accent } else { fill }, edge));
+            if hot {
+                hot_step = Some(name);
+            }
+        }
+        // a curved band from a0 to a1 (screen radians, y down) with its head at a1 (viewcube.js arcArrow)
+        let arc_arrow = |a0: f32, a1: f32| -> (egui::Mesh, Vec<Pos2>) {
+            let (r, w) = (57.0_f32, 2.6_f32);
+            let p = |a: f32, rr: f32| at(rr * a.cos(), rr * a.sin());
+            let n = 10;
+            let mut inner = Vec::new();
+            let mut outer = Vec::new();
+            for i in 0..=n {
+                let a = a0 + (a1 - a0) * i as f32 / n as f32;
+                inner.push(p(a, r - w));
+                outer.push(p(a, r + w));
+            }
+            let tip = p(a1 + (a1 - a0).signum() * 0.16, r);
+            let (hi, ho) = (p(a1, r - 6.5), p(a1, r + 6.5));
+            let mut mesh = egui::Mesh::default();
+            for (a, b) in inner.iter().zip(&outer) {
+                mesh.colored_vertex(*a, Color32::WHITE);
+                mesh.colored_vertex(*b, Color32::WHITE);
+            }
+            for i in 0..n as u32 {
+                let j = i * 2;
+                mesh.add_triangle(j, j + 1, j + 2);
+                mesh.add_triangle(j + 1, j + 3, j + 2);
+            }
+            let base = mesh.vertices.len() as u32;
+            for q in [hi, tip, ho] {
+                mesh.colored_vertex(q, Color32::WHITE);
+            }
+            mesh.add_triangle(base, base + 1, base + 2);
+            // the outline: inner arc, the head, the outer arc back
+            let mut outline = inner.clone();
+            outline.extend([hi, tip, ho]);
+            outline.extend(outer.iter().rev());
+            (mesh, outline)
+        };
+        for (name, a0, a1) in [("ccw", -0.85_f32, -1.2_f32), ("cw", -0.72, -0.37)] {
+            let (mut mesh, outline) = arc_arrow(a0, a1);
+            let hot = pos.is_some_and(|p| {
+                let d = p - c;
+                let rr = d.length() / k;
+                let a = d.y.atan2(d.x);
+                let (lo, hi) = if a0 < a1 { (a0, a1 + 0.16) } else { (a1 - 0.16, a0) };
+                (57.0 - 6.5..=57.0 + 6.5).contains(&rr) && (lo..=hi).contains(&a)
+            });
+            let col = if hot { t.accent } else { fill };
+            for vtx in &mut mesh.vertices {
+                vtx.color = col;
+            }
+            painter.add(egui::Shape::mesh(mesh));
+            painter.add(egui::Shape::closed_line(outline, edge));
+            if hot {
+                hot_step = Some(name);
+            }
+        }
+        if let Some(name) = hot_step {
+            if let Some(p) = pos {
+                tip_box(&painter, p + egui::vec2(-160.0, 14.0), &tr(&format!("viewcube.step.{name}"), name), &t);
+            }
+            if click && !drag {
+                act = Some(format!("step:{name}"));
+            }
+        }
+    }
     // Home (viewcube.js's house button) and the coordinate-system menu
     let home = Rect::from_center_size(Pos2::new(c.x - s * 2.6, c.y - s * 2.2), egui::vec2(18.0, 18.0));
     let home_hot = pos.is_some_and(|p| home.contains(p));
@@ -770,6 +884,9 @@ fn cube(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
     match act.as_deref() {
         None => {}
         Some("home") => run_line(app, "VIEW I"),
+        Some(l) if l.starts_with("step:") => {
+            let _ = run(app, "tab3d.cube.step", &Params { name: Some(l.trim_start_matches("step:").into()), ..Default::default() });
+        }
         Some(l) if l.starts_with("letter:") => {
             let k = l.trim_start_matches("letter:");
             let side = match k {
