@@ -21,6 +21,16 @@ struct App {
     control: Option<control::Channel>,
 }
 
+/// Recovery copies of unsaved work: `recovery/` in the config folder (a per-window lock; CLAUDE.md § 6 Recovery). When
+/// the folder cannot be used the store says so and the window reports it (never silently skipped).
+fn recovery_service() -> Option<cc_recovery::Service> {
+    let dir = cc_mcp::token::config_dir()?.join("recovery");
+    Some(match cc_recovery::dir::DirKv::open(&dir) {
+        Ok(kv) => kv.into_service(),
+        Err(e) => Box::new(move |_| Err(e.clone())),
+    })
+}
+
 /// The start screen's recent files, kept in `recent.json` in the config folder between runs.
 fn recent_path() -> Option<std::path::PathBuf> {
     cc_mcp::token::config_dir().map(|d| d.join("recent.json"))
@@ -138,6 +148,8 @@ fn save_input_prefs(app: &UiApp) {
 
 impl eframe::App for App {
     fn on_exit(&mut self) {
+        // pending recovery copies are written and this window's lock goes: they are offered at the next start
+        cc_ui_egui::recover::exit(&mut self.app);
         save_recent(&self.app);
         save_mc_prefs(&self.app);
         save_cad_prefs(&self.app);
@@ -333,6 +345,7 @@ fn main() -> eframe::Result {
                 open_pdf: Some(Box::new(open_pdf)),
                 pick_folder: Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.display().to_string()))),
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
+                recovery: recovery_service(),
                 ..Default::default()
             };
             // big parts rebuild on a thread in the window (PartCraft; headless runs rebuild in place)

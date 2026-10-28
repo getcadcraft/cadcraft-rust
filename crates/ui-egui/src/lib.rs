@@ -79,6 +79,8 @@ pub mod pdfview;
 pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
+pub mod recover;
+pub mod recoverdlg;
 pub mod ribbon;
 pub mod sheetsetdlg;
 pub mod takeoff3d;
@@ -154,10 +156,15 @@ pub struct Services {
     pub open_pdf: Option<OpenPdf>,
     /// desktop: pick a folder (the Sheet Set panel's) → its path; None = cancelled
     pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
+    /// where recovery copies of unsaved work go (desktop: a locked folder in the config dir; web: browser storage);
+    /// None = the window cannot keep them, and says so (recover.rs)
+    pub recovery: Option<cc_recovery::Service>,
 }
 
 /// Show a PDF to print (see `Services::open_pdf`).
 pub type OpenPdf = Box<dyn FnMut(&str, &[u8]) -> Result<bool, String>>;
+
+pub use cc_recovery::RecoveryOp;
 
 /// Pick files for a command (see `Services::pick_files`).
 pub type PickFiles = Box<dyn FnMut(&str, bool) -> Option<Vec<ImportedFile>>>;
@@ -344,6 +351,8 @@ pub struct UiApp {
     pub bimh: bimedit::Host,
     /// the drafting editor's ribbon / toolbar and its style (ribbon.rs)
     pub ribbon: ribbon::Bar,
+    /// recovery copies of the drawing being edited and the "Recover your work?" dialog (recover.rs)
+    pub recovery: recover::Recovery,
 }
 
 impl Default for UiApp {
@@ -416,6 +425,7 @@ impl Default for UiApp {
             hub: hub::Hub::default(),
             bimh: bimedit::Host::default(),
             ribbon: ribbon::Bar::default(),
+            recovery: recover::Recovery::default(),
         }
     }
 }
@@ -1032,6 +1042,7 @@ impl UiApp {
             if let Some(ed) = self.editor.as_mut() {
                 ed.eng.doc_mut().mark_saved();
             }
+            recover::saved(self, format);
         }
         Ok(())
     }
@@ -1558,6 +1569,7 @@ impl UiApp {
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
+            id if id.starts_with("recovery.") => return recover::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
                 self.error = None;
@@ -1725,6 +1737,7 @@ impl UiApp {
         if self.prev_views.len() > 50 {
             self.prev_views.remove(0);
         }
+        recover::frame(self);
     }
 
     /// Headless: the pointer over a world point (rubber band, snap marker), as the canvas would report it.
@@ -1823,6 +1836,12 @@ impl UiApp {
         };
         for f in incoming {
             self.open_file(&f);
+        }
+        recover::frame(self);
+        recoverdlg::show(self, &ctx);
+        if let Some(t) = self.recovery.auto.as_ref().and_then(cc_recovery::Autosave::next_due) {
+            let wait = (t - self.recovery.clock.unwrap_or_else(cc_clock::now_ms)).clamp(0.0, 60_000.0);
+            ctx.request_repaint_after(std::time::Duration::from_millis(wait as u64));
         }
         // dropped files (native: read here; web: the host reads them asynchronously into the inbox)
         let dropped: Vec<std::sync::Arc<dyn egui::DroppedFile + Send + Sync>> = ctx.input(|i| i.raw.dropped_files.clone());

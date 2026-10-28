@@ -18,6 +18,7 @@ workspace = true
 [dependencies]
 cc-ui-egui.workspace = true
 cc-io-dwg.workspace = true
+cc-recovery.workspace = true
 web-time = "1"
 egui = { version = "0.37", default-features = false }
 
@@ -28,5 +29,5 @@ wgpu = { version = "30", default-features = false, features = ["webgpu", "wgsl",
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Document", "Window", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "Navigator", "Gpu", "console", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement"] }
+web-sys = { version = "0.3", features = ["Document", "Window", "Element", "HtmlCanvasElement", "HtmlElement", "Location", "Navigator", "Gpu", "console", "Blob", "BlobPropertyBag", "Url", "HtmlAnchorElement", "IdbFactory", "IdbOpenDbRequest", "IdbRequest", "IdbDatabase", "IdbObjectStore", "IdbTransaction", "IdbTransactionMode", "DomException", "DomStringList"] }
 rfd = { version = "0.17", default-features = false }

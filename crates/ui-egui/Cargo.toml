@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 cc-clock.workspace = true
+cc-recovery.workspace = true
 cc-m3d-files.workspace = true
 cc-civil.workspace = true
 cc-io-civil.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "cc-recovery"
+description = "CadCraft L5: recovery copies of unsaved work (0.5's app-autosave.js): when to write, what to offer back, what to prune, over a key-value store the host gives (a locked folder on the desktop, browser storage on the web)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 5
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true

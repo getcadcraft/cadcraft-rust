@@ -300,6 +300,7 @@ dependencies = [
  "cc-engine",
  "cc-io-cad",
  "cc-mcp",
+ "cc-recovery",
  "cc-ui-egui",
  "eframe",
  "egui",
@@ -347,11 +348,14 @@ dependencies = [
 name = "cadcraft-shot"
 version = "0.0.1"
 dependencies = [
+ "cc-io-cad",
+ "cc-recovery",
  "cc-ui-egui",
  "egui",
  "egui-wgpu",
  "egui_kittest",
  "image",
+ "serde_json",
 ]
 
 [[package]]
@@ -359,6 +363,7 @@ name = "cadcraft-web"
 version = "0.0.1"
 dependencies = [
  "cc-io-dwg",
+ "cc-recovery",
  "cc-ui-egui",
  "eframe",
  "egui",
@@ -764,6 +769,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cc-recovery"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cc-render"
 version = "0.0.1"
 dependencies = [
@@ -820,6 +832,7 @@ dependencies = [
  "cc-m3d-tools",
  "cc-markup",
  "cc-part",
+ "cc-recovery",
  "cc-render",
  "cc-takeoff",
  "egui",

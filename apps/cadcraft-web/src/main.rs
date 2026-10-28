@@ -14,6 +14,9 @@ fn main() {
 }
 
 #[cfg(target_arch = "wasm32")]
+mod recovery;
+
+#[cfg(target_arch = "wasm32")]
 mod web {
     use std::sync::{Arc, Mutex, PoisonError};
 
@@ -196,6 +199,7 @@ mod web {
                             save: Some(Box::new(download)),
                             open_pdf: Some(Box::new(open_pdf)),
                             pick_folder: None,
+                            recovery: Some(crate::recovery::service()),
                         };
                         let mut app = UiApp::new(services);
                         if sample || bench_frames {

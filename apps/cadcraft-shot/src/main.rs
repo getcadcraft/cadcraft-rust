@@ -3,9 +3,10 @@
 //!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
 //!       <file> may be --hub: CadCraft Studio's start screen (nothing open), --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
-//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
+//!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --seed-recovery N (copies of N drawings a crashed window left: the dialog opens), --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
+//!   cadcraft-shot recovery <scenario.json> <out-dir> → recovery copies driven headless (recovery.rs; forks/tools/recoverdiff.mjs)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
 //!   cadcraft-shot mkactbench <file.pdf> [--runs N] → JSON timings of MarkupCraft's editing actions (M9.16–M9.18)
 //!   cadcraft-shot tkactbench <old.pdf> <new.pdf> [--runs N] → JSON timings of TakeoffCraft's actions (M9.20–M9.23)
@@ -18,6 +19,8 @@
 //!       --edit: open for editing, then also time one LINE (typed) from Enter to the redrawn frame (edit_ms)
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
+
+mod recovery;
 
 use std::process::ExitCode;
 use std::time::Instant;
@@ -94,6 +97,7 @@ fn main() -> ExitCode {
             println!("{}", cc_ui_egui::ribbon::dump());
             Ok(())
         }
+        Some("recovery") => recovery::run(&args),
         _ => shot(&args),
     };
     match r {
@@ -111,6 +115,14 @@ fn shot(args: &[String]) -> Result<(), String> {
     };
     let (w, h) = size(args);
     let mut app = UiApp::default();
+    // recovery copies go to memory here (nothing is offered unless --seed-recovery N leaves some first)
+    let store: std::rc::Rc<std::cell::RefCell<cc_recovery::MemState>> = std::rc::Rc::default();
+    if let Some(n) = arg(args, "--seed-recovery").and_then(|v| v.parse::<usize>().ok()) {
+        let now = 1_792_756_800_000.0;
+        recovery::seed(&store, n.min(4), now);
+        app.recovery.clock = Some(now);
+    }
+    app.services.recovery = Some(cc_recovery::memory_on(std::rc::Rc::clone(&store)));
     if arg(args, "--theme").as_deref() == Some("light") {
         app.run("theme.toggle", &Params::default())?;
     }

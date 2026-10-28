@@ -17,6 +17,9 @@ workspace = true
 
 [dependencies]
 cc-ui-egui.workspace = true
+cc-recovery.workspace = true
+cc-io-cad.workspace = true
+serde_json.workspace = true
 egui = { version = "0.37", default-features = false }
 egui_kittest = { version = "0.37", default-features = false, features = ["wgpu"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

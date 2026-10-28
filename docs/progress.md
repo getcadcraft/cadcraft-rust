@@ -2,6 +2,35 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.46 Recovery copies and "Recover your work?" (agent, work/cadlisp-recover)
+
+- New crate cc-recovery (L5): 0.5's shell `app-autosave.js` without its dialog — a copy 2 s after edits stop, at most
+  every 30 s; failed writes said once (quota / write) and retried after 30 s; copies of stopped sessions offered newest
+  first, older than 30 days or past the newest 20 pruned; heartbeats where the store has no locks. No clock or timers
+  inside: the host passes `now`. Storage is `Services::recovery` (`RecoveryOp` → bytes): desktop `dir::DirKv`, a
+  `recovery/` folder in the config dir (0700 on Unix, hex file names, atomic writes, one OS-locked file per running
+  window: a window whose lock can be taken has stopped); web IndexedDB "cadcraft-rust-recovery" read into a mirror at
+  start (apps/cadcraft-web/src/recovery.rs, web-sys); tests and the harness `memory()`. Damaged / oversized records
+  are skipped and reported, never opened.
+- ui-egui `recover.rs` (dwg-autosave.js + cadcraft.js openLocal(recovered)): the drawing open for editing is "tab1",
+  "tab2" …; its copy is DWG 2018 through the ported writer with meta name / source / saveFormat / dwgVersion /
+  format; saved → the copy goes; Recover opens it unsaved, saving like the original (Save as format kept); a copy that
+  cannot be read says so in its row. `recoverdlg.rs` draws the dialog (shell catalog `assets/lang/shell`, 0.5's
+  words unchanged; Enter = Recover the first, Esc = Not now); its times take `cc_clock::Zone`. Commands
+  `recovery.offer / recover / discard / discard_all / later / sweep / exit / clock`. Desktop: offered at start;
+  pending copies written and the lock released on quit. No store → said once, not silent.
+- Divergence (one drawing per window, no tabs): an unsaved drawing replaced by another keeps its copy (offered once
+  the window ends); 0.5 keeps it open in its other tab.
+- Parity: forks/tools/recoverdiff.mjs (new) runs the frozen app-autosave.js + dwg-autosave.js on the app's Doc and
+  Engine and `cadcraft-shot recovery` on 5 scenarios (DWG / DXF / new drawings, cadence over 40 s, save, quit,
+  crash, 30-day pruning, 23 windows → 20 kept, offer / recover / discard / discard all) under UTC, America/Denver,
+  Asia/Kolkata, Pacific/Auckland: 0 differences in 552 results and 156 files (each copy's DWG bytes, records, dialog
+  text, recovered drawings re-saved). Copy written (DWG 2018 + store), median ms JS / Rust: kitchen-equipment.dwg
+  277 / 126 (2.2×), a new drawing 36 / 4.3 (8.4×), mixed 35 / 3.3 (10.9×), small 5.6 / 1.4 (4.0×), base-plan DXF
+  85 / 8.1 (10.5×).
+- Screenshots: lead/shots/cadlisp/recover/dialog-dark.png, dialog-light.png (`cadcraft-shot --hub … --seed-recovery N`).
+- Left: OPFS (IndexedDB only on the web); a web flush on pagehide (copies are up to 2 s behind there); the dialog in
+  English only; "CadCraft" as the lede's app name (0.5 reads the shell's data-app-name).
 ## 2026-10-21 — M4.45 CadCraft's ribbon, toolbar and menus (cadlisp ribbon fork, workstation11a)
 
 - `crates/ui-egui/src/ribbon.rs`: 0.5's input styles as data — the registry of `input-cadcraft.js` (174 commands, 14

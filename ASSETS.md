@@ -41,6 +41,8 @@ Test data and fuzz seeds (outside `assets/`, listed for the record):
 | assets/lang/studio/es-MX.json | CadCraft | CadCraft Studio 0.5's hub language catalog (`hub/lang/es-MX.json` at 57640c4; ships as draft), unchanged | Apache-2.0 |
 | assets/lang/catalog/en.json | CadCraft | The site catalog's app words (`public_html/assets/lang/catalog/en.json`, frozen at 594ab3e: role, tagline, short), unchanged | Apache-2.0 |
 | assets/lang/catalog/es-MX.json | CadCraft | The site catalog's app words (`…/catalog/es-MX.json`, frozen at 594ab3e; draft), unchanged | Apache-2.0 |
+| assets/lang/shell/en.json | CadCraft | The 0.5 shell's language catalog (`public_html/assets/lang/shell/en.json`, frozen at 594ab3e: the recovery dialog's words), unchanged | Apache-2.0 |
+| assets/lang/shell/es-MX.json | CadCraft | The 0.5 shell's language catalog (`…/shell/es-MX.json`, frozen at 594ab3e; ships as draft), unchanged | Apache-2.0 |
 
 Test fixtures outside `assets/` that came from CadCraft's own repositories:
 
