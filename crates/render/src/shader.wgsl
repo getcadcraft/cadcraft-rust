@@ -11,7 +11,7 @@ struct View {
     line_px: f32,           // line width in physical pixels
     fill_alpha: f32,        // pattern fills are drawn at this alpha
     print: f32,             // print view: everything in ink, lines as wide as their weight
-    px_per_mm: f32,         // physical px per paper mm (sheets in print view), else 0
+    px_per_mm: f32,         // physical px per paper mm (sheets in print view or with line weights shown), else 0
 };
 @group(0) @binding(0) var<uniform> view: View;
 
@@ -25,7 +25,8 @@ fn to_clip(p: vec2<f32>) -> vec2<f32> {
 fn alpha8(c: vec4<f32>) -> f32 { return round(c.a * 255.0); }
 
 fn colour(c: vec4<f32>) -> vec4<f32> {
-    if (alpha8(c) < 127.5 || view.print > 0.5) { return view.ink; }
+    // print = 1: the print view (all in ink); 2: the drawing's colours with line weights (LWDISPLAY)
+    if (alpha8(c) < 127.5 || (view.print > 0.5 && view.print < 1.5)) { return view.ink; }
     return vec4<f32>(c.rgb, 1.0);
 }
 
@@ -35,6 +36,9 @@ fn width_px(c: vec4<f32>) -> f32 {
     if (view.print < 0.5) { return view.line_px; }
     let a = alpha8(c);
     let lw = select(a, a - 128.0, a > 127.5) * 0.05;
+    // LWDISPLAY (lwdisplay.js lwPixels): 0.25 mm or less = 1 px, above in proportion, at most 12 px; on a sheet at
+    // least the true width on paper
+    if (view.print > 1.5) { return max(view.line_px * clamp(lw / 0.25, 1.0, 12.0), lw * view.px_per_mm); }
     return max(view.line_px * max(1.0, floor(lw / 0.25 + 0.5)), lw * view.px_per_mm);
 }
 

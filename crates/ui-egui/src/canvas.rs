@@ -111,6 +111,8 @@ pub struct Frame<'a> {
     pub underlay: &'a [(egui::TextureId, Rect, Rect)],
     /// print view (dwg-view.js `setPrint`): black on white paper, layers that never print hidden, line weights
     pub print: bool,
+    /// line weights on screen (CadCraft's LWDISPLAY / LWT: view.js `lwDisplay`)
+    pub lw_display: bool,
     /// layer handle (upper case) → name: what a viewport's frozen-layer handles name (None: names already)
     pub layer_handles: Option<&'a HashMap<String, String>>,
     /// a point ringed in this space (a Find result), world coordinates
@@ -190,10 +192,16 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
     let visible: Vec<Vec<bool>> = f.drawing.spaces.iter().map(|s| s.batches.iter().map(|b| shown(&b.layer)).collect()).collect();
     // physical px per paper mm (print view on a sheet: weights at their true width)
     let mm_per_unit = if space.paper_unit.as_deref() == Some("mm") { 1.0 } else { 25.4 };
-    let px_per_mm = if print && paper { (view.zoom / mm_per_unit) as f32 } else { 0.0 };
+    let px_per_mm = if (print || f.lw_display) && paper { (view.zoom / mm_per_unit) as f32 } else { 0.0 };
     let uniform = |v: &View2D, origin: (f64, f64)| {
         let mut u = ViewUniform::new(v, origin, rgba(ink), f.line_px);
-        u.print = if print { 1.0 } else { 0.0 };
+        u.print = if print {
+            1.0
+        } else if f.lw_display {
+            2.0
+        } else {
+            0.0
+        };
         u.px_per_mm = px_per_mm;
         u
     };

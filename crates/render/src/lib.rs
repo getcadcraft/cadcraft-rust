@@ -116,7 +116,8 @@ pub struct ViewUniform {
     pub ink: [f32; 4],
     pub line_px: f32,
     pub fill_alpha: f32,
-    /// print view (dwg-view.js `setPrint`): every line and fill in `ink`, lines as wide as their weight
+    /// print view (dwg-view.js `setPrint`): 1 = every line and fill in `ink`, lines as wide as their weight; 2 = the
+    /// drawing's colours, lines as wide as their weight on screen (CadCraft's LWDISPLAY, lwdisplay.js)
     pub print: f32,
     /// physical pixels per millimetre of paper (sheets in print view; 0 in model space: screen weights only)
     pub px_per_mm: f32,

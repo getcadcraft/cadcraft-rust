@@ -226,6 +226,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("edit.osnap", "Object snap on / off", "F3", "{}"),
     ("edit.ortho", "Ortho on / off", "F8", "{}"),
     ("edit.polar", "Polar tracking on / off", "F10", "{} → points line up on multiples of the POLARANG step"),
+    ("edit.lwt", "Line weights on / off", "", "{} → lines drawn as wide as their weight (LWDISPLAY; the status bar's LWT)"),
     ("file.edit", "Edit this drawing", "", "{} → imports the open DWG / DXF into an editable drawing (CadCraft's importer)"),
     (
         "file.save",
@@ -1577,6 +1578,12 @@ impl UiApp {
                 let what = lang::cad(if id == "edit.osnap" { "app.object_snap" } else { "ui.ortho" });
                 self.message = format!("{what}: {}", lang::cad(if on { "props.f.on" } else { "opt.off" }));
             }
+            "edit.lwt" => {
+                let ed = self.editor.as_mut().ok_or("edit.lwt: no drawing is open for editing")?;
+                let mut h = ed.hs.borrow_mut();
+                h.lwt = !h.lwt;
+                self.message = lang::cad(if h.lwt { "status.lwt.on" } else { "status.lwt.off" });
+            }
             "edit.polar" => {
                 let ed = self.editor.as_mut().ok_or("edit.polar: no drawing is open for editing")?;
                 ed.polar = !ed.polar;
@@ -2693,6 +2700,7 @@ impl UiApp {
             tokens: &self.tokens,
             line_px: ppp as f32,
             print: self.viewer.print && self.editor.is_none(),
+            lw_display: self.editor.as_ref().is_some_and(|e| e.hs.borrow().lwt),
             layer_handles: Some(&doc.layer_handles),
             mark: self.viewer.mark.filter(|m| m.0 == self.space).map(|m| (m.1, m.2)),
         };

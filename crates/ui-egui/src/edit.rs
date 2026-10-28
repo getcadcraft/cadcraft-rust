@@ -118,6 +118,8 @@ pub struct HostState {
     pub pick_replace: bool,
     /// Settings › CadCraft › Paste point = "Center" (else the lower-left corner)
     pub paste_center: bool,
+    /// line weights on screen (LWDISPLAY / the LWT toggle; cadcraft.js settings.lwt)
+    pub lwt: bool,
     /// Settings › CadCraft › Cursor: the pick box's reach in screen px (view.js CURSOR_SIZES: 5 / 6 / 8)
     pub pick_px: f64,
     /// SHORTCUTS / COMPARESETTINGS asked for their dialogs
@@ -317,6 +319,19 @@ impl Host for UiHost {
     }
     fn lasso(&self) -> Option<bool> {
         Some(!self.0.borrow().lasso_box)
+    }
+    fn lwt(&self) -> Option<bool> {
+        Some(self.0.borrow().lwt)
+    }
+    fn set_toggle(&mut self, name: &str, on: bool) {
+        // cadcraft.js setToggle → toggle(name): only a change toggles (and says so)
+        if name == "lwt" {
+            let mut h = self.0.borrow_mut();
+            if h.lwt != on {
+                h.lwt = on;
+                h.status = Some(lang_text(if on { "status.lwt.on" } else { "status.lwt.off" }, &[]));
+            }
+        }
     }
     fn paste_base(&self) -> Option<String> {
         self.0.borrow().paste_center.then(|| "center".to_string())

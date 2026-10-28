@@ -999,6 +999,7 @@ pub fn action(cmd: &'static str) -> Act {
         "toggle:osnap" => Act::Ui("edit.osnap", None),
         "toggle:ortho" => Act::Ui("edit.ortho", None),
         "toggle:polar" => Act::Ui("edit.polar", None),
+        "toggle:lwt" => Act::Ui("edit.lwt", None),
         "tab:1" => Act::Ui("space.select", Some(0)),
         // the shell's Settings and help (settings.rs, help.rs)
         "app:settings" => Act::Ui("settings.open", None),

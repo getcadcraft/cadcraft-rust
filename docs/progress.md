@@ -2,6 +2,66 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M4.52–M4.56 CadCraft drafting's last 0.5 pieces: dense linetypes, view cube steps, Settings › CadCraft and the Properties head, input styles, line weights on screen (agent, work/cadrest)
+
+- Linked drawings next to a DWG opened for editing: **0.5 does not do it** (cadcraft.js openLocal reads the file only;
+  dwg-import.js keeps each xref as a link not loaded, and the open prints "N linked drawings … are not loaded: XREF,
+  Reload, then pick their files" — the editor here prints the same). Only BimCraft's DWG view finds links in a folder
+  it was given. Nothing changed; the gap line was wrong about 0.5.
+- M4.52 (cc-cad-geom display.rs, cc-drawing, cc-render): the window drew linetypes up to 400 dashes per object (past it
+  continuous); 0.5's canvas walks with linetypes.js's own limit (a run past 20,000 pieces draws continuous), as plots
+  do. The window now uses the JS's limit, so screen, plots and the JS agree. A stroke's dashes go into one polyline
+  with `cc_drawing::PEN_UP` pairs between them (one allocation per object, not per dash), and cc-render writes the
+  segment bytes without a point list per polyline. `cadcraft-cli import <file> --display N` times the display build;
+  forks/tools/dashbench-cadrest.mjs (new) puts it beside the JS view's walk. Tests: the cache equals a full walk with
+  PEN_UP lists, the dash counts at 1,000 / 20,002 pieces, PEN_UP segments = separate polylines' bytes.
+- M4.53 (cc-m3d-tools viewcube_camera.rs, cad3dtab.rs): viewcube.js `faceOn` / `stepView` and the face-on step arrows
+  (four triangles, two curved arrows top right; hover tips `viewcube.step.*`); `tab3d.cube.step {name}`. Tests from the
+  JS's own results (node, the frozen viewcube.js).
+- M4.54 (cadset.rs, cadprops.rs, settings.rs, edit.rs): Settings › CadCraft (settings.inc: cursor size — crosshair arm,
+  pick box, pick reach as view.js CURSOR_SIZES —, paste point, clicking objects adds / replaces with cadcraft.js's
+  Shift rules for clicks, windows and lassos, dragging to select = LASSOMODE's setting both ways, sheet tabs by number
+  = sheetnum.js, checked against the JS on 20,000 random names); the Properties head's PICKADD (the same setting),
+  Auto-hide (P.1: a strip at the window's edge, the panel over the drawing while the pointer is on it, folding 500 ms
+  after it leaves; PROPERTIESCLOSE turns it on as 0.5's close()) and the gear (P.12: per kind of object, the fields in
+  the panel and in Quick Properties; Back to the standard set). Kept with Settings (`settings.json` / the browser).
+- M4.55 (cc-engine inputprof.rs, inputdlg.rs, ribbon.rs): app-input.js's input styles engine — profiles (toolbar,
+  menu bar, ribbon), validateProfile / importProfile / exportProfile, conflicts, placeOf / unplaced / moveCommand,
+  setKeys / setMacro, the KeyMatcher (sequences such as "W A", text keys, the app's own keys a style moved), matchTyped,
+  readState / writeState / addCustom / pickStyle, WL.18's carry of SHORTCUTS' keys — and app-input-ui.js's window
+  side: Settings › Menus, keys and mouse (styles, Customize…, Export, Import, Delete), the Customize dialog (place and
+  keys of every command, keys recorded by pressing them, clashes refusing Save; the mouse: wheel direction and speed,
+  buttons that pan the drawing, 3D buttons), the bar drawn from the style in use (a menu-bar style of one's own too),
+  the style's keys before the window's own, the mouse settings on the drawing. UI commands `input.customize`,
+  `input.custom.*`, `input.export`, `input.import`, `input.delete`, `input.key`. Fuzz target `cad_input_profile`.
+  Parity: forks/tools/inputdiff-cadrest.mjs (new; `cadcraft-shot inputcases`): seeds 1–6 × 4,003 cases (key sequences,
+  hostile profiles validated / exported / resolved, imports, matchers, edits of the built-ins exported, kept states,
+  carries, typed words, export names) — 24,018 / 24,018 identical, export texts byte for byte; ribbondiff 3420 / 3420.
+- M4.56 (shader.wgsl, canvas.rs, edit.rs): LWDISPLAY / the LWT toggle draw line weights on screen (lwdisplay.js
+  lwPixels: 0.25 mm or less 1 px, above in proportion, at most 12 px; on a sheet at least the true width on paper,
+  viewports included); `edit.lwt`, the ribbon's LWT button. The window used to say line weights were the browser's.
+- Parity: kdiff seed 1 5250 / 5250 in en and es-MX; idiff kit 78 files, 0 differences; plotdiff 28 / 28 (a dense
+  linetype fixture and the kitchen sample); inputdiff 24,018 / 24,018; ribbondiff 3420 / 3420.
+- Timings (release, best of 7, load ~18; JS = the 0.5 view's walk of the open space on each edit, without its Path2D
+  building and stroking):
+
+  | drawing | JS walk | Rust display, one edit (was, 400 cap) | + GPU data (was) | Rust full build (was) |
+  |---|---|---|---|---|
+  | ar1all OVERALL PLAN (2.35 M segments; 160 k with the cap) | 54 ms | 21 ms (18) | 25 ms (5) | 103 ms (39) |
+  | Carey Foodservice (870 k; 580 k) | 35 ms | 40 ms (47) | 6.5 ms (13) | 117 ms (105) |
+  | kitchen sample | 3.0 ms | 1.0 ms | 0.1 ms | 3.8 ms |
+
+- Screenshots (forks/lead/shots/cadrest/): vc-front, vc-step, vc-hover (es-MX), vc-click; props-head, props-custom
+  (es-MX), props-ah; settings-cad, in-settings, in-settings-small (es-MX), tabs-num; in-custom, in-menubar; lwt2,
+  lwt-on; web-new (the web build, ?new, keys typed).
+- Plain English (no catalog key): the Settings section's "CadCraft" heading (the app's name); the file pickers' filter
+  names ("CadCraft input styles"); command errors of the new UI commands (as every UI command's).
+- Not done: the Add-ons tab (app-input-ui.js shows it only for toolbar buttons added by add-ons: 0.5's add-ons —
+  Electrical, HVAC, Piping, Apparel — are JavaScript on the add-on API 1.0, ~9,000 lines, none ported); "Use this
+  style in every app" (the other apps have no input styles here); Settings › CadCraft's corner indicator and My tools;
+  split panes (VPORTS in the model, SPLIT, LINKVIEWS: panes.js and view.js's panes); the Rust full display build on
+  big drawings is 2–3× the JS walk (each edit is faster).
+
 ## 2026-10-28 — M11.23–M11.25 CivilCraft speed: point files, GeoJSON, GIS import / export (agent, work/civspeed)
 
 - Profiled with perf (cpu-clock, `--profile profiling` with frame pointers, samples symbolised by speed2's prof.py),
