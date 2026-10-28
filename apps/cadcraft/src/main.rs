@@ -146,12 +146,42 @@ fn save_input_prefs(app: &UiApp) {
     let _ = cc_mcp::confine::write_file_atomic(&p, app.ribbon.prefs().to_string().as_bytes());
 }
 
+/// What CivilCraft keeps between runs (Settings › CivilCraft, the mass haul factor): `civilcraft.json` in the config
+/// folder (the JS keeps them in localStorage).
+fn cv_prefs_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("civilcraft.json"))
+}
+
+fn load_cv_prefs(app: &mut UiApp) {
+    let Some(p) = cv_prefs_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    // a damaged file is ignored (and replaced on the next save); the settings are a few hundred bytes
+    if text.len() > 1 << 20 {
+        return;
+    }
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&text) {
+        app.cv_prefs = v;
+    }
+}
+
+fn save_cv_prefs(app: &UiApp) {
+    let Some(p) = cv_prefs_path() else { return };
+    if app.cv_prefs.is_null() {
+        return;
+    }
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, app.cv_prefs.to_string().as_bytes());
+}
+
 impl eframe::App for App {
     fn on_exit(&mut self) {
         // pending recovery copies are written and this window's lock goes: they are offered at the next start
         cc_ui_egui::recover::exit(&mut self.app);
         save_recent(&self.app);
         save_mc_prefs(&self.app);
+        save_cv_prefs(&self.app);
         save_cad_prefs(&self.app);
         save_input_prefs(&self.app);
     }
@@ -362,6 +392,7 @@ fn main() -> eframe::Result {
             let mut app = UiApp::new(services);
             load_recent(&mut app);
             load_mc_prefs(&mut app);
+            load_cv_prefs(&mut app);
             load_cad_prefs(&mut app);
             load_input_prefs(&mut app);
             if let Some(l) = control_line {

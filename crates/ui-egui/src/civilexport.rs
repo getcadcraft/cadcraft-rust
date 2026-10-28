@@ -353,7 +353,7 @@ fn shown_fg(p: &mut Project) -> bool {
 }
 
 /// civilcraft.js `buildScene(mm)`: the plan scene the DXF, DWG and PDF draw.
-pub fn build_scene(p: &mut Project, mm: f64) -> Vec<Value> {
+pub fn build_scene(p: &mut Project, mm: f64, labels: &str) -> Vec<Value> {
     let d = p.state.get("display").cloned().unwrap_or(Value::Null);
     let units = units_of(p);
     let fg = shown_fg(p);
@@ -452,7 +452,7 @@ pub fn build_scene(p: &mut Project, mm: f64) -> Vec<Value> {
         pads: b("pads"),
         pipes: b("pipes"),
         // Settings › CivilCraft › point labels (0.5's default: number, elevation, description)
-        point_label_text: Some("nzd".into()),
+        point_label_text: Some(labels.into()),
     };
     let mut items = scene::plan_scene(&st, mm, &show);
     drop(st);
@@ -524,11 +524,11 @@ fn layer_values() -> Vec<Value> {
 // ------------------------------------------------------------------------------------------------ DXF, DWG
 
 /// civilcraft.js `exportDxf`: the plan scene at the scale that fits A3 (metres) / tabloid (feet), as R12 DXF.
-pub fn dxf(p: &mut Project) -> Outcome {
+pub fn dxf(p: &mut Project, labels: &str) -> Outcome {
     let Some(ext) = extents_all(p) else { return Outcome::Nothing(t("cv.export.none", &[])) };
     let units = units_of(p);
     let scale = plot::fit_scale(&units, &ext, &plot::paper_by(sheet_paper(&units)), true);
-    let sc = build_scene(p, scale.mm_per_unit);
+    let sc = build_scene(p, scale.mm_per_unit, labels);
     let ents = scene::to_dxf_entities(&sc, scale.mm_per_unit);
     let (text, report) = cc_io_civil::dxf::write_dxf(&units, &cc_io_civil::dxf::scene_layers(), &ents);
     let n = sc.len();
@@ -543,14 +543,14 @@ pub fn dxf(p: &mut Project) -> Outcome {
 
 /// civilcraft.js `exportDwg(version)`: the DXF's drawing as a DWG of that year (`seq_guids`: the GUIDs a fixed
 /// sequence, for tests; else random as 0.5's).
-pub fn dwg(p: &mut Project, version: &str, now_ms: f64, seq_guids: bool) -> Result<Outcome, String> {
+pub fn dwg(p: &mut Project, version: &str, now_ms: f64, seq_guids: bool, labels: &str) -> Result<Outcome, String> {
     let Some(year) = DWG_YEAR.iter().find(|(v, _)| *v == version).map(|(_, y)| *y) else {
         return Err(format!("civil.export: DWG version {version} (AC1015, AC1018, AC1021, AC1024, AC1027 or AC1032)"));
     };
     let Some(ext) = extents_all(p) else { return Ok(Outcome::Nothing(t("cv.export.none", &[]))) };
     let units = units_of(p);
     let scale = plot::fit_scale(&units, &ext, &plot::paper_by(sheet_paper(&units)), true);
-    let sc = build_scene(p, scale.mm_per_unit);
+    let sc = build_scene(p, scale.mm_per_unit, labels);
     let ents = scene::to_dxf_entities(&sc, scale.mm_per_unit);
     drop(sc);
     let (bytes, report) = cc_io_civil::dwg_write::write_dwg(Some(&units), &layer_values(), &ents, now_ms, version, &[], seq_guids)?;
@@ -635,9 +635,9 @@ pub fn view_bounds(v: &cc_render::View2D) -> Ext {
 }
 
 /// civilcraft.js `plotDialog` "Download PDF": the plan scene on one sheet.
-pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64) -> Outcome {
+pub fn pdf(p: &mut Project, c: &PlotChoice, now_ms: f64, labels: &str) -> Outcome {
     let units = units_of(p);
-    let sc = build_scene(p, c.scale.mm_per_unit);
+    let sc = build_scene(p, c.scale.mm_per_unit, labels);
     let d = p.state.get("display").cloned().unwrap_or(Value::Null);
     let mut notes = Vec::new();
     let fg = shown_fg(p);
@@ -701,15 +701,15 @@ pub fn run(cv: &mut CivilView, name: &str, now_ms: f64, dark: bool, zone: cc_clo
             Outcome::File(n, b, msg)
         }
         "landxml" => landxml(&mut cv.project, now, zone),
-        "dxf" => dxf(&mut cv.project),
+        "dxf" => dxf(&mut cv.project, &cv.pt_settings.labels),
         "dwg" => {
             let v = if spec.opts.is_empty() { cv.export.dwg.clone() } else { spec.opts.clone() };
             // a year is fine too (2004 → AC1018)
             let v = DWG_YEAR.iter().find(|(_, y)| *y == v).map_or(v.to_ascii_uppercase(), |(k, _)| (*k).to_string());
-            dwg(&mut cv.project, &v, now, spec.at.is_some())?
+            dwg(&mut cv.project, &v, now, spec.at.is_some(), &cv.pt_settings.labels)?
         }
         "pdf" => match plot_choice(cv, &spec.opts)? {
-            Some(c) => pdf(&mut cv.project, &c, now),
+            Some(c) => pdf(&mut cv.project, &c, now, &cv.pt_settings.labels),
             None => Outcome::Nothing(t("cv.plot.none", &[])),
         },
         "glb" => glb(&mut cv.project, cv.exag, dark),

@@ -26,7 +26,7 @@ pub enum Act {
     Run(&'static str, String),
 }
 
-fn head(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
+pub(crate) fn head(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
     ui.add_space(6.0);
     ui.label(RichText::new(s).strong().color(tk.text_strong));
     ui.add_space(2.0);
@@ -42,8 +42,13 @@ fn rows(ui: &mut egui::Ui, tk: &Tokens, id: &str, list: &[(String, String)]) {
     });
 }
 
-fn note(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
+pub(crate) fn note(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
     ui.label(RichText::new(s).small().color(tk.text_dim));
+}
+
+/// The red / amber report box, for the other panel modules.
+pub(crate) fn report_pub(ui: &mut egui::Ui, tk: &Tokens, lines: &[String], error: bool) {
+    report(ui, tk, lines, error);
 }
 
 fn report(ui: &mut egui::Ui, tk: &Tokens, lines: &[String], error: bool) {
@@ -61,7 +66,7 @@ fn report(ui: &mut egui::Ui, tk: &Tokens, lines: &[String], error: bool) {
     });
 }
 
-fn link(ui: &mut egui::Ui, tk: &Tokens, s: &str, on: bool) -> bool {
+pub(crate) fn link(ui: &mut egui::Ui, tk: &Tokens, s: &str, on: bool) -> bool {
     ui.add(egui::Button::new(RichText::new(s).color(if on { tk.text_strong } else { tk.accent })).frame(false).selected(on)).clicked()
 }
 
@@ -432,6 +437,10 @@ pub fn right(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
         }
         Some(Sel::Feature(id)) => find(arr(st.get("features")), id).cloned().map(|f| feature(cv, ui, tk, &f, acts)).is_some(),
         Some(Sel::Parcel(id)) => find(arr(st.get("parcels")), id).cloned().map(|f| parcel(cv, ui, tk, &f, acts)).is_some(),
+        Some(Sel::Catchment(id)) => {
+            let cs = st.get("network").map(|n| arr(n.get("catchments")).to_vec()).unwrap_or_default();
+            find(&cs, id).cloned().map(|c| crate::civildrain::props(cv, ui, tk, &c, acts)).is_some()
+        }
         Some(Sel::Point(n)) => cv.project.points.iter().find(|p| p.n == *n).cloned().map(|p| point(cv, ui, tk, &p, acts)).is_some(),
         None => false,
     };
@@ -609,6 +618,7 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
             }
         }
     }
+    crate::civildrain::block(cv, ui, tk, acts);
 }
 
 fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts: &mut Vec<Act>) {
@@ -858,6 +868,8 @@ fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts:
         }
     });
     note(ui, tk, &t0("co.note"));
+    let facts = cv.corridor_facts(a);
+    crate::civilsuper::corridor_block(ui, tk, &facts);
     head(ui, tk, &t0("se.head"));
     let sp = co.get("super").cloned().unwrap_or(Value::Null);
     let se_on = sp.get("on") == Some(&Value::Bool(true));
@@ -904,6 +916,7 @@ fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts:
         acts.push(Act::Run("civil.prop", "se.add=".into()));
     }
     note(ui, tk, &t0("se.rate.note"));
+    crate::civilsuper::super_block(cv, ui, tk, a, &facts);
 }
 
 /// sections-ui.js `props(a)`: the alignment's sample lines — add, spacing and widths typed, extra stations, facts, the
@@ -982,7 +995,7 @@ fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, a
 }
 
 /// A table cell typed in: its text when Enter is pressed or it loses focus with a change (Esc keeps the old one).
-fn cell(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32) -> Option<String> {
+pub(crate) fn cell(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32) -> Option<String> {
     cell_x(cv, ui, key, current, width, None, None)
 }
 
@@ -992,7 +1005,7 @@ fn cell_l(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width
 }
 
 /// `cell` with 0.5's aria-label as its accessible name (shown on hover).
-fn cell_a(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32, aria: &str) -> Option<String> {
+pub(crate) fn cell_a(cv: &mut CivilView, ui: &mut egui::Ui, key: &str, current: &str, width: f32, aria: &str) -> Option<String> {
     cell_x(cv, ui, key, current, width, None, Some(aria))
 }
 
@@ -1030,7 +1043,7 @@ fn cell_x(
 
 /// One typed Properties field in a 3-column grid: label, the text field, the unit; a commit → `civil.prop=<field>=<text>`.
 #[allow(clippy::too_many_arguments)]
-fn prop_row(
+pub(crate) fn prop_row(
     cv: &mut CivilView,
     ui: &mut egui::Ui,
     tk: &Tokens,
@@ -1050,7 +1063,7 @@ fn prop_row(
 }
 
 /// A read-only line in the same grid.
-fn prop_fact(ui: &mut egui::Ui, tk: &Tokens, label: &str, value: &str) {
+pub(crate) fn prop_fact(ui: &mut egui::Ui, tk: &Tokens, label: &str, value: &str) {
     ui.label(RichText::new(label).color(tk.text_dim));
     ui.label(RichText::new(value).color(tk.text));
     ui.label("");
@@ -1137,6 +1150,8 @@ fn structure(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, x: &Value, acts
         }
     }
     problems_of(cv, ui, tk, &id);
+    let rows = cv.dr_structure_rows(&id);
+    crate::civildrain::rows_block(ui, tk, &rows, &[], &id);
 }
 
 fn problems_of(cv: &CivilView, ui: &mut egui::Ui, tk: &Tokens, id: &str) -> bool {
@@ -1187,6 +1202,8 @@ fn pipe(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &Value, acts: &mu
     if !problems_of(cv, ui, tk, &id) {
         note(ui, tk, &t0("cv.pp.ok"));
     }
+    let (rows, probs) = cv.dr_pipe_rows(&id);
+    crate::civildrain::rows_block(ui, tk, &rows, &probs, &id);
     if ui.button(t0("cv.pp.auto")).clicked() {
         acts.push(Act::Run("civil.prop", "auto=".into()));
     }
@@ -1383,5 +1400,17 @@ fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &
     });
     note(ui, tk, &t0("pc.c.note"));
     head(ui, tk, &t0("pc.legal"));
-    note(ui, tk, &cc_civil::parcels::legal_description(&pc, &units, pc.pob.as_deref()));
+    let mut legal = cc_civil::parcels::legal_description(&pc, &units, pc.pob.as_deref());
+    ui.add(
+        egui::TextEdit::multiline(&mut legal).desired_rows(10).desired_width(f32::INFINITY).font(egui::TextStyle::Small).interactive(true),
+    );
+    ui.horizontal(|ui| {
+        if ui.button(format!("⎘ {}", t0("pc.copy"))).clicked() {
+            acts.push(Act::Run("civil.pc.copy", String::new()));
+        }
+        if ui.button(format!("⬇ {}", t0("pc.download"))).clicked() {
+            acts.push(Act::Run("civil.pc.download", String::new()));
+        }
+    });
+    note(ui, tk, &t0("pc.legal.note"));
 }

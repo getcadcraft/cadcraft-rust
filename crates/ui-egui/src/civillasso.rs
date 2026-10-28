@@ -12,16 +12,40 @@ use cc_detail::lasso_core::{Pt as SPt, lasso_mode, next_mode, thin};
 use crate::civilview::CivilView;
 
 /// Settings › CivilCraft's point fields (civilcraft.js `settings.order / renumber / start`).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PtSettings {
     pub order: String,
     pub renumber: String,
     pub start: Option<f64>,
+    /// point labels: n | nz | nzd (plan, DXF, DWG, PDF)
+    pub labels: String,
+    /// the corner indicator of the plan and the 3D view: cube | axes | none
+    pub corner: String,
+    /// the 3D view's vertical exaggeration: 1 | 2 | 3 | 5 | 10
+    pub exag: f64,
+    /// latitude / longitude in the status bar: dms | dd
+    pub latlon: String,
+    /// map layers from the internet (off: no map server is ever asked)
+    pub internet: bool,
+    /// AI assistants and scripts: on / off, and the groups allowed (read, edit)
+    pub assist: bool,
+    pub assist_groups: Vec<String>,
 }
 
 impl Default for PtSettings {
     fn default() -> Self {
-        PtSettings { order: "PNEZD".into(), renumber: "clash".into(), start: None }
+        PtSettings {
+            order: "PNEZD".into(),
+            renumber: "clash".into(),
+            start: None,
+            labels: "nzd".into(),
+            corner: "cube".into(),
+            exag: 2.0,
+            latlon: "dms".into(),
+            internet: false,
+            assist: false,
+            assist_groups: vec!["read".into()],
+        }
     }
 }
 
@@ -171,8 +195,15 @@ impl CivilView {
                         return Err(format!("civil.settings: start = a whole number from 1 (not {v})"));
                     }
                 }
-                o => return Err(format!("civil.settings: unknown setting {o} (order, renumber, start)")),
+                o => {
+                    if !self.settings_more(o, v)? {
+                        return Err(format!(
+                            "civil.settings: unknown setting {o} (order, renumber, start, labels, corner, exag, latlon, internet, assist, assist.read, assist.edit, reset)"
+                        ));
+                    }
+                }
             }
+            self.prefs_dirty = true;
         }
         Ok(())
     }

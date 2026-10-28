@@ -33,6 +33,8 @@ pub enum Tool {
     Pipe,
     Feature,
     Parcel,
+    /// drainage-ui.js: started from the Drainage block (no toolbar button, no key)
+    Catchment,
 }
 
 /// The tools in toolbar order.
@@ -50,6 +52,7 @@ impl Tool {
             "pipe" => Tool::Pipe,
             "feature" => Tool::Feature,
             "parcel" => Tool::Parcel,
+            "catchment" => Tool::Catchment,
             _ => return None,
         })
     }
@@ -63,6 +66,7 @@ impl Tool {
             Tool::Pipe => "pipe",
             Tool::Feature => "feature",
             Tool::Parcel => "parcel",
+            Tool::Catchment => "catchment",
         }
     }
     /// civilcraft.js `TOOL_HINT` (language keys).
@@ -76,6 +80,7 @@ impl Tool {
             Tool::Pipe => "cv.hint.pipe",
             Tool::Feature => "fl.tool.hint",
             Tool::Parcel => "pc.hint",
+            Tool::Catchment => "dr.hint",
         })
     }
     /// The toolbar label and tooltip keys (ui.inc).
@@ -89,6 +94,7 @@ impl Tool {
             Tool::Pipe => ("ui.tb.pipe", "ui.tb.pipe.title"),
             Tool::Feature => ("toolbar.feature", "toolbar.feature.title"),
             Tool::Parcel => ("pc.draw", "pc.hint"),
+            Tool::Catchment => ("dr.draw", "dr.hint"),
         }
     }
     /// The single-key shortcut (civilcraft.js keydown `keyCmd`; the Parcel tool has none).
@@ -101,7 +107,7 @@ impl Tool {
             Tool::Boundary => egui::Key::O,
             Tool::Pipe => egui::Key::P,
             Tool::Feature => egui::Key::L,
-            Tool::Parcel => return None,
+            Tool::Parcel | Tool::Catchment => return None,
         })
     }
 }
@@ -374,7 +380,7 @@ impl CivilView {
                     }
                 }
             }
-            Tool::Alignment | Tool::Pad | Tool::Boundary => {
+            Tool::Alignment | Tool::Pad | Tool::Boundary | Tool::Catchment => {
                 if let Some(l) = self.tools.draft.last() {
                     let q = self.css(l.x, l.y);
                     if hypot(q.0 - s.0, q.1 - s.1) < 3.0 {
@@ -456,6 +462,13 @@ impl CivilView {
                     self.tools.draft = pts;
                 } else {
                     self.set_tool(Tool::Select);
+                }
+            }
+            Tool::Catchment => {
+                if self.dr_finish(&pts) {
+                    self.set_tool(Tool::Select);
+                } else {
+                    self.tools.draft = pts;
                 }
             }
             Tool::Feature => {
@@ -746,6 +759,11 @@ impl CivilView {
                 let Some(name) = name_of(arr(st.get("features")), &id) else { return self.nothing() };
                 self.remove_from("features", &id, "fl.undo.delete");
                 self.message = tr!("fl.deleted", name = name);
+            }
+            Sel::Catchment(id) => {
+                if !self.dr_remove(&id) {
+                    return self.nothing();
+                }
             }
             Sel::Parcel(id) => {
                 let Some(name) = name_of(arr(st.get("parcels")), &id) else { return self.nothing() };

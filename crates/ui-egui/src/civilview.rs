@@ -211,8 +211,10 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "civil.settings",
         "Point settings",
         "",
-        "{name: \"order=PNEZD|PENZD,renumber=clash|always,start=<n>|\"\"\"} → Settings › CivilCraft: point row order, how pasted points are numbered, where new numbers start",
+        "{name: \"order=PNEZD|PENZD,renumber=clash|always,start=<n>|\"\",labels=n|nz|nzd,corner=cube|axes|none,exag=1|2|3|5|10,latlon=dms|dd,internet=on|off,assist=on|off,assist.read=on|off,assist.edit=on|off,reset\"} → Settings › CivilCraft (kept between runs)",
     ),
+    ("civil.settings.open", "Settings", "", "{name?: \"off\"} → opens (or closes) the Settings window"),
+    ("civil.settings.info", "Settings facts", "", "{} → every setting as key=value, on the status line"),
     (
         "civil.xs",
         "Section sheets (PDF)",
@@ -236,6 +238,31 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("civil.mh.info", "Mass haul facts", "", "{} → the dialog's totals, what is left over and the balance points, on the status line"),
     ("civil.mh.csv", "Mass haul CSV", "", "{} → the mass ordinates and balanced stretches, through the save service"),
     ("civil.mh.close", "Close the mass haul dialog", "Esc", "{}"),
+    (
+        "civil.dr.info",
+        "Drainage facts",
+        "",
+        "{} → what the Properties panel shows for drainage: the selected structure's or pipe's rows, the selected catchment's fields, else the IDF settings, catchments, results and problems (\" | \" between lines)",
+    ),
+    ("civil.pc.copy", "Copy the legal description", "", "{} → the selected parcel's legal description on the clipboard"),
+    (
+        "civil.pc.download",
+        "Download the legal description",
+        "",
+        "{} → the selected parcel's legal description as <site> - <parcel>.txt, through the save service",
+    ),
+    (
+        "civil.dr.size",
+        "Size pipes",
+        "",
+        "{} → every pipe the smallest standard size that carries its flow at its own slope (one undo step)",
+    ),
+    (
+        "civil.se.info",
+        "Superelevation facts",
+        "",
+        "{} → the selected alignment's corridor facts or problems, superelevation's problems and each curve's row (#, radius, e, runoff, runout, full superelevation), on the status line",
+    ),
     (
         "civil.pts",
         "Select survey points",
@@ -281,6 +308,8 @@ pub enum Sel {
     Feature(String),
     Parcel(String),
     Point(String),
+    /// drainage-ui.js `{ kind: 'catchment', id }`
+    Catchment(String),
 }
 
 impl Sel {
@@ -298,6 +327,7 @@ impl Sel {
             "feature" => Sel::Feature(id),
             "parcel" => Sel::Parcel(id),
             "point" => Sel::Point(id),
+            "catchment" => Sel::Catchment(id),
             _ => return None,
         })
     }
@@ -310,6 +340,7 @@ impl Sel {
             Sel::Feature(i) => format!("feature:{i}"),
             Sel::Parcel(i) => format!("parcel:{i}"),
             Sel::Point(i) => format!("point:{i}"),
+            Sel::Catchment(i) => format!("catchment:{i}"),
         }
     }
 }
@@ -374,7 +405,15 @@ pub struct CivilView {
     pub points: crate::civilpoints::PointsState,
     /// physical pixels per CSS pixel of the last frame (tool tolerances are CSS pixels, as in 0.5)
     pub ppp: f64,
-    dark: bool,
+    pub(crate) dark: bool,
+    /// drainage results memo (civildrain.rs)
+    pub drain: crate::civildrain::DrainState,
+    /// Settings › CivilCraft or the mass haul factor changed: the app's prefs take them on the next frame
+    pub prefs_dirty: bool,
+    /// the Settings window is open
+    pub settings_open: bool,
+    /// the corner cube asked for a view (civil.camera)
+    pub corner_cmd: Option<String>,
 }
 
 /// Is this a file CivilCraft opens? (civilcraft.js `openText`: JSON = project, XML = LandXML, else points.)
@@ -415,7 +454,7 @@ impl CivilView {
             hover_pt: None,
             show3d: false,
             site3: None,
-            exag: 1.0,
+            exag: 2.0,
             s3_seq: 0,
             cursor: None,
             message: String::new(),
@@ -434,6 +473,10 @@ impl CivilView {
             points: crate::civilpoints::PointsState::default(),
             ppp: 1.0,
             dark: true,
+            drain: crate::civildrain::DrainState::default(),
+            prefs_dirty: false,
+            settings_open: false,
+            corner_cmd: None,
         }
     }
 
@@ -767,6 +810,11 @@ impl CivilView {
             mm_bits: mm.to_bits(),
             dark: pal.dark,
             palette_ink: pal.ink.to_array(),
+            labels: match self.pt_settings.labels.as_str() {
+                "n" => 0,
+                "nz" => 1,
+                _ => 2,
+            },
         };
         if self.plan.as_ref().is_none_or(|p| p.key != key) {
             let plan = civilplan::build(&mut self.project, mm, pal, key, &mut self.fixed);
@@ -788,7 +836,7 @@ impl CivilView {
                 &mut p,
                 1.0,
                 &pal,
-                PlanKey { version: 0, points_version: 0, mm_bits: 0, dark: true, palette_ink: [0; 4] },
+                PlanKey { version: 0, points_version: 0, mm_bits: 0, dark: true, palette_ink: [0; 4], labels: 2 },
                 &mut None,
             )
         })
@@ -929,6 +977,9 @@ impl CivilView {
         if let Some(i) = self.nearest_point(x, y, 6.0 / zoom) {
             return self.project.points.get(i).map(|p| Sel::Point(p.n.clone()));
         }
+        if let Some(c) = self.dr_pick(x, y) {
+            return Some(c);
+        }
         for pc in arr(self.project.state.get("parcels")) {
             let pts: Vec<(f64, f64)> = arr(pc.get("pts")).iter().map(|p| (numf(p.get("x")), numf(p.get("y")))).collect();
             if point_in(&pts, x, y) {
@@ -1016,6 +1067,7 @@ impl CivilView {
         } else {
             self.show_plan(ui, rect, t, dark);
         }
+        crate::civilmore::corner(self, ui, rect, t);
     }
 
     fn show_plan(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens, dark: bool) {
@@ -1261,6 +1313,7 @@ impl CivilView {
             let (sx, sy) = view.to_screen(x, y);
             Pos2::new(rect.min.x + (sx / ppp) as f32, rect.min.y + (sy / ppp) as f32)
         };
+        crate::civildrain::overlay(self, &painter, &s, pal);
         let act = pal.action;
         let halo = act.gamma_multiply(0.45);
         let grip = |p: Pos2| {
@@ -1351,7 +1404,7 @@ impl CivilView {
                     painter.circle_stroke(s(p.x, p.y), 5.0, egui::Stroke::new(2.0, act));
                 }
             }
-            None => {}
+            Some(Sel::Catchment(_)) | None => {}
         }
         if let Some(p) = self.hover_pt.and_then(|i| self.project.points.get(i)) {
             painter.circle_stroke(s(p.x, p.y), 7.0, egui::Stroke::new(1.5, act));
@@ -1524,11 +1577,12 @@ impl CivilView {
             Tool::Pad | Tool::Pipe => pal.blue,
             Tool::Alignment => pal.red,
             Tool::Feature => pal.green,
+            Tool::Catchment => pal.cyan,
             _ => pal.orange,
         };
         let stroke = egui::Stroke::new(2.0, col);
         if pts.len() >= 2 {
-            let closed = matches!(tool, Tool::Pad | Tool::Boundary | Tool::Parcel) && pts.len() >= 3;
+            let closed = matches!(tool, Tool::Pad | Tool::Boundary | Tool::Parcel | Tool::Catchment) && pts.len() >= 3;
             let mut ring = pts.clone();
             if closed && let Some(p0) = pts.first().copied() {
                 ring.push(p0);
@@ -1757,6 +1811,9 @@ pub fn install(app: &mut UiApp, cv: CivilView) {
     app.detail = None;
     app.error = None;
     app.message = cv.message.clone();
+    let mut cv = cv;
+    // Settings › CivilCraft and the mass haul factor kept between runs (0.5: localStorage)
+    cv.load_prefs(&app.cv_prefs);
     app.civil = Some(cv);
 }
 
@@ -1827,6 +1884,12 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         // the last edit's time (the command itself; the plan rebuilds on the next frame: "plan")
         cv.timings.insert("tool", ms(started));
     }
+    if let Some(cv) = app.civil.as_mut()
+        && cv.prefs_dirty
+    {
+        cv.prefs_dirty = false;
+        app.cv_prefs = cv.prefs_json();
+    }
     r
 }
 
@@ -1876,8 +1939,17 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             cv.group_use(g.trim(), u.trim())?;
         }
         "civil.tool" => {
-            let tl = crate::civiltools::Tool::parse(&name).ok_or_else(|| format!("civil.tool: unknown tool {name}"))?;
-            cv.tool_command(tl);
+            // "name!": a block's Draw button (drainage-ui.js / parcels-ui.js ctx.tool: on, never toggled off)
+            let (n, keep) = name.strip_suffix('!').map_or((name.as_str(), false), |n| (n, true));
+            let tl = crate::civiltools::Tool::parse(n).ok_or_else(|| format!("civil.tool: unknown tool {name}"))?;
+            if keep {
+                if cv.tools.tool != tl {
+                    cv.show3d = false;
+                    cv.set_tool(tl);
+                }
+            } else {
+                cv.tool_command(tl);
+            }
         }
         "civil.click" | "civil.dblclick" => {
             let v = xy_param(&name).ok_or_else(|| format!("{id}: name = \"x,y\" (world)"))?;
@@ -2047,6 +2119,8 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         }
         "civil.lasso" => cv.lasso_command(&name)?,
         "civil.settings" => cv.settings_command(&name)?,
+        "civil.settings.open" => cv.settings_open = name != "off",
+        "civil.settings.info" => cv.message = cv.settings_info(),
         "civil.xs" => cv.xs_open(&name)?,
         "civil.xs.info" => cv.message = cv.xs_info().ok_or("civil.xs.info: the section sheets dialog is not open")?,
         "civil.xs.go" => {
@@ -2072,6 +2146,15 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             }
         }
         "civil.mh.close" => cv.sheets.mh = None,
+        "civil.se.info" => cv.message = cv.se_info()?,
+        "civil.dr.info" => cv.message = cv.dr_info()?,
+        "civil.dr.size" => cv.dr_size(),
+        "civil.pc.copy" => cv.pc_copy()?,
+        "civil.pc.download" => {
+            let (fname, bytes) = cv.pc_download()?;
+            let save = app.services.save.as_mut().ok_or("civil.pc.download: saving is not available here")?;
+            save(&fname, bytes)?;
+        }
         "civil.pts" => {
             let (k, rest) = name.split_once(':').unwrap_or((name.as_str(), ""));
             match k {
@@ -2128,6 +2211,9 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         "civil.exag" => {
             let f = params.factor.filter(|f| site_exag_ok(*f)).ok_or("civil.exag: factor = 1, 2, 3, 5 or 10")?;
             cv.exag = f;
+            // site-view3d.js onExag: the bar's list is Settings' exaggeration
+            cv.pt_settings.exag = f;
+            cv.prefs_dirty = true;
         }
         "civil.save" => {
             let (fname, bytes) = cv.file_bytes(now_ms());
@@ -2222,6 +2308,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     if ui.button(t0("ui.tb.paste")).on_hover_text(t0("ui.tb.paste.title")).clicked() {
                         cmd.push(("civil.paste", Params::default()));
                     }
+                    if ui.button(t0("input.cmd.app.settings")).clicked() {
+                        cmd.push(("civil.settings.open", Params::default()));
+                    }
                     if !cv.show3d {
                         ui.separator();
                         for tl in crate::civiltools::TOOLS {
@@ -2310,9 +2399,17 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             let rect = ui.max_rect();
             cv.show(ui, rect, &t, dark);
         });
+        if let Some(n) = cv.corner_cmd.take() {
+            cmd.push(("civil.camera", Params { name: Some(n), ..Default::default() }));
+        }
         let mut shacts = Vec::new();
         crate::civilsheets::show(cv, ui.ctx(), &t, dark, &mut shacts);
         for (id, k) in shacts {
+            cmd.push((id, Params { name: Some(k), ..Default::default() }));
+        }
+        let mut setacts = Vec::new();
+        crate::civilmore::settings_window(cv, ui.ctx(), &t, &mut setacts);
+        for (id, k) in setacts {
             cmd.push((id, Params { name: Some(k), ..Default::default() }));
         }
         let mut dacts = Vec::new();
@@ -2324,6 +2421,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         if let Some(text) = cv.points.copy_out.take() {
             ui.ctx().copy_text(text);
+        }
+        if cv.prefs_dirty {
+            cv.prefs_dirty = false;
+            app.cv_prefs = cv.prefs_json();
         }
         app.cursor = if cv.show3d { None } else { cv.cursor };
         app.message = cv.status();

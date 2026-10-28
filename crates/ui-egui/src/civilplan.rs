@@ -193,6 +193,8 @@ pub struct PlanKey {
     pub mm_bits: u64,
     pub dark: bool,
     pub palette_ink: [u8; 4],
+    /// Settings › CivilCraft › point labels: 0 = n, 1 = nz, 2 = nzd
+    pub labels: u8,
 }
 
 fn next_id() -> u64 {
@@ -641,11 +643,13 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey, fixed: &mut 
             let upm = 1.0 / mm;
             for q in &p.points {
                 let mut s = q.n.clone();
-                if let Some(z) = q.z {
+                if key.labels >= 1
+                    && let Some(z) = q.z
+                {
                     s.push_str("  ");
                     s.push_str(&cc_civil::units::fixed(z, 2));
                 }
-                if !q.d.is_empty() {
+                if key.labels >= 2 && !q.d.is_empty() {
                     s.push_str("  ");
                     s.push_str(&q.d);
                 }

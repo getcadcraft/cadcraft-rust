@@ -213,6 +213,9 @@ impl CivilView {
         if m.res.is_some() && !m.invalid && m.version == v && self.sheets.mh_pct == p {
             return;
         }
+        if self.sheets.mh_pct != p {
+            self.prefs_dirty = true;
+        }
         self.sheets.mh_pct = p;
         let t0 = web_time::Instant::now();
         let res =

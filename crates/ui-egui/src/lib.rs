@@ -26,8 +26,10 @@ pub mod cadprops;
 pub mod canvas;
 pub mod civil3d;
 pub mod civildialogs;
+pub mod civildrain;
 pub mod civilexport;
 pub mod civillasso;
+pub mod civilmore;
 pub mod civilpanel;
 pub mod civilplan;
 pub mod civilpoints;
@@ -36,6 +38,7 @@ pub mod civilpropedit;
 pub mod civilprops;
 pub mod civilsections;
 pub mod civilsheets;
+pub mod civilsuper;
 pub mod civiltools;
 pub mod civilview;
 pub mod cloudview;
@@ -269,6 +272,8 @@ pub struct UiApp {
     /// what MarkupCraft keeps between runs (the tool chest, the picture and signature, tool settings): the desktop
     /// app reads and writes it as `markupcraft.json`
     pub mc_prefs: serde_json::Value,
+    /// what CivilCraft keeps between runs (Settings › CivilCraft, the mass haul factor; 0.5: localStorage)
+    pub cv_prefs: serde_json::Value,
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -376,6 +381,7 @@ impl Default for UiApp {
             pdf: None,
             zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
+            cv_prefs: serde_json::Value::Null,
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),

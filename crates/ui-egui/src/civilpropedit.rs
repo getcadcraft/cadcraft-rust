@@ -65,7 +65,11 @@ impl CivilView {
     pub fn prop_set_more(&mut self, field: &str, v: &str) -> Result<(), String> {
         let bad = || format!("civil.prop: {field} = {v} is refused");
         let units = self.project.units().to_string();
+        if field.starts_with("dr.") {
+            return self.dr_hydro_prop(field, v);
+        }
         match self.sel.clone() {
+            Some(Sel::Catchment(id)) => self.dr_catchment_prop(&id, field, v),
             Some(Sel::Alignment(id)) => self.alignment_prop(&id, field, v, &units),
             Some(Sel::Pad(id)) => {
                 let label;
