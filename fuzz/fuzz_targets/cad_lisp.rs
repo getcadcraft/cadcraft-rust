@@ -50,7 +50,10 @@ fuzz_target!(|data: &[u8]| {
         ]
     }));
     let mut eng = Engine::new(doc, Box::new(Stub::default()), Lang::default());
-    eng.set_lisp_limits(cc_lisp::Limits { steps: Some(200_000), frames: 100_000, string: 1 << 20, array: 1 << 16 });
+    // 20 000 steps: a loop that adds to the drawing and walks it (ssget "X", (command …) with its undo step) costs
+    // O(n) a step, so 200 000 ran ~20 min under the fuzzer (seed while-that-grows-the-drawing.lsp); the window's
+    // budget is 0.5's, and Esc stops a long routine there
+    eng.set_lisp_limits(cc_lisp::Limits { steps: Some(20_000), frames: 100_000, string: 1 << 20, array: 1 << 16 });
     eng.lisp_load(vec![cc_engine::lisp::AppFile { name: "f.lsp".into(), text, kind: "lsp".into() }], "SCRIPT");
     // a routine waiting for the person: answer a few prompts, then Esc
     for answer in ["1,1", "", "2", "Y"] {

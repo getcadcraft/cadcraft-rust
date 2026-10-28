@@ -16,6 +16,11 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   sheetsetdiff 317/317, lispdiff seeds 1–4 4 × 2366/2366, mcpdiff-cadlisp 304/304, ribbondiff 3420/3420,
   recoverdiff 552/552 + 156/156 files (4 zones), idiff --save --solids --constraints 4 × 78/78, plotdiff 1128/1128,
   mdiff 640/640 + 1247/1247, mcuidiff --edit --lights --play 1250/1250 files, mkuidiff (Denver) 17/17.
+- M4.40 fix: fuzz `cad_lisp` timed out (1328 s) on a `while` whose body grows the drawing and walks it each turn
+  (entmake, ssget "X", (command "LINE" …)): O(n) a step, so the target's 200 000-step budget meant minutes in
+  release and over 20 min under the fuzzer. The target now runs 20 000 steps; the input is seed
+  `while-that-grows-the-drawing.lsp`; test lisp.rs `a_loop_that_grows_the_drawing_ends_at_the_step_budget`. The window
+  keeps 0.5's budget (Esc stops a long routine).
 
 ## 2026-10-21 — M4.46 Recovery copies and "Recover your work?" (agent, work/cadlisp-recover)
 

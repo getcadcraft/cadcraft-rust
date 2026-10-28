@@ -124,3 +124,18 @@ fn compiled_or_broken_files_never_crash() {
     assert!(!eng.busy());
     assert!(!log.borrow().printed.is_empty());
 }
+
+/// A loop that grows the drawing and walks it each time (fuzz cad_lisp timeout): the step budget ends it, the run is
+/// cancelled and nothing waits.
+#[test]
+fn a_loop_that_grows_the_drawing_ends_at_the_step_budget() {
+    let (mut eng, _) = engine();
+    eng.set_lisp_limits(cc_lisp::Limits { steps: Some(2_000), frames: 100_000, string: 1 << 20, array: 1 << 16 });
+    load(
+        &mut eng,
+        "(setq e (entnext)) (while T (entmake '((0 . \"LINE\") (10 0 0) (11 1 1))) (setq s (ssget \"X\" '((0 . \"LINE\")))) (command \"LINE\" '(0 0) '(5 5) \"\"))",
+    );
+    assert!(!eng.busy());
+    let n = count(&eng);
+    assert!(n > 0 && n < 2_000, "{n}");
+}
