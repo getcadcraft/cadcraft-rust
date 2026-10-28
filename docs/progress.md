@@ -2,6 +2,27 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-21 — M4.45 CadCraft's ribbon, toolbar and menus (cadlisp ribbon fork, workstation11a)
+
+- `crates/ui-egui/src/ribbon.rs`: 0.5's input styles as data — the registry of `input-cadcraft.js` (174 commands, 14
+  groups, ids unchanged), `ui.inc`'s toolbar (9 groups, their More menus, the Edit and Parametric menus) and the three
+  styles (CadCraft = the toolbar; Drafting classic = File menu, 7 quick buttons, 8 tabs; Ribbon = File menu, 4 quick
+  buttons, 9 tabs; the per-style label overrides). Labels are the 0.5 catalog's keys (`input.cmd.*`, `input.m.*`,
+  `input.style.*`, `input.lbl.*`, `toolbar.*`, `ui.*`), already in `assets/lang/cadcraft`.
+- The bar sits over the drafting editor: the toolbar is one row of groups that scrolls sideways (0.5 wraps to two
+  rows), the ribbons a File menu, tab strip, quick buttons and panels of big buttons; icons are drawn in code on the
+  20 px grid. A button runs what 0.5's runs: its command's first word, the rest fed to its prompts ("ZOOM E",
+  "CIRCLE T"); NEW / OPEN / SAVE / SAVEAS are the window's own (Save as offers the formats), F3 / F8 / F10 toggles
+  are the window's; buttons the build lacks (grid, tracking, dynamic input, lineweights, the 3D tab, settings, the
+  palette, help) say "<label>: it is not in this version." as the shell does. UI commands `input.style`, `input.tab`,
+  `input.run`, `input.menu`, `input.saveas`; the desktop keeps `{style, tab}` in `cadcraft-input.json`.
+- Parity: `forks/tools/ribbondiff.mjs` (new) compares `cadcraft-shot ribbon` with the frozen `input-cadcraft.js` +
+  `ui.inc` + en.json: 3420 values equal, 0 differences (every command, toolbar button / menu item with its label,
+  tooltip and key, every ribbon tab / panel / item with label and command text).
+- Spec gaps: the shell's own words (`shell.input.*`) are not in the app catalog: "it is not in this version" and the
+  picker's hover "Menus, keys and mouse" are plain English; labels are English only (the editor's catalog); the
+  style picker sits at the end of the bar (0.5 has it in Settings); customizing styles (keys, own copies,
+  .ccinput.json) and the mouse settings per style are not built.
 ## 2026-10-21 — M4.40 CadCraft's LISP (agent, work/cadlisp)
 
 - New crate cc-lisp (L3; lisp/*.js of the 0.5 app: reader, interp, builtins, vl, vla, dcl, cadfns, missing, wild):

@@ -89,6 +89,11 @@ fn main() -> ExitCode {
         Some("tkactbench") => tkactbench(&args),
         Some("mcbench") => mcbench(&args),
         Some("mcacts") => mcacts(&args),
+        Some("ribbon") => {
+            // the ribbon / toolbar registry and styles as JSON (forks/tools/ribbondiff.mjs)
+            println!("{}", cc_ui_egui::ribbon::dump());
+            Ok(())
+        }
         _ => shot(&args),
     };
     match r {

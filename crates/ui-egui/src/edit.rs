@@ -823,6 +823,22 @@ impl Editor {
         self.submit();
     }
 
+    /// A toolbar / ribbon button (cadcraft.js's toolbar): its command's first word runs (a running command is
+    /// cancelled first), the rest answer its prompts one by one while it waits ("ZOOM E", "CIRCLE T").
+    pub fn run_button(&mut self, text: &str) {
+        let mut words = text.split(' ').filter(|w| !w.is_empty());
+        if let Some(first) = words.next() {
+            self.eng.run(first);
+            for w in words {
+                if self.eng.expects().is_none() {
+                    break;
+                }
+                self.eng.text(w);
+            }
+        }
+        self.refresh_prompt();
+    }
+
     /// Esc: cancel the command, else drop the selection.
     pub fn escape(&mut self) {
         self.pending_box = None;

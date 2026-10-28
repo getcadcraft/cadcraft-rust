@@ -108,11 +108,40 @@ fn save_mc_prefs(app: &UiApp) {
     let _ = cc_mcp::confine::write_file_atomic(&p, app.mc_prefs.to_string().as_bytes());
 }
 
+/// The drafting editor's input style and ribbon tab: `cadcraft-input.json` in the config folder (0.5 keeps
+/// `{style, tab}` in the browser's localStorage `cadcraft.input`).
+fn input_prefs_path() -> Option<std::path::PathBuf> {
+    cc_mcp::token::config_dir().map(|d| d.join("cadcraft-input.json"))
+}
+
+fn load_input_prefs(app: &mut UiApp) {
+    let Some(p) = input_prefs_path() else { return };
+    let Ok(text) = std::fs::read(&p) else { return };
+    if text.len() > 64 << 10 {
+        return;
+    }
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&text) {
+        app.ribbon.load_prefs(&v);
+    }
+}
+
+fn save_input_prefs(app: &UiApp) {
+    let Some(p) = input_prefs_path() else { return };
+    if !app.ribbon.dirty {
+        return;
+    }
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = cc_mcp::confine::write_file_atomic(&p, app.ribbon.prefs().to_string().as_bytes());
+}
+
 impl eframe::App for App {
     fn on_exit(&mut self) {
         save_recent(&self.app);
         save_mc_prefs(&self.app);
         save_cad_prefs(&self.app);
+        save_input_prefs(&self.app);
     }
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.app.raw_input_hook(raw);
@@ -312,6 +341,7 @@ fn main() -> eframe::Result {
             load_recent(&mut app);
             load_mc_prefs(&mut app);
             load_cad_prefs(&mut app);
+            load_input_prefs(&mut app);
             if let Some(l) = control_line {
                 app.message = l;
             }

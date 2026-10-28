@@ -79,6 +79,7 @@ pub mod pdfview;
 pub mod picmesh;
 pub mod plotdlg;
 pub mod qsdlg;
+pub mod ribbon;
 pub mod sheetsetdlg;
 pub mod takeoff3d;
 pub mod takeoffedit;
@@ -194,6 +195,26 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "Ctrl+S",
         "{name?: \"2018\"|\"2013\"|\"2010\"|\"2007\"|\"2004\"|\"2000\"|\"dxf2000\"|\"dxf12\"} → saves the drawing open for editing (default: the last format, else 2018)",
     ),
+    (
+        "input.style",
+        "Menus, keys and mouse",
+        "",
+        "{name: \"cadcraft\"|\"drafting\"|\"ribbon\"} → the drafting editor's toolbar or ribbon (CadCraft, Drafting classic, Ribbon)",
+    ),
+    ("input.tab", "Ribbon tab", "", "{index: integer} → the ribbon's open tab"),
+    (
+        "input.run",
+        "Click a toolbar or ribbon button",
+        "",
+        "{name: command id (\"draw.line\", \"view.extents\" …) or a toolbar button's command (\"ZOOM E\")} → runs what the button runs",
+    ),
+    (
+        "input.menu",
+        "Open a toolbar or ribbon menu",
+        "",
+        "{name?: \"file\"|\"saveas\"|\"more:<Group>\"|\"menu:Edit\"|\"menu:Parametric\"} → no name closes it",
+    ),
+    ("input.saveas", "Save as (format)", "", "{name: a save format, as file.save} → the ribbon's Save as choice"),
     (
         "app.tz",
         "Time zone of exports",
@@ -321,6 +342,8 @@ pub struct UiApp {
     pub hub: hub::Hub,
     /// BimCraft's editing and Draw on the IFC view (bimedit.rs, bimplan.rs)
     pub bimh: bimedit::Host,
+    /// the drafting editor's ribbon / toolbar and its style (ribbon.rs)
+    pub ribbon: ribbon::Bar,
 }
 
 impl Default for UiApp {
@@ -392,6 +415,7 @@ impl Default for UiApp {
             part: None,
             hub: hub::Hub::default(),
             bimh: bimedit::Host::default(),
+            ribbon: ribbon::Bar::default(),
         }
     }
 }
@@ -1530,6 +1554,7 @@ impl UiApp {
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
+            id if id.starts_with("input.") => return ribbon::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
@@ -1837,6 +1862,9 @@ impl UiApp {
             self.cadprops.open = !self.cadprops.open;
         }
         self.app_bar(ui);
+        if self.editor.is_some() {
+            ribbon::bar(self, ui);
+        }
         self.status_bar(ui);
         bimedit::new_dialog(self, &ctx);
         bimplace::dialog(self, &ctx);
