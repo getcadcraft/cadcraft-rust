@@ -37,6 +37,7 @@ pub mod gis_geom;
 pub mod gis_layers;
 pub mod gis_ops;
 pub mod gis_read;
+pub mod gjparse;
 pub mod gjs;
 pub mod gpkg;
 pub mod kml;

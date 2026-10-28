@@ -166,17 +166,9 @@ pub fn write_export(
         }
         "geojson" => {
             let Some(t) = to_lon_lat else { return Err(tr!("gexp.geojson.crs")) };
-            let wg: Vec<crate::geojson::WGroup> = groups
-                .iter()
-                .map(|g| crate::geojson::WGroup {
-                    kind: g.kind.clone(),
-                    geom: g.geom.clone(),
-                    has_z: g.has_z,
-                    fields: g.fields.clone(),
-                    features: g.features.clone(),
-                })
-                .collect();
-            let text = crate::geojson::write_geojson(&wg, t, z_to_metres, Some(stem));
+            let wg: Vec<crate::geojson::WGroupRef> =
+                groups.iter().map(|g| (g.kind.as_str(), g.has_z, g.fields.as_slice(), g.features.as_slice())).collect();
+            let text = crate::geojson::write_geojson_parts(&wg, t, z_to_metres, Some(stem));
             Ok(Exported { name: format!("{stem}.geojson"), bytes: text.into_bytes(), ty: "application/geo+json", notes })
         }
         "kml" | "kmz" => {

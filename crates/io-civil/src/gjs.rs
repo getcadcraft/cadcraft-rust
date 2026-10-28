@@ -6,6 +6,9 @@ use serde_json::{Map, Value};
 
 /// Is `k` an array index ("0" … "4294967294", canonical)?
 pub fn is_index(k: &str) -> bool {
+    if !k.as_bytes().first().is_some_and(u8::is_ascii_digit) {
+        return false;
+    }
     if k.is_empty() || k.len() > 10 || !k.bytes().all(|b| b.is_ascii_digit()) || (k.len() > 1 && k.starts_with('0')) {
         return false;
     }
