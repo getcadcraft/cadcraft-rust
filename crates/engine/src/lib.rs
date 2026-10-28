@@ -15,8 +15,9 @@
 //! PARAMETERS, -PARAMETERS, CONSTRAINTBAR, DCDISPLAY; M4.23) work through cc-gcons; MIRROR, TRIM and the clipboard
 //! carry constraints (ckeep.js). The 3D tab ([`ws3d`], ws3d-core.js: ModelCraft's tools on the drawing's 3D model) runs
 //! PRESSPULL, 3DORBIT, VIEW, VSCURRENT, the booleans and the 3D versions of MOVE / COPY / ROTATE / ERASE / ZOOM (M4.25).
-//! POINTCLOUDATTACH / POINTCLOUD put a point cloud under the drawing ([`cloud`], cloud-cad.js over cc-io-civil's
-//! pointcloud.js). Not ported here: SWBOUT (swsketch.js), lasso selection, dynamic-block properties (the Custom section).
+//! SWBOUT writes swsketch.js's SolidWorks macro (cc-gcons); POINTCLOUDATTACH / POINTCLOUD put a point cloud under the
+//! drawing ([`cloud`], cloud-cad.js over cc-io-civil's pointcloud.js). Not ported here: lasso selection, dynamic-block
+//! properties (the Custom section).
 
 #![forbid(unsafe_code)]
 #![deny(

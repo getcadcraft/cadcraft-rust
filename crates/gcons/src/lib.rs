@@ -26,6 +26,7 @@ pub mod con;
 pub mod gcons;
 pub mod gsolve;
 pub mod paramsdoc;
+pub mod swsketch;
 
 pub mod tr {
     /// The language catalog messages come from (cc-cad's).

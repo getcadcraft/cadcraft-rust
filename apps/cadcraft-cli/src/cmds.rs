@@ -290,7 +290,8 @@ impl Host for Stub {
         // GLB / STL (EXPORT3D, M4.24): bytes as Latin-1 text
         let text = if data.starts_with(b"%PDF") {
             pdf_for_log(data)
-        } else if matches!(_mime, "model/gltf-binary" | "model/stl") {
+        } else if matches!(_mime, "model/gltf-binary" | "model/stl") || name.ends_with(".swb") {
+            // a SolidWorks macro (SWBOUT): Windows-1252 bytes as Latin-1 text
             data.iter().map(|b| char::from(*b)).collect()
         } else {
             String::from_utf8_lossy(data).into_owned()

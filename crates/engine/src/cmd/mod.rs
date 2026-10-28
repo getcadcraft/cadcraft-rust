@@ -206,6 +206,7 @@ pub static COMMANDS: &[CmdDef] = &[
     def("-PARAMETERS", &[], |c| Box::pin(param::parameters_cl(c))),
     def("CONSTRAINTBAR", &["CBAR"], |c| Box::pin(param::constraintbar(c))),
     quiet(def("DCDISPLAY", &[], |c| Box::pin(param::dcdisplay(c)))),
+    quiet(def("SWBOUT", &["SWMACRO"], |c| Box::pin(param::swbout(c)))),
     quiet(def("LIBRARY", &["LIB"], |c| Box::pin(block::library(c)))),
     def("LAYISO", &[], |c| Box::pin(layers::layiso(c))),
     quiet(def("LAYUNISO", &[], |c| Box::pin(layers::layuniso(c)))),

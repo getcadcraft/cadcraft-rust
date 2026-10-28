@@ -1184,3 +1184,33 @@ pub async fn dcdisplay(c: Ctx) -> R {
     c.st().memo.param.view = Some(v);
     Ok(())
 }
+
+/// SWBOUT (SWMACRO): the model space as a SolidWorks macro (swsketch.js `docToSwb`), handed to the host as a download
+/// (`host.download`; a host that cannot save keeps nothing, as the JS keeps `engine.lastSwb`).
+pub async fn swbout(c: Ctx) -> R {
+    let base = c.doc().meta.get("name").filter(|v| js::truthy(Some(v))).map(js::to_js_string).unwrap_or_else(|| "Drawing1".into());
+    let name = cc_gcons::swsketch::underscore_runs(&base);
+    let date = cc_gcons::swsketch::iso_date(c.sh().host.borrow().now_ms().unwrap_or(0.0));
+    let tr = cc_cad::i18n::catalog();
+    let out = cc_gcons::swsketch::doc_to_swb(&tr, &c.doc(), &name, &date);
+    let out = match out {
+        Ok(o) => o,
+        Err(e) => {
+            c.print(&e.error);
+            return Ok(());
+        }
+    };
+    let file = format!("{name}.swb");
+    if c.sh().host.borrow().can_save_blob() {
+        c.sh().host.borrow_mut().save_blob(&file, &out.bytes, "text/plain");
+    }
+    c.print(&format!(
+        "Wrote {file}: a macro that SolidWorks runs (Tools, Macro, Run) to build a part with one sketch on the Front Plane. {}",
+        out.summary
+    ));
+    for n in &out.notes {
+        c.print(&format!("  {n}"));
+    }
+    c.print(&c.t("cmd.swbout.not_yet_tested_solidworks"));
+    Ok(())
+}

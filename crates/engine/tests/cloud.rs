@@ -1,5 +1,5 @@
-//! POINTCLOUDATTACH / POINTCLOUD (cloud-cad.js, M4.50) through the command line with a stub host: what is printed,
-//! the cloud's state, snapping to it and its picture. Parity with
+//! POINTCLOUDATTACH / POINTCLOUD (cloud-cad.js, M4.50) and SWBOUT (swsketch.js, M4.51) through the command line with a
+//! stub host: what is printed, the cloud's state, snapping to it, its picture, and the macro handed over. Parity with
 //! the frozen JS is checked by kdiff-cadcloud.mjs; these keep the paths working without the JS.
 
 use std::cell::RefCell;
@@ -145,4 +145,29 @@ fn a_corner_point_and_refusals() {
     assert!(printed.contains("Could not open notes.txt: notes.txt is not a point cloud CadCraft reads"), "{printed}");
     assert!(printed.contains("Could not open cut.las:"), "{printed}");
     assert!(pc.borrow().has(), "a refused file leaves the cloud attached");
+}
+
+#[test]
+fn swbout_hands_over_a_macro() {
+    let mut doc = Doc::new();
+    doc.load(&serde_json::json!({ "meta": { "name": "Plate 1", "units": "inches" }, "entities": [
+        { "id": 1, "type": "line", "layer": "0", "x1": 0, "y1": 0, "x2": 10, "y2": 0 },
+        { "id": 2, "type": "poly", "layer": "0", "closed": true, "pts": [{ "x": 0, "y": 5 }, { "x": 4, "y": 5, "b": 0.5 }, { "x": 4, "y": 9 }] }
+    ] }));
+    let (mut e, log, _) = engine(doc, Vec::new());
+    e.text("SWBOUT");
+    let l = log.borrow();
+    let (name, bytes) = l.blobs.first().cloned().unwrap_or_default();
+    assert_eq!(name, "Plate_1.swb");
+    let text = String::from_utf8_lossy(&bytes);
+    assert!(text.starts_with("' Plate_1.swb - written by the CadCraft drafting app (getcadcraft.com) on 2025-10-11.\r\n"), "{text}");
+    assert!(text.contains("swSkMgr.CreateLine(0, 0, 0, 0.254, 0, 0)"), "{text}");
+    assert!(text.contains("ok = swModel.Extension.SetUserPreferenceInteger(41, 0, 3)"), "{text}");
+    assert!(text.contains("Relate \"sgCOINCIDENT\", \"polyline vertex\""), "{text}");
+    assert!(l.printed.iter().any(|p| p.starts_with("Wrote Plate_1.swb: a macro that SolidWorks runs")), "{:?}", l.printed);
+    drop(l);
+    let (mut e, log, _) = engine(Doc::new(), Vec::new());
+    e.text("SWMACRO");
+    assert!(log.borrow().printed.iter().any(|p| p.starts_with("There is nothing in the model to put in a sketch")));
+    assert!(log.borrow().blobs.is_empty());
 }
