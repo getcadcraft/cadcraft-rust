@@ -487,7 +487,10 @@ pub fn ensure_library_block(
             Some(i) if made.name.get(i.saturating_add(2)..).is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit())) => {
                 format!("{}-{n}{}", made.name.get(..i).unwrap_or(""), made.name.get(i..).unwrap_or(""))
             }
-            _ => made.name.clone(),
+            // Spec gap: libplace.js only numbers a name ending in _v<digits>; any other (a version like 2.3e+113 is
+            // an integer to Number.isInteger but writes with an exponent) keeps its name and the JS loops for ever. Here
+            // the number goes on the end.
+            _ => format!("{}-{n}", made.name),
         };
         n = n.saturating_add(1);
         if n > 100_000 {
@@ -682,5 +685,18 @@ mod tests {
             { "type": "poly", "pts": [[0, 0], [1, 1, 1e9]] }, { "type": "hatch", "loops": [[[0, 0], [1, 0], [1, 1]]] }, { "type": "zz" } ] } });
         let m = block_from_item(&d, &it, None, &l).unwrap();
         assert_eq!((m.block.entities.len(), m.skipped), (2, 3));
+    }
+
+    /// Fuzz find (cad_lib_item, fuzz/seeds/cad_lib_item/exponent-version-reuse.json): a version written with an
+    /// exponent made a name the JS cannot number; placed twice it must get a block of its own, not overwrite the first.
+    #[test]
+    fn a_version_with_an_exponent_gets_a_new_name() {
+        let l = Lang::new(&Value::Null);
+        let mut d = Doc::new();
+        let it = json!({ "format": "cadcraft-library-item", "format_version": 1, "name": "Sink", "version": 2.3e113,
+            "plan": { "entities": [{ "type": "line", "x1": 0, "y1": 0, "x2": 10, "y2": 0 }] } });
+        let a = d.change("INSERT", |d| ensure_library_block(d, &it, None, &l)).unwrap().unwrap();
+        let b = d.change("INSERT", |d| ensure_library_block(d, &it, None, &l)).unwrap().unwrap();
+        assert!(b.reused || b.name != a.name, "{} / {}", a.name, b.name);
     }
 }

@@ -1,0 +1,83 @@
+{
+ "format": "cadcraft-library-item",
+ "format_version": 1,
+ "uuid": "0b8a4c2e-1f2d-4e5a-9b7c-123456789abc",
+ "version": 233333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333333,
+ "name": "Hand Sink (Wall) — Évier",
+ "maker": "ACME",
+ "model": "HS-450",
+ "category": "foodservice/sinks",
+ "kind": "equipment",
+ "license": {
+  "id": "CC-BY-4.0",
+  "holdmr": "ACME Corp",
+  "url": "https://example.com/l"
+ },
+ "provenance": {
+  "library": "librarycraft",
+  "sha256": "abababababababababababababababababababababababababababababababab",
+  "source_file": "sink.dxf"
+ },
+ "params": {
+  "width": 900,
+  "depth": 380.5,
+  "height": 0,
+  "weight_kg": 12.3456789012345,
+  "elec": {
+   "volts": "120",
+   "amps": 5,
+   "bad key": "x"
+  },
+  "plumb": {
+   "cw": "1/2\""
+  },
+  "remarks": "Wall\nmount"
+ },
+ "source_attrs": {
+  "CC-PART-TYPE": "mySink",
+  "CC-PART-STD": 4
+ },
+ "plan": {
+  "layers": [
+   {
+    "name": "Fixtures",
+    "color": 5
+   },
+   {
+    "name": "",
+    "color": 3
+   },
+   {
+    "name": "Outline",
+    "color": "#AbCdEf"
+   }
+  ],
+  "entities": [
+   {
+    "type": "line",
+    "layer": "Fixtures",
+    "x1": 0,
+    "y1": 0,
+    "x2": 450,
+    "y2": 0
+   },
+   {
+    "type": "circle",
+    "cx": 225,
+    "cy": 190,
+    "r": 40,
+    "color": 3
+   },
+   {
+    "type": "arc",
+    "x": 225,
+    "y": 190,
+    "r": 3.100,
+    "a0": 0,
+    "a1": 235,
+    "color": "#FF0000"
+   },
+   null
+  ]
+ }
+}
