@@ -2,6 +2,54 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M11.18–M11.22 CivilCraft complete against 0.5's gaps (agent, work/civil2)
+
+- M11.18 (civilsuper.rs, civildrain.rs, civilmore.rs): superelevation's per-curve table (#, R, e, runoff, runout, full
+  superelevation) and diagram (left lane solid, right dashed, key stations), with the corridor's own problems / facts;
+  storm drainage as drainage-ui.js: the Drainage block (IDF a, b, c, the shortest tc, Manning's n, junction loss,
+  tailwater; the catchments and results tables; Size pipes), a structure's and a pipe's drainage rows, a catchment's
+  Properties, the Catchment tool (drawn from the block, flows to the structure inside), picking inside a catchment,
+  Delete, the plan overlay (dashed outlines, the arrow to the outlet, the ring on a flooded structure); a parcel's legal
+  description Copy and Download; Settings › CivilCraft's window (point labels n / nz / nzd in the plan, DXF, DWG and
+  PDF; the corner cube or axis icon on the plan and in 3D; exaggeration, the 3D default now 2 as 0.5; lat/lon format;
+  internet; assistants), kept between runs with the mass haul factor and the GIS export format (desktop
+  `civilcraft.json`, UiApp::cv_prefs). Commands civil.se.info, civil.dr.info / .size, civil.pc.copy / .download,
+  civil.settings (+ labels, corner, exag, latlon, internet, assist, reset), civil.settings.open / .info.
+- M11.19 (civilimport.rs, civildrive.rs): the Import points dialog (Columns: Detect … ENZ, the summary words, the
+  first six rows, rows not read; Import replaces the points) for every point file opened or dropped (civil.sample /
+  .demo still open at once); touch's draft bar (Finish, Undo point, Cancel; civil.draft, civil.touch); the 3D view's
+  Drive panel (alignment, Play, station, speed, Stop; Space / ← → / Esc) and Sun menu (date, time, UTC offset,
+  latitude / longitude; the default date is today in UTC and the offset the computer's now, through cc_clock, as
+  0.5's toISOString / getTimezoneOffset); a big survey zoomed out keeps one cross per cell of the cross's size (the same
+  carpet 0.5 draws, half the segments on the 500k survey: 1,074,819 → 520,071).
+- M11.20 (civilgis.rs, civilgisx.rs): GIS layers — GeoJSON, shapefile sets and zips, KML / KMZ, GeoPackage through
+  the import dialog (layers to bring in, the system: the project's, the file's offered, one picked from the suggestions;
+  unknown systems as the project's), drawn under the design in their colours and in DXF / DWG / PDF (labels by a field),
+  the left panel's GIS layers (show, colour, zoom, rename, label, remove), a picked feature's facts and attributes;
+  GIS › Export (shapefile zip, GeoPackage, GeoJSON, KML, KMZ) with the .dbf header and zip dates in the host's zone;
+  the Coordinates window (search, the systems the site fits, apply / remove) and latitude / longitude in the status bar.
+- M11.21 (civilmaps.rs): map layers — a picture with its world file (kept in the project), map tiles, WMS, WMTS and
+  ArcGIS services; drawn under the plan as textured meshes warped to a quarter pixel (basemap.rs plan_warp); opacity,
+  order, show / hide, zoom, remove; the PDF and DWG carry the visible layers as one picture (the sheet window's JPEG;
+  a zip with the DWG and its IMAGE, the PNG and its world file). Servers are asked only through the new
+  Services::fetch (the web build: cors, no credentials, no referrer), only with Settings' internet on, and never one a
+  project file names until the person allows it in the Map dialog. The desktop host has no HTTP client (see gaps).
+- M11.22: a lat/lon point file converted through the project's system (gis-vector-ui.js pointsLatLon); timers for the
+  import parse, GIS read / import / export and the map picture (civil.timings).
+- Parity (copies of the shared harnesses that should replace them at merge: tools/cvtooldiff-civil2.mjs, which also
+  takes --tz and compares zips / GeoPackages by content; tools/cvuidiff-civil2.mjs, which takes --labels, --exag, --tz
+  and confirms the import dialog for point files): cvtooldiff-civil2 full run 108/108 projects, 3,008/3,008 status lines,
+  28/28 files in UTC and America/Denver (new scenarios super, super2, drainage, catchnonet, legal, import, draftbar,
+  drive, gis, gisexport, maps; drive also in Asia/Kolkata); cvuidiff-civil2 identical for the sample, the demo, a CSV,
+  labels n / nz / nzd, a project with GIS layers and one with a map picture (the picture's pixels are the app's own:
+  the JS composes the same DWG / zip / PDF around them), in both zones.
+- Timings (tools/cvbench-civil2.mjs, best of 3, ms JS 0.5 / Rust): read 500,000 point rows 655 / 892 (0.7×); GIS read
+  of a 33 MB GeoJSON (60,000 points + 20,000 lines) 279 / 750 (0.4×); its import into EPSG:2277 244 / 343 (0.7×);
+  GIS export as shapefiles 876 / 683 (1.3×), GeoPackage 712 / 321 (2.2×), GeoJSON 1,607 / 1,202 (1.3×).
+- Screenshots: forks/lead/shots/civil2 (super-panel, drain-*, settings, corner-crops, cube-click, import, db-drive,
+  synth-after, gis-plan, gis-all, map-plan, map-dwg-small).
+- Next: the Coordinates window's Ground / Local and conversion; GIS "Use for the surface"; terrain and CAD linework;
+  a desktop HTTP client decision; faster GeoJSON / point parsing in the engine.
 ## 2026-10-28 — M4.50 point clouds under the drawing, M4.51 SWBOUT (agent, work/cadcloud)
 
 The last two pieces of CadCraft 0.5's command table.

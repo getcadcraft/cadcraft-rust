@@ -237,7 +237,9 @@ impl CivilView {
         let mut files = self.gis_import.take().map(|d| d.files).unwrap_or_default();
         files.retain(|(n, _)| n != name);
         files.push((name.to_string(), bytes));
+        let t0 = web_time::Instant::now();
         let (sources, notes) = gis_read::read_gis_files(&files, cc_io_civil::gis_layers::MAX_LAYER_FEATURES);
+        self.timings.insert("gis read", t0.elapsed().as_secs_f64() * 1000.0);
         if sources.is_empty() {
             let names: Vec<String> = files.iter().map(|f| f.0.clone()).collect();
             self.message = if notes.is_empty() { tr!("vec.import.nothing", files = names.join(", ")) } else { notes.join(" ") };
@@ -339,6 +341,7 @@ impl CivilView {
             self.gis_import = Some(d);
             return Err("civil.gis.import: nothing to import yet (choose layers, or a system)".into());
         }
+        let t0 = web_time::Instant::now();
         let units = self.project.units().to_string();
         let had_crs = self.project.state.get("crs").is_some_and(|c| cc_civil::js::truthy(Some(c)));
         let setting = d.set_crs && !had_crs;
@@ -426,6 +429,7 @@ impl CivilView {
             self.fit();
         }
         self.message = tr!("vec.imported", n = ids.len(), count = num(ids.len()), features = num(count));
+        self.timings.insert("gis import", t0.elapsed().as_secs_f64() * 1000.0);
         Ok(())
     }
 

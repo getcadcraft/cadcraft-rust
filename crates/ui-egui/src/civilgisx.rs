@@ -474,6 +474,7 @@ impl CivilView {
         zone: cc_clock::Zone,
     ) -> Result<(String, Vec<u8>, String), String> {
         crate::civilgis::ensure_catalog();
+        let t0 = web_time::Instant::now();
         let crs = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
         if format == "geojson" && crs.is_none() {
             return Err(t("gexp.geojson.need", &[]));
@@ -528,6 +529,7 @@ impl CivilView {
             text.push(' ');
             text.push_str(&r.notes.join(" "));
         }
+        self.timings.insert("gis export", t0.elapsed().as_secs_f64() * 1000.0);
         Ok((r.name, r.bytes, text))
     }
 

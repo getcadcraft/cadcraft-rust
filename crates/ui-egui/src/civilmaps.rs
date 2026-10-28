@@ -1445,7 +1445,9 @@ pub fn map_picture(cv: &mut CivilView, b: [f64; 4], max_px: f64, jpeg: bool, now
     if !cv.visible_maps() {
         return None;
     }
+    let t0 = web_time::Instant::now();
     let (w, h, px, att, complete) = cv.maps_drape(b, max_px, now)?;
+    cv.timings.insert("map drape", t0.elapsed().as_secs_f64() * 1000.0);
     let img = image::RgbaImage::from_raw(w, h, px)?;
     let mut out = std::io::Cursor::new(Vec::new());
     if jpeg {

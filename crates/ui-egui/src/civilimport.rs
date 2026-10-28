@@ -120,7 +120,9 @@ impl CivilView {
         let prefer = self.pt_settings.order.clone();
         let d = self.import.as_mut().ok_or("civil.import: the import dialog is not open")?;
         d.format = f.to_string();
+        let t0 = web_time::Instant::now();
         d.res = Arc::new(parse_points(&d.text, f, &prefer));
+        self.timings.insert("import parse", t0.elapsed().as_secs_f64() * 1000.0);
         Ok(())
     }
 
@@ -131,12 +133,35 @@ impl CivilView {
             self.import = Some(d);
             return Err("civil.import: no points to import".into());
         }
+        // gis-vector-ui.js pointsLatLon: latitude / longitude through the project's system (0.5 asks for one when the
+        // project has none; here the points then wait for GIS › Coordinates)
+        let mut pts = d.res.points.clone();
+        let mut ll_note = String::new();
         if d.res.latlon {
-            // gis-vector-ui.js pointsLatLon converts through the project's system; without one nothing is imported
-            self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
-            return Ok(());
+            let crs = self.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
+            let Some(crs) = crs else {
+                self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
+                return Ok(());
+            };
+            crate::civilgis::ensure_catalog();
+            match cc_io_civil::gis_read::lat_lon_points(&pts, &crs) {
+                Ok((p2, bad)) => {
+                    pts = p2;
+                    let local = cc_civil::js::truthy(crs.get("local"));
+                    let name = cc_civil::js::string_of(crs.get("name"));
+                    let cname = if local { tr!("vec.crs.ground", crs = name.as_str()) } else { name };
+                    ll_note = format!(" {}", tr!("vec.latlon.note", crs = cname));
+                    if bad > 0 {
+                        ll_note.push(' ');
+                        ll_note.push_str(&tr!("vec.latlon.bad", n = bad));
+                    }
+                }
+                Err(_) => {
+                    self.message = tr!("cv.imp.latlon.need", file = d.name.as_str());
+                    return Ok(());
+                }
+            }
         }
-        let pts = d.res.points.clone();
         let replacing = !self.project.points.is_empty();
         if let Some(s) = self.project.state.get_mut("surface").and_then(Value::as_object_mut) {
             s.insert("tin".into(), Value::Null);
@@ -166,7 +191,7 @@ impl CivilView {
             (false, false) => "cv.imp.imported",
         };
         let said = tr!(key, n = n, count = count.as_str(), file = d.name.as_str(), tris = tris.unwrap_or_default());
-        self.message = format!("{said} {}", t("cv.imp.mark", &[]));
+        self.message = format!("{said} {}{ll_note}", t("cv.imp.mark", &[]));
         Ok(())
     }
 
