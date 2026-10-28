@@ -251,6 +251,41 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{} → the selected parcel's legal description as <site> - <parcel>.txt, through the save service",
     ),
+    ("civil.crs.open", "Coordinates", "", "{name?: \"off\"} → the Coordinates window (search, the systems the site fits, Apply, Remove)"),
+    ("civil.gis.pick", "GIS › Import", "", "{} → the platform's picker for GIS files (they open into the GIS import dialog)"),
+    (
+        "civil.gis.export",
+        "GIS export",
+        "",
+        "{name: open | close | tick=<kind> | untick=<kind> | kinds=<a+b> | format=shp|gpkg|geojson|kml|kmz | go[@<time ms>]} → GIS › Export: the project's objects and GIS layers as GIS files, through the save service (go@ms: a fixed clock for the dates in the files)",
+    ),
+    ("civil.gis.export.info", "GIS export kinds", "", "{} → every kind GIS › Export offers with its count, on the status line"),
+    (
+        "civil.gis.layer",
+        "GIS layer",
+        "",
+        "{name: \"show=<id>:on|off\" | \"color=<id>:blue|orange|magenta|cyan|ochre|green|red\" | \"rename=<id>:<name>\" | \"label=<id>:<field>|\" | \"remove=<id>\" | \"zoom=<id>\"} → a GIS layer of the project (one undo step each, zoom aside)",
+    ),
+    (
+        "civil.gis.import",
+        "Import GIS layers",
+        "",
+        "{name: ok | cancel | pick=si:li:on|off | crs=<EPSG code>|offer | unknown=si:same|<EPSG code>} → the GIS import dialog a GeoJSON, shapefile, KML / KMZ or GeoPackage opens",
+    ),
+    (
+        "civil.gis.import.info",
+        "GIS import facts",
+        "",
+        "{} → the GIS import dialog's layers, notes, system and what Import does, on the status line",
+    ),
+    ("civil.gis.feature.info", "GIS feature facts", "", "{} → the picked GIS feature's facts and attributes, on the status line"),
+    ("civil.gis.zoom", "Zoom to a box", "", "{name: \"x0,y0,x1,y1\"} → the plan shows the box with 15 % round it"),
+    (
+        "civil.crs",
+        "Coordinate system",
+        "",
+        "{name: <EPSG code> | none} → the project's coordinate system (its coordinates are not converted; one undo step)",
+    ),
     (
         "civil.import",
         "Import points",
@@ -338,6 +373,8 @@ pub enum Sel {
     Point(String),
     /// drainage-ui.js `{ kind: 'catchment', id }`
     Catchment(String),
+    /// gis-vector-ui.js `{ kind: 'gis', layer, i }`
+    Gis(String, usize),
 }
 
 impl Sel {
@@ -356,6 +393,10 @@ impl Sel {
             "parcel" => Sel::Parcel(id),
             "point" => Sel::Point(id),
             "catchment" => Sel::Catchment(id),
+            "gis" => {
+                let (l, i) = id.split_once(':')?;
+                Sel::Gis(l.to_string(), i.parse().ok()?)
+            }
             _ => return None,
         })
     }
@@ -369,6 +410,7 @@ impl Sel {
             Sel::Parcel(i) => format!("parcel:{i}"),
             Sel::Point(i) => format!("point:{i}"),
             Sel::Catchment(i) => format!("catchment:{i}"),
+            Sel::Gis(l, i) => format!("gis:{l}:{i}"),
         }
     }
 }
@@ -451,6 +493,14 @@ pub struct CivilView {
     pub sun: Option<crate::civildrive::SunSet>,
     pub sun_out: String,
     pub sun_edit: HashMap<String, String>,
+    /// the GIS import dialog, and shapefile parts waiting for their .shp (civilgis.rs)
+    pub gis_import: Option<crate::civilgis::GisImport>,
+    pub gis_pending: Vec<(String, Vec<u8>)>,
+    /// GIS › Export (civilgisx.rs): the dialog and the format last used
+    pub gis_export_dlg: Option<crate::civilgisx::GisExportDlg>,
+    pub gis_export_format: String,
+    /// the Coordinates window
+    pub crs_dlg: Option<crate::civilgis::CrsDlg>,
 }
 
 /// Is this a file CivilCraft opens? (civilcraft.js `openText`: JSON = project, XML = LandXML, else points.)
@@ -520,6 +570,11 @@ impl CivilView {
             sun: None,
             sun_out: String::new(),
             sun_edit: HashMap::new(),
+            gis_import: None,
+            gis_pending: Vec::new(),
+            gis_export_dlg: None,
+            gis_export_format: "shp".into(),
+            crs_dlg: None,
         }
     }
 
@@ -829,6 +884,12 @@ impl CivilView {
         }
     }
 
+    /// The plan fitted to a box (view.js fit: 88 % of the view).
+    pub fn fit_box(&mut self, x0: f64, y0: f64, x1: f64, y1: f64) {
+        self.view.fit(x0, y0, x1, y1, 0.06);
+        self.pending_fit = false;
+    }
+
     fn fit_now(&mut self) {
         match civilplan::extents(&mut self.project) {
             Some((x0, y0, x1, y1)) => {
@@ -1020,6 +1081,9 @@ impl CivilView {
         if let Some(i) = self.nearest_point(x, y, 6.0 / zoom) {
             return self.project.points.get(i).map(|p| Sel::Point(p.n.clone()));
         }
+        if let Some(g) = self.gis_pick(x, y, 7.0 / zoom) {
+            return Some(g);
+        }
         if let Some(c) = self.dr_pick(x, y) {
             return Some(c);
         }
@@ -1096,6 +1160,10 @@ impl CivilView {
                 off = fixed(so.off.abs(), 2),
                 side = side
             ));
+        }
+        // gis-crs-ui.js: latitude and longitude when the project has a system
+        if let Some(ll) = self.lat_lon_at(x, y) {
+            parts.push(ll);
         }
         parts.join("   ")
     }
@@ -1445,6 +1513,34 @@ impl CivilView {
             Some(Sel::Point(n)) => {
                 if let Some(p) = self.project.points.iter().find(|p| p.n == n) {
                     painter.circle_stroke(s(p.x, p.y), 5.0, egui::Stroke::new(2.0, act));
+                }
+            }
+            Some(Sel::Gis(lid, i)) => {
+                // gis-vector-ui.js overlay: the picked feature drawn wide in the selection colour
+                if let Some(f) = cc_io_civil::gis_layers::features_of(&self.project.gis_features, &lid).get(i).cloned()
+                    && self.gis_layers().iter().any(|l| l.id == lid && l.visible)
+                {
+                    match &f.g {
+                        Some(cc_civil::gis_state::Geom::Pt(c)) => {
+                            let q = s(c.first().copied().unwrap_or(0.0), c.get(1).copied().unwrap_or(0.0));
+                            painter.circle_stroke(q, 8.0, egui::Stroke::new(2.0, act));
+                        }
+                        Some(cc_civil::gis_state::Geom::Ln(parts)) => {
+                            for part in parts {
+                                let pts: Vec<Pos2> =
+                                    part.iter().map(|p| s(p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0))).collect();
+                                painter.add(egui::Shape::line(pts, egui::Stroke::new(5.0, halo)));
+                            }
+                        }
+                        Some(cc_civil::gis_state::Geom::Pg(polys)) => {
+                            for r in polys.iter().flatten() {
+                                let pts: Vec<Pos2> =
+                                    r.iter().map(|p| s(p.first().copied().unwrap_or(0.0), p.get(1).copied().unwrap_or(0.0))).collect();
+                                painter.add(egui::Shape::line(pts, egui::Stroke::new(5.0, halo)));
+                            }
+                        }
+                        None => {}
+                    }
                 }
             }
             Some(Sel::Catchment(_)) | None => {}
@@ -1895,6 +1991,40 @@ pub fn install(app: &mut UiApp, cv: CivilView) {
     app.civil = Some(cv);
 }
 
+/// A GIS file CivilCraft's import dialog takes (gis-vector-ui.js VECTOR, a GeoJSON .json, a shapefile's parts).
+pub fn is_gis_file(lower: &str, bytes: &[u8]) -> bool {
+    let head: String = String::from_utf8_lossy(bytes.get(..bytes.len().min(4096)).unwrap_or(&[])).into_owned();
+    if lower.ends_with(".json") {
+        return cc_io_civil::gis_read::gis_file_kind(lower, &head).is_some() && !head.contains("civilcraft-project");
+    }
+    [".shp", ".shx", ".dbf", ".cpg", ".prj", ".geojson", ".gpkg", ".zip", ".kml", ".kmz"].iter().any(|e| lower.ends_with(e))
+}
+
+/// A GIS file into the open project's import dialog (the parts of a shapefile gather while it is open).
+pub fn open_gis(app: &mut UiApp, f: &ImportedFile) {
+    let Some(cv) = app.civil.as_mut() else { return };
+    if f.bytes.len() > crate::civilgis::MAX_GIS_BYTES {
+        cv.message = tr!("vec.import.failed", why = t("cv.file.toobig", &[]));
+        return;
+    }
+    if cv.gis_import.is_none() && !cv.gis_pending.is_empty() {
+        let pending = std::mem::take(&mut cv.gis_pending);
+        let mut files = pending;
+        files.retain(|(n, _)| *n != f.name);
+        cv.gis_import = Some(crate::civilgis::GisImport {
+            files,
+            sources: Vec::new(),
+            notes: Vec::new(),
+            plan: Value::Null,
+            pick: Vec::new(),
+            target: None,
+            set_crs: false,
+            overrides: Vec::new(),
+        });
+    }
+    cv.gis_open(&f.name, f.bytes.clone());
+}
+
 /// Open a CivilCraft file (project, LandXML, points) dropped, picked or given to the CLI.
 pub fn open_file(app: &mut UiApp, f: &ImportedFile) {
     // civilcraft.js openText: a survey point file goes through the Import points dialog, over the open project (or a
@@ -2258,6 +2388,73 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
             },
         },
         "civil.import.info" => cv.message = cv.import_info()?,
+        "civil.gis.layer" => cv.gis_layer_cmd(&name)?,
+        "civil.gis.import" => cv.gis_import_cmd(&name)?,
+        "civil.gis.import.info" => cv.message = cv.gis_import_info()?,
+        "civil.gis.feature.info" => cv.message = cv.gis_feature_info()?,
+        "civil.gis.zoom" => {
+            let v = xy_param(&name).filter(|v| v.len() >= 4).ok_or("civil.gis.zoom: x0,y0,x1,y1")?;
+            let g = |i: usize| v.get(i).copied().unwrap_or(0.0);
+            cv.zoom_to(g(0), g(1), g(2), g(3));
+        }
+        "civil.crs" => {
+            cv.crs_set(&name)?;
+            cv.crs_dlg = None;
+        }
+        "civil.crs.open" => {
+            cv.crs_dlg = if name == "off" { None } else { Some(crate::civilgis::CrsDlg::default()) };
+        }
+        "civil.gis.pick" => {
+            // GIS › Import: the platform's picker; the files go through Open (the GIS openers)
+            match app.services.pick_files.as_mut().map(|f| f("gis", true)) {
+                Some(Some(files)) => {
+                    for f in &files {
+                        app.open_bytes(&f.name, &f.bytes);
+                    }
+                }
+                Some(None) => {}
+                None => {
+                    if let Some(o) = app.services.open_async.as_mut() {
+                        o();
+                    }
+                }
+            }
+            return Ok(());
+        }
+        "civil.gis.export" => match name.as_str() {
+            "" | "open" => cv.gis_export_open(),
+            "close" => cv.gis_export_dlg = None,
+            n if n.starts_with("go") => {
+                if cv.gis_export_dlg.is_none() {
+                    cv.gis_export_open();
+                }
+                let at = n.strip_prefix("go@").and_then(|v| v.parse::<f64>().ok()).unwrap_or_else(now_ms);
+                let d = cv.gis_export_dlg.clone().unwrap_or_default();
+                match cv.gis_export(&d.keys, &d.format, at, zone) {
+                    Ok((fname, bytes, said)) => {
+                        cv.gis_export_format = d.format.clone();
+                        cv.prefs_dirty = true;
+                        let save = app.services.save.as_mut().ok_or("civil.gis.export: saving is not available here")?;
+                        save(&fname, bytes)?;
+                        if let Some(cv) = app.civil.as_mut() {
+                            if let Some(x) = cv.gis_export_dlg.as_mut() {
+                                x.said = said.clone();
+                            }
+                            cv.message = said;
+                        }
+                    }
+                    Err(e) => {
+                        let m = tr!("vec.x.failed", why = e);
+                        if let Some(x) = cv.gis_export_dlg.as_mut() {
+                            x.said = m.clone();
+                        }
+                        cv.message = m;
+                    }
+                }
+            }
+            n => cv.gis_export_set(n)?,
+        },
+        "civil.gis.export.info" => cv.message = cv.gis_export_info(),
         "civil.draft" => cv.draft_bar(&name)?,
         "civil.touch" => cv.touch = name != "off",
         "civil.drive" => cv.drive_command(&name, dark)?,
@@ -2431,6 +2628,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     if ui.button(t0("input.cmd.app.settings")).clicked() {
                         cmd.push(("civil.settings.open", Params::default()));
                     }
+                    let mut gacts = Vec::new();
+                    crate::civilgis::gis_menu(ui, &mut gacts);
+                    for (id, k) in gacts {
+                        cmd.push((id, Params { name: Some(k), ..Default::default() }));
+                    }
                     if !cv.show3d {
                         ui.separator();
                         for tl in crate::civiltools::TOOLS {
@@ -2534,6 +2736,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         let mut iacts = Vec::new();
         crate::civilimport::show(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilgis::import_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilgisx::export_window(cv, ui.ctx(), &t, &mut iacts);
+        crate::civilgis::crs_window(cv, ui.ctx(), &t, &mut iacts);
         for (id, k) in iacts {
             cmd.push((id, Params { name: Some(k), ..Default::default() }));
         }

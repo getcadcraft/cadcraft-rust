@@ -29,6 +29,8 @@ pub mod civildialogs;
 pub mod civildrain;
 pub mod civildrive;
 pub mod civilexport;
+pub mod civilgis;
+pub mod civilgisx;
 pub mod civilimport;
 pub mod civillasso;
 pub mod civilmore;
@@ -495,6 +497,11 @@ impl UiApp {
             return;
         }
         self.part = None;
+        // GIS files (and their shapefile parts) go into the open CivilCraft project (gis-vector-ui.js openers)
+        if self.civil.is_some() && civilview::is_gis_file(&lower, &f.bytes) {
+            civilview::open_gis(self, f);
+            return;
+        }
         if civilview::is_civil_file(&lower, &f.bytes) {
             civilview::open_file(self, f);
             return;

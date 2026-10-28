@@ -760,6 +760,11 @@ impl CivilView {
                 self.remove_from("features", &id, "fl.undo.delete");
                 self.message = tr!("fl.deleted", name = name);
             }
+            Sel::Gis(..) => {
+                // civilcraft.js deleteSelected: a GIS feature is not deleted (its layer is removed from the layer list)
+                self.message = t("cv.delete.none", &[]);
+                return;
+            }
             Sel::Catchment(id) => {
                 if !self.dr_remove(&id) {
                     return self.nothing();

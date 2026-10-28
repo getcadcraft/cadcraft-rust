@@ -474,6 +474,18 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey, fixed: &mut 
     drop(st);
     stages.push(("planScene", ms_since(t_scene)));
     let t_extra = web_time::Instant::now();
+    // gis-vector-ui.js: the GIS layers under the design linework, in their colours
+    let gis_layers = crate::civilgis::layers_of(&p.state);
+    let mut gis_tok: Vec<(String, Color32)> = Vec::new();
+    if !gis_layers.is_empty() {
+        let g = cc_io_civil::gis_layers::gis_scene(&gis_layers, &p.gis_features, mm);
+        for l in arr(g.get("layers")) {
+            gis_tok.push((cc_civil::js::string_of(l.get("name")), pal.token(&cc_civil::js::string_of(l.get("token")))));
+        }
+        let mut all = arr(g.get("items")).to_vec();
+        all.append(&mut items);
+        items = all;
+    }
     // 0.4 V13 sample lines, V14 feature lines, V21 parcels, V16 line-code figures, V14 daylighted feature lines
     if d.and_then(|d| d.get("alignments")) != Some(&Value::Bool(false)) {
         for a in &als {
@@ -584,7 +596,7 @@ pub fn build(p: &mut Project, mm: f64, pal: &Palette, key: PlanKey, fixed: &mut 
     }
     for it in &items {
         let layer = it.get("layer").and_then(Value::as_str).unwrap_or("0");
-        let col = pal.layer(layer);
+        let col = gis_tok.iter().find(|(n, _)| n == layer).map_or_else(|| pal.layer(layer), |(_, c)| *c);
         match it.get("kind").and_then(Value::as_str) {
             Some("poly") => {
                 let closed = it.get("closed") == Some(&Value::Bool(true));
@@ -1014,6 +1026,10 @@ pub fn extents(p: &mut Project) -> Option<(f64, f64, f64, f64)> {
                 g(q.x, q.y);
             }
         }
+    }
+    if let Some(b) = cc_io_civil::gis_layers::gis_extents(&crate::civilgis::layers_of(&p.state), &p.gis_features) {
+        g(b.min_x, b.min_y);
+        g(b.max_x, b.max_y);
     }
     if let Some(n) = p.state.get("network") {
         for o in arr(n.get("catchments")) {

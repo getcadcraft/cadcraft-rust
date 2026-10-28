@@ -70,6 +70,7 @@ impl CivilView {
         }
         match self.sel.clone() {
             Some(Sel::Catchment(id)) => self.dr_catchment_prop(&id, field, v),
+            Some(Sel::Gis(..)) => Err(format!("civil.prop: a GIS feature's attributes are read-only ({field})")),
             Some(Sel::Alignment(id)) => self.alignment_prop(&id, field, v, &units),
             Some(Sel::Pad(id)) => {
                 let label;

@@ -143,6 +143,7 @@ mod web {
                                 let library = kind == "library";
                                 let lisp = kind == "lisp";
                                 let cloud = kind == "cloud";
+                                let gis = kind == "gis";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if lisp {
                                         rfd::AsyncFileDialog::new()
@@ -153,6 +154,14 @@ mod web {
                                         rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])
                                     } else if cloud {
                                         rfd::AsyncFileDialog::new().add_filter("Point clouds", &["las", "laz", "xyz", "pts"])
+                                    } else if gis {
+                                        rfd::AsyncFileDialog::new().add_filter(
+                                            "GIS files",
+                                            &[
+                                                "shp", "shx", "dbf", "prj", "cpg", "zip", "geojson", "json", "gpkg", "kml", "kmz", "png",
+                                                "jpg", "jpeg", "pgw", "jgw", "wld",
+                                            ],
+                                        )
                                     } else {
                                         rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
                                     };

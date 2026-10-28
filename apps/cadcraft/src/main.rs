@@ -257,6 +257,15 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
         rfd::FileDialog::new().add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua", "LSP", "DCL"])
     } else if kind == "cloud" {
         rfd::FileDialog::new().add_filter("Point clouds", &["las", "laz", "xyz", "pts", "LAS", "LAZ", "XYZ", "PTS"])
+    } else if kind == "gis" {
+        // CivilCraft's GIS › Import (gis-vector-ui.js ANY_GIS): vector files, shapefile parts, pictures and world files
+        rfd::FileDialog::new().add_filter(
+            "GIS files",
+            &[
+                "shp", "shx", "dbf", "prj", "cpg", "zip", "geojson", "json", "gpkg", "kml", "kmz", "tif", "tiff", "png", "jpg", "jpeg",
+                "pgw", "jgw", "tfw", "wld",
+            ],
+        )
     } else {
         rfd::FileDialog::new().add_filter("Drawings", &["dwg", "dxf", "DWG", "DXF"])
     };

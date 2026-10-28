@@ -132,6 +132,10 @@ impl CivilView {
         if let Some(p) = v.get("masshaul").and_then(Value::as_f64).filter(|p| *p > -60.0 && *p < 100.0) {
             self.sheets.mh_pct = p;
         }
+        if let Some(f) = v.get("gisExportFormat").and_then(Value::as_str).filter(|f| crate::civilgisx::FORMATS.iter().any(|(x, _)| x == f))
+        {
+            self.gis_export_format = f.to_string();
+        }
     }
 
     /// What the app keeps between runs: `{ settings: <civilcraft.settings>, masshaul: <percent> }`.
@@ -144,6 +148,7 @@ impl CivilView {
                 "assistants": { "enabled": s.assist, "groups": s.assist_groups },
             },
             "masshaul": self.sheets.mh_pct,
+            "gisExportFormat": self.gis_export_format,
         })
     }
 

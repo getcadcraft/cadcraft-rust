@@ -345,6 +345,13 @@ pub fn extents_all(p: &mut Project) -> Option<Ext> {
             g(numf(q.get("x")), numf(q.get("y")));
         }
     }
+    // civilcraft.js extentsAll: the GIS parts' extents (gis-vector-ui.js: the visible layers)
+    if let Some(gb) = cc_io_civil::gis_layers::gis_extents(&crate::civilgis::layers_of(&p.state), &p.gis_features)
+        && gb.min_x.is_finite()
+    {
+        g(gb.min_x, gb.min_y);
+        g(gb.max_x, gb.max_y);
+    }
     b.min_x.is_finite().then_some(b)
 }
 
@@ -509,6 +516,12 @@ pub fn build_scene(p: &mut Project, mm: f64, labels: &str) -> Vec<Value> {
                             { "x": r.get("x").cloned().unwrap_or(Value::Null), "y": r.get("y").cloned().unwrap_or(Value::Null) }] }));
             }
         }
+    }
+    // gisReg.scene (gis-vector-ui.js): the GIS layers' items last (their layers go first in the scene's list)
+    let gl = crate::civilgis::layers_of(&p.state);
+    if !gl.is_empty() {
+        let g = cc_io_civil::gis_layers::gis_scene(&gl, &p.gis_features, mm);
+        items.extend(arr(g.get("items")).iter().cloned());
     }
     items
 }

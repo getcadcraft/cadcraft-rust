@@ -148,6 +148,8 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     for (id, k) in sacts {
         acts.push(Act::Run(id, k));
     }
+    // GIS layers (gis-vector-ui.js renderPanel), between the points and the surface as ui.inc has them
+    crate::civilgis::layers_section(cv, ui, tk, acts);
     let p = &mut cv.project;
     // surface
     let has_tin = cc_civil::js::truthy(p.state.get("surface").and_then(|s| s.get("tin")));
@@ -437,6 +439,7 @@ pub fn right(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
         }
         Some(Sel::Feature(id)) => find(arr(st.get("features")), id).cloned().map(|f| feature(cv, ui, tk, &f, acts)).is_some(),
         Some(Sel::Parcel(id)) => find(arr(st.get("parcels")), id).cloned().map(|f| parcel(cv, ui, tk, &f, acts)).is_some(),
+        Some(Sel::Gis(lid, i)) => crate::civilgis::feature_props(cv, ui, tk, lid, *i, acts),
         Some(Sel::Catchment(id)) => {
             let cs = st.get("network").map(|n| arr(n.get("catchments")).to_vec()).unwrap_or_default();
             find(&cs, id).cloned().map(|c| crate::civildrain::props(cv, ui, tk, &c, acts)).is_some()
