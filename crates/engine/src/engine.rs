@@ -893,6 +893,10 @@ impl Engine {
     pub fn flush_notes(&self) {
         self.sh.flush_notes();
     }
+    /// A command by name or alias, as the command line finds it (built-ins, routines' commands, the person's aliases).
+    pub fn lookup(&self, name: &str) -> Option<cmd::CmdDef> {
+        self.sh.lookup(name)
+    }
     /// The running command's name.
     pub fn running(&self) -> Option<&'static str> {
         self.sh.st.borrow().running

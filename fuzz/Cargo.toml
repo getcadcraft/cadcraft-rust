@@ -390,6 +390,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "cad_my_tools"
+path = "fuzz_targets/cad_my_tools.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "cad_input_profile"
 path = "fuzz_targets/cad_input_profile.rs"
 test = false

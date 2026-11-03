@@ -1,0 +1,1 @@
+$M=$(if,$(getvar,orthomode),^O)*^C^C_LINE;;

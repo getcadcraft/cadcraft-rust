@@ -91,6 +91,7 @@ pub mod mcsolids;
 mod mcstretch;
 pub mod model3d;
 pub mod modelcraft;
+pub mod mytoolsdlg;
 pub mod panes;
 pub mod paneview;
 pub mod parpanel;
@@ -413,6 +414,8 @@ pub struct UiApp {
     pub help: help::Help,
     /// the drafting editor's split screen (SPLIT / VPORTS in the model, LINKVIEWS: paneview.rs)
     pub panes: paneview::PaneUi,
+    /// My tools: buttons of one's own, their keys and macros (mytoolsdlg.rs)
+    pub mytools: mytoolsdlg::MyToolsUi,
 }
 
 impl Default for UiApp {
@@ -492,6 +495,7 @@ impl Default for UiApp {
             viewer: viewer::Viewer::default(),
             help: help::Help::default(),
             panes: paneview::PaneUi::default(),
+            mytools: mytoolsdlg::MyToolsUi::default(),
         }
     }
 }
@@ -1655,6 +1659,7 @@ impl UiApp {
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
             id if id.starts_with("panes.") => return paneview::run(self, id, params),
+            id if id.starts_with("mytools.") => return mytoolsdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if id.starts_with("input.") => return ribbon::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
@@ -1877,7 +1882,8 @@ impl UiApp {
         if self.editor.is_none() {
             return;
         }
-        // the input style's keys (Settings › Menus, keys and mouse) before the window's own
+        // My tools' keys, then the input style's keys (Settings › Menus, keys and mouse), before the window's own
+        mytoolsdlg::key_hook(self, raw);
         inputdlg::key_hook(self, raw);
         if self.clip_keys {
             let shift = raw.events.iter().any(|e| matches!(e, egui::Event::Key { modifiers, .. } if modifiers.shift && modifiers.command));
@@ -2008,6 +2014,8 @@ impl UiApp {
         cadprops::quick_window(self, &ctx);
         cadprops::custom_window(self, &ctx);
         winsetdlg::window(self, &ctx);
+        mytoolsdlg::frame(self);
+        mytoolsdlg::window(self, &ctx);
         sheetsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
         lispdlg::window(self, &ctx);

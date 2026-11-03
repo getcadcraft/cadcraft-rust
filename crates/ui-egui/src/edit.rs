@@ -144,6 +144,8 @@ pub struct HostState {
     pub panes_req: Option<String>,
     /// LINKVIEWS: the panes pan and zoom together (the window keeps it in its split screen too)
     pub linked: bool,
+    /// how many questions the command line has asked (a My tools macro's pause waits for the next one)
+    pub prompts: u64,
 }
 
 /// What a command asked the window's picker for.
@@ -270,7 +272,9 @@ impl Host for UiHost {
         self.0.borrow_mut().cursor = Some(p);
     }
     fn prompt(&mut self, s: &str) {
-        self.0.borrow_mut().prompt = s.to_string();
+        let mut h = self.0.borrow_mut();
+        h.prompts = h.prompts.wrapping_add(1);
+        h.prompt = s.to_string();
     }
     fn cursor(&self) -> Option<P2> {
         self.0.borrow().cursor

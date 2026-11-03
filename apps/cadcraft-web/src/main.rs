@@ -162,6 +162,9 @@ mod web {
                                 let input = kind == "input";
                                 let prj = kind == "prj";
                                 let grid = kind == "grid";
+                                let mine = kind == "mytools";
+                                let cuix = kind == "cuix";
+                                let icon = kind == "icon";
                                 wasm_bindgen_futures::spawn_local(async move {
                                     let d = if lisp {
                                         rfd::AsyncFileDialog::new()
@@ -170,6 +173,12 @@ mod web {
                                         rfd::AsyncFileDialog::new().add_filter("Pictures", &["png", "jpg", "jpeg"])
                                     } else if input {
                                         rfd::AsyncFileDialog::new().add_filter("CadCraft input styles", &["json"])
+                                    } else if mine {
+                                        rfd::AsyncFileDialog::new().add_filter("My tools", &["json"])
+                                    } else if cuix {
+                                        rfd::AsyncFileDialog::new().add_filter("CUIx", &["cuix"])
+                                    } else if icon {
+                                        rfd::AsyncFileDialog::new().add_filter("Icons", &["png", "svg"])
                                     } else if library {
                                         rfd::AsyncFileDialog::new().add_filter("Library items", &["json"])
                                     } else if cloud {

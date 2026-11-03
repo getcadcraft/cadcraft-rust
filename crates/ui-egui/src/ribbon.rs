@@ -1039,7 +1039,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     match id {
         "input.tab" => {
             let i = params.index.or_else(|| params.factor.map(|f| f as usize)).ok_or("input.tab: index is required")?;
-            let n = app.input_profile().tabs.map_or(0, |t| t.len());
+            // (one more when My tools fill the Add-ons tab)
+            let n = app.input_profile().tabs.map_or(0, |t| t.len()) + usize::from(!app.mytools.data.groups.is_empty());
             if i >= n {
                 return Err(format!("input.tab: index {i} is out of range (0..{n})"));
             }
@@ -1416,6 +1417,20 @@ pub fn paint_icon(painter: &egui::Painter, r: Rect, name: &str, color: Color32) 
             p.rect(5.0, 9.0, 15.0, 17.0);
             p.arc(10.0, 9.0, 3.5, 0.0, 180.0);
         }
+        // (a picture drawn over the button instead)
+        "" => {}
+        "star" => p.closed(&[
+            (10.0, 2.5),
+            (12.2, 7.4),
+            (17.5, 7.9),
+            (13.5, 11.4),
+            (14.7, 16.6),
+            (10.0, 13.9),
+            (5.3, 16.6),
+            (6.5, 11.4),
+            (2.5, 7.9),
+            (7.8, 7.4),
+        ]),
         "three-dots" => {
             for x in [5.0, 10.0, 15.0] {
                 p.dot(x, 10.0, 1.4);
@@ -1716,6 +1731,8 @@ fn menu_entry(ui: &mut egui::Ui, tk: &crate::theme::Tokens, icon: Option<&str>, 
 /// What the person clicked in the bar this frame.
 enum Click {
     Cmd(&'static str, String),
+    /// a My tools button (its id)
+    MyTool(String),
     Toggle(String),
     Tab(usize),
     Style(String),
@@ -1775,6 +1792,9 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let toggle = |key: String, click: &mut Option<Click>| {
         *click = Some(Click::Toggle(key));
     };
+    // My tools (mytoolsdlg.rs): groups of buttons of one's own, after the app's own (each with its PNG icon, if any)
+    let my = crate::mytoolsdlg::bar_items(app, ui.ctx());
+    let my_tab = tabs.len();
     let height = match prof.layout.as_str() {
         "toolbar" => 46.0,
         "menubar" => 62.0,
@@ -1859,6 +1879,31 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                             let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 38.0), egui::Sense::hover());
                             ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
                         }
+                        for (gname, tools) in &my {
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.label(RichText::new(gname).size(10.0).color(tk.text_dim));
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 1.0;
+                                    for (id, label, tip, tex) in tools {
+                                        let r = tool_button(ui, &tk, if tex.is_some() { "" } else { "star" }, label, false, false, false)
+                                            .on_hover_text(tip);
+                                        if let Some(t) = tex {
+                                            let at = Rect::from_min_size(
+                                                Pos2::new(r.rect.left() + 4.0, r.rect.center().y - 8.0),
+                                                Vec2::splat(16.0),
+                                            );
+                                            ui.painter().image(*t, at, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                                        }
+                                        if r.clicked() {
+                                            click = Some(Click::MyTool(id.clone()));
+                                        }
+                                    }
+                                });
+                            });
+                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 38.0), egui::Sense::hover());
+                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
+                        }
                         style_picker(ui, &tk, &styles, &cur_style, &mut click);
                     });
                 });
@@ -1896,6 +1941,33 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                                     click = Some(Click::Cmd(c.cmd, lab(x)));
                                 }
                                 last_sep = false;
+                            }
+                        }) {
+                            menu_rects.push(mr.union(r.rect));
+                        }
+                    }
+                    if !my.is_empty() {
+                        let key = "mb:more".to_string();
+                        let open = bar_state.open.as_deref() == Some(key.as_str());
+                        let r = ui.add(
+                            egui::Button::new(RichText::new(crate::lang::shell("shell.input.more", &[])).color(if open {
+                                tk.text_strong
+                            } else {
+                                tk.text
+                            }))
+                            .fill(if open { tk.accent } else { tk.app_bar })
+                            .min_size(Vec2::new(0.0, 22.0)),
+                        );
+                        if r.clicked() {
+                            toggle(key.clone(), &mut click);
+                        }
+                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
+                            for (_, tools) in &my {
+                                for (id, label, _, _) in tools {
+                                    if menu_entry(ui, &tk, Some("star"), label, "").clicked() {
+                                        click = Some(Click::MyTool(id.clone()));
+                                    }
+                                }
                             }
                         }) {
                             menu_rects.push(mr.union(r.rect));
@@ -1971,6 +2043,23 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                             click = Some(Click::Tab(i));
                         }
                     }
+                    if !my.is_empty() {
+                        let on = bar_state.st.tab == my_tab;
+                        let txt = RichText::new(crate::lang::shell("shell.input.addons", &[])).size(12.0).color(if on {
+                            tk.text_strong
+                        } else {
+                            tk.text_dim
+                        });
+                        ui.add_space(4.0);
+                        let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
+                        ui.add_space(4.0);
+                        if on {
+                            ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], Stroke::new(2.0, tk.accent));
+                        }
+                        if r.clicked() {
+                            click = Some(Click::Tab(my_tab));
+                        }
+                    }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         style_picker(ui, &tk, &styles, &cur_style, &mut click);
                         for x in quick.iter().rev() {
@@ -1988,6 +2077,41 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                 let tab = tabs.get(bar_state.st.tab).or_else(|| tabs.first());
                 egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        if !my.is_empty() && bar_state.st.tab == my_tab {
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 1.0;
+                                    for (_, tools) in &my {
+                                        for (id, label, tip, tex) in tools {
+                                            let r =
+                                                tool_button(ui, &tk, if tex.is_some() { "" } else { "star" }, label, true, false, false)
+                                                    .on_hover_text(tip);
+                                            if let Some(t) = tex {
+                                                let at = Rect::from_center_size(
+                                                    Pos2::new(r.rect.center().x, r.rect.top() + 14.0),
+                                                    Vec2::splat(20.0),
+                                                );
+                                                ui.painter().image(
+                                                    *t,
+                                                    at,
+                                                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                                    Color32::WHITE,
+                                                );
+                                            }
+                                            if r.clicked() {
+                                                click = Some(Click::MyTool(id.clone()));
+                                            }
+                                        }
+                                    }
+                                });
+                                let w = ui.min_rect().width();
+                                ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(crate::lang::shell("shell.input.addons", &[])).size(10.0).color(tk.text_dim));
+                                });
+                            });
+                        }
+                        let tab = if !my.is_empty() && bar_state.st.tab == my_tab { None } else { tab };
                         for pn in tab.map_or(&[][..], |t| t.panels.as_slice()) {
                             let (pl, items) = (&pn.label, &pn.items);
                             ui.vertical(|ui| {
@@ -2051,6 +2175,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let r = match click {
         None => Ok(()),
         Some(Click::Cmd(c, l)) => press(app, c, &l),
+        Some(Click::MyTool(id)) => crate::mytoolsdlg::run(app, "mytools.run", &Params { name: Some(id), ..Default::default() }),
         Some(Click::Toggle(key)) => {
             if app.ribbon.open.as_deref() == Some(key.as_str()) {
                 app.ribbon.open = None;

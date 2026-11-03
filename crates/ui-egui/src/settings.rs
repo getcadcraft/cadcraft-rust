@@ -100,6 +100,7 @@ impl UiApp {
             "cadprops": self.cadprops.prefs_json(),
             "cadcraftInput": self.ribbon.prefs(),
             "helpCtx": self.help.saved,
+            "cadcraftMyTools": crate::mytoolsdlg::prefs(self),
         })
     }
 
@@ -126,6 +127,9 @@ impl UiApp {
         }
         // the help's reader context (help-panel.js's cadcraft.help.ctx)
         self.help.load_ctx(v.get("helpCtx").unwrap_or(&Value::Null));
+        if let Some(p) = v.get("cadcraftMyTools") {
+            crate::mytoolsdlg::load_prefs(self, p);
+        }
     }
 
     /// Show the app in a theme (the 3D model view is rebuilt in its colours).
@@ -255,6 +259,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             // the app's own section (0.5's app-settings.inc includes the build's settings.inc)
             if app.active_app() == "cadcraft" {
                 crate::cadset::section(app, ui, &mut act);
+                crate::mytoolsdlg::section(app, ui, &mut input_act);
                 crate::inputdlg::section(app, ui, &mut input_act);
             }
             ui.add_space(10.0);

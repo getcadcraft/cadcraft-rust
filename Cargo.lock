@@ -353,6 +353,7 @@ dependencies = [
 name = "cadcraft-shot"
 version = "0.0.1"
 dependencies = [
+ "cc-engine",
  "cc-io-cad",
  "cc-lang",
  "cc-recovery",
@@ -538,6 +539,7 @@ dependencies = [
  "cc-manifold",
  "cc-part",
  "cc-tools",
+ "miniz_oxide 0.8.9",
  "rayon",
  "serde_json",
  "thiserror 2.0.21",

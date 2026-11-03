@@ -830,7 +830,7 @@ impl Ops {
 
 /// A zlib stream at level 6 (what the browser's CompressionStream('deflate') writes; the bytes differ, the inflated
 /// data does not): zlib-rs, or miniz_oxide should zlib-rs refuse.
-pub(crate) fn zlib(data: &[u8]) -> Vec<u8> {
+pub fn zlib(data: &[u8]) -> Vec<u8> {
     let mut out = vec![0u8; zlib_rs::compress_bound(data.len()).saturating_add(64)];
     let cfg = zlib_rs::DeflateConfig {
         level: 6,

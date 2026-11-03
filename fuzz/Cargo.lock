@@ -291,6 +291,7 @@ dependencies = [
  "cc-manifold",
  "cc-part",
  "cc-tools",
+ "miniz_oxide 0.8.9",
  "rayon",
  "serde_json",
  "thiserror",

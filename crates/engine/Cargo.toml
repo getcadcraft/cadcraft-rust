@@ -41,6 +41,8 @@ cc-manifold.workspace = true
 cc-io-civil.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# cuix.js: a CUIx package's deflated parts, inflated with a cap (already in the lock through cc-io-cad)
+miniz_oxide = "0.8"
 # libplace.js slugify (NFKD, accents dropped)
 unicode-normalization = "0.1"
 

@@ -11,6 +11,7 @@
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot inputcases <cases.json> → CadCraft's input styles engine on each case (forks/tools/inputdiff-cadrest.mjs)
 //!   cadcraft-shot panecases <cases.json> → the split screen (panes.rs) on each case (forks/tools/panediff-cadpanes.mjs)
+//!   cadcraft-shot mytoolscases <cases.json> → My tools' data, macros and CUIx files (forks/tools/mytoolsdiff-cadpanes.mjs)
 //!   cadcraft-shot recovery <scenario.json> <out-dir> → recovery copies driven headless (recovery.rs; forks/tools/recoverdiff.mjs)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
 //!   cadcraft-shot mkactbench <file.pdf> [--runs N] → JSON timings of MarkupCraft's editing actions (M9.16–M9.18)
@@ -133,6 +134,17 @@ fn main() -> ExitCode {
             let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
             let cases: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
             let out: Vec<serde_json::Value> = cases.as_array().into_iter().flatten().map(cc_ui_egui::panes::run_case).collect();
+            println!("{}", serde_json::Value::Array(out));
+            Ok(())
+        })(),
+        Some("mytoolscases") => (|| -> Result<(), String> {
+            // My tools' data, macros and CUIx reader on a list of cases (forks/tools/mytoolsdiff-cadpanes.mjs)
+            let file = args.get(1).cloned().unwrap_or_default();
+            let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+            let cases: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
+            let mut ids = cc_engine::mytools::Ids { now_ms: 1_792_756_800_000.0, seq: 0 };
+            let out: Vec<serde_json::Value> =
+                cases.as_array().into_iter().flatten().map(|c| cc_engine::mytools::run_case(c, &mut ids)).collect();
             println!("{}", serde_json::Value::Array(out));
             Ok(())
         })(),

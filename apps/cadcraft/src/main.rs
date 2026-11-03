@@ -281,6 +281,12 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
         rfd::FileDialog::new().add_filter("CadCraft input styles", &["json", "JSON"])
     } else if kind == "library" {
         rfd::FileDialog::new().add_filter("Library items", &["json", "JSON"])
+    } else if kind == "mytools" {
+        rfd::FileDialog::new().add_filter("My tools", &["json", "JSON"])
+    } else if kind == "cuix" {
+        rfd::FileDialog::new().add_filter("CUIx", &["cuix", "CUIX"])
+    } else if kind == "icon" {
+        rfd::FileDialog::new().add_filter("Icons", &["png", "svg", "PNG", "SVG"])
     } else if kind == "lisp" {
         rfd::FileDialog::new().add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua", "LSP", "DCL"])
     } else if kind == "cloud" {
