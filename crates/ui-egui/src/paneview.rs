@@ -321,6 +321,7 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
         if q.space == app.space {
             app.edit_overlays(ui, rect, &view, p, false);
         }
+        corner_icon(app, ui, rect, &view, q.space);
     }
     cloudview::keep_slots(k as usize + 1);
     let t = app.tokens;
@@ -331,6 +332,21 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
         let stroke = if on { egui::Stroke::new(2.0, t.accent) } else { egui::Stroke::new(1.0, t.divider) };
         painter.rect_stroke(abs(full, &r), 0.0, stroke, egui::StrokeKind::Inside);
     }
+}
+
+/// Settings › CadCraft › Corner indicator: the axis icon at the bottom left of a pane showing the model (automatic or
+/// axis icon), turned with the pane's view and the UCS (view.js `drawUcs`).
+pub fn corner_icon(app: &UiApp, ui: &egui::Ui, rect: Rect, view: &View2D, space: usize) {
+    if space != 0 || !app.cadset.axis_icon_2d() {
+        return;
+    }
+    let Some(ed) = app.editor.as_ref() else { return };
+    if ed.hs.borrow().entered.is_some() {
+        return;
+    }
+    let u = cc_engine::ucs::active_ucs(&ed.eng.doc());
+    let ang = u.map_or(0.0, |u| u.ang);
+    crate::cadset::axis_icon(&ui.painter_at(rect), rect, ang + view.twist, u.is_none(), &app.tokens);
 }
 
 /// Is the press that made a pane active still going (the canvas leaves it alone: no pick, no window)? Ends with its

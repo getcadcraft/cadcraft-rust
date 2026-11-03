@@ -1214,8 +1214,9 @@ fn body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
     if ents.is_empty() {
         let edits = &mut app.cadprops.edits;
         let vb = ed.hs.borrow().view_box;
+        let ucs_icon = app.cadset.corner != "none";
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            none_selected(ui, &t, &l, &doc, vb, edits, &closed, asks);
+            none_selected(ui, &t, &l, &doc, vb, ucs_icon, edits, &closed, asks);
         });
         return;
     }
@@ -1507,6 +1508,7 @@ fn none_selected(
     l: &cc_engine::Lang,
     doc: &cc_cad::Doc,
     vb: Option<cc_cad_geom::geom::Bounds>,
+    ucs_icon: bool,
     edits: &mut std::collections::HashMap<String, String>,
     closed: &std::collections::HashSet<String>,
     asks: &mut Asks,
@@ -1710,6 +1712,13 @@ fn none_selected(
         }
     }
     if section(ui, t, closed, "misc", &l.s("props.sec.misc"), &mut asks.folds) {
+        // props.js: the UCS icon is Settings › CadCraft's corner indicator (on = automatic, off = none)
+        row(ui, t, &l.s("props.misc.ucsicon"), None, |ui, lab, _| {
+            let mut on = ucs_icon;
+            if ui.checkbox(&mut on, "").labelled_by(lab).changed() {
+                asks.run.push(("settings.set".into(), format!("cad.corner={}", if on { "auto" } else { "none" })));
+            }
+        });
         row(ui, t, &l.s("props.misc.ucs"), None, |ui, _, _| {
             ui.label(l.s("props.misc.world"));
         });

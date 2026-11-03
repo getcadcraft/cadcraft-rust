@@ -2736,11 +2736,18 @@ impl UiApp {
         };
         self.last_stats = canvas::paint(ui, rect, &frame);
         if editing {
-            if !paneview::swallowing(self, ui) {
+            // Settings › CadCraft › Corner indicator: the view cube on the Model tab takes the presses on it
+            let cube = self.space == 0 && self.cadset.corner == "cube" && !cad3dtab::showing(self);
+            let on_cube = cube && ui.input(|i| i.pointer.press_origin()).is_some_and(|p| cad3dtab::on_cube2d(full, p));
+            if !paneview::swallowing(self, ui) && !on_cube {
                 self.edit_input(ui, &resp, rect, &view, ppp);
             }
             self.edit_overlays(ui, rect, &view, ppp, true);
+            paneview::corner_icon(self, ui, rect, &view, self.space);
             paneview::end(self, ui, full);
+            if cube {
+                cad3dtab::cube2d(self, ui, full);
+            }
         }
     }
 

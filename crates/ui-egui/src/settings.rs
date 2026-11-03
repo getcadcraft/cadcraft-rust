@@ -40,7 +40,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "settings.set",
         "Settings: change one",
         "",
-        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.tabs=full|number\"} → applies at once",
+        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.corner=auto|cube|axes|none\" | \"cad.tabs=full|number\"} → applies at once",
     ),
 ];
 

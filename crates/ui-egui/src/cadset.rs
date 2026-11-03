@@ -5,7 +5,9 @@
 //! `settings.set {name: "cad.<key>=<value>"}`; kept with the other settings (`settings.json` on the desktop, the
 //! browser's storage on the web), as 0.5 keeps `cadcraft.settings` in localStorage.
 //!
-//! Not here: the corner indicator (0.5's axis icon on the Model tab, or the view cube there) and My tools.
+//! The corner indicator (`corner`): automatic (the default: the axis icon on the Model tab, the view cube on the 3D
+//! tab), the view cube, the axis icon (X/Y/Z on the 3D tab), or none — the last three in both places
+//! (cadcraft.js `applyCorner`). My tools: mytoolsdlg.rs.
 
 use egui::RichText;
 use serde_json::{Value, json};
@@ -28,6 +30,8 @@ pub struct CadSet {
     pub lasso_box: bool,
     /// sheet tabs show sheet numbers only
     pub tabs_number: bool,
+    /// the corner indicator: "auto" | "cube" | "axes" | "none"
+    pub corner: String,
     /// the lasso setting last handed to the editor (LASSOMODE changes it there)
     pushed_lasso: Option<bool>,
 }
@@ -40,6 +44,7 @@ impl Default for CadSet {
             pick_replace: false,
             lasso_box: false,
             tabs_number: false,
+            corner: "auto".into(),
             pushed_lasso: None,
         }
     }
@@ -58,6 +63,7 @@ impl CadSet {
             "pick": if self.pick_replace { "replace" } else { "add" },
             "lasso": if self.lasso_box { "box" } else { "lasso" },
             "tabs": if self.tabs_number { "number" } else { "full" },
+            "corner": self.corner,
         })
     }
     /// Read back (cadcraft.js's checks: anything else keeps the default).
@@ -69,6 +75,8 @@ impl CadSet {
         self.pick_replace = s("pick") == "replace";
         self.lasso_box = s("lasso") == "box";
         self.tabs_number = s("tabs") == "number";
+        let c = s("corner");
+        self.corner = if CORNERS.contains(&c) { c.to_string() } else { "auto".into() };
         self.pushed_lasso = None;
     }
     /// `settings.set {name: "cad.<key>=<value>"}`.
@@ -81,9 +89,21 @@ impl CadSet {
             "pick" => self.pick_replace = choose(v, "replace", "add").ok_or_else(|| bad("add, replace"))?,
             "lasso" => self.lasso_box = choose(v, "box", "lasso").ok_or_else(|| bad("lasso, box"))?,
             "tabs" => self.tabs_number = choose(v, "number", "full").ok_or_else(|| bad("full, number"))?,
-            _ => return Err(format!("settings.set: no setting cad.{key} (cursor, paste, pick, lasso, tabs)")),
+            "corner" if CORNERS.contains(&v) => self.corner = v.to_string(),
+            "corner" => return Err(bad("auto, cube, axes, none")),
+            _ => return Err(format!("settings.set: no setting cad.{key} (cursor, paste, pick, lasso, corner, tabs)")),
         }
         Ok(())
+    }
+}
+
+/// cadcraft.js's corner indicator choices.
+pub const CORNERS: [&str; 4] = ["auto", "cube", "axes", "none"];
+
+impl CadSet {
+    /// The axis icon on the Model tab (automatic or axis icon).
+    pub fn axis_icon_2d(&self) -> bool {
+        self.corner == "auto" || self.corner == "axes"
     }
 }
 
@@ -167,6 +187,14 @@ pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Option<String>) {
         if c.lasso_box { "box" } else { "lasso" },
         &[("lasso", "set.lasso.lasso"), ("box", "set.lasso.box")],
         "set.lasso.hint",
+    );
+    group(
+        ui,
+        "set.corner_indicator",
+        "corner",
+        &c.corner,
+        &[("auto", "set.automatic_axis_icon_drawing"), ("cube", "set.view_cube"), ("axes", "set.axis_icon"), ("none", "set.none")],
+        "set.automatic_shows_axis_icon",
     );
     group(
         ui,
@@ -276,9 +304,51 @@ fn number_prefix(ch: &[char]) -> Option<usize> {
     None
 }
 
+/// view.js `drawUcs`: the axis icon at the bottom left of a model pane — the UCS's X and Y as they lie on screen
+/// (turning with the view), a small square while the world UCS is the one in use, "X" and "Y" at the ends.
+/// `phi` = the UCS angle less the view's turn (radians, view.js's sign).
+pub fn axis_icon(painter: &egui::Painter, rect: egui::Rect, phi: f64, world: bool, t: &crate::theme::Tokens) {
+    let l = 34.0_f32;
+    let (s, c) = (phi.sin() as f32, phi.cos() as f32);
+    let (ux, uy, vx, vy) = (c, -s, -s, -c);
+    let x = rect.min.x + 18.0 + l * 0.0_f32.max(-ux).max(-vx);
+    let y = rect.max.y - 18.0 - l * 0.0_f32.max(uy).max(vy);
+    let o = egui::pos2(x, y);
+    let col = t.text_dim;
+    let st = egui::Stroke::new(1.5, col);
+    painter.line_segment([o, o + egui::vec2(ux * l, uy * l)], st);
+    painter.line_segment([o, o + egui::vec2(vx * l, vy * l)], st);
+    if world {
+        painter.rect_stroke(
+            egui::Rect::from_center_size(o, egui::vec2(7.0, 7.0)),
+            0.0,
+            egui::Stroke::new(1.0, col),
+            egui::StrokeKind::Middle,
+        );
+    }
+    let f = egui::FontId::proportional(11.0);
+    painter.text(o + egui::vec2(ux * (l + 8.0), uy * (l + 8.0)), egui::Align2::CENTER_CENTER, "X", f.clone(), col);
+    painter.text(o + egui::vec2(vx * (l + 8.0), vy * (l + 8.0)), egui::Align2::CENTER_CENTER, "Y", f, col);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// M4.58: the corner indicator, kept with the other settings (anything else reads back as automatic).
+    #[test]
+    fn corner_indicator_setting() {
+        let mut c = CadSet::default();
+        assert!(c.axis_icon_2d());
+        c.set("corner", "cube").unwrap();
+        assert!(!c.axis_icon_2d());
+        assert!(c.set("corner", "sideways").is_err());
+        let mut b = CadSet::default();
+        b.load(&c.json());
+        assert_eq!(b.corner, "cube");
+        b.load(&json!({ "corner": "spin" }));
+        assert_eq!(b.corner, "auto");
+    }
 
     #[test]
     fn sheet_numbers_as_sheetnum_js() {
