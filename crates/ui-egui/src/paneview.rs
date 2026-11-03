@@ -316,6 +316,7 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
             layer_handles: Some(&doc.layer_handles),
             mark: None,
             slot_base: k.saturating_mul(64),
+            grid: app.look.grid,
         };
         canvas::paint(ui, rect, &frame);
         if q.space == app.space {
@@ -329,7 +330,8 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
     for (i, q) in shown.iter().enumerate() {
         let Some(r) = q.rect else { continue };
         let on = i == active;
-        let stroke = if on { egui::Stroke::new(2.0, t.accent) } else { egui::Stroke::new(1.0, t.divider) };
+        // 0.7: the active pane's 2 px action edge, the others' 1 px line
+        let stroke = if on { egui::Stroke::new(2.0, t.accent) } else { egui::Stroke::new(1.0, t.line) };
         painter.rect_stroke(abs(full, &r), 0.0, stroke, egui::StrokeKind::Inside);
     }
 }

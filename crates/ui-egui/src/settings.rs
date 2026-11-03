@@ -1,7 +1,7 @@
 //! Settings (0.5's shell Settings dialog, app-settings.js, and Studio's): the language of every app, the theme, the
 //! panel text size. Words: the shell catalog (`shell.settings.*`) in an app, Studio's (`settings.*`) on the start
-//! screen. Every change is a command (`settings.open`, `settings.set {name: "lang=es-MX" | "theme=paper|model|system" |
-//! "zoom=1.15"}`, `settings.close`), so it works headless; the hosts keep [`Settings`] between runs
+//! screen. Every change is a command (`settings.open`, `settings.set {name: "lang=es-MX" |
+//! "theme=paper|model|system|medium-dark|medium-light|contrast" | "zoom=1.15"}`, `settings.close`), so it works headless; the hosts keep [`Settings`] between runs
 //! ([`UiApp::settings_json`] / [`UiApp::load_settings`]: `settings.json` on the desktop, the browser's storage on the
 //! web).
 
@@ -40,7 +40,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "settings.set",
         "Settings: change one",
         "",
-        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.corner=auto|cube|axes|none\" | \"cad.tabs=full|number\"} → applies at once",
+        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system|medium-dark|medium-light|contrast\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.corner=auto|cube|axes|none\" | \"cad.tabs=full|number\"} → applies at once",
     ),
 ];
 
@@ -63,8 +63,10 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     app.set_locale(l);
                 }
                 "theme" => {
-                    if !matches!(v, "model" | "paper" | "system") {
-                        return Err(format!("settings.set: theme {v} is not one of model, paper, system"));
+                    if v != "system" && Preset::from_setting(v).is_none() {
+                        return Err(format!(
+                            "settings.set: theme {v} is not one of model, paper, system, medium-dark, medium-light, contrast"
+                        ));
                     }
                     app.settings.theme = v.to_string();
                     app.apply_theme_setting(None);
@@ -109,7 +111,7 @@ impl UiApp {
         if let Some(l) = v.get("lang").and_then(Value::as_str).and_then(cc_lang::Locale::parse) {
             self.set_locale(l);
         }
-        if let Some(th) = v.get("theme").and_then(Value::as_str).filter(|s| matches!(*s, "model" | "paper" | "system")) {
+        if let Some(th) = v.get("theme").and_then(Value::as_str).filter(|s| *s == "system" || Preset::from_setting(s).is_some()) {
             self.settings.theme = th.to_string();
             self.apply_theme_setting(None);
         }
@@ -152,12 +154,16 @@ impl UiApp {
 
     /// The theme the setting asks for ("system": `dark` = the platform's, when it says).
     pub(crate) fn apply_theme_setting(&mut self, system_dark: Option<bool>) {
-        let dark = match self.settings.theme.as_str() {
-            "paper" => false,
-            "system" => system_dark.unwrap_or(self.preset == Preset::Dark),
-            _ => true,
+        let want = match self.settings.theme.as_str() {
+            "system" => {
+                if system_dark.unwrap_or(self.preset.is_dark()) {
+                    Preset::Dark
+                } else {
+                    Preset::Light
+                }
+            }
+            v => Preset::from_setting(v).unwrap_or(Preset::Dark),
         };
-        let want = if dark { Preset::Dark } else { Preset::Light };
         if want != self.preset {
             self.set_preset(want);
         }
@@ -232,6 +238,14 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     ("system", "shell.settings.theme.system"),
                 ] {
                     if ui.radio(theme_now == v, s(k)).clicked() {
+                        act = Some(format!("theme={v}"));
+                    }
+                }
+            });
+            // the three looks the Rust test version adds (CLAUDE.md's presets; plain English: 0.5 has no words for them)
+            ui.horizontal_wrapped(|ui| {
+                for (v, k) in [("medium-light", "Medium light"), ("medium-dark", "Medium dark"), ("contrast", "High contrast")] {
+                    if ui.radio(theme_now == v, k).clicked() {
                         act = Some(format!("theme={v}"));
                     }
                 }

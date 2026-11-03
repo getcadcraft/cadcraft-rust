@@ -110,6 +110,7 @@ pub mod recoverdlg;
 pub mod ribbon;
 pub mod settings;
 pub mod sheetsetdlg;
+pub mod shell;
 pub mod takeoff3d;
 pub mod takeoffedit;
 pub mod takeoffnotes;
@@ -258,6 +259,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("edit.redo", "Redo", "Ctrl+Y", "{}"),
     ("edit.osnap", "Object snap on / off", "F3", "{}"),
     ("edit.ortho", "Ortho on / off", "F8", "{}"),
+    ("edit.grid", "Grid on / off", "F7", "{} → the drafting grid (cadcraft.js toggle('grid'); the status bar's Grid)"),
     ("edit.polar", "Polar tracking on / off", "F10", "{} → points line up on multiples of the POLARANG step"),
     ("edit.lwt", "Line weights on / off", "", "{} → lines drawn as wide as their weight (LWDISPLAY; the status bar's LWT)"),
     ("file.edit", "Edit this drawing", "", "{} → imports the open DWG / DXF into an editable drawing (CadCraft's importer)"),
@@ -432,6 +434,8 @@ pub struct UiApp {
     pub panes: paneview::PaneUi,
     /// My tools: buttons of one's own, their keys and macros (mytoolsdlg.rs)
     pub mytools: mytoolsdlg::MyToolsUi,
+    /// the 0.7 shell's view state (shell.rs: the drafting grid)
+    pub look: shell::Look,
 }
 
 impl Default for UiApp {
@@ -512,6 +516,7 @@ impl Default for UiApp {
             help: help::Help::default(),
             panes: paneview::PaneUi::default(),
             mytools: mytoolsdlg::MyToolsUi::default(),
+            look: shell::Look::default(),
         }
     }
 }
@@ -816,7 +821,7 @@ impl UiApp {
         self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
-        match modelcraft::ModelView::new(model, name, self.preset == Preset::Dark) {
+        match modelcraft::ModelView::new(model, name, self.preset.is_dark()) {
             Ok(mut mv) => {
                 let mut v = view3d::View3::default();
                 self.style3(&mut v);
@@ -1087,7 +1092,7 @@ impl UiApp {
 
     /// The 3D view's colours from the theme (view3d.js's paper / model colours).
     fn style3(&self, view: &mut view3d::View3) {
-        let dark = self.preset == Preset::Dark;
+        let dark = self.preset.is_dark();
         let t = self.tokens;
         let c = t.canvas_bg;
         view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
@@ -1603,6 +1608,14 @@ impl UiApp {
                 let what = lang::cad(if id == "edit.osnap" { "app.object_snap" } else { "ui.ortho" });
                 self.message = format!("{what}: {}", lang::cad(if on { "props.f.on" } else { "opt.off" }));
             }
+            "edit.grid" => {
+                if self.editor.is_none() {
+                    return Err("edit.grid: no drawing is open for editing".into());
+                }
+                self.look.grid = !self.look.grid;
+                // cadcraft.js toggle(): the word is not in the catalog ("Grid on" / "Grid off")
+                self.message = format!("Grid {}", if self.look.grid { "on" } else { "off" });
+            }
             "edit.lwt" => {
                 let ed = self.editor.as_mut().ok_or("edit.lwt: no drawing is open for editing")?;
                 let mut h = ed.hs.borrow_mut();
@@ -1653,7 +1666,7 @@ impl UiApp {
             }
             "layer.all" => self.hidden.clear(),
             "theme.toggle" => {
-                let p = if self.preset == Preset::Dark { Preset::Light } else { Preset::Dark };
+                let p = if self.preset.is_dark() { Preset::Light } else { Preset::Dark };
                 self.settings.theme = if p == Preset::Dark { "model" } else { "paper" }.into();
                 self.set_preset(p);
             }
@@ -1948,7 +1961,7 @@ impl UiApp {
             self.fonts_done = true;
         }
         if self.theme_dirty {
-            self.tokens.apply(&ctx, self.preset == Preset::Dark);
+            self.tokens.apply(&ctx, self.preset.is_dark());
             self.theme_dirty = false;
         }
         let incoming: Vec<ImportedFile> = match &self.services.inbox {
@@ -2164,7 +2177,7 @@ impl UiApp {
                     self.error = Some(e);
                 }
                 let Some(mc) = self.mc.as_mut() else { return };
-                mc.set_dark(self.preset == Preset::Dark);
+                mc.set_dark(self.preset.is_dark());
                 egui::CentralPanel::no_frame().show(ui, |ui| {
                     let rect = ui.max_rect();
                     mc.show(ui, rect, &t);
@@ -2218,35 +2231,62 @@ impl UiApp {
 
     fn app_bar(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
+        let slug = self.active_app();
+        let app_colour = t.app(slug);
+        // 0.7's app bar: 48 px, a 1 px ink rule under it, 16 px gutters
         egui::Panel::top("app_bar")
-            .exact_size(34.0)
-            .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin::symmetric(8, 4)))
+            .exact_size(shell::APP_BAR_H)
+            .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin { left: 16, right: 16, top: 0, bottom: 0 }))
             .show(ui, |ui| {
-                // the shell's buttons (Help, Settings, Recent files) stay at the right end
+                let full = ui.max_rect();
+                ui.painter().line_segment(
+                    [egui::pos2(full.left() - 16.0, full.bottom() - 0.5), egui::pos2(full.right() + 16.0, full.bottom() - 0.5)],
+                    egui::Stroke::new(1.0, t.rule),
+                );
+                // the shell's buttons (Help, Settings, Recent files) and Paper | Model stay at the right end
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.spacing_mut().item_spacing.x = 16.0;
+                    let (paper, model) = (lang::shell("shell.bar.paper", &[]), lang::shell("shell.bar.model", &[]));
+                    if let Some(dark) = shell::space_toggle(ui, &t, &paper, &model, self.preset.is_dark()) {
+                        self.settings.theme = if dark { "model" } else { "paper" }.into();
+                        self.set_preset(if dark { Preset::Dark } else { Preset::Light });
+                    }
                     self.app_bar_shell(ui);
-                    ui.separator();
+                    ui.add_space(8.0);
                     // a narrow window scrolls the bar rather than cutting it off
                     egui::ScrollArea::horizontal()
                         .id_salt("app_bar_scroll")
                         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
                         .show(ui, |ui| {
                             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                                if ui
-                                    .button(RichText::new("CadCraft").strong().color(t.text_strong))
-                                    .on_hover_text(hub::t(self.hub.loc(), "window.hub.title"))
-                                    .clicked()
-                                {
+                                ui.spacing_mut().item_spacing.x = 12.0;
+                                // the mark, the app's swatch and name™ (Studio's on the start screen), the test chip
+                                let (mr, mresp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                                shell::mark(ui.painter(), mr, t.text_strong);
+                                let home_tip = hub::t(self.hub.loc(), "window.hub.title");
+                                let mut home = mresp.on_hover_text(home_tip.clone()).clicked();
+                                ui.add_space(4.0);
+                                let name = hub::APPS.iter().find(|a| a.0 == slug).map_or("CadCraft Studio", |a| a.1);
+                                if slug != "studio" {
+                                    ui.spacing_mut().item_spacing.x = 9.0;
+                                    shell::swatch(ui, &t, 18.0, app_colour);
+                                }
+                                home |= shell::app_name(ui, &t, name, slug != "studio").on_hover_text(home_tip).clicked();
+                                ui.spacing_mut().item_spacing.x = 16.0;
+                                // "Rust test version": a test version of CadCraft (CLAUDE.md § 15), in 0.7's area chip
+                                shell::chip(ui, "Rust test version", app_colour);
+                                if home {
                                     self.run_ui("hub.home", &Params::default());
                                 }
-                                ui.label(RichText::new("Rust test version").small().color(t.text_dim));
-                                ui.separator();
-                                if ui.button(lang::cad("input.cmd.file.open")).on_hover_text(lang::cad("ui.open_dwg_dxf_ctrl")).clicked() {
+                                if shell::bar_link(ui, &t, &lang::cad("input.cmd.file.open"), true)
+                                    .on_hover_text(lang::cad("ui.open_dwg_dxf_ctrl"))
+                                    .clicked()
+                                {
                                     self.run_ui("file.open", &Params::default());
                                 }
                                 // the apps' samples (the start screen's tiles open the same)
                                 let mut sample: Option<&str> = None;
-                                ui.menu_button(lang::t0(&cc_detail::i18n::CATALOG, "page.tool.sample"), |ui| {
+                                shell::bar_menu(ui, &t, &lang::t0(&cc_detail::i18n::CATALOG, "page.tool.sample"), |ui| {
                                     for (slug, name, _, _) in hub::APPS {
                                         if let Some(cmd) = hub::sample_command(slug)
                                             && ui.button(name).on_hover_text(hub::word(hub::loc(), slug, "short")).clicked()
@@ -2259,19 +2299,20 @@ impl UiApp {
                                 if let Some(cmd) = sample {
                                     self.run_ui(cmd, &Params::default());
                                 }
-                                if ui.button(bimtools::bt("new.button", &[])).on_hover_text(bimtools::bt("new.title", &[])).clicked() {
+                                if shell::bar_link(ui, &t, &bimtools::bt("new.button", &[]), true)
+                                    .on_hover_text(bimtools::bt("new.title", &[]))
+                                    .clicked()
+                                {
                                     self.bimh.new_dlg = Some(bimedit::NewDlg::default());
                                 }
-                                if ui
-                                    .button(lang::cad("ui.new"))
+                                if shell::bar_link(ui, &t, &lang::cad("ui.new"), true)
                                     .on_hover_text(format!("{} (Ctrl+N)", lang::cad("ui.new_drawing")))
                                     .clicked()
                                 {
                                     self.run_ui("file.new", &Params::default());
                                 }
                                 if self.editor.is_none()
-                                    && ui
-                                        .add_enabled(self.source.is_some(), egui::Button::new(lang::cad("opt.edit")))
+                                    && shell::bar_link(ui, &t, &lang::cad("opt.edit"), self.source.is_some())
                                         .on_hover_text(lang::cad("input.grp.edit"))
                                         .clicked()
                                 {
@@ -2279,7 +2320,7 @@ impl UiApp {
                                 }
                                 if self.mc.is_some() {
                                     let mut pick: Option<&str> = None;
-                                    ui.menu_button(lang::mc("ui.export"), |ui| {
+                                    shell::bar_menu(ui, &t, &lang::mc("ui.export"), |ui| {
                                         for (f, label, _) in cc_m3d_files::EXPORT_FORMATS {
                                             if ui.button(*label).clicked() {
                                                 pick = Some(f);
@@ -2287,7 +2328,6 @@ impl UiApp {
                                             }
                                         }
                                     })
-                                    .response
                                     .on_hover_text(lang::mc("ui.export.title"));
                                     if let Some(f) = pick {
                                         self.run_ui("file.export", &Params { name: Some(f.into()), ..Default::default() });
@@ -2295,7 +2335,7 @@ impl UiApp {
                                 }
                                 if self.editor.is_some() {
                                     let mut pick: Option<&str> = None;
-                                    ui.menu_button(lang::cad("ui.save_as"), |ui| {
+                                    shell::bar_menu(ui, &t, &lang::cad("ui.save_as"), |ui| {
                                         for f in cc_io_cad::SAVE_FORMATS {
                                             let label = match *f {
                                                 "dxf2000" => "DXF 2000".to_string(),
@@ -2308,32 +2348,27 @@ impl UiApp {
                                             }
                                         }
                                     })
-                                    .response
                                     .on_hover_text(format!("{} (Ctrl+S)", lang::cad("ui.save_as")));
                                     if let Some(f) = pick {
                                         self.run_ui("file.save", &Params { name: Some(f.to_string()), ..Default::default() });
                                     }
                                 }
-                                if ui
-                                    .add_enabled(
-                                        self.doc.is_some()
-                                            || self.scene3.is_some()
-                                            || self.mc.is_some()
-                                            || self.pdf.is_some()
-                                            || self.civil.is_some()
-                                            || self.part.is_some(),
-                                        egui::Button::new(lang::bim("dwg.tab.fit")),
-                                    )
+                                let any_open = self.doc.is_some()
+                                    || self.scene3.is_some()
+                                    || self.mc.is_some()
+                                    || self.pdf.is_some()
+                                    || self.civil.is_some()
+                                    || self.part.is_some();
+                                if shell::bar_link(ui, &t, &lang::bim("dwg.tab.fit"), any_open)
                                     .on_hover_text(lang::bim("dwg.tab.fit.title"))
                                     .clicked()
                                 {
                                     self.run_ui("view.fit", &Params::default());
                                 }
                                 if self.scene3.is_some() || self.mc.is_some() {
-                                    ui.separator();
+                                    ui.spacing_mut().item_spacing.x = 10.0;
                                     for name in ["iso", "top", "front", "right", "back", "left"] {
-                                        if ui
-                                            .button(lang::mc(&format!("ui.views.{name}")))
+                                        if shell::bar_link(ui, &t, &lang::mc(&format!("ui.views.{name}")), true)
                                             .on_hover_text(lang::mc("ui.views.title"))
                                             .clicked()
                                         {
@@ -2344,7 +2379,9 @@ impl UiApp {
                                         .scene3
                                         .as_ref()
                                         .map_or_else(|| self.mc.as_ref().is_some_and(|m| m.tools.host.cam.persp), |(_, v)| v.cam.persp);
-                                    if ui.button(lang::cad(if persp { "ui.parallel" } else { "ui.perspective" })).clicked() {
+                                    if shell::bar_link(ui, &t, &lang::cad(if persp { "ui.parallel" } else { "ui.perspective" }), true)
+                                        .clicked()
+                                    {
                                         self.run_ui("view.projection", &Params::default());
                                     }
                                     let st = self.mc.as_ref().map(|m| m.style).or_else(|| self.scene3.as_ref().map(|(_, v)| v.style));
@@ -2379,17 +2416,13 @@ impl UiApp {
                                         }
                                     }
                                 }
-                                if ui.add_enabled(self.doc.is_some(), egui::Button::new(lang::cad("ui.layers"))).clicked() {
+                                ui.spacing_mut().item_spacing.x = 16.0;
+                                if shell::bar_link(ui, &t, &lang::cad("ui.layers"), self.doc.is_some()).clicked() {
                                     self.show_layers = !self.show_layers;
-                                }
-                                let next = if self.preset == Preset::Dark { "shell.bar.paper" } else { "shell.bar.model" };
-                                if ui.button(lang::shell(next, &[])).on_hover_text(lang::shell(&format!("{next}.title"), &[])).clicked() {
-                                    self.run_ui("theme.toggle", &Params::default());
                                 }
                                 self.app_bar_more(ui);
                                 if let Some(d) = &self.doc {
-                                    ui.separator();
-                                    ui.label(RichText::new(&d.name).color(t.text));
+                                    ui.label(RichText::new(&d.name).font(theme::semi(15.0)).color(t.text));
                                     let rel = if d.drawing.release.is_empty() {
                                         d.drawing.version.clone()
                                     } else {
@@ -2439,18 +2472,23 @@ impl UiApp {
     /// Help, Settings and Recent files (laid out right to left at the bar's right end).
     fn app_bar_shell(&mut self, ui: &mut egui::Ui) {
         let mut act: Option<(&str, Params)> = None;
-        if ui
-            .selectable_label(self.help.open, lang::cad("input.cmd.app.help"))
+        let t = self.tokens;
+        // laid out right to left: Settings, Help, Recent files (0.7's bordered app-bar buttons)
+        if shell::bar_button(ui, &t, "gear", &lang::shell("shell.bar.settings", &[]), self.settings.open)
+            .on_hover_text(settings::title(self))
+            .clicked()
+        {
+            act = Some(("settings.open", Params::default()));
+        }
+        if shell::bar_button(ui, &t, "question-circle", &lang::cad("input.cmd.app.help"), self.help.open)
             .on_hover_text(lang::shell("shell.bar.help.title", &[("key", "F1".into())]))
             .clicked()
         {
             act = Some(("help.toggle", Params::default()));
         }
-        if ui.button(lang::shell("shell.bar.settings", &[])).on_hover_text(settings::title(self)).clicked() {
-            act = Some(("settings.open", Params::default()));
-        }
         let recent = self.hub.recent.clone();
-        ui.menu_button(lang::shell("shell.recent.title", &[]), |ui| {
+        let rb = shell::bar_button(ui, &t, "clock-history", &lang::shell("shell.recent.title", &[]), false);
+        egui::Popup::menu(&rb).show(|ui| {
             if recent.is_empty() {
                 ui.label(hub::t(hub::loc(), "recent.empty"));
             }
@@ -2476,35 +2514,78 @@ impl UiApp {
         }
     }
 
+    /// The status bar (0.7 `.cc-status`: 32 px, a 1 px line over it): the pointer's coordinates or the error, the last
+    /// message, and while editing the drafting aids as 0.7's toggles (Grid, Ortho, Polar, Snap, Track, Dyn, LWT, QP).
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
+        let aids: Vec<(String, String, &'static str, bool)> = match self.editor.as_ref() {
+            Some(ed) => {
+                let lwt = ed.hs.borrow().lwt;
+                let st = |k: &str| lang::cad(k);
+                vec![
+                    (st("ui.grid"), st("ui.grid_f7"), "toggle:grid", self.look.grid),
+                    (st("ui.ortho"), st("input.cmd.aids.ortho"), "toggle:ortho", ed.ortho),
+                    (st("status.polar"), st("status.polar.title"), "toggle:polar", ed.polar),
+                    (st("ui.snap"), st("app.object_snap"), "toggle:osnap", ed.osnap),
+                    (st("status.otrack"), st("status.otrack.title"), "toggle:otrack", false),
+                    (st("status.dyn"), st("status.dyn.title"), "toggle:dyn", false),
+                    (st("status.lwt"), st("status.lwt.title"), "toggle:lwt", lwt),
+                    (st("status.qp"), st("status.qp.title"), "qp", self.cadprops.quick),
+                ]
+            }
+            None => Vec::new(),
+        };
+        let mut press: Option<(&'static str, String)> = None;
         egui::Panel::bottom("status")
-            .exact_size(24.0)
-            .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin::symmetric(8, 3)))
+            .exact_size(shell::STATUS_H)
+            .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin { left: 16, right: 16, top: 0, bottom: 0 }))
             .show(ui, |ui| {
+                let full = ui.max_rect();
+                ui.painter().line_segment(
+                    [egui::pos2(full.left() - 16.0, full.top() + 0.5), egui::pos2(full.right() + 16.0, full.top() + 0.5)],
+                    egui::Stroke::new(1.0, t.line),
+                );
                 ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 16.0;
+                    let coord = theme::semi(13.0);
                     if let Some(e) = &self.error {
-                        ui.label(RichText::new(e).color(Color32::from_rgb(0xe0, 0x6c, 0x5c)));
+                        ui.label(RichText::new(e).font(coord).color(t.layers[0]));
                     } else if let Some((x, y)) = self.cursor.filter(|_| viewer::active(self)) {
-                        ui.label(RichText::new(viewer::coords(x, y)).monospace().color(t.text));
+                        ui.label(RichText::new(viewer::coords(x, y)).font(coord).color(t.text));
                     } else if let Some((x, y)) = self.cursor {
-                        ui.label(RichText::new(format!("{x:.4}, {y:.4}")).monospace().color(t.text));
+                        ui.label(RichText::new(format!("{x:.4}, {y:.4}")).font(coord).color(t.text));
+                    } else if self.editor.is_some() {
+                        ui.label(RichText::new("0, 0").font(coord).color(t.text));
                     } else {
-                        ui.label(RichText::new(lang::cad("ui.drop_dwg_dxf_open")).color(t.text_dim));
+                        ui.label(RichText::new(lang::cad("ui.drop_dwg_dxf_open")).font(coord).color(t.text_dim));
                     }
-                    ui.separator();
-                    ui.label(RichText::new(&self.message).small().color(t.text_dim));
+                    ui.label(RichText::new(&self.message).size(13.0).color(t.text_dim));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
                         ui.label(
                             RichText::new(format!("UI {:.1} ms · {} texts", self.frame_ms, self.last_stats.texts))
-                                .small()
-                                .color(t.text_dim),
+                                .size(11.0)
+                                .color(t.text_disabled),
                         );
+                        ui.add_space(8.0);
+                        for (label, tip, cmd, on) in aids.iter().rev() {
+                            if shell::toggle(ui, &t, label, *on).on_hover_text(tip).clicked() {
+                                press = Some((cmd, label.clone()));
+                            }
+                        }
                     });
                 });
             });
+        match press {
+            Some(("qp", _)) => self.run_ui("props.quick", &Params::default()),
+            Some((cmd, label)) => ribbon::press_pub(self, cmd, &label),
+            None => {}
+        }
     }
 
+    /// The left dock panel, as 0.7's "Layers and drawing" (cadcraft.css `.cc-left`): the grip, then the Layers
+    /// section (the current layer's dot, each layer's swatch and name, its eye), and while editing Blocks and Sheet
+    /// set; the Drawing section's facts last.
     fn layers_panel(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
         let Some(doc) = &self.doc else { return };
@@ -2520,37 +2601,207 @@ impl UiApp {
                 (l.name.clone(), c)
             })
             .collect();
-        let mut toggle: Option<String> = None;
-        let mut all = false;
-        egui::Panel::left("layers").default_size(220.0).resizable(true).frame(egui::Frame::new().fill(t.panel).inner_margin(6)).show(
+        let mut layers = layers;
+        // cadcraft.js renderLayers: by name, numbers in number order
+        layers.sort_by(|a, b| natural_cmp(&a.0, &b.0));
+        let editing = self.editor.is_some();
+        let current = self.editor.as_ref().map(|ed| ed.eng.doc().current.layer.clone());
+        // cadcraft.js renderBlocks / renderInfo: the named blocks (with their uses) and the drawing's facts
+        let mut blocks: Vec<(String, usize)> = Vec::new();
+        let facts: Vec<(String, String)> = match self.editor.as_ref() {
+            Some(ed) => {
+                let d = ed.eng.doc();
+                let mut names: Vec<String> = d.blocks.keys().filter(|k| !k.starts_with('*')).cloned().collect();
+                names.sort_by(|a, b| natural_cmp(a, b));
+                blocks = names
+                    .into_iter()
+                    .map(|n| {
+                        let u = d.block_uses(&n);
+                        (n, u)
+                    })
+                    .collect();
+                let m = |k: &str| d.meta.get(k).and_then(serde_json::Value::as_str).filter(|v| !v.is_empty()).map(str::to_string);
+                let dirty = d.version != d.saved_version;
+                let mut rows = vec![
+                    (
+                        lang::cad("app.info.file"),
+                        format!(
+                            "{}{}",
+                            m("name").unwrap_or_default(),
+                            if dirty { format!(" {}", lang::cad("app.info.changed")) } else { String::new() }
+                        ),
+                    ),
+                    (
+                        lang::cad("app.info.format"),
+                        // the importer keeps no format word yet: the opened file's kind stands in for it
+                        m("format")
+                            .or_else(|| self.source.as_ref().and_then(|f| f.name.rsplit_once('.').map(|(_, e)| e.to_uppercase())))
+                            .unwrap_or_else(|| lang::cad("app.new_drawing")),
+                    ),
+                    (lang::cad("app.info.units"), m("units").unwrap_or_else(|| lang::cad("app.info.unitless"))),
+                    (lang::cad(if d.layout().is_some() { "app.on_this_sheet" } else { "app.info.objects" }), d.count().to_string()),
+                    (lang::cad("app.info.layers"), d.layers.len().to_string()),
+                ];
+                if !blocks.is_empty() {
+                    rows.push((lang::cad("app.info.blocks"), blocks.len().to_string()));
+                }
+                if !d.layouts.is_empty() {
+                    rows.push((lang::cad("app.info.sheets"), d.layouts.len().to_string()));
+                }
+                rows
+            }
+            None => {
+                let d = &doc.drawing;
+                let format = if d.release.is_empty() && d.version.is_empty() {
+                    lang::cad("app.new_drawing")
+                } else if d.release.is_empty() {
+                    d.version.clone()
+                } else {
+                    lang::t(lang::BIMCRAFT, "dwg.format.release", &[("release", d.release.clone()), ("tag", d.version.clone())])
+                };
+                let units = if d.units.is_empty() { lang::cad("app.info.unitless") } else { d.units.clone() };
+                vec![
+                    (lang::cad("app.info.file"), doc.name.clone()),
+                    (lang::cad("app.info.format"), format),
+                    (lang::cad("app.info.units"), units),
+                    (lang::cad("app.info.objects"), d.stats.entities.to_string()),
+                    (lang::cad("app.info.layers"), d.layers.len().to_string()),
+                ]
+            }
+        };
+        let app_c = t.app(self.active_app());
+        let mut act: Option<(&str, Params)> = None;
+        egui::Panel::left("layers").default_size(248.0).size_range(180.0..=420.0).resizable(true).frame(shell::panel_frame(&t)).show(
             ui,
             |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("{} ({})", lang::cad("ui.layers"), layers.len())).strong().color(t.text_strong));
-                    if ui.small_button(lang::cad("opt.showall")).clicked() {
-                        all = true;
-                    }
-                });
-                ui.separator();
+                if shell::grip(ui, &t, app_c, &lang::cad("ui.layers_drawing"), false) == shell::GripAct::Close {
+                    act = Some(("layers.close", Params::default()));
+                }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                    for (name, c) in &layers {
-                        let mut on = !self.hidden.contains(name);
-                        ui.horizontal(|ui| {
-                            let (r, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
-                            ui.painter().rect_filled(r, 1.0, *c);
-                            if ui.checkbox(&mut on, RichText::new(name).color(t.text)).changed() {
-                                toggle = Some(name.clone());
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    shell::section_frame().show(ui, |ui| {
+                        shell::section_head(ui, &t, &lang::cad("ui.layers"), |ui| {
+                            if shell::link(ui, &t, "", &lang::cad("opt.showall")).clicked() {
+                                act = Some(("layer.all", Params::default()));
+                            }
+                        });
+                        for (name, c) in &layers {
+                            let on = !self.hidden.contains(name);
+                            let cur = current.as_deref() == Some(name.as_str());
+                            ui.horizontal(|ui| {
+                                ui.set_min_height(32.0);
+                                ui.spacing_mut().item_spacing.x = 8.0;
+                                if editing {
+                                    let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                                    if cur {
+                                        ui.painter().circle_filled(r.center(), 5.5, t.text_strong);
+                                    } else {
+                                        ui.painter().circle_stroke(r.center(), 5.0, egui::Stroke::new(1.0, t.line));
+                                    }
+                                }
+                                shell::swatch(ui, &t, 16.0, *c);
+                                let font = if cur { theme::bold(14.0) } else { egui::FontId::proportional(14.0) };
+                                let ink = if on { t.text } else { t.text_disabled };
+                                ui.label(RichText::new(name).font(font).color(ink));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    let (r, resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                                    if resp.hovered() {
+                                        ui.painter().rect(r, 2.0, t.hover, egui::Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
+                                    }
+                                    ribbon::paint_icon(
+                                        ui.painter(),
+                                        egui::Rect::from_center_size(r.center(), egui::vec2(15.0, 15.0)),
+                                        if on { "eye" } else { "eye-slash" },
+                                        t.text_dim,
+                                    );
+                                    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                        act = Some(("layer.toggle", Params { name: Some(name.clone()), ..Default::default() }));
+                                    }
+                                });
+                            });
+                        }
+                        if editing {
+                            shell::note(ui, &t, &lang::cad("ui.filled_dot_current_layer"));
+                        }
+                    });
+                    if editing {
+                        shell::section_rule(ui, &t);
+                        shell::section_frame().show(ui, |ui| {
+                            shell::section_head(ui, &t, &lang::cad("ui.blocks"), |ui| {
+                                if shell::link(ui, &t, "", &lang::cad("ui.library_2")).clicked() {
+                                    act = Some(("lib.open", Params::default()));
+                                }
+                            });
+                            if blocks.is_empty() {
+                                let note = format!(
+                                    "{} {} {} B {}",
+                                    lang::cad("ui.no_blocks_yet_select"),
+                                    lang::cad("ui.make"),
+                                    lang::cad("ui.or_type"),
+                                    lang::cad("ui.turn_them_into_block")
+                                );
+                                shell::note(ui, &t, &note);
+                            } else {
+                                for (name, uses) in blocks.iter().take(300) {
+                                    ui.horizontal(|ui| {
+                                        ui.set_min_height(26.0);
+                                        ui.add(egui::Label::new(RichText::new(name).size(14.0).color(t.text)).truncate());
+                                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                            // the JS's own word for the button ("Insert", not in its catalog)
+                                            if shell::link(ui, &t, "", "Insert").clicked() {
+                                                act = Some(("block.insert", Params { name: Some(name.clone()), ..Default::default() }));
+                                            }
+                                            ui.label(RichText::new(format!("{uses}×")).size(14.0).color(t.text_dim));
+                                        });
+                                    });
+                                }
+                                if blocks.len() > 300 {
+                                    shell::note(
+                                        ui,
+                                        &t,
+                                        &lang::t(&lang::CADCRAFT, "app.blocks.more", &[("count", (blocks.len() - 300).to_string())]),
+                                    );
+                                }
+                            }
+                        });
+                        shell::section_rule(ui, &t);
+                        shell::section_frame().show(ui, |ui| {
+                            shell::section_head(ui, &t, &lang::cad("sheetset.h"), |ui| {
+                                if shell::link(ui, &t, "", &lang::cad("sheetset.menu")).clicked() {
+                                    act = Some(("ss.show", Params::default()));
+                                }
+                            });
+                            if self.sheetset.set.is_none() {
+                                shell::note(ui, &t, &lang::cad("sheetset.empty"));
                             }
                         });
                     }
+                    shell::section_rule(ui, &t);
+                    shell::section_frame().show(ui, |ui| {
+                        shell::section_head(ui, &t, &lang::cad("ui.drawing"), |_| {});
+                        egui::Grid::new("cc-dl").num_columns(2).spacing(egui::vec2(12.0, 4.0)).show(ui, |ui| {
+                            for (k, v) in &facts {
+                                shell::note(ui, &t, k);
+                                ui.label(RichText::new(v).size(14.0).color(t.text));
+                                ui.end_row();
+                            }
+                        });
+                    });
                 });
             },
         );
-        if all {
-            self.run_ui("layer.all", &Params::default());
-        }
-        if let Some(n) = toggle {
-            self.run_ui("layer.toggle", &Params { name: Some(n), ..Default::default() });
+        if let Some((id, p)) = act {
+            if id == "layers.close" {
+                self.show_layers = false;
+            } else if id == "block.insert" {
+                // cadcraft.js renderBlocks: INSERT, then the block's name answers its first question
+                self.run_ui("cmd.line", &Params { name: Some("INSERT".into()), ..Default::default() });
+                if let Some(n) = p.name {
+                    self.run_ui("cmd.line", &Params { name: Some(n), ..Default::default() });
+                }
+            } else {
+                self.run_ui(id, &p);
+            }
         }
     }
 
@@ -2601,15 +2852,22 @@ impl UiApp {
         let mut open3d = false;
         let mut extra_act: Option<&'static str> = None;
         let in3d = cad3dtab::showing(self) || extra.iter().any(|e| e.selected);
+        // 0.7 `.cc-tabs`: 30 px under the drawing, a 1 px line over it; the open tab on the sheet with a 2 px action rule
         egui::Panel::bottom("tabs")
-            .exact_size(26.0)
-            .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(6, 3)))
+            .exact_size(30.0)
+            .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin { left: 8, right: 8, top: 1, bottom: 0 }))
             .show(ui, |ui| {
+                let full = ui.max_rect();
+                ui.painter().line_segment(
+                    [egui::pos2(full.left() - 8.0, full.top() - 0.5), egui::pos2(full.right() + 8.0, full.top() - 0.5)],
+                    egui::Stroke::new(1.0, t.line),
+                );
                 egui::ScrollArea::horizontal().show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 0.0;
                         for (i, (n, paper)) in names.iter().enumerate() {
                             let label = numbers.get(i).cloned().flatten().unwrap_or_else(|| n.clone());
-                            let mut r = ui.selectable_label(i == self.space && !in3d, label);
+                            let mut r = shell::tab(ui, &t, &label, i == self.space && !in3d);
                             if *paper && editing {
                                 r = r.on_hover_text(crate::edit::lang_text("app.tab.sheet", &[("name", n.clone())]));
                             }
@@ -2619,8 +2877,7 @@ impl UiApp {
                             // cadcraft.js renderTabs: Model, 3D, then the sheets
                             if i == 0
                                 && editing
-                                && ui
-                                    .selectable_label(in3d, "3D")
+                                && shell::tab(ui, &t, "3D", in3d)
                                     .on_hover_text(crate::edit::lang_text("app.model_3d_drawing_ground", &[]))
                                     .clicked()
                             {
@@ -2628,12 +2885,15 @@ impl UiApp {
                             }
                         }
                         for e in &extra {
-                            if ui.selectable_label(e.selected, &e.label).on_hover_text(&e.title).clicked() {
+                            if shell::tab(ui, &t, &e.label, e.selected).on_hover_text(&e.title).clicked() {
                                 extra_act = Some(e.cmd);
                             }
                         }
                         // cadcraft.js's "+" tab: a new sheet (LAYOUT)
-                        if editing && ui.small_button("+").on_hover_text(crate::edit::lang_text("ui.new_sheet_layout_title", &[])).clicked()
+                        if editing
+                            && shell::tab(ui, &t, "+", false)
+                                .on_hover_text(crate::edit::lang_text("ui.new_sheet_layout_title", &[]))
+                                .clicked()
                         {
                             add = true;
                         }
@@ -2757,6 +3017,7 @@ impl UiApp {
             layer_handles: Some(&doc.layer_handles),
             mark: self.viewer.mark.filter(|m| m.0 == self.space).map(|m| (m.1, m.2)),
             slot_base: 0,
+            grid: editing && self.look.grid,
         };
         self.last_stats = canvas::paint(ui, rect, &frame);
         if editing {
@@ -2769,10 +3030,66 @@ impl UiApp {
             self.edit_overlays(ui, rect, &view, ppp, true);
             paneview::corner_icon(self, ui, rect, &view, self.space);
             paneview::end(self, ui, full);
+            self.start_hint(ui.ctx(), rect);
             if cube {
                 cad3dtab::cube2d(self, ui, full);
             }
         }
+    }
+
+    /// 0.5's "Start drawing" card (ui.inc `[data-hint]`) over a new, empty drawing, until a command runs or the
+    /// drawing has objects (cadcraft.js `hideHint`).
+    fn start_hint(&mut self, ctx: &egui::Context, rect: egui::Rect) {
+        let Some(ed) = self.editor.as_ref() else { return };
+        if !self.look.hint_gone && (ed.eng.running().is_some() || ed.eng.doc().count() > 0) {
+            self.look.hint_gone = true;
+        }
+        if self.look.hint_gone || cad3dtab::showing(self) {
+            return;
+        }
+        use shell::Frag::{Kbd, Strong, Text};
+        let c = |k: &str| Text(lang::cad(k));
+        let items = vec![
+            vec![
+                c("ui.type"),
+                Kbd("L"),
+                c("ui.and_press"),
+                Kbd("Enter"),
+                c("ui.line_click_points_type"),
+                Kbd("@100,0"),
+                c("ui.press"),
+                Kbd("Enter"),
+                c("ui.to_finish"),
+            ],
+            vec![
+                Kbd("C"),
+                c("ui.circle_2"),
+                Kbd("REC"),
+                c("ui.rectangle_2"),
+                Kbd("TR"),
+                c("ui.trim_2"),
+                Kbd("O"),
+                c("ui.offset_type"),
+                Kbd("HELP"),
+                c("ui.every_command"),
+            ],
+            vec![c("ui.wheel_zoom_drag_wheel"), Kbd("Enter"), Text(".".into())],
+            vec![
+                Kbd("DLI"),
+                c("ui.dimensions"),
+                Kbd("B"),
+                c("ui.makes_block"),
+                Strong("+"),
+                c("ui.under_drawing_makes_sheet"),
+                Kbd("Ctrl"),
+                Text("+".into()),
+                Kbd("P"),
+                c("ui.plots_pdf"),
+            ],
+            vec![c("ui.drop_dwg_dxf_here")],
+        ];
+        let max_w = (rect.width() - 32.0).clamp(200.0, 512.0);
+        shell::hint_card(ctx, &self.tokens, rect.min + egui::vec2(16.0, 16.0), max_w, &lang::cad("ui.start_drawing"), &items);
     }
 
     /// Drafting input on the canvas (cadcraft.js rules, see [`edit::Editor`]).
@@ -2995,20 +3312,39 @@ impl UiApp {
         let enter = ctx.input(|i| i.key_pressed(egui::Key::Enter));
         let mut submit = false;
         let mut cmd_id: Option<egui::Id> = None;
+        // 0.7 `.cc-cmd`: 114 px under a 1 px ink rule; the history (13 px, ink-2), then the command line over a 1 px
+        // grid rule: the prompt in 14 px bold, the field in 15 px semibold over a 1 px action underline
         egui::Panel::bottom("cmdline")
-            .exact_size(96.0)
-            .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin::symmetric(8, 4)))
+            .exact_size(114.0)
+            .frame(egui::Frame::new().fill(t.panel).inner_margin(egui::Margin { left: 16, right: 16, top: 5, bottom: 0 }))
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 2.0;
-                let log: Vec<String> = ed.hs.borrow().log.iter().rev().take(3).rev().cloned().collect();
-                for _ in log.len()..3 {
-                    ui.label(RichText::new(" ").small());
-                }
-                for l in &log {
-                    ui.label(RichText::new(l).small().monospace().color(t.text_dim));
-                }
+                let full = ui.max_rect();
+                let p = ui.painter();
+                p.line_segment(
+                    [egui::pos2(full.left() - 16.0, full.top() - 4.5), egui::pos2(full.right() + 16.0, full.top() - 4.5)],
+                    egui::Stroke::new(1.0, t.rule),
+                );
+                p.line_segment(
+                    [egui::pos2(full.left() - 16.0, full.bottom() - 39.5), egui::pos2(full.right() + 16.0, full.bottom() - 39.5)],
+                    egui::Stroke::new(1.0, t.divider),
+                );
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let log: Vec<String> = ed.hs.borrow().log.iter().rev().take(4).rev().cloned().collect();
+                ui.allocate_ui(egui::vec2(full.width(), 69.0), |ui| {
+                    ui.set_min_height(69.0);
+                    for l in &log {
+                        ui.add(egui::Label::new(RichText::new(l).size(13.0).color(t.text_dim)).truncate());
+                    }
+                });
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    let lab = ui.label(RichText::new(ed.prompt()).monospace().color(t.text_strong));
+                    ui.set_min_height(36.0);
+                    let lab = ui.label(RichText::new(ed.prompt()).font(theme::bold(14.0)).color(t.text_strong));
+                    let under = egui::Rect::from_min_max(
+                        egui::pos2(lab.rect.right() + 8.0, lab.rect.center().y + 12.0),
+                        egui::pos2(full.right(), lab.rect.center().y + 13.0),
+                    );
+                    ui.painter().rect_filled(under, 0.0, t.accent);
                     // the field keeps the focus on Enter (no return key: Enter is read above). A text field lets go
                     // of the focus on Enter, and on the web the keys typed in the next frame were lost with it
                     let id = ui.make_persistent_id("cmdline.input");
@@ -3019,7 +3355,7 @@ impl UiApp {
                     let te = egui::TextEdit::singleline(&mut ed.line)
                         .id(id)
                         .return_key(None)
-                        .font(egui::TextStyle::Monospace)
+                        .font(theme::semi(15.0))
                         .desired_width(f32::INFINITY)
                         .frame(egui::Frame::NONE);
                     let r = ui.add(te).labelled_by(lab.id);
@@ -3053,6 +3389,9 @@ impl UiApp {
             && self.caddlg.qs.is_none()
             && self.caddlg.find.is_none()
             && !self.plot.open;
+        if ctx.input(|i| i.key_pressed(egui::Key::F7)) {
+            self.run_ui("edit.grid", &Params::default());
+        }
         let (esc, del, undo, redo, f3, f8) = ctx.input(|i| {
             (
                 i.key_pressed(egui::Key::Escape),
@@ -3117,6 +3456,43 @@ pub struct Params {
     pub factor: Option<f64>,
     pub index: Option<usize>,
     pub name: Option<String>,
+}
+
+/// Names in the order `localeCompare(…, {numeric: true})` gives: runs of digits compare as numbers, the rest without
+/// regard to case.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (mut x, mut y) = (a.chars().peekable(), b.chars().peekable());
+    loop {
+        match (x.peek().copied(), y.peek().copied()) {
+            (None, None) => return a.cmp(b),
+            (None, Some(_)) => return std::cmp::Ordering::Less,
+            (Some(_), None) => return std::cmp::Ordering::Greater,
+            (Some(p), Some(q)) if p.is_ascii_digit() && q.is_ascii_digit() => {
+                let take = |it: &mut std::iter::Peekable<std::str::Chars<'_>>| {
+                    let mut s = String::new();
+                    while let Some(c) = it.peek().copied().filter(char::is_ascii_digit) {
+                        s.push(c);
+                        it.next();
+                    }
+                    s
+                };
+                let (n, m) = (take(&mut x), take(&mut y));
+                let (n0, m0) = (n.trim_start_matches('0'), m.trim_start_matches('0'));
+                let o = n0.len().cmp(&m0.len()).then_with(|| n0.cmp(m0));
+                if o != std::cmp::Ordering::Equal {
+                    return o;
+                }
+            }
+            (Some(p), Some(q)) => {
+                let o = p.to_lowercase().cmp(q.to_lowercase());
+                if o != std::cmp::Ordering::Equal {
+                    return o;
+                }
+                x.next();
+                y.next();
+            }
+        }
+    }
 }
 
 /// Hand the picked files to the command waiting for them (XATTACH / XREF Reload read the drawing as the page does).

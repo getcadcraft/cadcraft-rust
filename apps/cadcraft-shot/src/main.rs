@@ -1,6 +1,6 @@
 //! cadcraft-shot: drive the real UI headless (egui_kittest on wgpu; lavapipe works) and write PNGs or time frames.
 //!
-//!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark] [--zoom F]
+//!   cadcraft-shot <file.dwg|.dxf|--sample> <out.png> [--size 1600x1000] [--space N] [--theme light|dark|medium-dark|medium-light|contrast] [--zoom F]
 //!       <file> may be --hub: CadCraft Studio's start screen (nothing open), --new: an empty editable drawing, --model: the sample 3D model, --part: PartCraft's sample part; then any number of --cmd "TEXT" (typed at the command line,
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
 //!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --seed-recovery N (copies of N drawings a crashed window left: the dialog opens), --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
@@ -87,7 +87,15 @@ fn harness<'a>(app: UiApp, w: f32, h: f32) -> egui_kittest::Harness<'a, UiApp> {
         // shots render users' files: a character no bundled font has draws as a box, as in the app
         .allow_missing_glyphs()
         .renderer(renderer)
-        .build_ui_state(|ui, app: &mut UiApp| app.ui(ui), app)
+        // the whole window, as the desktop and web hosts give it (the harness's own 8 px test margin left out)
+        .build_ui_state(
+            |ui, app: &mut UiApp| {
+                let full = ui.ctx().content_rect();
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(full));
+                app.ui(&mut child);
+            },
+            app,
+        )
 }
 
 fn egui_wgpu_options() -> egui_wgpu::RendererOptions {
@@ -174,8 +182,11 @@ fn shot(args: &[String]) -> Result<(), String> {
         app.recovery.clock = Some(now);
     }
     app.services.recovery = Some(cc_recovery::memory_on(std::rc::Rc::clone(&store)));
-    if arg(args, "--theme").as_deref() == Some("light") {
-        app.run("theme.toggle", &Params::default())?;
+    match arg(args, "--theme").as_deref() {
+        Some("light") => app.run("theme.toggle", &Params::default())?,
+        // the other looks by their Settings name (medium-dark, medium-light, contrast)
+        Some(v) if v != "dark" => app.run("settings.set", &Params { name: Some(format!("theme={v}")), ..Default::default() })?,
+        _ => {}
     }
     // --folder: folders can be listed (the drawing viewer walks the drawing's folder, `viewer.folder` opens one)
     if args.iter().any(|a| a == "--folder") {

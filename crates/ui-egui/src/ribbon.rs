@@ -1000,6 +1000,7 @@ pub fn action(cmd: &'static str) -> Act {
         "toggle:ortho" => Act::Ui("edit.ortho", None),
         "toggle:polar" => Act::Ui("edit.polar", None),
         "toggle:lwt" => Act::Ui("edit.lwt", None),
+        "toggle:grid" => Act::Ui("edit.grid", None),
         "tab:1" => Act::Ui("space.select", Some(0)),
         // the shell's Settings and help (settings.rs, help.rs)
         "app:settings" => Act::Ui("settings.open", None),
@@ -1030,6 +1031,13 @@ fn press(app: &mut UiApp, cmd: &'static str, label: &str) -> Result<(), String> 
             app.message = crate::lang::shell("shell.input.cant", &[("cmd", label.to_string()), ("why", why)]);
             Ok(())
         }
+    }
+}
+
+/// [`press`] for the shell (the status bar's toggles): a refusal goes to the status line.
+pub fn press_pub(app: &mut UiApp, cmd: &'static str, label: &str) {
+    if let Err(e) = press(app, cmd, label) {
+        app.error = Some(e);
     }
 }
 
@@ -1417,20 +1425,6 @@ pub fn paint_icon(painter: &egui::Painter, r: Rect, name: &str, color: Color32) 
             p.rect(5.0, 9.0, 15.0, 17.0);
             p.arc(10.0, 9.0, 3.5, 0.0, 180.0);
         }
-        // (a picture drawn over the button instead)
-        "" => {}
-        "star" => p.closed(&[
-            (10.0, 2.5),
-            (12.2, 7.4),
-            (17.5, 7.9),
-            (13.5, 11.4),
-            (14.7, 16.6),
-            (10.0, 13.9),
-            (5.3, 16.6),
-            (6.5, 11.4),
-            (2.5, 7.9),
-            (7.8, 7.4),
-        ]),
         "three-dots" => {
             for x in [5.0, 10.0, 15.0] {
                 p.dot(x, 10.0, 1.4);
@@ -1614,8 +1608,114 @@ pub fn paint_icon(painter: &egui::Painter, r: Rect, name: &str, color: Color32) 
             p.closed(&[(3.0, 16.0), (6.0, 9.0), (18.0, 9.0), (15.0, 16.0)]);
         }
         "gear" => {
-            p.circle(10.0, 10.0, 5.0);
-            p.circle(10.0, 10.0, 2.0);
+            // eight teeth round a ring (0.7's gear)
+            for i in 0..8 {
+                let a = (i as f32 * 45.0).to_radians();
+                let (c, s) = (a.cos(), a.sin());
+                p.line(&[(10.0 + 5.2 * c, 10.0 + 5.2 * s), (10.0 + 7.6 * c, 10.0 + 7.6 * s)]);
+            }
+            p.circle(10.0, 10.0, 5.2);
+            p.circle(10.0, 10.0, 2.2);
+        }
+        "x-lg" => {
+            p.line(&[(4.0, 4.0), (16.0, 16.0)]);
+            p.line(&[(16.0, 4.0), (4.0, 16.0)]);
+        }
+        "pin-angle" => {
+            p.closed(&[(11.0, 3.0), (17.0, 9.0), (15.0, 10.0), (11.5, 13.5), (11.5, 16.0), (4.0, 8.5), (6.5, 8.5), (10.0, 5.0)]);
+            p.line(&[(7.5, 12.5), (3.0, 17.0)]);
+        }
+        "clock-history" => {
+            p.arc(10.0, 10.0, 7.0, -60.0, 250.0);
+            p.line(&[(10.0, 5.5), (10.0, 10.0), (13.5, 12.0)]);
+        }
+        "cloud-arrow-down" => {
+            p.arc(7.0, 11.0, 3.5, 90.0, 270.0);
+            p.arc(11.0, 9.0, 5.0, 10.0, 160.0);
+            p.arc(15.0, 12.5, 2.5, -90.0, 80.0);
+            p.line(&[(7.0, 15.0), (15.0, 15.0)]);
+            p.line(&[(10.5, 9.0), (10.5, 13.0)]);
+            p.line(&[(8.8, 11.4), (10.5, 13.0), (12.2, 11.4)]);
+        }
+        "fullscreen" => {
+            for (x, y, dx, dy) in [(3.0, 3.0, 1.0, 1.0), (17.0, 3.0, -1.0, 1.0), (3.0, 17.0, 1.0, -1.0), (17.0, 17.0, -1.0, -1.0)] {
+                p.line(&[(x, y + 4.0 * dy), (x, y), (x + 4.0 * dx, y)]);
+            }
+        }
+        "house" => {
+            p.line(&[(2.5, 10.0), (10.0, 3.0), (17.5, 10.0)]);
+            p.line(&[(5.0, 8.0), (5.0, 17.0), (15.0, 17.0), (15.0, 8.0)]);
+        }
+        "plus" => {
+            p.line(&[(10.0, 4.0), (10.0, 16.0)]);
+            p.line(&[(4.0, 10.0), (16.0, 10.0)]);
+        }
+        "play-fill" => p.fill(&[(5.0, 3.5), (16.0, 10.0), (5.0, 16.5)]),
+        "bar-chart-steps" => {
+            for (i, y) in [4.0_f32, 8.0, 12.0, 16.0].iter().enumerate() {
+                let x = 3.0 + i as f32 * 3.5;
+                p.line(&[(x, *y), (x + 6.0, *y)]);
+            }
+            p.line(&[(3.0, 2.5), (3.0, 17.5), (17.5, 17.5)]);
+        }
+        "cursor" => p.closed(&[(4.0, 3.0), (16.0, 9.0), (10.5, 10.5), (8.5, 16.5)]),
+        "hand-index-thumb" => {
+            p.line(&[(8.0, 11.0), (8.0, 3.5), (10.0, 3.5), (10.0, 9.0)]);
+            p.line(&[(10.0, 8.0), (12.5, 8.0), (12.5, 9.5)]);
+            p.line(&[(12.5, 9.0), (15.0, 9.0), (15.0, 13.0), (13.0, 17.0), (8.0, 17.0), (4.5, 12.0), (5.5, 11.0), (8.0, 12.5)]);
+        }
+        "pencil" | "highlighter" => {
+            p.closed(&[(13.5, 3.0), (17.0, 6.5), (7.0, 16.5), (3.0, 17.0), (3.5, 13.0)]);
+            p.line(&[(11.5, 5.0), (15.0, 8.5)]);
+            if name == "highlighter" {
+                p.line(&[(2.0, 18.5), (9.0, 18.5)]);
+            }
+        }
+        "activity" => p.line(&[(2.0, 10.0), (6.0, 10.0), (8.0, 4.0), (12.0, 16.0), (14.0, 10.0), (18.0, 10.0)]),
+        "pentagon" => p.closed(&[(10.0, 3.0), (17.0, 8.0), (14.5, 16.5), (5.5, 16.5), (3.0, 8.0)]),
+        "chat-left-text" => {
+            p.closed(&[(3.0, 4.0), (17.0, 4.0), (17.0, 14.0), (7.0, 14.0), (3.0, 17.5)]);
+            p.line(&[(6.0, 7.5), (14.0, 7.5)]);
+            p.line(&[(6.0, 10.5), (11.0, 10.5)]);
+        }
+        "sticky" => {
+            p.closed(&[(3.0, 3.0), (17.0, 3.0), (17.0, 12.0), (12.0, 17.0), (3.0, 17.0)]);
+            p.line(&[(12.0, 17.0), (12.0, 12.0), (17.0, 12.0)]);
+        }
+        "patch-check" => {
+            p.circle(10.0, 10.0, 7.0);
+            p.line(&[(6.5, 10.0), (9.0, 12.5), (13.5, 7.5)]);
+        }
+        "hash" => {
+            p.line(&[(8.0, 3.0), (6.5, 17.0)]);
+            p.line(&[(13.5, 3.0), (12.0, 17.0)]);
+            p.line(&[(4.0, 7.5), (16.5, 7.5)]);
+            p.line(&[(3.5, 12.5), (16.0, 12.5)]);
+        }
+        "arrow-90deg-up" => {
+            p.line(&[(16.0, 16.0), (8.0, 16.0), (8.0, 4.0)]);
+            p.line(&[(4.5, 7.5), (8.0, 4.0), (11.5, 7.5)]);
+        }
+        // (a picture drawn over the button instead)
+        "" => {}
+        "star" => p.closed(&[
+            (10.0, 2.5),
+            (12.2, 7.4),
+            (17.5, 7.9),
+            (13.5, 11.4),
+            (14.7, 16.6),
+            (10.0, 13.9),
+            (5.3, 16.6),
+            (6.5, 11.4),
+            (2.5, 7.9),
+            (7.8, 7.4),
+        ]),
+        "grid-dots" => {
+            for y in [4.0, 10.0, 16.0] {
+                for x in [4.0, 10.0, 16.0] {
+                    p.dot(x, y, 1.0);
+                }
+            }
         }
         "question-circle" => {
             p.circle(10.0, 10.0, 7.0);
@@ -1701,29 +1801,99 @@ fn tool_button(
     resp
 }
 
-/// A menu entry (label, key on the right).
+use crate::shell::{TB_GAP, TB_GROUP_H, TB_PAD_X, tool_width as tool_w};
+
+/// Where each toolbar group goes: its top-left (relative to the bar), its width, its buttons' widths.
+pub struct TbGroup {
+    pub pos: Pos2,
+    pub width: f32,
+    pub tools: Vec<f32>,
+    pub more: Option<f32>,
+}
+
+/// The toolbar laid out in `width`: groups left to right, wrapping to a new row when the next does not fit.
+pub struct TbLayout {
+    pub groups: Vec<TbGroup>,
+    /// My tools' groups after the app's own (their buttons' widths)
+    pub my: Vec<TbGroup>,
+    pub picker: Pos2,
+    pub height: f32,
+}
+
+pub fn toolbar_layout(ui: &egui::Ui, width: f32, my_labels: &[Vec<String>]) -> TbLayout {
+    let mut groups = Vec::new();
+    let (mut x, mut y) = (0.0_f32, 0.0_f32);
+    let place = |w: f32, x: &mut f32, y: &mut f32| {
+        if *x > 0.0 && *x + w > width {
+            *x = 0.0;
+            *y += TB_GROUP_H;
+        }
+        let at = Pos2::new(*x, *y);
+        *x += w;
+        at
+    };
+    for g in TOOLBAR {
+        let tools: Vec<f32> = g.tools.iter().map(|(_, _, lk, _)| tool_w(ui, &lang_text(lk, &[]))).collect();
+        let more = if !g.more.is_empty() {
+            Some(tool_w(ui, &lang_text("toolbar.more", &[])))
+        } else {
+            g.menu.map(|(ml, ..)| tool_w(ui, &lang_text(ml, &[])))
+        };
+        let n = tools.len() + usize::from(more.is_some());
+        let inner: f32 = tools.iter().sum::<f32>() + more.unwrap_or(0.0) + TB_GAP * n.saturating_sub(1) as f32;
+        let w = (2.0 * TB_PAD_X + inner + 1.0).ceil();
+        let pos = place(w, &mut x, &mut y);
+        groups.push(TbGroup { pos, width: w, tools, more });
+    }
+    let mut my = Vec::new();
+    for labels in my_labels {
+        let tools: Vec<f32> = labels.iter().map(|l| tool_w(ui, l)).collect();
+        let inner: f32 = tools.iter().sum::<f32>() + TB_GAP * tools.len().saturating_sub(1) as f32;
+        let w = (2.0 * TB_PAD_X + inner + 1.0).ceil();
+        let pos = place(w, &mut x, &mut y);
+        my.push(TbGroup { pos, width: w, tools, more: None });
+    }
+    let picker = place(150.0, &mut x, &mut y) + Vec2::new(8.0, 0.0);
+    TbLayout { groups, my, picker, height: y + TB_GROUP_H + 1.5 }
+}
+
+/// One 0.7 toolbar button in `r` (shell.rs [`crate::shell::tool_button`]).
+#[allow(clippy::too_many_arguments)]
+fn tool07(
+    ui: &mut egui::Ui,
+    tk: &crate::theme::Tokens,
+    r: Rect,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    icon: &str,
+    label: &str,
+    app: Color32,
+    pressed: bool,
+) -> egui::Response {
+    let id = ui.make_persistent_id(id);
+    crate::shell::tool_button(ui, tk, r, id, icon, label, app, pressed, true)
+}
+
+/// A menu entry (label, key on the right): 0.7's `.cc-menu-list button` (238 × 34, 14 px; the key in a 12 px cap).
 fn menu_entry(ui: &mut egui::Ui, tk: &crate::theme::Tokens, icon: Option<&str>, label: &str, key: &str) -> egui::Response {
-    let w = 240.0;
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 22.0), egui::Sense::click());
+    let w = 238.0;
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, 34.0), egui::Sense::click());
     if resp.hovered() {
-        ui.painter().rect_filled(rect, f32::from(tk.radius), tk.row_selected);
+        ui.painter().rect_filled(rect, f32::from(tk.radius), tk.panel_darker);
     }
-    let ink = if resp.hovered() { tk.text_strong } else { tk.text };
-    let mut x = rect.left() + 6.0;
+    let ink = tk.text;
+    let mut x = rect.left() + 12.0;
     if let Some(i) = icon {
-        paint_icon(ui.painter(), Rect::from_min_size(Pos2::new(x, rect.center().y - 7.0), Vec2::splat(14.0)), i, ink);
-        x += 20.0;
+        paint_icon(ui.painter(), Rect::from_min_size(Pos2::new(x, rect.center().y - 8.0), Vec2::splat(16.0)), i, ink);
+        x += 24.0;
     }
-    let font = egui::FontId::proportional(12.0);
-    ui.painter().text(Pos2::new(x, rect.center().y), egui::Align2::LEFT_CENTER, label, font, ink);
+    ui.painter().text(Pos2::new(x, rect.center().y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(14.0), ink);
     if !key.is_empty() {
-        ui.painter().text(
-            Pos2::new(rect.right() - 6.0, rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            key,
-            egui::FontId::monospace(10.5),
-            tk.text_dim,
+        let g = ui.painter().layout_no_wrap(key.to_string(), egui::FontId::proportional(12.0), tk.text_dim);
+        let kr = Rect::from_min_size(
+            Pos2::new(rect.right() - 12.0 - g.size().x - 2.0, rect.center().y - 9.5),
+            Vec2::new(g.size().x + 2.0, 19.0),
         );
+        ui.painter().galley(Pos2::new(kr.left() + 1.0, kr.center().y - g.size().y / 2.0), g, tk.text_dim);
     }
     resp
 }
@@ -1731,12 +1901,12 @@ fn menu_entry(ui: &mut egui::Ui, tk: &crate::theme::Tokens, icon: Option<&str>, 
 /// What the person clicked in the bar this frame.
 enum Click {
     Cmd(&'static str, String),
-    /// a My tools button (its id)
-    MyTool(String),
     Toggle(String),
     Tab(usize),
     Style(String),
     SaveAs(&'static str),
+    /// a My tools button (its id)
+    MyTool(String),
 }
 
 /// Show a popup menu under `anchor` when `key` is open.
@@ -1748,19 +1918,21 @@ fn popup(ui: &egui::Ui, bar: &Bar, key: &str, anchor: Rect, tk: &crate::theme::T
         .fixed_pos(anchor.left_bottom() + Vec2::new(0.0, 2.0))
         .order(egui::Order::Foreground)
         .show(ui.ctx(), |ui| {
-            egui::Frame::new().fill(tk.panel).stroke(Stroke::new(1.0, tk.divider)).corner_radius(tk.radius).inner_margin(4).show(
-                ui,
-                |ui| {
+            egui::Frame::new()
+                .fill(tk.panel)
+                .stroke(Stroke::new(1.0, tk.rule))
+                .corner_radius(tk.radius)
+                .inner_margin(egui::Margin::symmetric(1, 4))
+                .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 1.0;
                     add(ui);
-                },
-            );
+                });
         });
     Some(r.response.rect)
 }
 
 fn sep(ui: &mut egui::Ui, tk: &crate::theme::Tokens) {
-    let (r, _) = ui.allocate_exact_size(Vec2::new(240.0, 7.0), egui::Sense::hover());
+    let (r, _) = ui.allocate_exact_size(Vec2::new(238.0, 9.0), egui::Sense::hover());
     ui.painter()
         .line_segment([Pos2::new(r.left() + 4.0, r.center().y), Pos2::new(r.right() - 4.0, r.center().y)], Stroke::new(1.0, tk.divider));
 }
@@ -1792,106 +1964,286 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let toggle = |key: String, click: &mut Option<Click>| {
         *click = Some(Click::Toggle(key));
     };
+    let app_c = tk.app(app.active_app());
     // My tools (mytoolsdlg.rs): groups of buttons of one's own, after the app's own (each with its PNG icon, if any)
     let my = crate::mytoolsdlg::bar_items(app, ui.ctx());
     let my_tab = tabs.len();
+    let my_labels: Vec<Vec<String>> = my.iter().map(|(_, tools)| tools.iter().map(|t| t.1.clone()).collect()).collect();
+    let tb_layout = toolbar_layout(ui, ui.available_width(), &my_labels);
     let height = match prof.layout.as_str() {
-        "toolbar" => 46.0,
+        "toolbar" => tb_layout.height,
         "menubar" => 62.0,
         _ => 116.0,
     };
-    egui::Panel::top("cc_inbar")
-        .exact_size(height)
-        .frame(egui::Frame::new().fill(tk.app_bar).inner_margin(egui::Margin::symmetric(6, 2)))
-        .show(ui, |ui| {
-            if prof.layout == "toolbar" {
-                egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 1.0;
-                        for g in TOOLBAR {
-                            let gl = group_label(g.key);
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                ui.label(RichText::new(&gl).size(10.0).color(tk.text_dim));
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 1.0;
-                                    for (cmd, icon, lk, tk2) in g.tools {
-                                        let r = tool_button(ui, &tk, icon, &lang_text(lk, &[]), false, false, pressed(cmd))
-                                            .on_hover_text(lang_text(tk2, &[]));
-                                        if r.clicked() {
-                                            click = Some(Click::Cmd(cmd, lang_text(lk, &[])));
-                                        }
-                                    }
-                                    if !g.more.is_empty() {
-                                        let key = format!("more:{}", g.key);
-                                        let r = tool_button(
-                                            ui,
-                                            &tk,
-                                            "three-dots",
-                                            &lang_text("toolbar.more", &[]),
-                                            false,
-                                            false,
-                                            bar_state.open.as_deref() == Some(&key),
-                                        )
-                                        .on_hover_text(lang_text("toolbar.more.title", &[("group", gl.clone())]));
-                                        if r.clicked() {
-                                            toggle(key.clone(), &mut click);
-                                        }
-                                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
-                                            for (cmd, lk, kk) in g.more {
-                                                if menu_entry(ui, &tk, None, &lang_text(lk, &[]), kk).clicked() {
-                                                    click = Some(Click::Cmd(cmd, lang_text(lk, &[])));
-                                                }
-                                            }
-                                        }) {
-                                            menu_rects.push(mr.union(r.rect));
-                                        }
-                                    }
-                                    if let Some((ml, mt, _list, items)) = g.menu {
-                                        let key = format!("menu:{}", g.key);
-                                        let r = tool_button(
-                                            ui,
-                                            &tk,
-                                            "three-dots",
-                                            &lang_text(ml, &[]),
-                                            false,
-                                            false,
-                                            bar_state.open.as_deref() == Some(&key),
-                                        )
-                                        .on_hover_text(lang_text(mt, &[]));
-                                        if r.clicked() {
-                                            toggle(key.clone(), &mut click);
-                                        }
-                                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
-                                            for (cmd, lk, kk) in items {
-                                                if *cmd == "-" {
-                                                    sep(ui, &tk);
-                                                } else if menu_entry(ui, &tk, None, &lang_text(lk, &[]), kk).clicked() {
-                                                    click = Some(Click::Cmd(cmd, lang_text(lk, &[])));
-                                                }
-                                            }
-                                        }) {
-                                            menu_rects.push(mr.union(r.rect));
-                                        }
-                                    }
-                                });
-                            });
-                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 38.0), egui::Sense::hover());
-                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
+    let margin = if prof.layout == "toolbar" { egui::Margin::ZERO } else { egui::Margin::symmetric(6, 2) };
+    egui::Panel::top("cc_inbar").exact_size(height).frame(egui::Frame::new().fill(tk.app_bar).inner_margin(margin)).show(ui, |ui| {
+        // 0.7: a 1.5 px ink rule under the bar
+        let full = ui.max_rect().expand2(Vec2::new(6.0, 2.0));
+        ui.painter().line_segment(
+            [Pos2::new(full.left(), full.bottom() - 0.75), Pos2::new(full.right(), full.bottom() - 0.75)],
+            Stroke::new(1.5, tk.rule),
+        );
+        if prof.layout == "toolbar" {
+            // 0.7's toolbar: the groups wrap onto as many rows as the window needs (cadcraft.css `.cc-tools`)
+            let base = ui.max_rect().min;
+            for (gi, (g, at)) in TOOLBAR.iter().zip(&tb_layout.groups).enumerate() {
+                let gl = group_label(g.key);
+                let gr = Rect::from_min_size(base + at.pos.to_vec2(), Vec2::new(at.width, TB_GROUP_H));
+                let p = ui.painter();
+                p.text(gr.min + Vec2::new(TB_PAD_X + 3.2, 5.0), egui::Align2::LEFT_TOP, &gl, crate::theme::semi(12.0), tk.text_dim);
+                p.line_segment(
+                    [Pos2::new(gr.right() - 0.5, gr.top()), Pos2::new(gr.right() - 0.5, gr.bottom())],
+                    Stroke::new(1.0, tk.line),
+                );
+                let mut x = gr.left() + TB_PAD_X;
+                let y = gr.top() + 26.0;
+                for ((cmd, icon, lk, tk2), w) in g.tools.iter().zip(&at.tools) {
+                    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(*w, 48.0));
+                    x += w + TB_GAP;
+                    let label = lang_text(lk, &[]);
+                    let resp =
+                        tool07(ui, &tk, r, ("cc-tool", gi, *cmd), icon, &label, app_c, pressed(cmd)).on_hover_text(lang_text(tk2, &[]));
+                    if resp.clicked() {
+                        click = Some(Click::Cmd(cmd, label));
+                    }
+                }
+                // the group's More (or the Edit / Parametric menu): three dots over the word
+                let more = if !g.more.is_empty() {
+                    Some((
+                        format!("more:{}", g.key),
+                        lang_text("toolbar.more", &[]),
+                        lang_text("toolbar.more.title", &[("group", gl.clone())]),
+                        g.more,
+                    ))
+                } else {
+                    g.menu.map(|(ml, mt, _list, items)| (format!("menu:{}", g.key), lang_text(ml, &[]), lang_text(mt, &[]), items))
+                };
+                if let (Some((key, ml, mt, items)), Some(w)) = (more, at.more) {
+                    let r = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 48.0));
+                    let open = bar_state.open.as_deref() == Some(key.as_str());
+                    let resp = tool07(ui, &tk, r, ("cc-more", gi, 0), "three-dots", &ml, app_c, open).on_hover_text(mt);
+                    if resp.clicked() {
+                        toggle(key.clone(), &mut click);
+                    }
+                    if let Some(mr) = popup(ui, &bar_state, &key, resp.rect, &tk, |ui| {
+                        for (cmd, lk, kk) in items {
+                            if *cmd == "-" {
+                                sep(ui, &tk);
+                            } else if menu_entry(ui, &tk, None, &lang_text(lk, &[]), kk).clicked() {
+                                click = Some(Click::Cmd(cmd, lang_text(lk, &[])));
+                            }
                         }
-                        for (gname, tools) in &my {
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                ui.label(RichText::new(gname).size(10.0).color(tk.text_dim));
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 1.0;
+                    }) {
+                        menu_rects.push(mr.union(resp.rect));
+                    }
+                }
+            }
+            // My tools' groups, drawn as the app's own (their picture, or a star, in the icon's place)
+            for (gi, ((gname, tools), at)) in my.iter().zip(&tb_layout.my).enumerate() {
+                let gr = Rect::from_min_size(base + at.pos.to_vec2(), Vec2::new(at.width, TB_GROUP_H));
+                let p = ui.painter();
+                p.text(gr.min + Vec2::new(TB_PAD_X + 3.2, 5.0), egui::Align2::LEFT_TOP, gname, crate::theme::semi(12.0), tk.text_dim);
+                p.line_segment(
+                    [Pos2::new(gr.right() - 0.5, gr.top()), Pos2::new(gr.right() - 0.5, gr.bottom())],
+                    Stroke::new(1.0, tk.line),
+                );
+                let mut x = gr.left() + TB_PAD_X;
+                for ((id, label, tip, tex), w) in tools.iter().zip(&at.tools) {
+                    let r = Rect::from_min_size(Pos2::new(x, gr.top() + 26.0), Vec2::new(*w, 48.0));
+                    x += w + TB_GAP;
+                    let resp = tool07(ui, &tk, r, ("cc-my", gi, id.as_str()), if tex.is_some() { "" } else { "star" }, label, app_c, false)
+                        .on_hover_text(tip);
+                    if let Some(t) = tex {
+                        let at = Rect::from_min_size(Pos2::new(r.center().x - 9.0, r.top() + 5.0), Vec2::splat(18.0));
+                        ui.painter().image(*t, at, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
+                    }
+                    if resp.clicked() {
+                        click = Some(Click::MyTool(id.clone()));
+                    }
+                }
+            }
+            // the style chooser after the last group (0.5 keeps it in Settings › Menus, keys and mouse; there too)
+            let sr = Rect::from_min_size(base + tb_layout.picker.to_vec2(), Vec2::new(140.0, TB_GROUP_H));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(sr).layout(egui::Layout::left_to_right(egui::Align::Center)), |ui| {
+                style_picker(ui, &tk, &styles, &cur_style, &mut click);
+            });
+        } else if prof.layout == "menubar" {
+            // a menu bar (a person's own style): the menus, then the quick row
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                for (mi, m) in menus.iter().enumerate() {
+                    let key = format!("mb:{mi}");
+                    let open = bar_state.open.as_deref() == Some(key.as_str());
+                    let r = ui.add(
+                        egui::Button::new(RichText::new(crate::inputdlg::tx(&m.label)).color(if open { tk.text_strong } else { tk.text }))
+                            .fill(if open { tk.accent } else { tk.app_bar })
+                            .min_size(Vec2::new(0.0, 22.0)),
+                    );
+                    if r.clicked() {
+                        toggle(key.clone(), &mut click);
+                    }
+                    if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
+                        let mut last_sep = true;
+                        for x in &m.items {
+                            if x == "-" {
+                                if !last_sep {
+                                    sep(ui, &tk);
+                                    last_sep = true;
+                                }
+                                continue;
+                            }
+                            let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
+                            if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
+                                click = Some(Click::Cmd(c.cmd, lab(x)));
+                            }
+                            last_sep = false;
+                        }
+                    }) {
+                        menu_rects.push(mr.union(r.rect));
+                    }
+                }
+                if !my.is_empty() {
+                    let key = "mb:more".to_string();
+                    let open = bar_state.open.as_deref() == Some(key.as_str());
+                    let r = ui.add(
+                        egui::Button::new(RichText::new(crate::lang::shell("shell.input.more", &[])).color(if open {
+                            tk.text_strong
+                        } else {
+                            tk.text
+                        }))
+                        .fill(if open { tk.accent } else { tk.app_bar })
+                        .min_size(Vec2::new(0.0, 22.0)),
+                    );
+                    if r.clicked() {
+                        toggle(key.clone(), &mut click);
+                    }
+                    if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
+                        for (_, tools) in &my {
+                            for (id, label, _, _) in tools {
+                                if menu_entry(ui, &tk, Some("star"), label, "").clicked() {
+                                    click = Some(Click::MyTool(id.clone()));
+                                }
+                            }
+                        }
+                    }) {
+                        menu_rects.push(mr.union(r.rect));
+                    }
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    style_picker(ui, &tk, &styles, &cur_style, &mut click);
+                });
+            });
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 1.0;
+                for x in &quickbar {
+                    if x == "-" {
+                        let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 24.0), egui::Sense::hover());
+                        ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
+                        continue;
+                    }
+                    let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
+                    let k = key_of(x);
+                    let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
+                    let r = tool_button(ui, &tk, c.icon, "", false, true, pressed(c.cmd)).on_hover_text(tip);
+                    if r.clicked() {
+                        click = Some(Click::Cmd(c.cmd, lab(x)));
+                    }
+                }
+            });
+        } else {
+            // head: File menu · tabs · quick buttons (on the right)
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                if let Some(fm) = menus.first() {
+                    let items = &fm.items;
+                    let open = bar_state.open.as_deref() == Some("file");
+                    let txt = RichText::new(crate::inputdlg::tx(&fm.label)).strong().color(if open { tk.text_strong } else { tk.text });
+                    let r =
+                        ui.add(egui::Button::new(txt).fill(if open { tk.accent } else { tk.panel_darker }).min_size(Vec2::new(48.0, 22.0)));
+                    if r.clicked() {
+                        toggle("file".into(), &mut click);
+                    }
+                    if let Some(mr) = popup(ui, &bar_state, "file", r.rect, &tk, |ui| {
+                        let mut last_sep = true;
+                        for x in items {
+                            if x == "-" {
+                                if !last_sep {
+                                    sep(ui, &tk);
+                                    last_sep = true;
+                                }
+                                continue;
+                            }
+                            let Some(c) = cmd(x) else { continue };
+                            if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
+                                click = Some(Click::Cmd(c.cmd, lab(x)));
+                            }
+                            last_sep = false;
+                        }
+                    }) {
+                        menu_rects.push(mr.union(r.rect));
+                    }
+                }
+                ui.add_space(6.0);
+                for (i, tb) in tabs.iter().enumerate() {
+                    let on = i == bar_state.st.tab;
+                    let txt = RichText::new(crate::inputdlg::tx(&tb.label)).size(12.0).color(if on { tk.text_strong } else { tk.text_dim });
+                    ui.add_space(4.0);
+                    let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
+                    ui.add_space(4.0);
+                    if on {
+                        ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], Stroke::new(2.0, tk.accent));
+                    }
+                    if r.clicked() {
+                        click = Some(Click::Tab(i));
+                    }
+                }
+                if !my.is_empty() {
+                    let on = bar_state.st.tab == my_tab;
+                    let txt = RichText::new(crate::lang::shell("shell.input.addons", &[])).size(12.0).color(if on {
+                        tk.text_strong
+                    } else {
+                        tk.text_dim
+                    });
+                    ui.add_space(4.0);
+                    let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
+                    ui.add_space(4.0);
+                    if on {
+                        ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], Stroke::new(2.0, tk.accent));
+                    }
+                    if r.clicked() {
+                        click = Some(Click::Tab(my_tab));
+                    }
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    style_picker(ui, &tk, &styles, &cur_style, &mut click);
+                    for x in quick.iter().rev() {
+                        let Some(c) = cmd(x) else { continue };
+                        let k = key_of(x);
+                        let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
+                        let r = tool_button(ui, &tk, c.icon, "", false, true, false).on_hover_text(tip);
+                        if r.clicked() {
+                            click = Some(Click::Cmd(c.cmd, lab(x)));
+                        }
+                    }
+                });
+            });
+            // body: the open tab's panels
+            let tab = tabs.get(bar_state.st.tab).or_else(|| tabs.first());
+            egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if !my.is_empty() && bar_state.st.tab == my_tab {
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 1.0;
+                                for (_, tools) in &my {
                                     for (id, label, tip, tex) in tools {
-                                        let r = tool_button(ui, &tk, if tex.is_some() { "" } else { "star" }, label, false, false, false)
+                                        let r = tool_button(ui, &tk, if tex.is_some() { "" } else { "star" }, label, true, false, false)
                                             .on_hover_text(tip);
                                         if let Some(t) = tex {
-                                            let at = Rect::from_min_size(
-                                                Pos2::new(r.rect.left() + 4.0, r.rect.center().y - 8.0),
-                                                Vec2::splat(16.0),
+                                            let at = Rect::from_center_size(
+                                                Pos2::new(r.rect.center().x, r.rect.top() + 14.0),
+                                                Vec2::splat(20.0),
                                             );
                                             ui.painter().image(*t, at, Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::WHITE);
                                         }
@@ -1899,249 +2251,45 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                                             click = Some(Click::MyTool(id.clone()));
                                         }
                                     }
-                                });
+                                }
                             });
-                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 38.0), egui::Sense::hover());
-                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
-                        }
-                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
-                    });
-                });
-            } else if prof.layout == "menubar" {
-                // a menu bar (a person's own style): the menus, then the quick row
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for (mi, m) in menus.iter().enumerate() {
-                        let key = format!("mb:{mi}");
-                        let open = bar_state.open.as_deref() == Some(key.as_str());
-                        let r = ui.add(
-                            egui::Button::new(RichText::new(crate::inputdlg::tx(&m.label)).color(if open {
-                                tk.text_strong
-                            } else {
-                                tk.text
-                            }))
-                            .fill(if open { tk.accent } else { tk.app_bar })
-                            .min_size(Vec2::new(0.0, 22.0)),
-                        );
-                        if r.clicked() {
-                            toggle(key.clone(), &mut click);
-                        }
-                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
-                            let mut last_sep = true;
-                            for x in &m.items {
-                                if x == "-" {
-                                    if !last_sep {
-                                        sep(ui, &tk);
-                                        last_sep = true;
-                                    }
-                                    continue;
-                                }
-                                let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
-                                if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
-                                    click = Some(Click::Cmd(c.cmd, lab(x)));
-                                }
-                                last_sep = false;
-                            }
-                        }) {
-                            menu_rects.push(mr.union(r.rect));
-                        }
-                    }
-                    if !my.is_empty() {
-                        let key = "mb:more".to_string();
-                        let open = bar_state.open.as_deref() == Some(key.as_str());
-                        let r = ui.add(
-                            egui::Button::new(RichText::new(crate::lang::shell("shell.input.more", &[])).color(if open {
-                                tk.text_strong
-                            } else {
-                                tk.text
-                            }))
-                            .fill(if open { tk.accent } else { tk.app_bar })
-                            .min_size(Vec2::new(0.0, 22.0)),
-                        );
-                        if r.clicked() {
-                            toggle(key.clone(), &mut click);
-                        }
-                        if let Some(mr) = popup(ui, &bar_state, &key, r.rect, &tk, |ui| {
-                            for (_, tools) in &my {
-                                for (id, label, _, _) in tools {
-                                    if menu_entry(ui, &tk, Some("star"), label, "").clicked() {
-                                        click = Some(Click::MyTool(id.clone()));
-                                    }
-                                }
-                            }
-                        }) {
-                            menu_rects.push(mr.union(r.rect));
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
-                    });
-                });
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 1.0;
-                    for x in &quickbar {
-                        if x == "-" {
-                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 24.0), egui::Sense::hover());
-                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
-                            continue;
-                        }
-                        let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
-                        let k = key_of(x);
-                        let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
-                        let r = tool_button(ui, &tk, c.icon, "", false, true, pressed(c.cmd)).on_hover_text(tip);
-                        if r.clicked() {
-                            click = Some(Click::Cmd(c.cmd, lab(x)));
-                        }
-                    }
-                });
-            } else {
-                // head: File menu · tabs · quick buttons (on the right)
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if let Some(fm) = menus.first() {
-                        let items = &fm.items;
-                        let open = bar_state.open.as_deref() == Some("file");
-                        let txt = RichText::new(crate::inputdlg::tx(&fm.label)).strong().color(if open { tk.text_strong } else { tk.text });
-                        let r = ui.add(
-                            egui::Button::new(txt).fill(if open { tk.accent } else { tk.panel_darker }).min_size(Vec2::new(48.0, 22.0)),
-                        );
-                        if r.clicked() {
-                            toggle("file".into(), &mut click);
-                        }
-                        if let Some(mr) = popup(ui, &bar_state, "file", r.rect, &tk, |ui| {
-                            let mut last_sep = true;
-                            for x in items {
-                                if x == "-" {
-                                    if !last_sep {
-                                        sep(ui, &tk);
-                                        last_sep = true;
-                                    }
-                                    continue;
-                                }
-                                let Some(c) = cmd(x) else { continue };
-                                if menu_entry(ui, &tk, Some(c.icon), &lab(x), &key_of(x)).clicked() {
-                                    click = Some(Click::Cmd(c.cmd, lab(x)));
-                                }
-                                last_sep = false;
-                            }
-                        }) {
-                            menu_rects.push(mr.union(r.rect));
-                        }
-                    }
-                    ui.add_space(6.0);
-                    for (i, tb) in tabs.iter().enumerate() {
-                        let on = i == bar_state.st.tab;
-                        let txt =
-                            RichText::new(crate::inputdlg::tx(&tb.label)).size(12.0).color(if on { tk.text_strong } else { tk.text_dim });
-                        ui.add_space(4.0);
-                        let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
-                        ui.add_space(4.0);
-                        if on {
-                            ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], Stroke::new(2.0, tk.accent));
-                        }
-                        if r.clicked() {
-                            click = Some(Click::Tab(i));
-                        }
-                    }
-                    if !my.is_empty() {
-                        let on = bar_state.st.tab == my_tab;
-                        let txt = RichText::new(crate::lang::shell("shell.input.addons", &[])).size(12.0).color(if on {
-                            tk.text_strong
-                        } else {
-                            tk.text_dim
+                            let w = ui.min_rect().width();
+                            ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(crate::lang::shell("shell.input.addons", &[])).size(10.0).color(tk.text_dim));
+                            });
                         });
-                        ui.add_space(4.0);
-                        let r = ui.add(egui::Button::new(txt).frame(false).min_size(Vec2::new(0.0, 22.0)));
-                        ui.add_space(4.0);
-                        if on {
-                            ui.painter().line_segment([r.rect.left_bottom(), r.rect.right_bottom()], Stroke::new(2.0, tk.accent));
-                        }
-                        if r.clicked() {
-                            click = Some(Click::Tab(my_tab));
-                        }
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        style_picker(ui, &tk, &styles, &cur_style, &mut click);
-                        for x in quick.iter().rev() {
-                            let Some(c) = cmd(x) else { continue };
-                            let k = key_of(x);
-                            let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
-                            let r = tool_button(ui, &tk, c.icon, "", false, true, false).on_hover_text(tip);
-                            if r.clicked() {
-                                click = Some(Click::Cmd(c.cmd, lab(x)));
-                            }
-                        }
-                    });
-                });
-                // body: the open tab's panels
-                let tab = tabs.get(bar_state.st.tab).or_else(|| tabs.first());
-                egui::ScrollArea::horizontal().auto_shrink([false, true]).show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        if !my.is_empty() && bar_state.st.tab == my_tab {
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 1.0;
-                                    for (_, tools) in &my {
-                                        for (id, label, tip, tex) in tools {
-                                            let r =
-                                                tool_button(ui, &tk, if tex.is_some() { "" } else { "star" }, label, true, false, false)
-                                                    .on_hover_text(tip);
-                                            if let Some(t) = tex {
-                                                let at = Rect::from_center_size(
-                                                    Pos2::new(r.rect.center().x, r.rect.top() + 14.0),
-                                                    Vec2::splat(20.0),
-                                                );
-                                                ui.painter().image(
-                                                    *t,
-                                                    at,
-                                                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                                                    Color32::WHITE,
-                                                );
-                                            }
-                                            if r.clicked() {
-                                                click = Some(Click::MyTool(id.clone()));
-                                            }
-                                        }
+                    let tab = if !my.is_empty() && bar_state.st.tab == my_tab { None } else { tab };
+                    for pn in tab.map_or(&[][..], |t| t.panels.as_slice()) {
+                        let (pl, items) = (&pn.label, &pn.items);
+                        ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 1.0;
+                                for x in items {
+                                    // app-input-ui.js: an optional command whose button is not there (the 3D group,
+                                    // Open in ModelCraft) is left out
+                                    let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
+                                    let k = key_of(x);
+                                    let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
+                                    let r = tool_button(ui, &tk, c.icon, &lab(x), true, false, pressed(c.cmd)).on_hover_text(tip);
+                                    if r.clicked() {
+                                        click = Some(Click::Cmd(c.cmd, lab(x)));
                                     }
-                                });
-                                let w = ui.min_rect().width();
-                                ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(crate::lang::shell("shell.input.addons", &[])).size(10.0).color(tk.text_dim));
-                                });
+                                }
                             });
-                        }
-                        let tab = if !my.is_empty() && bar_state.st.tab == my_tab { None } else { tab };
-                        for pn in tab.map_or(&[][..], |t| t.panels.as_slice()) {
-                            let (pl, items) = (&pn.label, &pn.items);
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 0.0;
-                                ui.horizontal(|ui| {
-                                    ui.spacing_mut().item_spacing.x = 1.0;
-                                    for x in items {
-                                        // app-input-ui.js: an optional command whose button is not there (the 3D group,
-                                        // Open in ModelCraft) is left out
-                                        let Some(c) = cmd(x).filter(|c| !c.optional) else { continue };
-                                        let k = key_of(x);
-                                        let tip = if k.is_empty() { lab(x) } else { format!("{} ({k})", lab(x)) };
-                                        let r = tool_button(ui, &tk, c.icon, &lab(x), true, false, pressed(c.cmd)).on_hover_text(tip);
-                                        if r.clicked() {
-                                            click = Some(Click::Cmd(c.cmd, lab(x)));
-                                        }
-                                    }
-                                });
-                                let w = ui.min_rect().width();
-                                ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(crate::inputdlg::tx(pl)).size(10.0).color(tk.text_dim));
-                                });
+                            let w = ui.min_rect().width();
+                            ui.allocate_ui_with_layout(Vec2::new(w, 14.0), egui::Layout::top_down(egui::Align::Center), |ui| {
+                                ui.label(RichText::new(crate::inputdlg::tx(pl)).size(10.0).color(tk.text_dim));
                             });
-                            let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 68.0), egui::Sense::hover());
-                            ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
-                        }
-                    });
+                        });
+                        let (r, _) = ui.allocate_exact_size(Vec2::new(9.0, 68.0), egui::Sense::hover());
+                        ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, tk.divider));
+                    }
                 });
-            }
-        });
+            });
+        }
+    });
     // Save as: the formats (the JS asks in its own dialog)
     if bar_state.open.as_deref() == Some("saveas") {
         let anchor = Rect::from_min_size(ui.max_rect().left_top() + Vec2::new(8.0, 40.0), Vec2::ZERO);
@@ -2175,7 +2323,6 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let r = match click {
         None => Ok(()),
         Some(Click::Cmd(c, l)) => press(app, c, &l),
-        Some(Click::MyTool(id)) => crate::mytoolsdlg::run(app, "mytools.run", &Params { name: Some(id), ..Default::default() }),
         Some(Click::Toggle(key)) => {
             if app.ribbon.open.as_deref() == Some(key.as_str()) {
                 app.ribbon.open = None;
@@ -2188,6 +2335,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
         Some(Click::Tab(i)) => run(app, "input.tab", &Params { index: Some(i), ..Default::default() }),
         Some(Click::Style(s)) => run(app, "input.style", &Params { name: Some(s), ..Default::default() }),
         Some(Click::SaveAs(f)) => run(app, "input.saveas", &Params { name: Some(f.into()), ..Default::default() }),
+        Some(Click::MyTool(id)) => crate::mytoolsdlg::run(app, "mytools.run", &Params { name: Some(id), ..Default::default() }),
     };
     if let Err(e) = r {
         app.error = Some(e);
@@ -2280,8 +2428,12 @@ mod tests {
         // ZOOM E: ZOOM runs, E answers its prompt
         run(&mut app, "input.run", &Params { name: Some("view.extents".into()), ..Default::default() }).unwrap_or_default();
         assert_eq!(app.editor.as_ref().and_then(|e| e.eng.running()), None);
+        // the grid is the shell's own (M17.1: view.js drawGrid, on at first); object snap tracking is not here yet
         run(&mut app, "input.run", &Params { name: Some("aids.grid".into()), ..Default::default() }).unwrap_or_default();
-        assert_eq!(app.message, "Grid: it is not in this version.");
+        assert_eq!(app.message, "Grid off");
+        assert!(!app.look.grid);
+        run(&mut app, "input.run", &Params { name: Some("aids.otrack".into()), ..Default::default() }).unwrap_or_default();
+        assert!(app.message.ends_with(": it is not in this version."), "{}", app.message);
         run(&mut app, "input.style", &Params { name: Some("drafting".into()), ..Default::default() }).unwrap_or_default();
         assert!(run(&mut app, "input.tab", &Params { index: Some(7), ..Default::default() }).is_ok());
         assert!(run(&mut app, "input.tab", &Params { index: Some(8), ..Default::default() }).is_err());

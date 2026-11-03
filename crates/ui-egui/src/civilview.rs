@@ -2307,7 +2307,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         _ => {}
     }
-    let dark = app.preset == Preset::Dark;
+    let dark = app.preset.is_dark();
     let started = web_time::Instant::now();
     let r = run_open(app, id, &name, params, dark);
     if matches!(
@@ -2854,7 +2854,7 @@ fn site_exag_ok(f: f64) -> bool {
 /// is open).
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
-    let dark = app.preset == Preset::Dark;
+    let dark = app.preset.is_dark();
     // every command the frame asked for, in order (a button may ask for two: show this alignment, then the panel)
     let mut cmd: Vec<(&'static str, Params)> = Vec::new();
     let mut save_file: Option<(String, Vec<u8>)> = None;

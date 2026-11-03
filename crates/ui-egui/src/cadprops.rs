@@ -817,11 +817,14 @@ fn select_choices(d: &cc_engine::props::Def, c: &PCtx, l: &cc_engine::Lang) -> V
 /// A small icon button drawn on a 20 × 20 grid (the UI font has no such glyphs): "pick" (a crosshair), "funnel"
 /// (Quick select), "cursor" (Select objects).
 fn icon_button(ui: &mut egui::Ui, icon: &str, tip: &str, color: egui::Color32) -> bool {
-    let (rect, r) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
-    let r = r.on_hover_text(tip);
-    if r.hovered() {
-        ui.painter().rect_filled(rect, 2.0, ui.visuals().widgets.hovered.bg_fill);
-    }
+    // 0.7 `.cc-pbtn`: 30 × 30, a 1 px line border (ink while hovered), the icon in the middle
+    let (outer, r) = ui.allocate_exact_size(egui::vec2(30.0, 30.0), egui::Sense::click());
+    let r = r.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand);
+    let w = ui.visuals().widgets.clone();
+    let (fill, edge) =
+        if r.hovered() { (w.hovered.bg_fill, w.hovered.bg_stroke) } else { (egui::Color32::TRANSPARENT, w.inactive.bg_stroke) };
+    ui.painter().rect(outer, 2.0, fill, edge, egui::StrokeKind::Inside);
+    let rect = egui::Rect::from_center_size(outer.center(), egui::vec2(18.0, 18.0));
     let k = rect.width() / 20.0;
     let at = |x: f32, y: f32| rect.min + egui::vec2(x * k, y * k);
     let st = egui::Stroke::new(1.3, color);
@@ -1060,10 +1063,19 @@ fn section(
     folds: &mut Vec<String>,
 ) -> bool {
     let open = !closed.contains(key);
+    // 0.7 `.cc-psec-h`: a 1 px grid rule over a 34 px head, the triangle and the name in 13 px bold
     ui.add_space(3.0);
-    let r = ui
-        .add(egui::Button::new(RichText::new(format!("{} {label}", if open { "▾" } else { "▸" })).strong().color(t.text_dim)).frame(false));
-    if r.clicked() {
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 34.0), egui::Sense::click());
+    ui.painter().line_segment([r.left_top(), r.right_top()], egui::Stroke::new(1.0, t.divider));
+    let c = egui::pos2(r.left() + 5.0, r.center().y);
+    let tri = if open {
+        vec![c + egui::vec2(-4.0, -2.5), c + egui::vec2(4.0, -2.5), c + egui::vec2(0.0, 3.5)]
+    } else {
+        vec![c + egui::vec2(-2.5, -4.0), c + egui::vec2(3.5, 0.0), c + egui::vec2(-2.5, 4.0)]
+    };
+    ui.painter().add(egui::Shape::convex_polygon(tri, t.text_strong, egui::Stroke::NONE));
+    ui.painter().text(egui::pos2(r.left() + 14.0, r.center().y), egui::Align2::LEFT_CENTER, label, crate::theme::bold(13.0), t.text_strong);
+    if resp.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         folds.push(key.to_string());
     }
     open
@@ -1084,10 +1096,10 @@ struct Asks {
 pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let mut asks = Asks::default();
-    let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
+    let frame = crate::shell::panel_frame(&t);
     if !app.cadprops.autohide {
-        egui::Panel::right("cad_props").default_size(270.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
-            body(app, ui, &mut asks);
+        egui::Panel::right("cad_props").default_size(280.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
+            grip_and_body(app, ui, &mut asks);
         });
         apply(app, asks);
         return;
@@ -1131,9 +1143,9 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
         .fixed_pos(egui::pos2(strip_rect.min.x - width, top))
         .show(ui.ctx(), |ui| {
             frame.show(ui, |ui| {
-                ui.set_width(width - 12.0);
-                ui.set_height((strip_rect.height() - 12.0).max(80.0));
-                body(app, ui, &mut asks);
+                ui.set_width(width);
+                ui.set_height(strip_rect.height().max(80.0));
+                grip_and_body(app, ui, &mut asks);
             });
         });
     // props.js closeFlyout: folds 500 ms after the pointer leaves (not while one of its fields is being typed in, or
@@ -1155,6 +1167,18 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
 }
 
 /// The panel's contents (docked, or over the drawing when auto-hidden).
+/// The panel as 0.7 docks it: the grip (the name; pin = Auto-hide, ✕ = PROPERTIESCLOSE), then the body inset 16 px.
+fn grip_and_body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
+    let t = app.tokens;
+    let app_c = t.app(app.active_app());
+    match crate::shell::grip(ui, &t, app_c, &lang().s("props.title"), true) {
+        crate::shell::GripAct::Close => asks.close = true,
+        crate::shell::GripAct::Pin => asks.run.push(("props.autohide".into(), String::new())),
+        _ => {}
+    }
+    egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 16, top: 12, bottom: 8 }).show(ui, |ui| body(app, ui, asks));
+}
+
 fn body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
     let t = app.tokens;
     let l = lang();
@@ -1178,12 +1202,12 @@ fn body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
     } else {
         l.t("props.n.objects", &[("n", ents.len().to_string())])
     };
+    // 0.7: the heading (15 px bold), then the head's buttons on their own row at the right
+    ui.label(RichText::new(head).font(crate::theme::bold(15.0)).color(t.text_strong));
+    ui.add_space(4.0);
     ui.horizontal(|ui| {
-        ui.label(RichText::new(head).strong().color(t.text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button("×").on_hover_text("PROPERTIESCLOSE").clicked() {
-                asks.close = true;
-            }
+            ui.spacing_mut().item_spacing.x = 3.0;
             // props.js head(): … PICKADD, the gear (a selection), Auto-hide
             let ah = app.cadprops.autohide;
             let pin_tip = l.s(if ah { "props.btn.autohide.on" } else { "props.btn.autohide.off" });
@@ -1647,7 +1671,10 @@ fn none_selected(
             let lts = doc.meta.get("ltscale").and_then(Value::as_f64).filter(|v| *v > 0.0).unwrap_or(1.0);
             num_row(ui, "ltscale", l.s("props.ltscale"), "num", lts, Some(l.s("props.ltscale.title")));
         }
-        ui.label(RichText::new(l.t("props.layer.sub", &[("layer", c.layer.clone())])).small().color(t.text_dim));
+        {
+            ui.add_space(6.0);
+            ui.label(RichText::new(l.t("props.layer.sub", &[("layer", c.layer.clone())])).font(crate::theme::bold(13.0)).color(t.text_dim));
+        }
         let layer = doc.layers.get(&c.layer);
         let llt = layer.and_then(|x| x.linetype.clone()).unwrap_or_else(|| "Continuous".into());
         let llw = layer.and_then(|x| x.lineweight).unwrap_or(-3.0);
@@ -1664,7 +1691,10 @@ fn none_selected(
         sel2(ui, "laylt", l.s("props.lt"), "lt", Value::String(llt.clone()), llt.clone());
         let llw_label = if llw == -3.0 { l.s("lw.default") } else { l.t("lw.mm", &[("mm", cc_cad::js::to_fixed(llw, 2))]) };
         sel2(ui, "laylw", l.s("props.lw"), "lw", cc_cad::num(llw), llw_label);
-        ui.label(RichText::new(l.s("props.cur.newdims")).small().color(t.text_dim));
+        {
+            ui.add_space(6.0);
+            ui.label(RichText::new(l.s("props.cur.newdims")).font(crate::theme::bold(13.0)).color(t.text_dim));
+        }
         let dim = |k: &str, d: f64| c.dim.get(k).and_then(Value::as_f64).unwrap_or(d);
         let lunit = dim("lunit", 2.0);
         let mut num_row2 = |ui: &mut egui::Ui, key: &str, label: String, kind: &str, v: f64, tip: Option<String>| {

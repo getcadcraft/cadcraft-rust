@@ -54,7 +54,7 @@ fn field(ui: &mut egui::Ui, edits: &mut HashMap<String, String>, key: &str, show
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let mut act: Cmd = None;
-    let dark = app.preset == crate::theme::Preset::Dark;
+    let dark = app.preset.is_dark();
     let Some(pv) = app.part.as_mut() else { return };
     if pv.poll_rebuild() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
@@ -62,7 +62,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
     let c = t.canvas_bg;
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
-    pv.view.style.back = if app.preset == crate::theme::Preset::Dark { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };
+    pv.view.style.back = if app.preset.is_dark() { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };
     egui::Panel::top("part_bar")
         .exact_size(30.0)
         .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))

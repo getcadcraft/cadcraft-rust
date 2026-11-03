@@ -438,7 +438,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
     let resp = ui.allocate_rect(rect, Sense::click_and_drag());
     let ppp = f64::from(ui.ctx().pixels_per_point());
     let t = app.tokens;
-    let dark = app.preset == crate::theme::Preset::Dark;
+    let dark = app.preset.is_dark();
     let (w, h) = (f64::from(rect.width()), f64::from(rect.height()));
     {
         let Some(ed) = app.editor.as_mut() else { return };

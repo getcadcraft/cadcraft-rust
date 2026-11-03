@@ -2,6 +2,34 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-03 — M17.1 the 0.7 look: theme, Archivo, the app shell, CadCraft's window and the start screen (agent, work/look07)
+
+- Measured first (docs/ui-notes.md): CadCraft 0.7.1 and the other apps' 0.7.x pages, the 0.5 page and the website
+  (/great-eight, /apps, /apps/cadcraft, /great-eight/studio/apps) in headless Chromium at 1600 × 1000, every element's
+  box, colours and font dumped; tokens.css, cadcraft.css, app-shell.css and site.css read as source. 0.5 and 0.7 share
+  the shell and branding; 0.7 greys out buttons that cannot act (the fork keeps 0.5's always-enabled buttons).
+- theme.rs: Tokens from 0.7's values (sheet, sheet-2, ink, ink-2, grid, line, action, the eight app layer colours),
+  five presets (Light = paper, Dark = model as 0.7; Medium light, Medium dark, High contrast our own; `theme=` in
+  Settings takes all five), egui's visuals filled from them (1 px line borders, radius 2, no shadows, 14 px body).
+  Contrast test on every preset. Fonts: Archivo (OFL, 0.7's face; one variable file read at weights 500 / 600 / 700
+  and 125 % width), Inter and JetBrains Mono kept as fallbacks.
+- shell.rs (new): the 0.7 shell's pieces — mark, swatch, name™, chip, bordered bar buttons, Paper | Model switch,
+  panel grip, section heads, link buttons, status toggles, tabs, outlined / filled buttons, key caps, the hint card
+  and a generic wrapping toolbar (`toolbar`, `tool_button`) for the other apps.
+- The app bar (48 px, ink rule), the status bar (32 px: coordinates, message, Grid Ortho Polar Snap Track Dyn LWT QP),
+  CadCraft's toolbar as 0.7's groups that wrap onto rows (icons in the app's colour over 11.5 px labels, 0.7's More
+  menus), "Layers and drawing" (layers with the current dot, swatch and eye; Blocks with uses and Insert; Sheet set;
+  the Drawing facts as renderInfo), the Properties panel's grip and 0.7 section heads, the tabs, the command area, the
+  canvas grid (view.js drawGrid, F7 / `edit.grid`, "Grid on/off" as cadcraft.js) and axis icon (drawUcs), the 0.5
+  "Start drawing" card on a new empty drawing. The start screen is laid out as the website's /apps page: drafting
+  grid, wide heading, a dimension-line divider, a card per app with its colour edge, wide name™, role, a drawing of its
+  work and the open button, SuperCadCraft, recent files, help.
+- cadcraft-shot: shots now cover the whole window (the test harness's 8 px margin left out); `--theme` takes the five
+  looks.
+- Parity unchanged: kdiff 5250/5250 (en and es-MX), mkuidiff 17 checks 0 different, cvuidiff all identical, dcuidiff 58
+  identical, pcuidiff identical, tkopsdiff 61 checks 0 different (status lines 262/262), mcuidiff 1243/1243 files,
+  bmuidiff 2568/2568 steps, 418/418 IFC. Shots: forks/lead/shots/look07/{before,after,ref}.
+- Next: the other apps' own bars and panels onto `shell::toolbar` / `shell::grip` (gaps item 12).
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 
 - M4.57 (panes.rs, paneview.rs): split panes as panes.js and view.js's pane handling. SPLIT / VPORTS in the model ask

@@ -221,201 +221,410 @@ fn layer(slug: &str, dark: bool) -> Color32 {
     })
 }
 
-/// Draw the start screen; actions go through `app.run`.
+/// Draw the start screen; actions go through `app.run`. Laid out as the 0.7 website's apps page (/apps): the drafting
+/// grid behind a 1200 px column, the eyebrow and the wide heading, then "Your apps" between dimension ticks, a card
+/// per app (sheet-2, 1 px ink edge, 4 px app colour at the left, the swatch, the wide name™, the role, the short line,
+/// a drawing of its work, the action button), SuperCadCraft, recent files and help.
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
+    use crate::shell;
+    use crate::theme::{bold, semi, wide};
     let t0: Tokens = app.tokens;
-    let dark = app.preset == crate::theme::Preset::Dark;
+    let dark = app.preset.is_dark();
     let loc = app.hub.loc().to_string();
     let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
     let zone = app.zone;
     let act: std::cell::RefCell<Option<(String, Params)>> = std::cell::RefCell::new(None);
-    egui::CentralPanel::default().frame(egui::Frame::new().fill(t0.canvas_bg).inner_margin(egui::Margin::symmetric(24, 18))).show(
-        ui,
-        |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(t(&loc, "studio.name")).size(22.0).strong().color(t0.text_strong));
-                    ui.label(RichText::new("Rust test version").small().color(t0.text_dim));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(t(&loc, "settings.button")).on_hover_text(t(&loc, "settings.title")).clicked() {
-                            *act.borrow_mut() = Some(("settings.open".into(), Params::default()));
-                        }
-                    });
-                });
-                ui.add_space(10.0);
-                let wide = ui.available_width() > 980.0;
-                let side_w = if wide { 300.0 } else { ui.available_width() };
-                let main_w = if wide { ui.available_width() - side_w - 24.0 } else { ui.available_width() };
-                let main = |ui: &mut egui::Ui| {
-                    ui.set_width(main_w);
-                    ui.label(RichText::new(t(&loc, "apps.title")).size(15.0).strong().color(t0.text_strong));
-                    ui.add_space(6.0);
-                    let cols = ((main_w / 230.0).floor() as usize).clamp(1, 4);
-                    let tile_w = (main_w - 12.0 * (cols as f32 - 1.0)) / cols as f32;
-                    for row in APPS.chunks(cols) {
-                        ui.horizontal_top(|ui| {
+    let set = |id: &str, p: Params| *act.borrow_mut() = Some((id.to_string(), p));
+    egui::CentralPanel::default().frame(egui::Frame::new().fill(t0.panel_darker)).show(ui, |ui| {
+        paper_grid(ui.painter(), ui.max_rect(), &t0, dark);
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            let full = ui.available_width();
+            let col = full.min(1200.0 + 48.0);
+            let side = ((full - col) / 2.0).max(0.0);
+            ui.horizontal_top(|ui| {
+                ui.add_space(side);
+                ui.vertical(|ui| {
+                    egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 48, bottom: 48 }).show(ui, |ui| {
+                        let w = col - 48.0;
+                        ui.set_width(w);
+                        ui.spacing_mut().item_spacing.y = 12.0;
+                        // the eyebrow, the heading, the lead line (site.css .eyebrow / h1 / .lead)
+                        ui.label(RichText::new("Rust test version").font(semi(17.0)).color(t0.text_dim));
+                        ui.label(
+                            RichText::new(t(&loc, "studio.name")).font(wide(if w > 700.0 { 52.0 } else { 36.0 })).color(t0.text_strong),
+                        );
+                        ui.label(RichText::new(t(&loc, "foot.line")).size(20.0).line_height(Some(31.0)).color(t0.text_dim));
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 12.0;
-                            for (slug, name, _, _) in row {
-                                let c = layer(slug, dark);
-                                let tile = egui::vec2(tile_w, 150.0);
-                                ui.allocate_ui_with_layout(tile, egui::Layout::top_down(egui::Align::Min), |ui| {
-                                    egui::Frame::new()
-                                        .fill(t0.panel)
-                                        .stroke(egui::Stroke::new(1.0, t0.divider))
-                                        .corner_radius(t0.radius)
-                                        .inner_margin(10)
-                                        .show(ui, |ui| {
-                                            ui.set_width(tile_w - 22.0);
-                                            ui.set_min_height(128.0);
+                            if shell::action_button(ui, &t0, "folder2-open", &t(&loc, "open.button"), true)
+                                .on_hover_text(t(&loc, "open.title"))
+                                .clicked()
+                            {
+                                set("file.open", Params::default());
+                            }
+                            if shell::action_button(ui, &t0, "", &crate::lang::t0(&crate::lang::CADCRAFT, "app.new_drawing"), false)
+                                .on_hover_text(crate::lang::t0(&crate::lang::CADCRAFT, "input.cmd.file.new"))
+                                .clicked()
+                            {
+                                set("file.new", Params::default());
+                            }
+                            if shell::action_button(ui, &t0, "gear", &t(&loc, "settings.button"), false)
+                                .on_hover_text(t(&loc, "settings.title"))
+                                .clicked()
+                            {
+                                set("settings.open", Params::default());
+                            }
+                        });
+                        ui.label(RichText::new(t(&loc, "drop.body")).size(15.0).color(t0.text_dim));
+                        ui.add_space(28.0);
+                        dim_divider(ui, &t0, w, &t(&loc, "apps.title"));
+                        ui.add_space(20.0);
+                        // the cards: two columns as the site (one on a narrow window)
+                        let cols = if w >= 760.0 { 2 } else { 1 };
+                        let gap = 20.0;
+                        let cw = (w - gap * (cols as f32 - 1.0)) / cols as f32;
+                        for row in APPS.chunks(cols) {
+                            ui.horizontal_top(|ui| {
+                                ui.spacing_mut().item_spacing.x = gap;
+                                for (slug, name, _, _) in row {
+                                    let c = layer(slug, dark);
+                                    ui.vertical(|ui| {
+                                        ui.set_width(cw);
+                                        card(ui, &t0, c, cw, |ui| {
+                                            ui.spacing_mut().item_spacing.y = 10.0;
+                                            shell::swatch(ui, &t0, 28.0, c);
                                             ui.horizontal(|ui| {
-                                                let (r, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
-                                                ui.painter().rect_filled(r, 2.0, c);
-                                                ui.label(RichText::new(*name).strong().size(15.0).color(t0.text_strong));
+                                                ui.spacing_mut().item_spacing.x = 2.0;
+                                                ui.label(RichText::new(*name).font(wide(26.0)).color(t0.text_strong));
+                                                ui.label(RichText::new("™").font(semi(12.0)).color(t0.text_strong));
                                             });
-                                            ui.label(RichText::new(word(&loc, slug, "role")).color(c));
-                                            ui.label(RichText::new(word(&loc, slug, "short")).small().color(t0.text_dim));
-                                            ui.add_space(4.0);
+                                            ui.label(RichText::new(word(&loc, slug, "role")).font(semi(17.0)).color(t0.text_dim));
+                                            ui.label(
+                                                RichText::new(word(&loc, slug, "short")).size(15.0).line_height(Some(24.0)).color(t0.text),
+                                            );
+                                            thumb(ui, &t0, slug, c, cw - 48.0);
                                             ui.horizontal(|ui| {
+                                                ui.spacing_mut().item_spacing.x = 12.0;
+                                                let use_it = format!("{} {name}", t(&loc, "tile.open"));
                                                 match sample_command(slug) {
                                                     Some(_) => {
-                                                        if ui
-                                                            .button(t(&loc, "tile.open"))
+                                                        if shell::action_button(ui, &t0, "play-fill", &use_it, true)
                                                             .on_hover_text(word(&loc, slug, "tagline"))
                                                             .clicked()
                                                         {
-                                                            *act.borrow_mut() = Some((
-                                                                "hub.sample".into(),
-                                                                Params { name: Some((*slug).into()), ..Default::default() },
-                                                            ));
+                                                            set("hub.sample", Params { name: Some((*slug).into()), ..Default::default() });
                                                         }
                                                     }
                                                     None => {
-                                                        if ui.button(t(&loc, "open.button")).on_hover_text(t(&loc, "open.title")).clicked()
+                                                        if shell::action_button(ui, &t0, "folder2-open", &t(&loc, "open.button"), true)
+                                                            .on_hover_text(t(&loc, "open.title"))
+                                                            .clicked()
                                                         {
-                                                            *act.borrow_mut() = Some(("file.open".into(), Params::default()));
+                                                            set("file.open", Params::default());
                                                         }
                                                     }
                                                 }
                                                 if *slug == "cadcraft"
-                                                    && ui
-                                                        .button(crate::lang::t0(&crate::lang::CADCRAFT, "app.new_drawing"))
-                                                        .on_hover_text(crate::lang::t0(&crate::lang::CADCRAFT, "input.cmd.file.new"))
-                                                        .clicked()
+                                                    && shell::action_button(
+                                                        ui,
+                                                        &t0,
+                                                        "",
+                                                        &crate::lang::t0(&crate::lang::CADCRAFT, "app.new_drawing"),
+                                                        false,
+                                                    )
+                                                    .on_hover_text(crate::lang::t0(&crate::lang::CADCRAFT, "input.cmd.file.new"))
+                                                    .clicked()
                                                 {
-                                                    *act.borrow_mut() = Some(("file.new".into(), Params::default()));
+                                                    set("file.new", Params::default());
                                                 }
                                             });
                                         });
+                                    });
+                                }
+                            });
+                            ui.add_space(gap - 12.0);
+                        }
+                        // SuperCadCraft, still to come (site.css .app-wide, in the ink colour)
+                        card(ui, &t0, t0.line, w, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("SuperCadCraft").font(wide(26.0)).color(t0.text_dim));
+                                ui.label(RichText::new(t(&loc, "upcoming.tag")).font(semi(13.0)).italics().color(t0.text_dim));
+                            });
+                            ui.label(RichText::new(t(&loc, "upcoming.role")).font(semi(17.0)).color(t0.text_dim));
+                            ui.label(RichText::new(word(&loc, "supercadcraft", "short")).size(15.0).color(t0.text_dim));
+                        });
+                        ui.add_space(28.0);
+                        dim_divider(ui, &t0, w, &t(&loc, "recent.title"));
+                        ui.add_space(12.0);
+                        let recent = app.hub.recent.clone();
+                        if recent.is_empty() {
+                            ui.label(RichText::new(t(&loc, "recent.empty")).size(15.0).color(t0.text_dim));
+                        } else {
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new(t(&loc, "recent.filter")).font(semi(14.0)).color(t0.text_dim));
+                                let chip = |ui: &mut egui::Ui, key: &str, label: String| {
+                                    if shell::toggle(ui, &t0, &label, app.hub.filter == key).clicked() {
+                                        set("hub.filter", Params { name: Some(key.into()), ..Default::default() });
+                                    }
+                                };
+                                chip(ui, "", t(&loc, "recent.all"));
+                                for (slug, name, _, _) in APPS {
+                                    if recent.iter().any(|r| r.app == slug) {
+                                        chip(ui, slug, name.to_string());
+                                    }
+                                }
+                            });
+                            for (i, r) in recent.iter().enumerate().filter(|(_, r)| app.hub.filter.is_empty() || r.app == app.hub.filter) {
+                                ui.horizontal(|ui| {
+                                    shell::swatch(ui, &t0, 14.0, layer(r.app, dark));
+                                    let can = r.dir.is_some();
+                                    let resp = ui.add_enabled(
+                                        can,
+                                        egui::Button::new(RichText::new(&r.name).font(semi(15.0)).color(t0.text)).frame(false),
+                                    );
+                                    if resp.clicked() {
+                                        set("hub.recent", Params { index: Some(i), ..Default::default() });
+                                    }
+                                    if !can {
+                                        resp.on_disabled_hover_text(t(&loc, "recent.noreopen"));
+                                    }
+                                    ui.label(
+                                        RichText::new(t(&loc, "recent.opened").replace("{when}", &when_text(r.when, now, zone)))
+                                            .size(14.0)
+                                            .color(t0.text_dim),
+                                    );
                                 });
                             }
-                        });
+                        }
+                        ui.add_space(28.0);
+                        dim_divider(ui, &t0, w, &t(&loc, "help.title"));
                         ui.add_space(12.0);
-                    }
-                    ui.add_space(6.0);
-                    egui::Frame::new().fill(t0.panel_darker).corner_radius(t0.radius).inner_margin(10).show(ui, |ui| {
-                        ui.set_width(main_w - 20.0);
-                        ui.label(RichText::new("SuperCadCraft").strong().color(t0.text_dim));
-                        ui.label(RichText::new(t(&loc, "upcoming.role")).color(t0.text_dim));
-                        ui.label(RichText::new(word(&loc, "supercadcraft", "short")).small().color(t0.text_dim));
-                        ui.label(RichText::new(t(&loc, "upcoming.tag")).small().italics().color(t0.text_dim));
-                    });
-                    ui.add_space(16.0);
-                    ui.label(RichText::new(t(&loc, "recent.title")).size(15.0).strong().color(t0.text_strong));
-                    let recent = app.hub.recent.clone();
-                    if recent.is_empty() {
-                        ui.label(RichText::new(t(&loc, "recent.empty")).color(t0.text_dim));
-                    } else {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new(t(&loc, "recent.filter")).small().color(t0.text_dim));
-                            let chip = |ui: &mut egui::Ui, key: &str, label: String| {
-                                if ui.selectable_label(app.hub.filter == key, label).clicked() {
-                                    *act.borrow_mut() =
-                                        Some(("hub.filter".into(), Params { name: Some(key.into()), ..Default::default() }));
-                                }
-                            };
-                            chip(ui, "", t(&loc, "recent.all"));
-                            for (slug, name, _, _) in APPS {
-                                if recent.iter().any(|r| r.app == slug) {
-                                    chip(ui, slug, name.to_string());
-                                }
-                            }
-                        });
-                        for (i, r) in recent.iter().enumerate().filter(|(_, r)| app.hub.filter.is_empty() || r.app == app.hub.filter) {
-                            ui.horizontal(|ui| {
-                                let (sw, _) = ui.allocate_exact_size(egui::vec2(8.0, 8.0), egui::Sense::hover());
-                                ui.painter().rect_filled(sw, 1.0, layer(r.app, dark));
-                                let can = r.dir.is_some();
-                                let resp = ui.add_enabled(can, egui::Button::new(RichText::new(&r.name).color(t0.text)).frame(false));
-                                if resp.clicked() {
-                                    *act.borrow_mut() = Some(("hub.recent".into(), Params { index: Some(i), ..Default::default() }));
-                                }
-                                if !can {
-                                    resp.on_disabled_hover_text(t(&loc, "recent.noreopen"));
-                                }
+                        for k in ["start", "open", "recent", "assistants"] {
+                            egui::CollapsingHeader::new(
+                                RichText::new(t(&loc, &format!("help.{k}.title"))).font(bold(15.0)).color(t0.text_strong),
+                            )
+                            .id_salt(("hub-help", k))
+                            .show(ui, |ui| {
                                 ui.label(
-                                    RichText::new(t(&loc, "recent.opened").replace("{when}", &when_text(r.when, now, zone)))
-                                        .small()
-                                        .color(t0.text_dim),
+                                    RichText::new(t(&loc, &format!("help.{k}.body"))).size(15.0).line_height(Some(24.0)).color(t0.text_dim),
                                 );
                             });
                         }
-                    }
-                };
-                let side = |ui: &mut egui::Ui| {
-                    ui.set_width(side_w);
-                    egui::Frame::new()
-                        .fill(t0.panel)
-                        .stroke(egui::Stroke::new(1.0, t0.divider))
-                        .corner_radius(t0.radius)
-                        .inner_margin(12)
-                        .show(ui, |ui| {
-                            ui.set_width(side_w - 26.0);
-                            ui.label(RichText::new(t(&loc, "drop.title")).strong().color(t0.text_strong));
-                            ui.label(RichText::new(t(&loc, "drop.body")).small().color(t0.text));
-                            if ui.button(t(&loc, "open.button")).on_hover_text(t(&loc, "open.title")).clicked() {
-                                *act.borrow_mut() = Some(("file.open".into(), Params::default()));
-                            }
-                        });
-                    ui.add_space(12.0);
-                    egui::Frame::new()
-                        .fill(t0.panel)
-                        .stroke(egui::Stroke::new(1.0, t0.divider))
-                        .corner_radius(t0.radius)
-                        .inner_margin(12)
-                        .show(ui, |ui| {
-                            ui.set_width(side_w - 26.0);
-                            ui.label(RichText::new(t(&loc, "help.title")).strong().color(t0.text_strong));
-                            for k in ["start", "open", "recent", "assistants"] {
-                                egui::CollapsingHeader::new(RichText::new(t(&loc, &format!("help.{k}.title"))).color(t0.text))
-                                    .id_salt(("hub-help", k))
-                                    .show(ui, |ui| {
-                                        ui.label(RichText::new(t(&loc, &format!("help.{k}.body"))).small().color(t0.text_dim));
-                                    });
-                            }
-                            ui.hyperlink_to("getcadcraft.com/tutorials", "https://getcadcraft.com/tutorials");
-                        });
-                };
-                if wide {
-                    ui.horizontal_top(|ui| {
-                        ui.vertical(|ui| main(ui));
-                        ui.add_space(24.0);
-                        ui.vertical(|ui| side(ui));
+                        ui.hyperlink_to(RichText::new("getcadcraft.com/tutorials").font(semi(15.0)), "https://getcadcraft.com/tutorials");
+                        ui.add_space(28.0);
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(w, 1.0), egui::Sense::hover());
+                        ui.painter().line_segment([r.left_center(), r.right_center()], egui::Stroke::new(1.0, t0.rule));
+                        ui.label(RichText::new(t(&loc, "foot.line")).size(14.0).color(t0.text_dim));
                     });
-                } else {
-                    main(ui);
-                    ui.add_space(16.0);
-                    side(ui);
-                }
-                ui.add_space(18.0);
-                ui.separator();
-                ui.label(RichText::new(t(&loc, "foot.line")).small().color(t0.text_dim));
+                });
             });
-        },
-    );
+        });
+    });
     if let Some((id, p)) = act.into_inner()
         && let Err(e) = app.run(&id, &p)
     {
         app.error = Some(e);
+    }
+}
+
+/// The website's drafting paper (site.css body): 8 px and 40 px grid lines in paper space, the same grid as dots in
+/// model space.
+fn paper_grid(p: &egui::Painter, r: egui::Rect, t: &Tokens, dark: bool) {
+    let minor = t.canvas_grid.gamma_multiply(0.45);
+    let major = t.canvas_grid.gamma_multiply(0.95);
+    if dark {
+        let mut y = r.top();
+        while y < r.bottom() {
+            let mut x = r.left();
+            while x < r.right() {
+                let maj = ((x - r.left()) as i32) % 40 == 0 && ((y - r.top()) as i32) % 40 == 0;
+                p.circle_filled(egui::pos2(x + 1.0, y + 1.0), if maj { 1.25 } else { 0.8 }, if maj { major } else { minor });
+                x += 8.0;
+            }
+            y += 8.0;
+        }
+        return;
+    }
+    let mut i = 0;
+    let mut x = r.left();
+    while x < r.right() {
+        p.line_segment(
+            [egui::pos2(x + 0.5, r.top()), egui::pos2(x + 0.5, r.bottom())],
+            egui::Stroke::new(1.0, if i % 5 == 0 { major } else { minor }),
+        );
+        x += 8.0;
+        i += 1;
+    }
+    let (mut i, mut y) = (0, r.top());
+    while y < r.bottom() {
+        p.line_segment(
+            [egui::pos2(r.left(), y + 0.5), egui::pos2(r.right(), y + 0.5)],
+            egui::Stroke::new(1.0, if i % 5 == 0 { major } else { minor }),
+        );
+        y += 8.0;
+        i += 1;
+    }
+}
+
+/// The website's dimension-line divider (site.css .dim-divider): a 1 px ink line with ticks at both ends, the label
+/// (20 px bold, 112 % wide) in the middle.
+fn dim_divider(ui: &mut egui::Ui, t: &Tokens, w: f32, label: &str) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(w, 30.0), egui::Sense::hover());
+    let p = ui.painter();
+    let g = p.layout_no_wrap(label.to_string(), crate::theme::bold(20.0), t.text_strong);
+    let (cx, cy) = (r.center().x, r.center().y);
+    let half = g.size().x / 2.0 + 16.0;
+    let s = egui::Stroke::new(1.0, t.rule);
+    p.line_segment([egui::pos2(r.left(), cy), egui::pos2(cx - half, cy)], s);
+    p.line_segment([egui::pos2(cx + half, cy), egui::pos2(r.right(), cy)], s);
+    for x in [r.left() + 0.5, r.right() - 0.5] {
+        p.line_segment([egui::pos2(x, cy - 8.5), egui::pos2(x, cy + 8.5)], s);
+        p.line_segment([egui::pos2(x - 4.0, cy + 4.0), egui::pos2(x + 4.0, cy - 4.0)], egui::Stroke::new(2.0, t.rule));
+    }
+    p.galley(egui::pos2(cx - g.size().x / 2.0, cy - g.size().y / 2.0), g, t.text_strong);
+}
+
+/// One card (site.css .app-card): sheet-2, a 1 px ink edge, 4 px of the app's colour at the left, 20 px inside.
+fn card(ui: &mut egui::Ui, t: &Tokens, c: Color32, w: f32, add: impl FnOnce(&mut egui::Ui)) {
+    let r = egui::Frame::new()
+        .fill(t.panel)
+        .stroke(egui::Stroke::new(1.0, t.rule))
+        .corner_radius(t.radius)
+        .inner_margin(egui::Margin { left: 24, right: 20, top: 20, bottom: 20 })
+        .show(ui, |ui| {
+            ui.set_width(w - 46.0);
+            add(ui);
+        });
+    let rr = r.response.rect;
+    ui.painter().rect_filled(egui::Rect::from_min_max(rr.min, egui::pos2(rr.left() + 4.0, rr.bottom())), 0.0, c);
+}
+
+/// A small drawing of each app's work in its card (the site's thumbnails, drawn here in code): sheet fill, a 1 px grid
+/// edge, line art in the app's colour.
+fn thumb(ui: &mut egui::Ui, t: &Tokens, slug: &str, c: Color32, w: f32) {
+    let (r, _) = ui.allocate_exact_size(egui::vec2(w, 132.0), egui::Sense::hover());
+    let p = ui.painter();
+    p.rect(r, 2.0, t.panel_darker, egui::Stroke::new(1.0, t.divider), egui::StrokeKind::Inside);
+    // a 200 × 100 design box in the middle
+    let s = ((r.height() - 24.0) / 100.0).min((r.width() - 24.0) / 200.0);
+    let o = egui::pos2(r.center().x - 100.0 * s, r.center().y - 50.0 * s);
+    let at = |x: f32, y: f32| egui::pos2(o.x + x * s, o.y + y * s);
+    let st = egui::Stroke::new(1.5, c);
+    let thin = egui::Stroke::new(1.0, c);
+    let line = |pts: &[(f32, f32)], k: egui::Stroke| p.add(egui::Shape::line(pts.iter().map(|(x, y)| at(*x, *y)).collect(), k));
+    let rect = |x0: f32, y0: f32, x1: f32, y1: f32, k: egui::Stroke| {
+        p.rect_stroke(egui::Rect::from_min_max(at(x0, y0), at(x1, y1)), 0.0, k, egui::StrokeKind::Middle);
+    };
+    match slug {
+        "cadcraft" => {
+            // a bracket in elevation with a hole, its centre lines and a dimension
+            line(&[(20.0, 90.0), (20.0, 10.0), (40.0, 10.0), (40.0, 70.0), (120.0, 70.0), (120.0, 90.0), (20.0, 90.0)], st);
+            p.circle_stroke(at(150.0, 45.0), 18.0 * s, st);
+            line(&[(150.0, 20.0), (150.0, 70.0)], thin);
+            line(&[(125.0, 45.0), (175.0, 45.0)], thin);
+            line(&[(20.0, 98.0), (120.0, 98.0)], thin);
+            line(&[(20.0, 94.0), (20.0, 100.0)], thin);
+            line(&[(120.0, 94.0), (120.0, 100.0)], thin);
+        }
+        "bimcraft" => {
+            // a house in section: roof, walls, a floor, a stair
+            line(&[(20.0, 40.0), (100.0, 5.0), (180.0, 40.0)], egui::Stroke::new(3.0, c));
+            rect(35.0, 35.0, 165.0, 95.0, st);
+            line(&[(35.0, 65.0), (165.0, 65.0)], egui::Stroke::new(3.0, c));
+            for i in 0..6 {
+                let x = 120.0 + i as f32 * 7.0;
+                let y = 95.0 - i as f32 * 5.0;
+                line(&[(x, y), (x, y - 5.0), (x + 7.0, y - 5.0)], thin);
+            }
+            rect(60.0, 75.0, 75.0, 95.0, thin);
+        }
+        "modelcraft" => {
+            // a box pushed up from a rectangle, in isometric
+            let iso = |x: f32, y: f32, z: f32| (100.0 + (x - y) * 0.866, 70.0 + (x + y) * 0.5 - z);
+            let pts = |v: &[(f32, f32, f32)]| v.iter().map(|(x, y, z)| iso(*x, *y, *z)).collect::<Vec<_>>();
+            line(&pts(&[(0.0, 0.0, 0.0), (60.0, 0.0, 0.0), (60.0, 40.0, 0.0), (0.0, 40.0, 0.0), (0.0, 0.0, 0.0)]), thin);
+            line(&pts(&[(0.0, 0.0, 50.0), (60.0, 0.0, 50.0), (60.0, 40.0, 50.0), (0.0, 40.0, 50.0), (0.0, 0.0, 50.0)]), st);
+            for (x, y) in [(60.0, 0.0), (60.0, 40.0), (0.0, 40.0)] {
+                line(&pts(&[(x, y, 0.0), (x, y, 50.0)]), st);
+            }
+        }
+        "markupcraft" => {
+            // a sheet with a revision cloud and a callout
+            rect(30.0, 5.0, 170.0, 95.0, thin);
+            let mut v = Vec::new();
+            for i in 0..=24 {
+                let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                let rr = 22.0 + 3.0 * (a * 8.0).sin().abs();
+                v.push((90.0 + rr * 1.6 * a.cos(), 50.0 + rr * a.sin()));
+            }
+            line(&v, st);
+            line(&[(126.0, 40.0), (150.0, 22.0), (165.0, 22.0)], st);
+        }
+        "takeoffcraft" => {
+            // a plan with one room measured (hatched) and counted points
+            rect(20.0, 10.0, 180.0, 90.0, st);
+            line(&[(100.0, 10.0), (100.0, 90.0)], st);
+            for i in 0..8 {
+                let x = 20.0 + i as f32 * 10.0;
+                line(&[(x, 90.0), (x + 10.0, 80.0)], thin);
+            }
+            for (x, y) in [(130.0, 30.0), (160.0, 30.0), (130.0, 70.0), (160.0, 70.0)] {
+                p.circle_filled(at(x, y), 3.0 * s.max(0.6), c);
+            }
+        }
+        "civilcraft" => {
+            // contours and a road alignment with its stations
+            for k in 0..4 {
+                let off = k as f32 * 12.0;
+                let v: Vec<(f32, f32)> = (0..=20)
+                    .map(|i| {
+                        let x = 10.0 + i as f32 * 9.0;
+                        (x, 20.0 + off + 8.0 * ((x / 30.0).sin()))
+                    })
+                    .collect();
+                line(&v, thin);
+            }
+            line(&[(10.0, 92.0), (80.0, 75.0), (140.0, 80.0), (190.0, 60.0)], egui::Stroke::new(3.0, c));
+            for (x, y) in [(45.0, 83.5), (110.0, 77.5), (165.0, 70.0)] {
+                p.circle_stroke(at(x, y), 3.0 * s.max(0.6), thin);
+            }
+        }
+        "detailcraft" => {
+            // a steel I-section beside a beam in elevation with bolts
+            line(
+                &[
+                    (20.0, 10.0),
+                    (70.0, 10.0),
+                    (70.0, 18.0),
+                    (49.0, 18.0),
+                    (49.0, 82.0),
+                    (70.0, 82.0),
+                    (70.0, 90.0),
+                    (20.0, 90.0),
+                    (20.0, 82.0),
+                    (41.0, 82.0),
+                    (41.0, 18.0),
+                    (20.0, 18.0),
+                    (20.0, 10.0),
+                ],
+                st,
+            );
+            rect(90.0, 30.0, 185.0, 70.0, st);
+            line(&[(90.0, 36.0), (185.0, 36.0)], thin);
+            line(&[(90.0, 64.0), (185.0, 64.0)], thin);
+            for x in [100.0, 112.0, 163.0, 175.0] {
+                p.circle_stroke(at(x, 50.0), 3.0 * s.max(0.6), thin);
+            }
+        }
+        _ => {
+            // PartCraft: a plate with a slot and a bolt pattern, rounded corners
+            p.rect_stroke(egui::Rect::from_min_max(at(30.0, 10.0), at(170.0, 90.0)), 10.0 * s, st, egui::StrokeKind::Middle);
+            for (x, y) in [(50.0, 30.0), (150.0, 30.0), (50.0, 70.0), (150.0, 70.0)] {
+                p.circle_stroke(at(x, y), 6.0 * s, st);
+            }
+            p.rect_stroke(egui::Rect::from_min_max(at(80.0, 44.0), at(120.0, 56.0)), 6.0 * s, st, egui::StrokeKind::Middle);
+        }
     }
 }
 

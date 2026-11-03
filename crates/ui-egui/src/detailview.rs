@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use crate::detail3d::{self, DetailScene, Ref};
 use crate::detailexport::{self, Outcome, Settings};
-use crate::theme::{Preset, Tokens};
+use crate::theme::Tokens;
 use crate::view3d::View3;
 use crate::{ImportedFile, Params, UiApp};
 
@@ -1468,7 +1468,7 @@ fn keys(dv: &mut DetailView, ui: &egui::Ui, acts: &mut Vec<crate::detailpanel::A
 /// The DetailCraft frame: bar, left / right / bottom panels and the 3D view (lib.rs calls this while a model is open).
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let tok = app.tokens;
-    let dark = app.preset == Preset::Dark;
+    let dark = app.preset.is_dark();
     let mut acts: Vec<crate::detailpanel::Act> = Vec::new();
     if let Some(dv) = app.detail.as_mut() {
         dv.recompute();

@@ -119,6 +119,8 @@ pub struct Frame<'a> {
     pub mark: Option<(f64, f64)>,
     /// the first GPU view slot this frame's draws use (each pane of a split screen its own 64)
     pub slot_base: u32,
+    /// CadCraft's drafting view: the grid (view.js `drawGrid`, F7) in model space
+    pub grid: bool,
 }
 
 /// The print view's colours (dwg-view.js theme() with `print`): white paper, black ink, a grey desk round sheets.
@@ -146,6 +148,61 @@ pub fn viewport_view(sheet: &View2D, vp: &Viewport) -> View2D {
     v
 }
 
+/// view.js `drawGrid`: lines every power of ten (× 1, 2, 5) at least 14 px apart at 45 % strength, every fifth at
+/// full strength, along the world axes (the view's twist turns them).
+fn draw_grid(painter: &egui::Painter, rect: Rect, view: &View2D, ppp: f32, colour: Color32) {
+    let zoom = view.zoom / f64::from(ppp); // logical px per unit
+    if !(zoom.is_finite() && zoom > 0.0) {
+        return;
+    }
+    let target = 14.0 / zoom;
+    let p10 = 10f64.powf(target.log10().floor());
+    let Some(step) = [1.0, 2.0, 5.0, 10.0].iter().map(|k| k * p10).find(|s| *s >= target) else { return };
+    let to_pt = |x: f64, y: f64| {
+        let (sx, sy) = view.to_screen(x, y);
+        Pos2::new(rect.min.x + (sx as f32) / ppp, rect.min.y + (sy as f32) / ppp)
+    };
+    let (w, h) = (f64::from(rect.width() * ppp), f64::from(rect.height() * ppp));
+    let cs = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].map(|(x, y)| view.to_world(x, y));
+    let (mut u0, mut u1, mut v0, mut v1) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for (x, y) in cs {
+        u0 = u0.min(x);
+        u1 = u1.max(x);
+        v0 = v0.min(y);
+        v1 = v1.max(y);
+    }
+    let square = view.twist.abs() < 1e-9;
+    for (s, alpha) in [(step, 0.45_f32), (step * 5.0, 1.0)] {
+        if (u1 - u0) / s > 4000.0 || (v1 - v0) / s > 4000.0 {
+            continue;
+        }
+        let c = colour.gamma_multiply(alpha);
+        let stroke = egui::Stroke::new(1.0 / ppp.max(1.0), c);
+        let mut u = (u0 / s).ceil() * s;
+        while u <= u1 {
+            let (a, b) = (to_pt(u, v0), to_pt(u, v1));
+            if square {
+                let x = (a.x * ppp).round() / ppp + 0.5 / ppp;
+                painter.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())], stroke);
+            } else {
+                painter.line_segment([a, b], stroke);
+            }
+            u += s;
+        }
+        let mut v = (v0 / s).ceil() * s;
+        while v <= v1 {
+            let (a, b) = (to_pt(u0, v), to_pt(u1, v));
+            if square {
+                let y = (a.y * ppp).round() / ppp + 0.5 / ppp;
+                painter.line_segment([Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)], stroke);
+            } else {
+                painter.line_segment([a, b], stroke);
+            }
+            v += s;
+        }
+    }
+}
+
 /// Stats of the frame (for the status bar).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameStats {
@@ -168,6 +225,9 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
         (false, false) => t.canvas_bg,
     };
     painter.rect_filled(rect, 0.0, bg);
+    if f.grid && !paper && !print {
+        draw_grid(&painter, rect, &f.view, ppp, t.canvas_grid);
+    }
     let ink = if print {
         Color32::BLACK
     } else if paper {
