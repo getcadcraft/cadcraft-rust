@@ -136,6 +136,45 @@ pub enum View {
     Search(String),
 }
 
+/// The reader context (help-core.js): which computer, browser, app shell, connection and pointer the steps are for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Ctx {
+    pub os: &'static str,
+    pub browser: &'static str,
+    pub shell: &'static str,
+    pub net: &'static str,
+    pub input: &'static str,
+}
+
+impl Ctx {
+    fn get(&self, d: usize) -> &'static str {
+        [self.os, self.browser, self.shell, self.net, self.input].get(d).copied().unwrap_or("")
+    }
+}
+
+/// help-core.js `LABELS`' keys per dimension (the choices the reader can pick).
+pub const DIMS: [(&str, &[&str]); 5] = [
+    ("os", &["mac", "windows", "linux"]),
+    ("browser", &["chromium", "firefox", "safari"]),
+    ("shell", &["web", "desktop"]),
+    ("net", &["online", "offline"]),
+    ("input", &["mouse", "touch"]),
+];
+
+/// `detect()`: this computer (the desktop app runs as the desktop shell; the web build is taken as Chrome on Windows).
+pub fn detect() -> Ctx {
+    let [os, browser, shell, net, input] = ctx_tokens();
+    Ctx { os, browser, shell, net, input }
+}
+
+thread_local! {
+    /// The reader context the help is drawn for (None: every variant, labelled).
+    static READER: std::cell::Cell<Option<Ctx>> = std::cell::Cell::new(Some(detect()));
+}
+fn reader() -> Option<Ctx> {
+    READER.with(std::cell::Cell::get)
+}
+
 /// The help panel's state.
 #[derive(Debug, Clone)]
 pub struct Help {
@@ -143,12 +182,73 @@ pub struct Help {
     pub view: View,
     pub history: Vec<View>,
     pub query: String,
+    /// the reader context (None = "Show all"); help-panel.js `loadCtx()`
+    pub ctx: Option<Ctx>,
+    /// what is kept (help-panel.js `saveCtx`): null (this computer), "all", or {os, browser, input}
+    pub saved: serde_json::Value,
+    /// the context line is open for changes
+    pub ctx_open: bool,
 }
 
 impl Default for Help {
     fn default() -> Self {
-        Help { open: false, view: View::Index, history: Vec::new(), query: String::new() }
+        Help {
+            open: false,
+            view: View::Index,
+            history: Vec::new(),
+            query: String::new(),
+            ctx: Some(detect()),
+            saved: serde_json::Value::Null,
+            ctx_open: false,
+        }
     }
+}
+
+impl Help {
+    /// `loadCtx()` from what was kept: "all" = every variant; {os, browser, input} over this computer's.
+    pub fn load_ctx(&mut self, v: &serde_json::Value) {
+        let auto = detect();
+        self.saved = serde_json::Value::Null;
+        self.ctx = Some(auto);
+        if v.as_str() == Some("all") {
+            self.ctx = None;
+            self.saved = v.clone();
+        } else if let Some(o) = v.as_object() {
+            let pick = |dim: usize, cur: &'static str| -> &'static str {
+                let key = DIMS.get(dim).map_or("", |d| d.0);
+                let want = o.get(key).and_then(serde_json::Value::as_str).unwrap_or("");
+                DIMS.get(dim).and_then(|d| d.1.iter().find(|k| **k == want)).copied().unwrap_or(cur)
+            };
+            self.ctx = Some(Ctx { os: pick(0, auto.os), browser: pick(1, auto.browser), input: pick(4, auto.input), ..auto });
+            self.saved = v.clone();
+        }
+    }
+}
+
+/// `label(dim, key, cap)`: the shell catalog's word (shell.help.<dim>.<key>), first letter upper case for lists.
+pub fn ctx_label(dim: &str, key: &str, cap: bool) -> String {
+    let k = format!("shell.help.{dim}.{key}");
+    let v = lang::shell(&k, &[]);
+    let v = if v == k { key.to_string() } else { v };
+    if cap {
+        let mut c = v.chars();
+        match c.next() {
+            Some(f) => f.to_uppercase().chain(c).collect(),
+            None => v,
+        }
+    } else {
+        v
+    }
+}
+
+/// `describe(ctx)`: "Windows, Chrome or Edge, online" (touch named when it is touch).
+pub fn describe(c: &Ctx) -> String {
+    let mut parts = vec![ctx_label("os", c.os, false), ctx_label("browser", c.browser, false)];
+    if c.input == "touch" {
+        parts.push(ctx_label("input", "touch", false));
+    }
+    parts.push(ctx_label("net", c.net, false));
+    parts.join(", ")
 }
 
 pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
@@ -157,6 +257,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("help.search", "Help: search", "", "{name: words} → the topics holding every word"),
     ("help.back", "Help: back", "", "{}"),
     ("help.close", "Help: close", "", "{}"),
+    (
+        "help.ctx",
+        "Help: whose steps",
+        "",
+        "{name: \"os=mac|windows|linux\" | \"browser=chromium|firefox|safari\" | \"input=mouse|touch\" | \"all\" | \"mine\" | \"this\" | \"change\" | \"done\"} → the steps shown fit that computer (all: every variant; this: this computer)",
+    ),
 ];
 
 /// A topic by a link target, from the app showing: "slug" (the app's, else the basics'), "common:slug",
@@ -201,6 +307,48 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             h.query = q.clone();
             h.view = if q.trim().is_empty() { View::Index } else { View::Search(q) };
         }
+        "help.ctx" => {
+            let spec = params.name.clone().ok_or("help.ctx: name is required")?;
+            match spec.as_str() {
+                "all" => {
+                    h.ctx = None;
+                    h.saved = serde_json::Value::String("all".into());
+                }
+                "this" => {
+                    h.ctx = Some(detect());
+                    h.saved = serde_json::Value::Null;
+                    h.ctx_open = false;
+                }
+                // "Show all" unticked: this computer again, the choices stay open
+                "mine" => {
+                    h.ctx = Some(detect());
+                    h.saved = serde_json::Value::Null;
+                }
+                "change" => h.ctx_open = true,
+                "done" => h.ctx_open = false,
+                kv => {
+                    let (k, v) = kv.split_once('=').ok_or_else(|| format!("help.ctx: {kv} is not dim=value"))?;
+                    let d = DIMS
+                        .iter()
+                        .position(|d| d.0 == k && k != "shell" && k != "net")
+                        .ok_or_else(|| format!("help.ctx: no choice {k} (os, browser, input)"))?;
+                    let val = DIMS
+                        .get(d)
+                        .and_then(|x| x.1.iter().find(|x| **x == v))
+                        .copied()
+                        .ok_or_else(|| format!("help.ctx: {k} cannot be {v}"))?;
+                    let mut c = h.ctx.unwrap_or_else(detect);
+                    match d {
+                        0 => c.os = val,
+                        1 => c.browser = val,
+                        _ => c.input = val,
+                    }
+                    h.ctx = Some(c);
+                    h.saved = serde_json::json!({ "os": c.os, "browser": c.browser, "input": c.input });
+                }
+            }
+            READER.with(|r| r.set(h.ctx));
+        }
         "help.back" => {
             if let Some(v) = h.history.pop() {
                 h.view = v;
@@ -237,13 +385,39 @@ fn dim_of(tok: &str) -> Option<usize> {
     })
 }
 
-/// A `:::a b` variant block fits this computer: every dimension named matches (any of its tokens).
+/// A `:::a b` variant block fits the reader context: every dimension named matches (any of its tokens); with "Show
+/// all" every block fits (help-core.js `matches`).
 pub fn fits(tokens: &[&str]) -> bool {
-    let ctx = ctx_tokens();
+    let Some(ctx) = reader() else { return true };
     (0..5).all(|d| {
         let named: Vec<&&str> = tokens.iter().filter(|t| dim_of(t) == Some(d)).collect();
-        named.is_empty() || named.iter().any(|t| ctx.get(d) == Some(*t))
+        named.is_empty() || named.iter().any(|t| ctx.get(d) == **t)
     })
+}
+
+/// The compiled help's variant names (help.js `variants`), shown over each variant while every variant shows.
+fn variant_label(tokens: &[&str]) -> String {
+    tokens
+        .iter()
+        .filter_map(|t| {
+            Some(match *t {
+                "mac" => "Mac",
+                "windows" => "Windows",
+                "linux" => "Linux",
+                "chromium" => "Chrome or Edge",
+                "firefox" => "Firefox",
+                "safari" => "Safari",
+                "web" => "In the browser",
+                "desktop" => "Desktop app",
+                "online" => "Online",
+                "offline" => "Offline",
+                "mouse" => "Mouse",
+                "touch" => "Touch",
+                _ => return None,
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// One run of inline text.
@@ -263,15 +437,35 @@ pub enum SpanKind {
     Link(String),
 }
 
+/// A key as the reader's computer names it (the compiled help's `.hk`: "⌘K" / "⌃⇧F" / "Return" on a Mac, "Ctrl+K" /
+/// "Ctrl+Shift+F" / "Enter" elsewhere; every variant shown: Windows's, as the page's default).
 fn key_text(k: &str) -> String {
-    let mac = cfg!(target_os = "macos");
-    k.split('+').map(|p| if p == "Mod" { if mac { "⌘" } else { "Ctrl" } } else { p }).collect::<Vec<_>>().join("+")
+    let mac = reader().is_some_and(|c| c.os == "mac");
+    if mac {
+        k.split('+')
+            .map(|p| match p {
+                "Mod" | "Cmd" => "⌘",
+                "Shift" => "⇧",
+                "Alt" | "Option" => "⌥",
+                "Ctrl" => "⌃",
+                "Enter" => "Return",
+                other => other,
+            })
+            .collect::<Vec<_>>()
+            .join("")
+    } else {
+        k.split('+').map(|p| if p == "Mod" || p == "Cmd" { "Ctrl" } else { p }).collect::<Vec<_>>().join("+")
+    }
 }
 
+/// `{{pick:mac=…|windows=…}}`: the part for the reader's computer; every part (" / ") when none fits or all show.
 fn pick_text(spec: &str) -> String {
-    let os = ctx_tokens()[0];
     let parts: Vec<(&str, &str)> = spec.split('|').filter_map(|p| p.split_once('=')).collect();
-    parts.iter().find(|(k, _)| k.split(',').any(|x| x == os)).or(parts.first()).map(|(_, v)| v.to_string()).unwrap_or_default()
+    let fit: Vec<&str> = match reader() {
+        Some(c) => parts.iter().filter(|(k, _)| k.split(',').any(|x| x == c.os)).map(|(_, v)| *v).collect(),
+        None => Vec::new(),
+    };
+    if fit.is_empty() { parts.iter().map(|(_, v)| *v).collect::<Vec<_>>().join(" / ") } else { fit.join(" / ") }
 }
 
 /// Inline Markdown of one line → spans.
@@ -439,6 +633,9 @@ fn draw_body(ui: &mut egui::Ui, body: &str, t: &crate::theme::Tokens) -> Option<
                 let toks: Vec<&str> = rest.split_whitespace().collect();
                 let callout = toks.first().copied().filter(|k| matches!(*k, "note" | "tip" | "warning"));
                 block = Some((callout.is_some() || fits(&toks), callout));
+                if callout.is_none() && reader().is_none() {
+                    ui.label(RichText::new(variant_label(&toks)).small().strong().color(t.text_dim));
+                }
                 if callout.is_some() {
                     ui.add_space(2.0);
                 }
@@ -505,9 +702,54 @@ fn draw_body(ui: &mut egui::Ui, body: &str, t: &crate::theme::Tokens) -> Option<
     go
 }
 
+/// The reader-context line: "Showing steps for Windows, Chrome or Edge, online. Change", or the choices.
+fn ctx_line(ui: &mut egui::Ui, h: &Help, t: &crate::theme::Tokens) -> Option<(&'static str, Params)> {
+    let s = |k: &str| lang::shell(k, &[]);
+    let mut act: Option<(&'static str, Params)> = None;
+    let p = |n: String| Params { name: Some(n), ..Default::default() };
+    ui.horizontal_wrapped(|ui| {
+        if !h.ctx_open {
+            let line = match &h.ctx {
+                Some(c) => lang::shell("shell.help.ctx.for", &[("what", describe(c))]),
+                None => s("shell.help.ctx.all"),
+            };
+            ui.label(RichText::new(line).small().color(t.text_dim));
+            if ui.link(RichText::new(s("shell.help.ctx.change")).small()).clicked() {
+                act = Some(("help.ctx", p("change".into())));
+            }
+            return;
+        }
+        let cur = h.ctx.unwrap_or_else(detect);
+        for (d, key) in [(0usize, "shell.help.ctx.os"), (1, "shell.help.ctx.browser"), (4, "shell.help.ctx.input")] {
+            let Some((dim, keys)) = DIMS.get(d) else { continue };
+            ui.label(RichText::new(s(key)).small().color(t.text_dim));
+            let now = cur.get(d);
+            egui::ComboBox::new(("help_ctx", d), "").selected_text(ctx_label(dim, now, true)).show_ui(ui, |ui| {
+                for k in *keys {
+                    if ui.selectable_label(*k == now, ctx_label(dim, k, true)).clicked() {
+                        act = Some(("help.ctx", p(format!("{dim}={k}"))));
+                    }
+                }
+            });
+        }
+        let mut all = h.ctx.is_none();
+        if ui.checkbox(&mut all, RichText::new(s("shell.help.ctx.show_all")).small()).changed() {
+            act = Some(("help.ctx", p(if all { "all".into() } else { "mine".into() })));
+        }
+        if ui.link(RichText::new(s("shell.help.ctx.this_computer")).small()).clicked() {
+            act = Some(("help.ctx", p("this".into())));
+        }
+        if ui.link(RichText::new(s("shell.help.ctx.done")).small()).clicked() {
+            act = Some(("help.ctx", p("done".into())));
+        }
+    });
+    act
+}
+
 /// The panel (right side), and F1 / Esc.
 pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
+    READER.with(|r| r.set(app.help.ctx));
     if ctx.input(|i| i.key_pressed(egui::Key::F1)) {
         app.run_ui("help.toggle", &Params::default());
     }
@@ -539,6 +781,10 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
         let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(s("shell.help.search")).desired_width(f32::INFINITY));
         if r.changed() {
             act = Some(("help.search", Params { name: Some(q.clone()), ..Default::default() }));
+        }
+        // whose steps the help shows (help-panel.js renderCtx)
+        if let Some(a) = ctx_line(ui, &app.help, &t) {
+            act = Some(a);
         }
         ui.separator();
         egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("help_scroll", format!("{view:?}"))).show(ui, |ui| match &view {
@@ -666,6 +912,35 @@ mod tests {
         assert!(!fits(&["touch"]));
         // a broken mark never panics
         let _ = spans("[x](  {{ **a ` {{key:");
+    }
+
+    #[test]
+    fn reader_context() {
+        let mut app = UiApp::default();
+        let mine = detect();
+        cc_lang::with(cc_lang::Locale::En, || {
+            assert!(describe(&mine).contains("Chrome or Edge"));
+            app.run("help.ctx", &Params { name: Some("os=mac".into()), ..Default::default() }).unwrap();
+            assert_eq!(app.help.ctx.map(|c| c.os), Some("mac"));
+            assert_eq!(key_text("Mod+Shift+K"), "⌘⇧K");
+            assert_eq!(pick_text("mac=Finder|windows=File Explorer"), "Finder");
+            assert!(fits(&["mac", "mouse"]) && !fits(&["windows"]));
+            app.run("help.ctx", &Params { name: Some("input=touch".into()), ..Default::default() }).unwrap();
+            assert!(describe(&app.help.ctx.unwrap()).starts_with("Mac, Chrome or Edge, touch"));
+            assert_eq!(app.help.saved, serde_json::json!({"os": "mac", "browser": "chromium", "input": "touch"}));
+            app.run("help.ctx", &Params { name: Some("all".into()), ..Default::default() }).unwrap();
+            assert!(fits(&["linux"]) && fits(&["offline"]));
+            assert_eq!(pick_text("mac=Finder|windows=File Explorer"), "Finder / File Explorer");
+            assert_eq!(key_text("Mod+S"), "Ctrl+S");
+            // kept and read back as help-panel.js keeps it
+            let mut other = UiApp::default();
+            other.load_settings(&app.settings_json());
+            assert!(other.help.ctx.is_none());
+            app.run("help.ctx", &Params { name: Some("this".into()), ..Default::default() }).unwrap();
+            assert_eq!(app.help.ctx, Some(mine));
+            assert!(app.run("help.ctx", &Params { name: Some("net=offline".into()), ..Default::default() }).is_err());
+            assert!(app.run("help.ctx", &Params { name: Some("os=amiga".into()), ..Default::default() }).is_err());
+        });
     }
 
     #[test]

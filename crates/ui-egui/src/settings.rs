@@ -89,7 +89,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
 }
 
 impl UiApp {
-    /// Settings as the hosts keep them (`{"lang": "es-MX", "theme": "paper", "zoom": 1.15}`).
+    /// Settings as the hosts keep them (`{"lang": "es-MX", "theme": "paper", "zoom": 1.15, "helpCtx": null}`; helpCtx as
+    /// help-panel.js keeps it: null, "all" or {os, browser, input}).
     pub fn settings_json(&self) -> Value {
         json!({
             "lang": cc_lang::locale().code(),
@@ -98,6 +99,7 @@ impl UiApp {
             "cadcraft": self.cadset.json(),
             "cadprops": self.cadprops.prefs_json(),
             "cadcraftInput": self.ribbon.prefs(),
+            "helpCtx": self.help.saved,
         })
     }
 
@@ -122,6 +124,8 @@ impl UiApp {
         if let Some(p) = v.get("cadcraftInput") {
             self.ribbon.load_prefs(p);
         }
+        // the help's reader context (help-panel.js's cadcraft.help.ctx)
+        self.help.load_ctx(v.get("helpCtx").unwrap_or(&Value::Null));
     }
 
     /// Show the app in a theme (the 3D model view is rebuilt in its colours).
