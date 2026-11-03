@@ -2,6 +2,54 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-28 — M3.9–M3.10 the viewer's DWG extras (BimCraft 0.5's DWG view) and the help's reader context (agent, work/dwgview)
+
+- M3.9 `cc-dwgview` (new, L5; DOM-free ports of BimCraft 0.5): `equipment` (dwg-equipment.js with libitem.js's KCL
+  decoders, the CSV), `props` (dwg-props.js), `dynamic` (dwg-dynamic.js), `compile3d` (dwg-compile3d.js: the adapter and
+  the compiler, V8 trig and hypot, Map order, the numeric layer sort; cyclic dimension blocks / linked drawings and huge
+  MINSERT arrays bounded where the JS would hang), `folder` (folder-pick.js's walk rules and bimcraft.js
+  `findLinked` / `findPicture` with the similar-name match), `page` (the page's words: tab, facts row, schedule head,
+  rows, count line, CSV name, status lines, dynamic-block list, Properties in 3D, a pick). cc-io-dwg: the compile helpers
+  the 3D compiler shares made public, `collate_plain` (plain `localeCompare`). cc-render: edges in their own colours
+  (`MeshData::edge_colors`, a second edge pipeline) and `Style3::back_own` (two-sided faces in their colour).
+- The viewer (ui-egui): the "Equipment (n)" tab (dwgequip.rs: which equipment, filter, Download CSV, Where → the item
+  ringed on the sheet that shows it), the "3D" switch (dwg3d.rs, key 3: model space round its centre scaled to 100 units
+  as the JS does — survey coordinates pick steadily, a test at x = 500 000 m with lines 2 mm apart —, ModelCraft's
+  camera, standard views, perspective, extents, section plane Top / Front / Side with offset and flip (key X), click /
+  Ctrl+click picking with Properties, the pick drawn over the view, text along its baseline over the view), the Drawing
+  panel's dynamic-block list, picture pills "Shown" / "Shown, similar name" / not found / unreadable with where each was
+  found, linked drawings with where. Desktop: the drawing's own folder is walked with its subfolders (folder-pick.js's
+  limits, housekeeping folders skipped) and "Open a folder" picks a project folder, as 0.5 Studio opens one; files added
+  by hand come first (kept across drawings, as 0.5's). `Services::list_dir`; cadcraft-shot `--folder`;
+  `cadcraft-cli dwgview` (JSON of all of it, `--lookup`, `--bench`). Bug fixed: the viewer read the layer table from
+  `model.layers` instead of `tables.layers`, so layers frozen in a viewport were never hidden (regression test).
+- M3.10 the help's reader context (help-panel.js renderCtx / help-core.js): "Showing steps for Windows, Chrome or Edge,
+  online. Change" → Computer / Browser / Pointer lists, Show all (every variant, labelled), Use this computer, Done; the
+  variants, `{{pick:}}` and keys (⌘⇧K / Ctrl+Shift+K, Return / Enter) follow it; kept in Settings as 0.5 keeps
+  `cadcraft.help.ctx` (`helpCtx`: null, "all" or {os, browser, input}); command `help.ctx`.
+- Parity (new harness forks/tools/dwgviewdiff.mjs: the frozen JS modules in Node against `cadcraft-cli dwgview` and the
+  real window through cadcraft-shot): 0 differences —
+
+  | check | en | es-MX |
+  |---|---|---|
+  | corpus drawings (29: carey with its links, dwg-samples, dwg-corpus kitchen / blocks / civil): equipment, schedule per choice, CSV bytes, filters, rings, dynamic blocks, 3D batches (FNV of every array), owners, layers, bounds, Properties of every object and a multiple pick | 29/29 | 29/29 |
+  | random DXF (every kind compileModel3d draws, OCS, thickness, wide polylines, MINSERT, attributes, KCL tags, survey coordinates), arrays in full | 1,400/1,400 | 700/700 |
+  | the window: 97 status lines (CSV saved, Where, 3D) and 33 saved CSV files | 0 differences | 0 differences |
+  | findLinked / findPicture on random folders | 30,000/30,000 (+90,000 en) | 30,000/30,000 |
+
+- Timings (best of 15–20 on a loaded machine, ms, JS 0.5 / Rust): Carey Foodservice (189 rows, 22,251 entities):
+  equipment list 5.4 / 2.4, with its CSV 4.5 / 2.4, dynamic-block list 0.49 / 0.16, 3D compile 95 / 53, Properties of
+  2,000 picks 3.3 / 4.0; kitchen-equipment: 1.2 / 0.56, 0.91 / 0.62, 0.11 / 0.006, 4.6 / 2.4, 1.18 / 0.73; ar1all
+  overall plan: dynamic 3.0 / 0.11, 3D compile 42 / 15, Properties 4.9 / 6.8 (one pick is 2–3 µs either way: the
+  entity's fields are read from the model's key lists). Before the block index and the ASCII fast path the dynamic list
+  took 2.85 ms on Carey and the kitchen schedule 4.0 ms.
+- Screenshots (forks/lead/shots/dwgview): equip.png / equip-es.png (schedule), info.png (Drawing panel: links found in
+  the folder, "Shown, similar name"), dyn.png (dynamic blocks), d3.png / cmp-d3*.png (3D against 0.5's in Chromium:
+  same view, same geometry and colours, text in place), d3pick.png / d3-es.png (pick, Properties, section),
+  help-ctx.png / help-all-es.png, web-3d.png (the web build in Chromium, 3D switched with key 3, orbited, three loads).
+  Fixed from looking: the 3D fit waited for the view's size, the schedule's rows overlapped (manual rows now).
+- Left (gaps item 3): text in 3D is not hidden behind faces and is in the UI font; no corner view cube in the DWG 3D view;
+  the web build cannot walk folders.
 ## 2026-10-28 — M4.52–M4.56 CadCraft drafting's last 0.5 pieces: dense linetypes, view cube steps, Settings › CadCraft and the Properties head, input styles, line weights on screen (agent, work/cadrest)
 
 - Linked drawings next to a DWG opened for editing: **0.5 does not do it** (cadcraft.js openLocal reads the file only;

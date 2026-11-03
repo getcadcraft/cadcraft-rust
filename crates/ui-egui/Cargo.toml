@@ -44,6 +44,7 @@ indexmap = "2.14"
 libm = "0.2.16"
 cc-render.workspace = true
 cc-io-dwg.workspace = true
+cc-dwgview.workspace = true
 cc-io-cad.workspace = true
 cc-detail.workspace = true
 cc-io-detail.workspace = true

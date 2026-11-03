@@ -259,6 +259,7 @@ mod web {
                             save: Some(Box::new(download)),
                             open_pdf: Some(Box::new(open_pdf)),
                             pick_folder: None,
+                            list_dir: None,
                             recovery: Some(crate::recovery::service()),
                             // CivilCraft's map layers (gis-map-ui.js FETCH_OPTS: cors, no credentials, no referrer)
                             fetch: Some(Box::new(move |url: &str| {

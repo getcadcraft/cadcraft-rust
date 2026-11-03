@@ -57,6 +57,8 @@ pub mod detailprops;
 pub mod detailtools;
 pub mod detailview;
 pub mod document;
+pub mod dwg3d;
+pub mod dwgequip;
 pub mod edit;
 pub mod help;
 mod help_files;
@@ -171,8 +173,11 @@ pub struct Services {
     /// the Plot dialog's "Open to print": show a PDF (name, bytes) where it can be printed → Ok(true) shown (desktop:
     /// the system's PDF viewer; web: a new tab), Ok(false) saved / downloaded instead (a blocked tab)
     pub open_pdf: Option<OpenPdf>,
-    /// desktop: pick a folder (the Sheet Set panel's) → its path; None = cancelled
+    /// desktop: pick a folder (the Sheet Set panel's, the drawing viewer's project folder) → its path; None = cancelled
     pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
+    /// desktop: a folder's entries (name, is a folder) — the drawing viewer walks the project folder for linked drawings
+    /// and pictures (folder-pick.js); None = this host cannot list folders (web)
+    pub list_dir: Option<ListDir>,
     /// where recovery copies of unsaved work go (desktop: a locked folder in the config dir; web: browser storage);
     /// None = the window cannot keep them, and says so (recover.rs)
     pub recovery: Option<cc_recovery::Service>,
@@ -196,6 +201,9 @@ pub struct Fetched {
 pub type OpenPdf = Box<dyn FnMut(&str, &[u8]) -> Result<bool, String>>;
 
 pub use cc_recovery::RecoveryOp;
+
+/// A folder's entries: path → (name, is a folder) in any order (see `Services::list_dir`).
+pub type ListDir = Box<dyn FnMut(&str) -> Result<Vec<(String, bool)>, String>>;
 
 /// Pick files for a command (see `Services::pick_files`).
 pub type PickFiles = Box<dyn FnMut(&str, bool) -> Option<Vec<ImportedFile>>>;
@@ -526,7 +534,6 @@ impl UiApp {
         if viewer::dropped(self, f) {
             return;
         }
-        self.viewer.added.clear();
         self.viewer.unreadable.clear();
         self.hub.note(&f.name, f.dir.as_deref(), hub::app_for(&f.name), hub::now_ms());
         bimedit::opened(self);
@@ -599,21 +606,8 @@ impl UiApp {
             self.import_model(f, &fmt);
             return;
         }
-        let dir = f.dir.clone();
-        let reader = &mut self.services.read_xref;
-        let mut resolve = |x: &str| -> Option<Vec<u8>> {
-            match (dir.as_deref(), reader.as_mut()) {
-                (Some(d), Some(r)) => r(d, x),
-                _ => None,
-            }
-        };
-        let res = document::open_with(&f.name, &f.bytes, &mut resolve);
-        let ok = res.is_ok();
-        self.loaded(res);
-        if ok {
-            self.source = Some(f.clone());
-            self.find_pictures(f.dir.as_deref());
-        }
+        // the drawing viewer: linked drawings and pictures from the files added by hand and the project folder
+        viewer::open_drawing(self, f);
     }
 
     /// A ModelCraft model file (`.modelcraft`: Model.toJSON) → the 3D view.
@@ -1123,21 +1117,6 @@ impl UiApp {
 
     /// The picture files the open drawing names, looked for in its folder (desktop: `Services::read_path`; the web
     /// has no folders: IMAGE in the editor takes the files, as 0.5 does in the browser).
-    fn find_pictures(&mut self, dir: Option<&str>) {
-        self.viewer_pictures = cc_cad::pictures::Pictures::new();
-        let (Some(dir), Some(read)) = (dir, self.services.read_path.as_mut()) else { return };
-        let files: Vec<String> = self.doc.as_ref().map(|d| d.drawing.images.iter().map(|i| i.file.clone()).collect()).unwrap_or_default();
-        for file in files {
-            let base = cc_cad::pictures::base_name(&file);
-            if base.is_empty() || base.contains("..") {
-                continue;
-            }
-            if let Ok(got) = read(&format!("{dir}/{base}")) {
-                let _ = cc_cad::pictures::add_picture(&mut self.viewer_pictures, &got.name, &got.bytes);
-            }
-        }
-    }
-
     /// Decode the pictures the shown drawing uses into textures (once each; again when the picture files change).
     fn picture_textures(&mut self, ctx: &egui::Context) -> HashMap<String, egui::TextureId> {
         let Some(doc) = &self.doc else { return HashMap::new() };
@@ -1281,6 +1260,7 @@ impl UiApp {
             }
             "view.fit" => {
                 self.pending_fit = true;
+                dwg3d::fit(self);
                 if let Some(pv) = self.part.as_mut() {
                     pv.fit();
                 }
@@ -1608,6 +1588,7 @@ impl UiApp {
                     return Err(format!("space.select: index {i} is out of range (0..{n})"));
                 }
                 self.space = i;
+                viewer::left_extras(self);
                 if let Some(ed) = self.editor.as_mut() {
                     if ed.eng.busy() {
                         ed.escape();
@@ -2171,6 +2152,10 @@ impl UiApp {
             hub::ui(self, ui);
         } else if cad3dtab::showing(self) {
             egui::CentralPanel::no_frame().show(ui, |ui| cad3dtab::show(self, ui));
+        } else if dwgequip::showing(self) {
+            egui::CentralPanel::no_frame().show(ui, |ui| dwgequip::show(self, ui));
+        } else if dwg3d::showing(self) {
+            egui::CentralPanel::no_frame().show(ui, |ui| dwg3d::show(self, ui));
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
         }
@@ -2548,7 +2533,9 @@ impl UiApp {
             .map(|s| (if s.kind == SpaceKind::Model { lang::cad("app.tab.model") } else { s.name.clone() }, s.kind == SpaceKind::Paper))
             .collect();
         let editing = self.editor.is_some();
-        if names.len() <= 1 && !editing {
+        // the viewer's own tabs after the sheets: Equipment (n), 3D (viewer.rs)
+        let extra = viewer::extra_tabs(self);
+        if names.len() <= 1 && !editing && extra.is_empty() {
             return;
         }
         // Settings › CadCraft › Sheet tabs = numbers only (WL.9): the number on the tab, the whole name in its tooltip
@@ -2561,7 +2548,8 @@ impl UiApp {
         let mut pick = None;
         let mut add = false;
         let mut open3d = false;
-        let in3d = cad3dtab::showing(self);
+        let mut extra_act: Option<&'static str> = None;
+        let in3d = cad3dtab::showing(self) || extra.iter().any(|e| e.selected);
         egui::Panel::bottom("tabs")
             .exact_size(26.0)
             .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(6, 3)))
@@ -2588,6 +2576,11 @@ impl UiApp {
                                 open3d = true;
                             }
                         }
+                        for e in &extra {
+                            if ui.selectable_label(e.selected, &e.label).on_hover_text(&e.title).clicked() {
+                                extra_act = Some(e.cmd);
+                            }
+                        }
                         // cadcraft.js's "+" tab: a new sheet (LAYOUT)
                         if editing && ui.small_button("+").on_hover_text(crate::edit::lang_text("ui.new_sheet_layout_title", &[])).clicked()
                         {
@@ -2601,6 +2594,9 @@ impl UiApp {
         }
         if open3d && !in3d {
             self.run_ui("tab3d.open", &Params::default());
+        }
+        if let Some(id) = extra_act {
+            self.run_ui(id, &Params::default());
         }
         if add {
             self.run_ui("cmd.line", &Params { name: Some("LAYOUT".into()), ..Default::default() });

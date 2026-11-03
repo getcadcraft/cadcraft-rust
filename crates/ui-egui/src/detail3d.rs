@@ -188,6 +188,7 @@ impl Mk {
             colors: self.col,
             indices: self.idx,
             edges: self.edges,
+            edge_colors: Vec::new(),
             tex: Vec::new(),
         }
     }

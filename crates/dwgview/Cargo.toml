@@ -1,0 +1,27 @@
+[package]
+name = "cc-dwgview"
+description = "CadCraft L5: BimCraft 0.5's DWG view extras, DOM-free: the equipment schedule (dwg-equipment.js), picked objects' properties (dwg-props.js), dynamic blocks (dwg-dynamic.js), model space in 3D (dwg-compile3d.js), linked files found in a folder (folder-scan.js), and the page's words for them."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[package.metadata.layer]
+layer = 5
+
+[lints]
+workspace = true
+
+[dependencies]
+cc-lang.workspace = true
+cc-io-dwg.workspace = true
+cc-io-cad.workspace = true
+cc-cad.workspace = true
+cc-cad-geom.workspace = true
+cc-drawing.workspace = true
+cc-bim.workspace = true
+serde_json.workspace = true
+unicode-general-category = "1.1"

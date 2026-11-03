@@ -331,6 +331,17 @@ fn open_pdf(name: &str, bytes: &[u8]) -> Result<bool, String> {
     Ok(true)
 }
 
+/// A folder's entries (name, is a folder), by name: the drawing viewer walks the project folder (folder-pick.js).
+fn list_dir(dir: &str) -> Result<Vec<(String, bool)>, String> {
+    let mut out: Vec<(String, bool)> = std::fs::read_dir(dir)
+        .map_err(|e| format!("{dir}: {e}"))?
+        .filter_map(Result::ok)
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.file_type().is_ok_and(|t| t.is_dir())))
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
 /// "<xref>.dwg" in the drawing's folder, case-insensitively (as BimCraft looks for linked drawings).
 fn read_xref(dir: &str, name: &str) -> Option<Vec<u8>> {
     let want = format!("{name}.dwg").to_lowercase();
@@ -421,6 +432,7 @@ fn main() -> eframe::Result {
                 open_pdf: Some(Box::new(open_pdf)),
                 pick_folder: Some(Box::new(|| rfd::FileDialog::new().pick_folder().map(|p| p.display().to_string()))),
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
+                list_dir: Some(Box::new(list_dir)),
                 recovery: recovery_service(),
                 ..Default::default()
             };

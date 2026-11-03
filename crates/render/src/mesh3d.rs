@@ -295,6 +295,8 @@ pub struct MeshData {
     pub indices: Vec<u32>,
     /// edge segments: pairs of points relative to `origin`
     pub edges: Vec<[f32; 3]>,
+    /// one colour per edge point (the drawing's 3D view: lines in their layer colours); empty = the style's edge colour
+    pub edge_colors: Vec<[u8; 4]>,
     /// per vertex: where it falls on a texture (u, v in copies of the tile) and the texture's layer, or a negative
     /// layer for none; empty = no textures in this mesh
     pub tex: Vec<[f32; 3]>,
@@ -342,6 +344,8 @@ pub struct GpuMesh {
     verts: Option<wgpu::Buffer>,
     idx: Option<wgpu::Buffer>,
     edges: Option<wgpu::Buffer>,
+    /// the edges carry their own colours (`MeshData::edge_colors`)
+    edge_colored: bool,
     pub triangles: u32,
     pub segments: u32,
 }
@@ -361,7 +365,20 @@ impl GpuMesh {
             }
         }
         let ib: Vec<u8> = m.indices.iter().flat_map(|i| i.to_le_bytes()).collect();
-        let eb: Vec<u8> = m.edges.iter().flat_map(|p| p.iter().flat_map(|v| v.to_le_bytes())).collect();
+        let edge_colored = !m.edge_colors.is_empty();
+        let eb: Vec<u8> = if edge_colored {
+            // position and colour per point (16 bytes)
+            let mut b = Vec::with_capacity(m.edges.len().saturating_mul(16));
+            for (i, p) in m.edges.iter().enumerate() {
+                for v in p {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                b.extend_from_slice(&m.edge_colors.get(i).copied().unwrap_or([0, 0, 0, 255]));
+            }
+            b
+        } else {
+            m.edges.iter().flat_map(|p| p.iter().flat_map(|v| v.to_le_bytes())).collect()
+        };
         let mk = |label: &str, bytes: &[u8], usage: wgpu::BufferUsages| {
             (!bytes.is_empty())
                 .then(|| device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some(label), contents: bytes, usage }))
@@ -371,6 +388,7 @@ impl GpuMesh {
             verts: mk("cc3 verts", &vb, wgpu::BufferUsages::VERTEX),
             idx: mk("cc3 idx", &ib, wgpu::BufferUsages::INDEX),
             edges: mk("cc3 edges", &eb, wgpu::BufferUsages::VERTEX),
+            edge_colored,
             triangles: u32::try_from(m.indices.len() / 3).unwrap_or(u32::MAX),
             segments: u32::try_from(m.edges.len() / 2).unwrap_or(u32::MAX),
         }
@@ -406,6 +424,9 @@ pub struct Style3 {
     pub sun: Option<Sun3>,
     /// faces painted with a library material show its texture (the shaded style); else its colour
     pub textures: bool,
+    /// back faces keep their own colour (two-sided faces of a drawing's 3D view, three.js DoubleSide); else they turn
+    /// toward `back`
+    pub back_own: bool,
 }
 
 /// The sun of view3d.js `updateLights` with shadows on: the direction towards it (world, unit) and whether it is up.
@@ -438,6 +459,7 @@ impl Default for Style3 {
             section: None,
             sun: None,
             textures: true,
+            back_own: false,
         }
     }
 }
@@ -498,6 +520,8 @@ pub struct Renderer3 {
     face: wgpu::RenderPipeline,
     face_xray: wgpu::RenderPipeline,
     edge: wgpu::RenderPipeline,
+    /// edges with their own colours
+    edge_col: wgpu::RenderPipeline,
     /// faces into the shadow map (depth only, back faces as three.js's `shadowSide: BackSide`)
     shadow: wgpu::RenderPipeline,
     /// the ground that catches shadows (three.js ShadowMaterial, opacity 0.28)
@@ -725,6 +749,7 @@ impl Renderer3 {
         ];
         let vert_attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Unorm8x4, 11 => Float32x3];
         let edge_attrs = wgpu::vertex_attr_array![0 => Float32x3];
+        let edge_col_attrs = wgpu::vertex_attr_array![0 => Float32x3, 2 => Unorm8x4];
         let ms = wgpu::MultisampleState { count: SAMPLES, mask: !0, alpha_to_coverage_enabled: false };
         let depth = |write: bool, cmp: wgpu::CompareFunction| {
             Some(wgpu::DepthStencilState {
@@ -783,6 +808,38 @@ impl Renderer3 {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_edge"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: TARGET_FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::LineList, ..Default::default() },
+            depth_stencil: depth(true, wgpu::CompareFunction::GreaterEqual),
+            multisample: ms,
+            multiview_mask: None,
+            cache: None,
+        });
+        let edge_col = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cc3 coloured edges"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_edge_col"),
+                compilation_options: Default::default(),
+                buffers: &[
+                    Some(wgpu::VertexBufferLayout {
+                        array_stride: 16,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &edge_col_attrs,
+                    }),
+                    Some(inst.clone()),
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_edge_col"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: TARGET_FORMAT,
@@ -865,7 +922,7 @@ impl Renderer3 {
             multiview_mask: None,
             cache: None,
         });
-        Renderer3 { face, face_xray, edge, shadow, ground, frame, bind, shadow_view, shadow_bind, textures }
+        Renderer3 { face, face_xray, edge, edge_col, shadow, ground, frame, bind, shadow_view, shadow_bind, textures }
     }
 
     /// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
@@ -900,7 +957,7 @@ impl Renderer3 {
         let nudge = if cam.persp { 2e-6 } else { 1e-5 };
         let mut fb: Vec<f32> = pv.to_vec();
         fb.extend_from_slice(&[light[0] as f32, light[1] as f32, light[2] as f32, if shadows.is_some() { 1.0 } else { 0.0 }]);
-        fb.extend_from_slice(&[style.back[0], style.back[1], style.back[2], 0.25]);
+        fb.extend_from_slice(&[style.back[0], style.back[1], style.back[2], if style.back_own { 1.0 } else { 0.25 }]);
         fb.extend_from_slice(&style.edge);
         fb.extend_from_slice(&[shade[0], shade[1], shade[2], nudge]);
         // the cut in the scene-origin frame: n · (p_rel + origin) > d  ⇔  n · p_rel > d − n · origin
@@ -1015,10 +1072,14 @@ impl Renderer3 {
                     }
                 }
                 if style.edges {
-                    pass.set_pipeline(&self.edge);
+                    let mut colored: Option<bool> = None;
                     for (mi, r) in ranges {
                         let Some(mesh) = meshes.get(*mi) else { continue };
                         if let Some(e) = &mesh.edges {
+                            if colored != Some(mesh.edge_colored) {
+                                pass.set_pipeline(if mesh.edge_colored { &self.edge_col } else { &self.edge });
+                                colored = Some(mesh.edge_colored);
+                            }
                             pass.set_vertex_buffer(0, e.slice(..));
                             pass.draw(0..mesh.segments * 2, r.clone());
                             stats.draw_calls += 1;

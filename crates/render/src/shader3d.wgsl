@@ -142,6 +142,33 @@ fn fs_edge(v: EdgeOut) -> @location(0) vec4<f32> {
     return fr.edge;
 }
 
+struct EdgeColOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) rel: vec3<f32>,
+    @location(1) col: vec4<f32>,
+};
+
+// edges in their own colours (a drawing's lines in their layer colours)
+@vertex
+fn vs_edge_col(@location(0) p: vec3<f32>, @location(2) c: vec4<f32>, i: Inst) -> EdgeColOut {
+    let m = mat4x4<f32>(i.m0, i.m1, i.m2, i.m3);
+    var o: EdgeColOut;
+    let w = m * vec4<f32>(p, 1.0);
+    let cl = fr.pv * w;
+    o.rel = w.xyz;
+    o.pos = vec4<f32>(cl.xy, cl.z + fr.shade.w * cl.w, cl.w);
+    o.col = c;
+    return o;
+}
+
+@fragment
+fn fs_edge_col(v: EdgeColOut) -> @location(0) vec4<f32> {
+    if cut(v.rel) {
+        discard;
+    }
+    return v.col;
+}
+
 // ---- the sun's shadow map: faces seen from the sun, depth only ----
 
 struct ShadowOut {

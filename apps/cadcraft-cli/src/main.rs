@@ -38,6 +38,9 @@
 //!
 //!   cadcraft-cli part <script.json> | --bench <script.json> [--runs N]
 //!                                                PartCraft's engine (cc-part) on call scripts (forks/tools/pcdiff.mjs), part.rs
+//!   cadcraft-cli dwgview <file.dwg|.dxf> [--xrefs DIR] [--picks N] [--full3d] [--bench N]
+//!                                                BimCraft's DWG view extras as JSON (equipment, dynamic blocks, 3D,
+//!                                                Properties of picks; forks/tools/dwgviewdiff.mjs), dwgview.rs
 //!   cadcraft-cli takeoff <script.json> | export | match | count | marks | proposal | embed | bench
 //!                                                TakeoffCraft's engine (cc-takeoff, cc-io-takeoff), takeoff.rs
 //!
@@ -51,6 +54,7 @@ mod cloudcli;
 mod cmds;
 mod crosssection;
 mod detail;
+mod dwgview;
 mod hull;
 mod ifc;
 mod iocad;
@@ -125,6 +129,7 @@ fn main() -> ExitCode {
         "civil" => civil::civil(&rest),
         "detail" => detail::detail(&rest),
         "part" => part::part(&rest),
+        "dwgview" => dwgview::run(&rest),
         _ => usage(),
     }
 }

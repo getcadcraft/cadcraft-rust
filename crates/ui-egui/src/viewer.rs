@@ -5,12 +5,20 @@
 //! `focusModelPoint` does), touch (one finger pans, two pinch-zoom about their middle and pan, a double tap fits),
 //! fit on F. Words: BimCraft's catalog (`dwg.*`, `info.*`) and CadCraft's Find dialog (`dlg.find.*`).
 //!
+//! BimCraft's extras (M3.9–M3.11): the equipment schedule tab (dwgequip.rs), model space in 3D with picking for
+//! Properties (dwg3d.rs, key 3), the dynamic-block list, linked drawings and pictures found by name in the project
+//! folder (bimcraft.js `findLinked` / `findPicture`: the drawing's own folder first, then anywhere in the folder; a
+//! picture whose file name only holds its name is "Shown, similar name"). On the desktop the project folder is the
+//! drawing's own folder walked with its subfolders (folder-pick.js's rules), or a folder picked with "Open a folder",
+//! as 0.5 Studio opens one; files added by hand come first.
+//!
 //! Commands (`viewer.*`): `viewer.print`, `viewer.info`, `viewer.find {name: text}`, `viewer.find.set {name:
 //! "case=true" | "whole=true"}`, `viewer.find.show {index}`, `viewer.find.close`, `viewer.add {name: "drawing" |
-//! "pictures"}`, `viewer.mark.clear`.
+//! "pictures"}`, `viewer.mark.clear`, `viewer.folder {name?: path}`; `viewer.equip*` (dwgequip.rs), `viewer.3d*`
+//! (dwg3d.rs).
 
-use std::collections::HashMap;
-
+use cc_dwgview::folder::{self as dfolder, Folder, Found};
+use cc_dwgview::page;
 use egui::RichText;
 
 use crate::lang::{self, BIMCRAFT, CADCRAFT};
@@ -26,12 +34,35 @@ pub struct Viewer {
     pub find: Option<Find>,
     /// a ringed point: (space index, x, y)
     pub mark: Option<(usize, f64, f64)>,
-    /// linked drawings added by hand (name → bytes), looked up before the drawing's folder
-    pub added: HashMap<String, Vec<u8>>,
+    /// files added by hand (lower-case name → bytes; bimcraft.js `xrefFiles`), looked up before the project folder
+    pub added: Vec<(String, Vec<u8>)>,
     /// web: the picker is open for "drawing" or "pictures"
     pub pick: Option<&'static str>,
     /// the pictures that could not be decoded (picture key)
     pub unreadable: Vec<String>,
+    /// the equipment schedule tab (dwgequip.rs)
+    pub equip: crate::dwgequip::Equip,
+    /// model space in 3D (dwg3d.rs)
+    pub d3: crate::dwg3d::Dwg3d,
+    /// desktop: the project folder (its path, its walk, opened by the person) and the open drawing's place in it
+    pub folder: Option<(String, Folder, bool)>,
+    pub path: Option<String>,
+    /// the open drawing's linked drawings that were found: (name, where)
+    pub linked: Vec<(String, String)>,
+    /// the open drawing's pictures: (name, where found and whether the name matched exactly, why not shown)
+    pub pictures: Vec<PicRow>,
+    /// the dynamic-block list of the open drawing (doc id, list)
+    dyn_view: Option<(u64, Option<page::DynView>)>,
+}
+
+/// One picture of the open drawing as the Drawing panel lists it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PicRow {
+    pub name: String,
+    /// (where, exact name)
+    pub hit: Option<(String, bool)>,
+    /// None = shown; else why not (a catalog key)
+    pub why: Option<&'static str>,
 }
 
 /// Find over the drawing's texts.
@@ -67,6 +98,12 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: \"drawing\" | \"pictures\"} → the platform picker; the files found are used at once",
     ),
     ("viewer.mark.clear", "Clear the ring", "", "{}"),
+    (
+        "viewer.folder",
+        "Open a folder",
+        "",
+        "{name?: folder path} → the project folder (desktop): linked drawings and pictures are looked for in it and its subfolders",
+    ),
 ];
 
 /// Is the plain viewer showing (a drawing open, not for editing)?
@@ -158,7 +195,26 @@ pub fn search(d: &cc_drawing::Drawing, f: &Find) -> Vec<Hit> {
 }
 
 pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
+    if id.starts_with("viewer.equip") {
+        return crate::dwgequip::run(app, id, params);
+    }
+    if id.starts_with("viewer.3d") {
+        return crate::dwg3d::run(app, id, params);
+    }
     match id {
+        "viewer.folder" => {
+            let dir = match params.name.clone() {
+                Some(d) => d,
+                None => match app.services.pick_folder.as_mut() {
+                    Some(p) => match p() {
+                        Some(d) => d,
+                        None => return Ok(()),
+                    },
+                    None => return Err("viewer.folder: no folder picker here".into()),
+                },
+            };
+            open_folder(app, &dir)?;
+        }
         "viewer.print" => app.viewer.print = !app.viewer.print,
         "viewer.info" => app.viewer.info = !app.viewer.info,
         "viewer.mark.clear" => app.viewer.mark = None,
@@ -253,43 +309,272 @@ pub fn focus(app: &mut UiApp, space: usize, x: f64, y: f64) {
     app.viewer.mark = Some((space, x, y));
 }
 
-/// Files the person added for the open drawing: pictures go to the picture store, drawings become its linked
-/// drawings (the drawing is read again with them).
+/// Files the person added for the open drawing (bimcraft.js's "Add linked drawings…" / "Add pictures…"): kept by name
+/// and looked up before the project folder; the drawing is read again with them.
 pub fn add_files(app: &mut UiApp, files: Vec<ImportedFile>) {
-    let mut relink = false;
     for f in files {
-        let lower = f.name.to_lowercase();
-        if lower.ends_with(".dwg") || lower.ends_with(".dxf") {
-            let stem = cc_cad::pictures::base_name(&f.name);
-            let stem = stem.rsplit_once('.').map_or(stem, |(s, _)| s).to_lowercase();
-            app.viewer.added.insert(stem, f.bytes);
-            relink = true;
-        } else if let Err(e) = cc_cad::pictures::add_picture(&mut app.viewer_pictures, &f.name, &f.bytes) {
-            app.message = format!("{}: {}", f.name, lang::cad(e));
+        let key = f.name.to_lowercase();
+        match app.viewer.added.iter_mut().find(|(k, _)| *k == key) {
+            Some(slot) => slot.1 = f.bytes,
+            None => app.viewer.added.push((key, f.bytes)),
         }
     }
-    if relink && let Some(src) = app.source.clone() {
-        let added = app.viewer.added.clone();
-        let dir = src.dir.clone();
+    reload(app);
+}
+
+/// Read the open drawing again (files added, a folder opened), keeping the space, layers and views.
+fn reload(app: &mut UiApp) {
+    let Some(src) = app.source.clone() else { return };
+    let (space, hidden, views) = (app.space, app.hidden.clone(), app.views.clone());
+    let res = load(app, &src);
+    app.loaded(res);
+    if let Some(d) = app.doc.as_ref()
+        && views.len() == d.drawing.spaces.len()
+    {
+        app.space = space;
+        app.hidden = hidden;
+        app.views = views;
+        app.pending_fit = false;
+    }
+    resolve_pictures(app);
+}
+
+/// Open a drawing in the viewer (bimcraft.js `openDwg`): the project folder first (desktop), then the drawing with its
+/// linked drawings found, then its pictures.
+pub fn open_drawing(app: &mut UiApp, f: &ImportedFile) {
+    crate::dwg3d::leave(app);
+    app.viewer.equip.on = false;
+    place_in_folder(app, f.dir.as_deref(), &f.name);
+    let res = load(app, f);
+    let ok = res.is_ok();
+    app.loaded(res);
+    if ok {
+        app.source = Some(f.clone());
+        resolve_pictures(app);
+    }
+}
+
+/// `path` with "/" separators, without a trailing one.
+fn norm_dir(d: &str) -> String {
+    d.replace('\\', "/").trim_end_matches('/').to_string()
+}
+
+/// The drawing's place in the project folder: the folder the person opened when the drawing is in it, else (desktop)
+/// the drawing's own folder walked with its subfolders.
+fn place_in_folder(app: &mut UiApp, dir: Option<&str>, name: &str) {
+    let Some(dir) = dir.map(norm_dir) else {
+        // no folder (web, the sample): only what was opened and added
+        if !app.viewer.folder.as_ref().is_some_and(|f| f.2) {
+            app.viewer.folder = None;
+        }
+        app.viewer.path = None;
+        return;
+    };
+    if let Some((root, _, true)) = &app.viewer.folder {
+        let root = norm_dir(root);
+        if dir == root || dir.starts_with(&format!("{root}/")) {
+            let rel = dir.get(root.len()..).unwrap_or("").trim_start_matches('/');
+            app.viewer.path = Some(if rel.is_empty() { name.to_string() } else { format!("{rel}/{name}") });
+            return;
+        }
+    }
+    let Some(list) = app.services.list_dir.as_mut() else {
+        app.viewer.folder = None;
+        app.viewer.path = None;
+        return;
+    };
+    let base = dir.clone();
+    let walked = dfolder::walk(dfolder::base_of(&dir), &mut |rel| {
+        let abs = if rel.is_empty() { base.clone() } else { format!("{base}/{rel}") };
+        list(&abs)
+    });
+    match walked {
+        Ok(f) => {
+            app.viewer.folder = Some((dir, f, false));
+            app.viewer.path = Some(name.to_string());
+        }
+        Err(_) => {
+            // too big a folder to walk: the drawing's own folder only (Services::read_xref)
+            app.viewer.folder = None;
+            app.viewer.path = None;
+        }
+    }
+}
+
+/// "Open a folder" (desktop): walk it, and read the open drawing again with what it holds.
+pub fn open_folder(app: &mut UiApp, dir: &str) -> Result<(), String> {
+    let dir = norm_dir(dir);
+    let list = app.services.list_dir.as_mut().ok_or("viewer.folder: this host cannot list folders")?;
+    let base = dir.clone();
+    let f = dfolder::walk(dfolder::base_of(&dir), &mut |rel| {
+        let abs = if rel.is_empty() { base.clone() } else { format!("{base}/{rel}") };
+        list(&abs)
+    })?;
+    let n = f.files.len();
+    let models = f
+        .files
+        .iter()
+        .filter(|p| {
+            let l = p.to_lowercase();
+            let model = [".rvt", ".rfa", ".rte", ".rft"].iter().any(|e| l.ends_with(e));
+            // numbered backups ("Tower.0004.rvt") belong to their model
+            let stem = l.rsplit_once('.').map_or(l.as_str(), |(a, _)| a);
+            let backup = stem.rsplit_once('.').is_some_and(|(_, k)| k.len() == 4 && k.bytes().all(|b| b.is_ascii_digit()));
+            model && !backup
+        })
+        .count();
+    app.viewer.folder = Some((dir, f, true));
+    if let Some(src) = app.source.clone() {
+        place_in_folder(app, src.dir.as_deref(), &src.name);
+        reload(app);
+    }
+    let w = |k: &str, n: usize| lang::t(BIMCRAFT, k, &[("n", n.to_string()), ("count", num(n as u64))]);
+    app.message = lang::t(
+        BIMCRAFT,
+        "folder.read",
+        &[("s", "0.0".into()), ("models", w("folder.n.models", models)), ("files", w("folder.n.files", n))],
+    );
+    Ok(())
+}
+
+/// The bytes of a file found by [`dfolder::find_linked`] / [`dfolder::find_picture`].
+fn found_bytes(app: &mut UiApp, found: &Found) -> Option<Vec<u8>> {
+    match found {
+        Found::Added(n) => app.viewer.added.iter().find(|(k, _)| k == n).map(|(_, b)| b.clone()),
+        Found::Path(rel) => {
+            let root = app.viewer.folder.as_ref().map(|f| f.0.clone())?;
+            let read = app.services.read_path.as_mut()?;
+            read(&format!("{root}/{rel}")).ok().map(|f| f.bytes)
+        }
+    }
+}
+
+/// Read a drawing with its linked drawings: added by hand, then the project folder (the drawing's folder first), then
+/// (desktop without a folder walk) "<name>.dwg" beside it.
+fn load(app: &mut UiApp, f: &ImportedFile) -> Result<crate::document::Loaded, String> {
+    let names: Vec<String> = app.viewer.added.iter().map(|(k, _)| k.clone()).collect();
+    let folder = app.viewer.folder.as_ref().map(|f| f.1.clone());
+    let path = app.viewer.path.clone();
+    let mut hits: Vec<(String, Found, String)> = Vec::new();
+    let mut linked: Vec<(String, String)> = Vec::new();
+    // the linked drawings' names come from the file; look each one up first (the reader asks by name)
+    let res = {
+        let mut ask = |x: &str| -> Option<Vec<u8>> {
+            let hit = dfolder::find_linked(x, path.as_deref(), &names, folder.as_ref())?;
+            hits.push((x.to_string(), hit.found, hit.where_));
+            None
+        };
+        let t = web_time::Instant::now();
+        let model = crate::document::read_model_checked(&f.name, &f.bytes)?;
+        for x in crate::document::xref_names(&model) {
+            ask(&x);
+        }
+        let mut found: Vec<(String, Vec<u8>)> = Vec::new();
+        for (x, fd, where_) in &hits {
+            if let Some(b) = found_bytes(app, fd) {
+                found.push((x.to_lowercase(), b));
+                linked.push((x.clone(), where_.clone()));
+            }
+        }
+        let dir = f.dir.clone();
         let mut read = app.services.read_xref.take();
-        let res = crate::document::open_with(&src.name, &src.bytes, &mut |x| {
-            added.get(&x.to_lowercase()).cloned().or_else(|| match (read.as_mut(), dir.as_deref()) {
-                (Some(r), Some(d)) => r(d, x),
+        let has_folder = folder.is_some();
+        let r = crate::document::open_model_with(&f.name, &f.bytes, model, t, &mut |x| {
+            found.iter().find(|(k, _)| *k == x.to_lowercase()).map(|(_, b)| b.clone()).or_else(|| match (read.as_mut(), dir.as_deref()) {
+                (Some(r), Some(d)) if !has_folder => r(d, x),
                 _ => None,
             })
         });
         app.services.read_xref = read;
-        let (space, hidden, views) = (app.space, app.hidden.clone(), app.views.clone());
-        app.loaded(res);
-        if let Some(d) = app.doc.as_ref()
-            && views.len() == d.drawing.spaces.len()
-        {
-            app.space = space;
-            app.hidden = hidden;
-            app.views = views;
-            app.pending_fit = false;
+        r
+    };
+    app.viewer.linked = linked;
+    res
+}
+
+/// The open drawing's pictures (bimcraft.js): each looked for by name (added by hand, the project folder, a similar
+/// name), read into the viewer's picture store under the drawing's own reference so the canvas draws it.
+pub fn resolve_pictures(app: &mut UiApp) {
+    app.viewer_pictures = cc_cad::pictures::Pictures::new();
+    app.viewer.pictures.clear();
+    let Some(d) = app.doc.as_ref() else { return };
+    let images: Vec<(String, String)> = d.drawing.images.iter().map(|im| (im.file.clone(), im.name.clone())).collect();
+    let names: Vec<String> = app.viewer.added.iter().map(|(k, _)| k.clone()).collect();
+    let folder = app.viewer.folder.as_ref().map(|f| f.1.clone());
+    let path = app.viewer.path.clone();
+    for (file, name) in images {
+        let hit = dfolder::find_picture(&name, path.as_deref(), &names, folder.as_ref());
+        let mut row = PicRow { name: name.clone(), hit: None, why: Some("dwg.img.notfound") };
+        if let Some(h) = hit {
+            row.hit = Some((h.where_.clone(), h.exact));
+            let fname = match &h.found {
+                Found::Added(n) => n.clone(),
+                Found::Path(p) => p.to_lowercase(),
+            };
+            let tiff = fname.ends_with(".tif") || fname.ends_with(".tiff");
+            row.why = match found_bytes(app, &h.found) {
+                Some(b) => match cc_cad::pictures::add_picture(&mut app.viewer_pictures, &file, &b) {
+                    Ok(_) => None,
+                    Err(_) if tiff => Some("dwg.img.tiff"),
+                    Err(_) => Some("dwg.img.unreadable"),
+                },
+                None => Some("dwg.img.unreadable"),
+            };
         }
+        app.viewer.pictures.push(row);
     }
+}
+
+/// Leaving the extras for a space (a sheet or Model picked).
+pub fn left_extras(app: &mut UiApp) {
+    app.viewer.equip.on = false;
+    crate::dwg3d::leave(app);
+}
+
+/// A tab of the viewer's own after the sheets.
+#[derive(Debug, Clone)]
+pub struct ExtraTab {
+    pub label: String,
+    pub title: String,
+    pub selected: bool,
+    pub cmd: &'static str,
+}
+
+/// The equipment tab (when the drawing has item tags) and the 3D switch (bimcraft.js `renderSheetTabs`).
+pub fn extra_tabs(app: &mut UiApp) -> Vec<ExtraTab> {
+    if !active(app) {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    if let Some(l) = crate::dwgequip::list(app) {
+        let (label, title) = page::tab_label(&l);
+        out.push(ExtraTab { label, title, selected: crate::dwgequip::showing(app), cmd: "viewer.equip" });
+    }
+    if app.doc.as_ref().is_some_and(|d| d.model.is_some()) {
+        out.push(ExtraTab {
+            label: "3D".into(),
+            title: lang::bim("dwg.tab.3d.title"),
+            selected: crate::dwg3d::showing(app),
+            cmd: "viewer.3d",
+        });
+    }
+    out
+}
+
+/// The Drawing panel's dynamic-block list (worked out once per drawing).
+fn dyn_view(app: &mut UiApp) -> Option<page::DynView> {
+    let d = app.doc.as_ref()?;
+    if let Some((id, v)) = &app.viewer.dyn_view
+        && *id == d.id
+    {
+        return v.clone();
+    }
+    let v = d.model.as_ref().and_then(|m| {
+        let defs = cc_dwgview::dynamic::dynamic_defs(m);
+        page::dyn_view(&cc_dwgview::dynamic::dynamic_summary(m, &defs))
+    });
+    app.viewer.dyn_view = Some((d.id, v.clone()));
+    v
 }
 
 /// A file dropped while the viewer shows a drawing: a picture or one of its missing linked drawings is added to it
@@ -326,13 +611,21 @@ pub fn frame(app: &mut UiApp, ctx: &egui::Context) {
         return;
     }
     let typing = ctx.memory(|m| m.focused().is_some());
-    let (p, f, find) = ctx.input(|i| {
+    let (p, f, find, three, x) = ctx.input(|i| {
         (
             !i.modifiers.any() && i.key_pressed(egui::Key::P),
             !i.modifiers.any() && i.key_pressed(egui::Key::F),
             i.modifiers.command && i.key_pressed(egui::Key::F),
+            !i.modifiers.any() && i.key_pressed(egui::Key::Num3),
+            !i.modifiers.any() && i.key_pressed(egui::Key::X),
         )
     });
+    if !typing && three {
+        app.run_ui("viewer.3d", &Params::default());
+    }
+    if !typing && x && crate::dwg3d::showing(app) {
+        app.run_ui("viewer.3d.section", &Params::default());
+    }
     if find {
         app.viewer.find.get_or_insert_with(Find::default);
     }
@@ -368,12 +661,22 @@ pub fn touch(ui: &egui::Ui, rect: egui::Rect, view: &mut cc_render::View2D, ppp:
     true
 }
 
-/// The Drawing panel (right): bimcraft.js's info list and props (hint, linked drawings, pictures, not drawn).
+/// The Drawing panel (right): bimcraft.js's info list and props (hint, linked drawings, pictures, not drawn, dynamic
+/// blocks); while the 3D view shows, what it draws or the objects picked (dwg3d.rs).
 pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     if !app.viewer.info || !active(app) {
         return;
     }
+    let equip = crate::dwgequip::list(app);
+    let dynv = dyn_view(app);
     let t = app.tokens;
+    if crate::dwg3d::showing(app) {
+        let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
+        egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::dwg3d::panel(app, ui));
+        });
+        return;
+    }
     let Some(d) = app.doc.as_ref() else { return };
     let dr = &d.drawing;
     let w = |k: &str| lang::bim(k);
@@ -399,25 +702,36 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
             lang::t(BIMCRAFT, "dwg.linked.loaded", &[("loaded", loaded.to_string()), ("total", dr.xrefs.len().to_string())]),
         ));
     }
+    if let Some(l) = &equip {
+        rows.push(page::info_row(l));
+    }
     rows.retain(|(_, v)| !v.is_empty());
-    let pictures: Vec<(String, Option<&'static str>)> = dr
-        .images
+    let from_folder = app.viewer.folder.is_some() && app.viewer.path.is_some();
+    let pictures: Vec<PicRow> = app
+        .viewer
+        .pictures
         .iter()
-        .map(|im| {
-            let key = cc_cad::pictures::picture_key(&im.file);
-            let st = if app.viewer.unreadable.contains(&key) {
-                Some("dwg.img.unreadable")
-            } else if cc_cad::pictures::find_picture(&app.viewer_pictures, &im.file).is_some() {
-                None
-            } else {
-                Some("dwg.img.notfound")
-            };
-            (if im.name.is_empty() { cc_cad::pictures::base_name(&im.file).to_string() } else { im.name.clone() }, st)
+        .map(|p| {
+            let mut p = p.clone();
+            // a picture the canvas could not decode
+            if p.why.is_none()
+                && dr.images.iter().any(|im| im.name == p.name && app.viewer.unreadable.contains(&cc_cad::pictures::picture_key(&im.file)))
+            {
+                p.why = Some("dwg.img.unreadable");
+            }
+            p
         })
         .collect();
-    let xrefs: Vec<(String, bool)> = dr.xrefs.iter().map(|x| (x.name.clone(), x.loaded)).collect();
+    let xrefs: Vec<(String, bool, Option<String>)> = dr
+        .xrefs
+        .iter()
+        .map(|x| {
+            (x.name.clone(), x.loaded, app.viewer.linked.iter().find(|(n, _)| n.eq_ignore_ascii_case(&x.name)).map(|(_, w)| w.clone()))
+        })
+        .collect();
     let notdrawn: Vec<(String, u64)> = dr.stats.unsupported.iter().map(|(k, v)| (k.clone(), *v)).collect();
     let truncated = dr.stats.truncated;
+    let can_folder = app.services.pick_folder.is_some() && app.services.list_dir.is_some();
     let mut act: Option<(&str, &str)> = None;
     let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
     egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
@@ -432,40 +746,73 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
             });
             ui.add_space(6.0);
             ui.label(RichText::new(w("dwg.hint")).small().color(t.text_dim));
-            let pill = |ui: &mut egui::Ui, ok: bool, text: String| {
-                let c = if ok { egui::Color32::from_rgb(0x3c, 0xb0, 0x60) } else { egui::Color32::from_rgb(0xe0, 0x6c, 0x5c) };
+            // ok: green; similar: amber; missing: red (bc-pill is-ok / is-warn / is-bad)
+            let pill = |ui: &mut egui::Ui, state: u8, text: String| {
+                let c = match state {
+                    0 => egui::Color32::from_rgb(0x3c, 0xb0, 0x60),
+                    1 => egui::Color32::from_rgb(0xd8, 0x9a, 0x2a),
+                    _ => egui::Color32::from_rgb(0xe0, 0x6c, 0x5c),
+                };
                 ui.label(RichText::new(text).small().color(c));
             };
             if !xrefs.is_empty() {
                 ui.separator();
                 ui.label(RichText::new(w("dwg.linked.title")).strong().color(t.text_strong));
-                for (n, ok) in &xrefs {
+                for (n, ok, at) in &xrefs {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new(format!("{n}.dwg")).small().color(t.text));
-                        pill(ui, *ok, w(if *ok { "dwg.linked.shown" } else { "dwg.linked.notfound" }));
+                        pill(ui, if *ok { 0 } else { 2 }, w(if *ok { "dwg.linked.shown" } else { "dwg.linked.notfound" }));
+                        if let (true, Some(at)) = (*ok, at) {
+                            ui.label(RichText::new(at).small().color(t.text_dim));
+                        }
                     });
                 }
                 if xrefs.iter().any(|x| !x.1) {
-                    ui.label(RichText::new(w("dwg.linked.missing.file")).small().color(t.text_dim));
-                    if ui.button(w("dwg.linked.add")).clicked() {
-                        act = Some(("viewer.add", "drawing"));
-                    }
+                    ui.label(
+                        RichText::new(w(if from_folder { "dwg.linked.missing.folder" } else { "dwg.linked.missing.file" }))
+                            .small()
+                            .color(t.text_dim),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button(w("dwg.linked.add")).clicked() {
+                            act = Some(("viewer.add", "drawing"));
+                        }
+                        if can_folder && ui.button(w("ui.open.folder")).clicked() {
+                            act = Some(("viewer.folder", ""));
+                        }
+                    });
                 }
             }
             if !pictures.is_empty() {
                 ui.separator();
                 ui.label(RichText::new(w("dwg.images.title")).strong().color(t.text_strong));
-                for (n, st) in &pictures {
+                for p in &pictures {
                     ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(n).small().color(t.text));
-                        pill(ui, st.is_none(), w(st.unwrap_or("dwg.img.shown")));
+                        ui.label(RichText::new(&p.name).small().color(t.text));
+                        match (p.why, &p.hit) {
+                            (None, Some((_, true))) => pill(ui, 0, w("dwg.img.shown")),
+                            (None, _) => pill(ui, 1, w("dwg.img.similar")),
+                            (Some(k), _) => pill(ui, 2, w(k)),
+                        }
+                        if let Some((at, _)) = &p.hit {
+                            ui.label(RichText::new(at).small().color(t.text_dim));
+                        }
                     });
                 }
-                if pictures.iter().any(|p| p.1.is_some()) {
-                    ui.label(RichText::new(w("dwg.img.missing.file")).small().color(t.text_dim));
-                    if ui.button(w("dwg.img.add")).clicked() {
-                        act = Some(("viewer.add", "pictures"));
-                    }
+                if pictures.iter().any(|p| p.hit.is_none()) {
+                    ui.label(
+                        RichText::new(w(if from_folder { "dwg.img.missing.folder" } else { "dwg.img.missing.file" }))
+                            .small()
+                            .color(t.text_dim),
+                    );
+                    ui.horizontal_wrapped(|ui| {
+                        if ui.button(w("dwg.img.add")).clicked() {
+                            act = Some(("viewer.add", "pictures"));
+                        }
+                        if can_folder && ui.button(w("ui.open.folder")).clicked() {
+                            act = Some(("viewer.folder", ""));
+                        }
+                    });
                 }
             }
             if !notdrawn.is_empty() {
@@ -480,15 +827,27 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                 });
                 ui.label(RichText::new(w("dwg.notdrawn.note")).small().color(t.text_dim));
             }
+            if let Some(dv) = &dynv {
+                ui.separator();
+                ui.label(RichText::new(&dv.title).strong().color(t.text_strong));
+                for (name, lines) in &dv.items {
+                    ui.label(RichText::new(name).small().color(t.text));
+                    for l in lines {
+                        ui.label(RichText::new(format!("   {l}")).small().color(t.text_dim));
+                    }
+                }
+                ui.label(RichText::new(&dv.note).small().color(t.text_dim));
+            }
             if truncated {
                 ui.label(RichText::new(w("dwg.truncated")).small().color(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c)));
             }
         });
     });
-    if let Some((id, name)) = act
-        && let Err(e) = app.run(id, &Params { name: Some(name.into()), ..Default::default() })
-    {
-        app.error = Some(e);
+    if let Some((id, name)) = act {
+        let p = Params { name: if name.is_empty() { None } else { Some(name.into()) }, ..Default::default() };
+        if let Err(e) = app.run(id, &p) {
+            app.error = Some(e);
+        }
     }
 }
 
@@ -600,6 +959,249 @@ mod tests {
                 Some(Box::new(|_, _| Some(vec![ImportedFile { name: "notes.txt".into(), bytes: b"hello".to_vec(), dir: None }])));
             app.run("viewer.add", &Params { name: Some("pictures".into()), ..Default::default() }).unwrap();
             assert!(app.viewer_pictures.is_empty());
+        });
+    }
+
+    /// A small DXF: a block with item tags placed twice (one KCL item), a 3D face, a line with thickness, a text, and a
+    /// picture reference; layers with handles.
+    fn kitchen_dxf() -> Vec<u8> {
+        let mut l: Vec<String> = Vec::new();
+        let mut g = |c: i32, v: &str| {
+            l.push(c.to_string());
+            l.push(v.to_string());
+        };
+        for (c, v) in [(0, "SECTION"), (2, "HEADER"), (9, "$ACADVER"), (1, "AC1015"), (9, "$INSUNITS"), (70, "1"), (0, "ENDSEC")] {
+            g(c, v);
+        }
+        for (c, v) in [(0, "SECTION"), (2, "TABLES"), (0, "TABLE"), (2, "LAYER"), (70, "2")] {
+            g(c, v);
+        }
+        for (h, n) in [("10", "0"), ("11", "K-EQPM")] {
+            for (c, v) in [
+                (0, "LAYER"),
+                (5, h),
+                (100, "AcDbSymbolTableRecord"),
+                (100, "AcDbLayerTableRecord"),
+                (2, n),
+                (70, "0"),
+                (62, "3"),
+                (6, "CONTINUOUS"),
+            ] {
+                g(c, v);
+            }
+        }
+        for (c, v) in [(0, "ENDTAB"), (0, "ENDSEC"), (0, "SECTION"), (2, "BLOCKS")] {
+            g(c, v);
+        }
+        for (c, v) in [
+            (0, "BLOCK"),
+            (5, "20"),
+            (100, "AcDbEntity"),
+            (8, "0"),
+            (100, "AcDbBlockBegin"),
+            (2, "TAG"),
+            (70, "2"),
+            (10, "0"),
+            (20, "0"),
+            (30, "0"),
+            (3, "TAG"),
+        ] {
+            g(c, v);
+        }
+        for (c, v) in
+            [(0, "CIRCLE"), (5, "21"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbCircle"), (10, "0"), (20, "0"), (30, "0"), (40, "1")]
+        {
+            g(c, v);
+        }
+        for tag in ["KCL-ITEM", "KCL-QTY", "KCL-CATEGORY"] {
+            for (c, v) in [
+                (0, "ATTDEF"),
+                (5, "2F"),
+                (100, "AcDbEntity"),
+                (8, "0"),
+                (100, "AcDbText"),
+                (10, "0"),
+                (20, "0"),
+                (30, "0"),
+                (40, "1"),
+                (1, ""),
+                (100, "AcDbAttributeDefinition"),
+                (3, tag),
+                (2, tag),
+                (70, "1"),
+            ] {
+                g(c, v);
+            }
+        }
+        for (c, v) in
+            [(0, "ENDBLK"), (5, "22"), (100, "AcDbEntity"), (8, "0"), (100, "AcDbBlockEnd"), (0, "ENDSEC"), (0, "SECTION"), (2, "ENTITIES")]
+        {
+            g(c, v);
+        }
+        for (h, x, qty) in [("30", "10", "2"), ("40", "50", "3")] {
+            for (c, v) in [
+                (0, "INSERT"),
+                (5, h),
+                (100, "AcDbEntity"),
+                (8, "K-EQPM"),
+                (100, "AcDbBlockReference"),
+                (66, "1"),
+                (2, "TAG"),
+                (10, x),
+                (20, "5"),
+                (30, "0"),
+            ] {
+                g(c, v);
+            }
+            for (tag, val) in [("KCL-ITEM", "7"), ("KCL-QTY", qty), ("KCL-CATEGORY", "SINK")] {
+                for (c, v) in [
+                    (0, "ATTRIB"),
+                    (5, "3F"),
+                    (100, "AcDbEntity"),
+                    (8, "0"),
+                    (100, "AcDbText"),
+                    (10, x),
+                    (20, "5"),
+                    (30, "0"),
+                    (40, "1"),
+                    (1, val),
+                    (100, "AcDbAttribute"),
+                    (2, tag),
+                    (70, "0"),
+                ] {
+                    g(c, v);
+                }
+            }
+            for (c, v) in [(0, "SEQEND"), (5, "4F"), (100, "AcDbEntity"), (8, "0")] {
+                g(c, v);
+            }
+        }
+        for (c, v) in [
+            (0, "3DFACE"),
+            (5, "50"),
+            (100, "AcDbEntity"),
+            (8, "K-EQPM"),
+            (100, "AcDbFace"),
+            (10, "0"),
+            (20, "0"),
+            (30, "0"),
+            (11, "10"),
+            (21, "0"),
+            (31, "0"),
+            (12, "10"),
+            (22, "10"),
+            (32, "4"),
+            (13, "0"),
+            (23, "10"),
+            (33, "4"),
+        ] {
+            g(c, v);
+        }
+        for (c, v) in [
+            (0, "LINE"),
+            (5, "51"),
+            (100, "AcDbEntity"),
+            (8, "K-EQPM"),
+            (100, "AcDbLine"),
+            (39, "6"),
+            (10, "0"),
+            (20, "0"),
+            (30, "0"),
+            (11, "60"),
+            (21, "0"),
+            (31, "0"),
+        ] {
+            g(c, v);
+        }
+        for (c, v) in [
+            (0, "TEXT"),
+            (5, "52"),
+            (100, "AcDbEntity"),
+            (8, "0"),
+            (100, "AcDbText"),
+            (10, "5"),
+            (20, "20"),
+            (30, "0"),
+            (40, "2"),
+            (1, "KITCHEN 101"),
+            (100, "AcDbText"),
+        ] {
+            g(c, v);
+        }
+        for (c, v) in [(0, "ENDSEC"), (0, "EOF")] {
+            g(c, v);
+        }
+        (l.join("\r\n") + "\r\n").into_bytes()
+    }
+
+    #[test]
+    fn equipment_3d_and_folder_on_a_drawing() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let mut app = UiApp::default();
+            type Saved = std::rc::Rc<std::cell::RefCell<Vec<(String, Vec<u8>)>>>;
+            let saved: Saved = std::rc::Rc::default();
+            let s2 = std::rc::Rc::clone(&saved);
+            app.services.save = Some(Box::new(move |name, bytes| {
+                s2.borrow_mut().push((name.to_string(), bytes));
+                Ok(Some(name.to_string()))
+            }));
+            // a project folder: the drawing in Plans/, its linked drawing and its picture elsewhere
+            app.services.list_dir = Some(Box::new(|d: &str| {
+                Ok(match d {
+                    "/job" => vec![("Plans".into(), true), ("Xrefs".into(), true), ("Job_backup".into(), true)],
+                    "/job/Plans" => vec![("kitchen.dxf".into(), false)],
+                    "/job/Xrefs" => vec![("Prefix-logo-1.png".into(), false)],
+                    _ => vec![],
+                })
+            }));
+            app.services.read_path = Some(Box::new(|p: &str| Err(format!("{p}: not here"))));
+            app.open_file(&ImportedFile { name: "kitchen.dxf".into(), bytes: kitchen_dxf(), dir: Some("/job/Plans".into()) });
+            assert!(app.error.is_none(), "{:?}", app.error);
+            // the drawing's own folder was walked (layer handles read: the viewport-freeze fix)
+            assert_eq!(app.viewer.path.as_deref(), Some("kitchen.dxf"));
+            assert!(app.doc.as_ref().is_some_and(|d| d.layer_handles.get("11").map(String::as_str) == Some("K-EQPM")));
+            // the equipment tab: one item, two tags, quantity 2 + 3
+            let tabs = extra_tabs(&mut app);
+            assert_eq!(tabs.iter().map(|t| t.label.as_str()).collect::<Vec<_>>(), vec!["Equipment (1)", "3D"]);
+            app.run("viewer.equip", &Params::default()).unwrap();
+            assert!(crate::dwgequip::showing(&app));
+            let l = crate::dwgequip::list(&mut app).unwrap();
+            assert_eq!((l.rows.len(), l.rows[0].qty.as_str(), l.tags), (1, "5", 2));
+            app.run("viewer.equip.filter", &Params { name: Some("  sink ".into()), ..Default::default() }).unwrap();
+            app.run("viewer.equip.csv", &Params::default()).unwrap();
+            assert_eq!(app.message, "Downloaded kitchen equipment (Not on any sheet).csv (1 item).");
+            let (name, bytes) = saved.borrow().first().cloned().unwrap();
+            assert_eq!(name, "kitchen equipment (Not on any sheet).csv");
+            assert!(String::from_utf8(bytes).unwrap().starts_with("\u{feff}Item,Qty,Category"));
+            assert!(app.run("viewer.equip.pick", &Params { name: Some("layout:none".into()), ..Default::default() }).is_err());
+            app.run("viewer.equip.show", &Params { index: Some(0), ..Default::default() }).unwrap();
+            assert!(!crate::dwgequip::showing(&app));
+            assert_eq!(app.message, "Item 7, SINK is ringed on Model.");
+            assert!(app.viewer.mark.is_some());
+            // 3D: drawn, picked, cut
+            app.run("viewer.3d", &Params::default()).unwrap();
+            assert!(crate::dwg3d::showing(&app));
+            assert!(app.message.starts_with("Model space in 3D:"), "{}", app.message);
+            app.run("viewer.3d.pick", &Params { name: Some("0".into()), ..Default::default() }).unwrap();
+            app.run("viewer.3d.pick", &Params { name: Some("add:2".into()), ..Default::default() }).unwrap();
+            assert_eq!(app.viewer.d3.picked, vec![0, 2]);
+            assert!(app.run("viewer.3d.pick", &Params { index: Some(999), ..Default::default() }).is_err());
+            for v in ["top", "persp", "extents", "zoom:0.5", "iso"] {
+                app.run("viewer.3d.view", &Params { name: Some(v.into()), ..Default::default() }).unwrap();
+            }
+            app.run("viewer.3d.section", &Params::default()).unwrap();
+            app.run("viewer.3d.section", &Params { name: Some("front".into()), factor: Some(3.0), ..Default::default() }).unwrap();
+            assert_eq!(app.viewer.d3.section.map(|s| (s.axis, s.offset)), Some(("front", 3.0)));
+            app.run("viewer.3d.section", &Params { name: Some("off".into()), ..Default::default() }).unwrap();
+            // a sheet or Model picked: back to 2D
+            app.run("space.select", &Params { index: Some(0), ..Default::default() }).unwrap();
+            assert!(!crate::dwg3d::showing(&app));
+            // "Open a folder": the walk skips housekeeping folders; the drawing is found inside it
+            app.run("viewer.folder", &Params { name: Some("/job".into()), ..Default::default() }).unwrap();
+            assert_eq!(app.viewer.path.as_deref(), Some("Plans/kitchen.dxf"));
+            let f = app.viewer.folder.as_ref().map(|f| f.1.clone()).unwrap();
+            assert_eq!(f.skipped, vec!["Job_backup"]);
+            assert_eq!(f.files, vec!["Plans/kitchen.dxf", "Xrefs/Prefix-logo-1.png"]);
         });
     }
 }

@@ -23,6 +23,10 @@ pub struct Loaded {
     pub bytes: usize,
     /// layer handle (upper case) → layer name: what sheets' viewports name their frozen layers by
     pub layer_handles: std::collections::HashMap<String, String>,
+    /// the drawing model as read (BimCraft's DWG view keeps it: the equipment schedule, Properties of a pick, dynamic
+    /// blocks and the 3D view read it) and its linked drawings' models (name in lower case → model)
+    pub model: Option<Arc<cc_io_dwg::Obj>>,
+    pub xref_models: Arc<Vec<(String, cc_io_dwg::Obj)>>,
 }
 
 fn next_id() -> u64 {
@@ -66,11 +70,27 @@ pub fn xref_names(model: &cc_io_dwg::Obj) -> Vec<String> {
 
 /// Open with linked drawings: `resolve(xref name)` returns the bytes of "<name>.dwg" when the host can find it.
 pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Option<Vec<u8>>) -> Result<Loaded, String> {
+    let t = web_time::Instant::now();
+    let model = read_model_checked(name, bytes)?;
+    open_model_with(name, bytes, model, t, resolve)
+}
+
+/// The drawing model of a file (refused when it is over [`MAX_FILE_BYTES`]).
+pub fn read_model_checked(name: &str, bytes: &[u8]) -> Result<cc_io_dwg::Obj, String> {
     if bytes.len() > MAX_FILE_BYTES {
         return Err(format!("{name}: the file is larger than {} MB", MAX_FILE_BYTES / (1024 * 1024)));
     }
-    let t = web_time::Instant::now();
-    let model = read_model(name, bytes);
+    Ok(read_model(name, bytes))
+}
+
+/// [`open_with`] for a model already read (`t` = when its reading started: the read time counts it).
+pub fn open_model_with(
+    name: &str,
+    bytes: &[u8],
+    model: cc_io_dwg::Obj,
+    t: web_time::Instant,
+    resolve: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+) -> Result<Loaded, String> {
     let mut xrefs: Vec<(String, cc_io_dwg::Obj)> = Vec::new();
     for x in xref_names(&model) {
         if let Some(b) = resolve(&x)
@@ -90,8 +110,10 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
     let notes: Vec<String> =
         report.and_then(|r| r.arr("notes")).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_string)).collect()).unwrap_or_default();
     let version = model.str("version").unwrap_or("").to_string();
+    // the layer table (`tables.layers`): a viewport names the layers frozen in it by their handles
     let layer_handles = model
-        .arr("layers")
+        .obj("tables")
+        .and_then(|t| t.arr("layers"))
         .map(|ls| {
             ls.iter()
                 .filter_map(|l| l.as_obj())
@@ -102,7 +124,6 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
     let t = web_time::Instant::now();
     let drawing = cc_io_dwg::compile::compile_drawing(&model, &version, &xrefs);
     let compile_ms = ms(t);
-    drop(model);
     let t = web_time::Instant::now();
     let geometry = build_all(&drawing);
     let geometry_ms = ms(t);
@@ -117,6 +138,8 @@ pub fn open_with(name: &str, bytes: &[u8], resolve: &mut dyn FnMut(&str) -> Opti
         notes,
         bytes: bytes.len(),
         layer_handles,
+        model: Some(Arc::new(model)),
+        xref_models: Arc::new(xrefs),
     })
 }
 
@@ -135,6 +158,8 @@ pub fn from_drawing(name: &str, drawing: Drawing) -> Loaded {
         notes: Vec::new(),
         bytes: 0,
         layer_handles: std::collections::HashMap::new(),
+        model: None,
+        xref_models: Arc::new(Vec::new()),
     }
 }
 

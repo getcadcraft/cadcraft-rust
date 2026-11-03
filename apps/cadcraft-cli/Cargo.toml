@@ -48,6 +48,7 @@ serde_json.workspace = true
 # PUBLISH's PDFs logged inflated (kdiff.mjs compares them that way)
 miniz_oxide = "0.8"
 cc-takeoff.workspace = true
+cc-dwgview.workspace = true
 cc-io-takeoff.workspace = true
 
 [dev-dependencies]

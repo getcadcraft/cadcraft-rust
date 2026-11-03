@@ -5,6 +5,8 @@
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
 //!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --seed-recovery N (copies of N drawings a crashed window left: the dialog opens), --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --lang en|es-MX: the language (also CADCRAFT_LANG)
+//!       --folder: the file opens from its folder as on the desktop (folders listed: linked drawings and pictures are
+//!       found in it and its subfolders; `viewer.folder=DIR` opens another)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot inputcases <cases.json> → CadCraft's input styles engine on each case (forks/tools/inputdiff-cadrest.mjs)
@@ -60,7 +62,13 @@ fn load(app: &mut UiApp, src: &str) -> Result<(), String> {
     }
     let bytes = std::fs::read(src).map_err(|e| format!("{src}: {e}"))?;
     let name = std::path::Path::new(src).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    app.open_bytes(&name, &bytes);
+    if app.services.list_dir.is_some() {
+        // --folder: opened from its folder, as the desktop app opens it (linked drawings and pictures found there)
+        let dir = std::fs::canonicalize(src).ok().and_then(|p| p.parent().map(|d| d.display().to_string()));
+        app.open_file(&cc_ui_egui::ImportedFile { name, bytes, dir });
+    } else {
+        app.open_bytes(&name, &bytes);
+    }
     match &app.error {
         Some(e) => Err(e.clone()),
         None => Ok(()),
@@ -146,6 +154,23 @@ fn shot(args: &[String]) -> Result<(), String> {
     app.services.recovery = Some(cc_recovery::memory_on(std::rc::Rc::clone(&store)));
     if arg(args, "--theme").as_deref() == Some("light") {
         app.run("theme.toggle", &Params::default())?;
+    }
+    // --folder: folders can be listed (the drawing viewer walks the drawing's folder, `viewer.folder` opens one)
+    if args.iter().any(|a| a == "--folder") {
+        app.services.list_dir = Some(Box::new(|dir: &str| {
+            let mut out: Vec<(String, bool)> = std::fs::read_dir(dir)
+                .map_err(|e| format!("{dir}: {e}"))?
+                .filter_map(Result::ok)
+                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.file_type().is_ok_and(|t| t.is_dir())))
+                .collect();
+            out.sort();
+            Ok(out)
+        }));
+        app.services.read_path = Some(Box::new(|p: &str| {
+            let path = std::path::Path::new(p);
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            std::fs::read(path).map(|bytes| cc_ui_egui::ImportedFile { name, bytes, dir: None }).map_err(|e| format!("{p}: {e}"))
+        }));
     }
     load(&mut app, src)?;
     if args.iter().any(|a| a == "--edit") {

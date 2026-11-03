@@ -21,7 +21,7 @@ Last reviewed 2026-10-27 · Change: web build allocator, wasm-opt pin, V8 trig i
 | L2 | `cc-cad-geom` (geom.js, dims, dimstyle, units, walk, font, leader, linetypes, hatch; `display` = Doc → `cc-drawing`) |
 | L3 | `cc-io-dwg` (DWG reader + writer, DXF reader, compile to `cc-drawing`; its trig from `cc-cad-geom::jsmath`), `cc-render` (wgpu), `cc-live` (Studio Live: MessagePack, envelopes, session core, headless client), `cc-gcons` (CadCraft's constraints and parameters: gsolve.js, gcons.js, params-doc.js, ckeep.js; gives `cc-cad`'s `Doc::change` its constraint hook) |
 | L4 | `cc-tools`, `cc-io-cad` (CadCraft's DWG import, DXF R12 read/write, DWG save, DXF 2000; L4 because it uses `cc-io-dwg`) |
-| L5 | `cc-engine` (prompt Runner, command line, drafting commands) |
+| L5 | `cc-engine` (prompt Runner, command line, drafting commands), `cc-dwgview` (BimCraft's DWG view extras without a UI: equipment schedule and CSV, Properties of a pick, dynamic blocks, model space as 3D batches, project-folder lookups, the page's words; L5 because it uses `cc-bim`'s catalog and `cc-io-cad`'s JS value helpers) |
 | L6 | `cc-ui-egui`, `cc-mcp` (assistants: dispatcher, control channel, confinement, headless and live tools; docs/control-protocol.md) |
 | L7 | `cadcraft`, `cadcraft-cli`, `cadcraft-web`, `cadcraft-shot` |
 

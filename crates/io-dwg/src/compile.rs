@@ -55,7 +55,7 @@ pub fn release_of(tag: &str) -> &'static str {
     }
 }
 /// `UNITS[key] || ''` (key = `String(INSUNITS)`).
-fn units_of(v: Option<&V>) -> &'static str {
+pub fn units_of(v: Option<&V>) -> &'static str {
     let Some(v) = v else { return "" };
     match js_string(v).as_str() {
         "1" => "inches",
@@ -186,7 +186,7 @@ fn usize_f(n: usize) -> f64 {
 // Colour
 
 /// `'#' + (n & 0xffffff).toString(16).padStart(6, '0')`
-fn rgb_hex(n: f64) -> Color {
+pub fn rgb_hex(n: f64) -> Color {
     Color::Rgb(crate::util::u32_from_i32(to_i32(n) & 0xFF_FFFF))
 }
 fn hsv(h: f64, s: f64, v: f64) -> Color {
@@ -235,7 +235,7 @@ pub fn aci_color(i: f64) -> Color {
     hsv(hue, s, v)
 }
 /// A table layer's colour.
-fn layer_color(l: &Obj) -> Color {
+pub fn layer_color(l: &Obj) -> Color {
     // `l.color || {index: 7}`; a colour that is not an object has neither rgb nor index → 7
     match l.obj("color") {
         Some(c) if c.has("rgb") => rgb_hex(num(c.get("rgb"))),
@@ -293,7 +293,7 @@ fn seg_count(sweep: f64) -> f64 {
     js_max(8.0, js_min(128.0, (sweep.abs() / TAU * 72.0).ceil()))
 }
 /// `while (sweep <= 0) sweep += TAU;` (bounded: JS would spin forever on −∞).
-fn wrap_sweep(mut sweep: f64) -> f64 {
+pub fn wrap_sweep(mut sweep: f64) -> f64 {
     let mut guard = 0u32;
     while sweep <= 0.0 {
         let next = sweep + TAU;
@@ -306,7 +306,7 @@ fn wrap_sweep(mut sweep: f64) -> f64 {
     sweep
 }
 
-fn arc_points(cx: f64, cy: f64, r: f64, a0: f64, a1: f64, ccw: bool) -> Vec<f64> {
+pub fn arc_points(cx: f64, cy: f64, r: f64, a0: f64, a1: f64, ccw: bool) -> Vec<f64> {
     let mut sweep = wrap_sweep(if ccw { a1 - a0 } else { a0 - a1 });
     if a1 - a0 == TAU {
         sweep = TAU;
@@ -346,7 +346,7 @@ fn ellipse_points(c: Option<&V>, maj: Option<&V>, ratio: f64, p0: f64, p1: f64) 
 }
 
 /// Vertices with bulges (LWPOLYLINE, POLYLINE2D, hatch polyline paths) → points.
-fn bulge_polyline(vs: &[&V], closed: bool) -> Vec<f64> {
+pub fn bulge_polyline(vs: &[&V], closed: bool) -> Vec<f64> {
     let mut pts = Vec::new();
     let n = vs.len();
     for i in 0..n {
@@ -468,7 +468,7 @@ fn spline_points(e: &Obj) -> Vec<f64> {
 }
 
 /// HATCH loops (polyline or edges: line, arc, ellipse, spline; angles in radians) → flat rings in the hatch's OCS.
-fn hatch_rings(e: &Obj) -> Vec<Vec<f64>> {
+pub fn hatch_rings(e: &Obj) -> Vec<Vec<f64>> {
     let mut rings = Vec::new();
     for lp in e.arr("loops").map(Vec::as_slice).unwrap_or(&[]) {
         let lp = lp.as_obj();
@@ -1522,12 +1522,18 @@ fn latin1_base(c: char) -> Option<(&'static str, bool)> {
 }
 
 /// (primary, secondary, tertiary) elements of a string.
-fn collation_elements(s: &str) -> Vec<(Prim, u32, u8)> {
+fn collation_elements(s: &str, numeric: bool) -> Vec<(Prim, u32, u8)> {
     let mut out = Vec::new();
     let cs: Vec<char> = s.chars().collect();
     let mut i = 0usize;
     while i < cs.len() {
         let Some(&c) = cs.get(i) else { break };
+        if c.is_ascii_digit() && !numeric {
+            // one digit at a time (plain `localeCompare`): "10" sorts before "9"
+            out.push((Prim::Num(1, c.to_string()), 0, 0));
+            i = i.saturating_add(1);
+            continue;
+        }
         if c.is_ascii_digit() {
             let mut j = i;
             while cs.get(j).is_some_and(char::is_ascii_digit) {
@@ -1570,7 +1576,16 @@ fn collation_elements(s: &str) -> Vec<(Prim, u32, u8)> {
 /// A natural, ICU-root-like comparison (primary: letters case-insensitive, digit runs by value; then accents;
 /// then case, lower before upper) — what `localeCompare(b, undefined, {numeric: true})` gives for layer names.
 pub fn collate(a: &str, b: &str) -> std::cmp::Ordering {
-    let (ea, eb) = (collation_elements(a), collation_elements(b));
+    collate_with(a, b, true)
+}
+
+/// [`collate`] without `numeric`: what a plain `a.localeCompare(b)` gives (digits one at a time).
+pub fn collate_plain(a: &str, b: &str) -> std::cmp::Ordering {
+    collate_with(a, b, false)
+}
+
+fn collate_with(a: &str, b: &str, numeric: bool) -> std::cmp::Ordering {
+    let (ea, eb) = (collation_elements(a, numeric), collation_elements(b, numeric));
     let p = ea.iter().map(|e| &e.0).cmp(eb.iter().map(|e| &e.0));
     if p.is_ne() {
         return p;

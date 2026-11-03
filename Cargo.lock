@@ -319,6 +319,7 @@ dependencies = [
  "cc-clock",
  "cc-detail",
  "cc-drawing",
+ "cc-dwgview",
  "cc-engine",
  "cc-gcons",
  "cc-geom",
@@ -499,6 +500,21 @@ dependencies = [
  "cc-geom",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cc-dwgview"
+version = "0.0.1"
+dependencies = [
+ "cc-bim",
+ "cc-cad",
+ "cc-cad-geom",
+ "cc-drawing",
+ "cc-io-cad",
+ "cc-io-dwg",
+ "cc-lang",
+ "serde_json",
+ "unicode-general-category",
 ]
 
 [[package]]
@@ -842,6 +858,7 @@ dependencies = [
  "cc-clock",
  "cc-detail",
  "cc-drawing",
+ "cc-dwgview",
  "cc-engine",
  "cc-gcons",
  "cc-geom",
