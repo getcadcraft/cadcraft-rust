@@ -140,6 +140,10 @@ pub struct HostState {
     pub dcl: Option<crate::lispdlg::DclView>,
     pub dcl_waiting: bool,
     pub dcl_closed: Option<i32>,
+    /// SPLIT / VPORTS in the model asked for a pane layout (panes.rs: applied by the window after the command)
+    pub panes_req: Option<String>,
+    /// LINKVIEWS: the panes pan and zoom together (the window keeps it in its split screen too)
+    pub linked: bool,
 }
 
 /// What a command asked the window's picker for.
@@ -391,6 +395,19 @@ impl Host for UiHost {
     }
     fn view_center(&self) -> Option<P2> {
         self.0.borrow().view_box.map(|b| P2::new((b.min_x + b.max_x) / 2.0, (b.min_y + b.max_y) / 2.0))
+    }
+    /// The window splits its drawing area into panes (panes.rs, paneview.rs).
+    fn has_panes(&self) -> bool {
+        true
+    }
+    fn set_panes(&mut self, layout: &str) {
+        self.0.borrow_mut().panes_req = Some(layout.to_string());
+    }
+    fn link_views(&self) -> Option<bool> {
+        Some(self.0.borrow().linked)
+    }
+    fn set_link_views(&mut self, on: bool) {
+        self.0.borrow_mut().linked = on;
     }
     fn has_viewports(&self) -> bool {
         true

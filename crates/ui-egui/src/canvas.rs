@@ -117,6 +117,8 @@ pub struct Frame<'a> {
     pub layer_handles: Option<&'a HashMap<String, String>>,
     /// a point ringed in this space (a Find result), world coordinates
     pub mark: Option<(f64, f64)>,
+    /// the first GPU view slot this frame's draws use (each pane of a split screen its own 64)
+    pub slot_base: u32,
 }
 
 /// The print view's colours (dwg-view.js theme() with `print`): white paper, black ink, a grey desk round sheets.
@@ -216,13 +218,14 @@ pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
             .collect()
     };
     let mut draws = Vec::new();
-    let mut slot = 0u32;
+    let mut slot = f.slot_base.min((cc_render::SLOTS - 64) as u32);
+    let last_slot = slot.saturating_add(63);
     let model = f.drawing.spaces.iter().position(|s| s.kind == SpaceKind::Model);
     let mut vp_views = Vec::new();
     if paper && let Some(mi) = model {
         let morigin = f.geometry.get(mi).map(|g| g.origin).unwrap_or((0.0, 0.0));
         for vp in &space.viewports {
-            if slot as u64 >= cc_render::SLOTS - 1 {
+            if slot >= last_slot {
                 break;
             }
             let mv = viewport_view(&view, vp);

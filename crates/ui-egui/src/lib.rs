@@ -91,6 +91,8 @@ pub mod mcsolids;
 mod mcstretch;
 pub mod model3d;
 pub mod modelcraft;
+pub mod panes;
+pub mod paneview;
 pub mod parpanel;
 pub mod partfeat;
 pub mod partpanel;
@@ -409,6 +411,8 @@ pub struct UiApp {
     pub viewer: viewer::Viewer,
     /// the help panel (help.rs: the 0.5 Markdown help)
     pub help: help::Help,
+    /// the drafting editor's split screen (SPLIT / VPORTS in the model, LINKVIEWS: paneview.rs)
+    pub panes: paneview::PaneUi,
 }
 
 impl Default for UiApp {
@@ -487,6 +491,7 @@ impl Default for UiApp {
             settings: settings::Settings::default(),
             viewer: viewer::Viewer::default(),
             help: help::Help::default(),
+            panes: paneview::PaneUi::default(),
         }
     }
 }
@@ -1096,6 +1101,8 @@ impl UiApp {
         self.space = if keep_space < n { keep_space } else { 0 };
         self.hidden = hidden;
         self.pending_fit = true;
+        // the split screen the file was saved with (or one pane)
+        paneview::from_doc(self);
         self.error = None;
         let ms = |a: web_time::Instant, b: web_time::Instant| b.duration_since(a).as_secs_f64() * 1000.0;
         self.message =
@@ -1108,6 +1115,11 @@ impl UiApp {
         if !cc_io_cad::SAVE_FORMATS.contains(&format) {
             return Err(format!("file.save: unknown format {format} (one of {})", cc_io_cad::SAVE_FORMATS.join(", ")));
         }
+        if self.editor.is_none() {
+            return Err("file.save: no drawing is open for editing".into());
+        }
+        // the split screen on screen goes into the file (its VPORT table)
+        paneview::to_doc(self);
         let ed = self.editor.as_ref().ok_or("file.save: no drawing is open for editing")?;
         let t0 = web_time::Instant::now();
         let (bytes, ext, _report) = cc_io_cad::save_bytes(&ed.eng.doc(), format, None).map_err(|e| format!("file.save: {}", e.0))?;
@@ -1540,6 +1552,7 @@ impl UiApp {
                 self.hidden.clear();
                 self.error = None;
                 self.message = format!("{} {}", lang::cad("app.new_drawing_2"), lang::shell("shell.input.cl.ready", &[]));
+                paneview::from_doc(self);
                 self.sync_editor();
             }
             "cmd.line" => {
@@ -1641,6 +1654,7 @@ impl UiApp {
             id if id.starts_with("par.") => return parpanel::run(self, id, params),
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
+            id if id.starts_with("panes.") => return paneview::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if id.starts_with("input.") => return ribbon::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
@@ -1819,6 +1833,7 @@ impl UiApp {
         if self.prev_views.len() > 50 {
             self.prev_views.remove(0);
         }
+        paneview::requests(self);
         recover::frame(self);
     }
 
@@ -2616,8 +2631,14 @@ impl UiApp {
     }
 
     fn canvas(&mut self, ui: &mut egui::Ui) {
-        let rect = ui.max_rect();
-        let resp = ui.allocate_rect(rect, egui::Sense::click_and_drag());
+        let full = ui.max_rect();
+        // the split screen (paneview.rs): the active pane is drawn and edited here, the others after it
+        let rect = paneview::begin(self, ui, full);
+        let resp = if self.panes.split.panes.is_some() {
+            ui.interact(rect, egui::Id::unique("cc-pane-active"), egui::Sense::click_and_drag())
+        } else {
+            ui.allocate_rect(rect, egui::Sense::click_and_drag())
+        };
         let ppp = f64::from(ui.ctx().pixels_per_point());
         let (w, h) = (f64::from(rect.width()) * ppp, f64::from(rect.height()) * ppp);
         self.canvas_px = (w, h);
@@ -2711,11 +2732,15 @@ impl UiApp {
             lw_display: self.editor.as_ref().is_some_and(|e| e.hs.borrow().lwt),
             layer_handles: Some(&doc.layer_handles),
             mark: self.viewer.mark.filter(|m| m.0 == self.space).map(|m| (m.1, m.2)),
+            slot_base: 0,
         };
         self.last_stats = canvas::paint(ui, rect, &frame);
         if editing {
-            self.edit_input(ui, &resp, rect, &view, ppp);
-            self.edit_overlays(ui, rect, &view, ppp);
+            if !paneview::swallowing(self, ui) {
+                self.edit_input(ui, &resp, rect, &view, ppp);
+            }
+            self.edit_overlays(ui, rect, &view, ppp, true);
+            paneview::end(self, ui, full);
         }
     }
 
@@ -2807,8 +2832,9 @@ impl UiApp {
         self.sync_editor();
     }
 
-    /// The rubber band, the selection, the snap marker, the selection window and the crosshair.
-    fn edit_overlays(&self, ui: &egui::Ui, rect: egui::Rect, view: &View2D, ppp: f64) {
+    /// The rubber band, the selection, the snap marker, the selection window and the crosshair (`full`; another pane
+    /// showing the same space: only the selection and the rubber band, as view.js `overPane(ctx, false)`).
+    fn edit_overlays(&self, ui: &egui::Ui, rect: egui::Rect, view: &View2D, ppp: f64, full: bool) {
         let Some(ed) = self.editor.as_ref() else { return };
         let t = self.tokens;
         let painter = ui.painter_at(rect);
@@ -2841,7 +2867,7 @@ impl UiApp {
         if !sel.is_empty() {
             draw(&sel, egui::Stroke::new(3.0, t.accent.gamma_multiply(0.55)));
             // grips
-            for e in &sel {
+            for e in sel.iter().filter(|_| full) {
                 for g in cc_cad_geom::tx::grips(e) {
                     let c = to_pos(g.x, g.y);
                     painter.rect_filled(egui::Rect::from_center_size(c, egui::vec2(7.0, 7.0)), 0.0, t.accent);
@@ -2856,6 +2882,9 @@ impl UiApp {
             }
         }
         drop(doc);
+        if !full {
+            return;
+        }
         parpanel::draw(self, &painter, &to_pos, view.zoom / ppp);
         if let Some(s) = &ed.snap {
             let c = to_pos(s.x, s.y);

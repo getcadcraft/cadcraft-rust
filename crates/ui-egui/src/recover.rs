@@ -584,6 +584,7 @@ fn open_recovered(app: &mut UiApp, rec: &Rec, data: &[u8]) -> Result<(), String>
     app.space = 0;
     app.hidden.clear();
     app.pending_fit = true;
+    crate::paneview::from_doc(app);
     app.error = None;
     app.save_format = match meta.save_format.as_str() {
         "dxf2000" => "dxf2000".into(),

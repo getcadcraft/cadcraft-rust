@@ -10,6 +10,7 @@
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
 //!       (2018 … 2000, dxf2000, dxf12); --export FORMAT:PATH exports the open model (modelcraft, glb, obj, stl, dae, ifc, dxf, dwg)
 //!   cadcraft-shot inputcases <cases.json> → CadCraft's input styles engine on each case (forks/tools/inputdiff-cadrest.mjs)
+//!   cadcraft-shot panecases <cases.json> → the split screen (panes.rs) on each case (forks/tools/panediff-cadpanes.mjs)
 //!   cadcraft-shot recovery <scenario.json> <out-dir> → recovery copies driven headless (recovery.rs; forks/tools/recoverdiff.mjs)
 //!   cadcraft-shot pdfbench <file.pdf> [--runs N] → JSON timings of the PDF sheet view's heavy paths
 //!   cadcraft-shot mkactbench <file.pdf> [--runs N] → JSON timings of MarkupCraft's editing actions (M9.16–M9.18)
@@ -123,6 +124,15 @@ fn main() -> ExitCode {
                 .flatten()
                 .map(|c| cc_ui_egui::inputprof::run_case(c, reg, &cc_ui_egui::inputdlg::tx))
                 .collect();
+            println!("{}", serde_json::Value::Array(out));
+            Ok(())
+        })(),
+        Some("panecases") => (|| -> Result<(), String> {
+            // the split screen's bookkeeping and its VPORT table on a list of cases (forks/tools/panediff-cadpanes.mjs)
+            let file = args.get(1).cloned().unwrap_or_default();
+            let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+            let cases: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
+            let out: Vec<serde_json::Value> = cases.as_array().into_iter().flatten().map(cc_ui_egui::panes::run_case).collect();
             println!("{}", serde_json::Value::Array(out));
             Ok(())
         })(),

@@ -20,8 +20,8 @@ use crate::{ImportedFile, UiApp, edit};
 thread_local! {
     /// The window's cloud (`host.cloud`: one per window).
     static CLOUD: Rc<RefCell<CloudAttach>> = Rc::default();
-    /// The cloud's pictures on screen and what they were made for.
-    static TEX: RefCell<(Vec<u64>, Vec<egui::TextureHandle>)> = RefCell::default();
+    /// The cloud's pictures on screen and what they were made for, per pane (0: the active one).
+    static TEX: RefCell<Vec<(Vec<u64>, Vec<egui::TextureHandle>)>> = RefCell::default();
 }
 
 /// The window's point cloud.
@@ -87,10 +87,11 @@ pub fn underlay(
     ppp: f64,
     model: Option<&View2D>,
     vps: &[(View2D, Rect)],
+    slot: usize,
 ) -> Vec<(egui::TextureId, Rect, Rect)> {
     let pc = cloud();
     if !pc.borrow().has() || !pc.borrow().visible {
-        TEX.with(|t| *t.borrow_mut() = (Vec::new(), Vec::new()));
+        TEX.with(|t| t.borrow_mut().clear());
         return Vec::new();
     }
     let u = units(ed);
@@ -112,8 +113,12 @@ pub fn underlay(
             k
         })
         .collect();
-    TEX.with(|t| {
-        let mut t = t.borrow_mut();
+    TEX.with(|all| {
+        let mut all = all.borrow_mut();
+        while all.len() <= slot {
+            all.push((Vec::new(), Vec::new()));
+        }
+        let Some(t) = all.get_mut(slot) else { return Vec::new() };
         if t.0 != keys {
             let mut texs = Vec::new();
             for (i, (v, _)) in views.iter().enumerate() {
@@ -134,7 +139,7 @@ pub fn underlay(
                         h.set(img, opts);
                         texs.push(h.clone());
                     }
-                    None => texs.push(ctx.load_texture(format!("pointcloud:{i}"), img, opts)),
+                    None => texs.push(ctx.load_texture(format!("pointcloud:{slot}:{i}"), img, opts)),
                 }
             }
             *t = (keys, texs);
@@ -164,12 +169,32 @@ pub fn underlay_for(
     space: usize,
     view: &View2D,
 ) -> Vec<(egui::TextureId, Rect, Rect)> {
+    underlay_slot(ctx, ed, rect, ppp, drawing, space, view, 0)
+}
+
+/// Pane `slot`'s pictures are kept apart (a split screen: 0 the active pane, then the others).
+pub fn keep_slots(n: usize) {
+    TEX.with(|t| t.borrow_mut().truncate(n));
+}
+
+/// [`underlay_for`] for pane `slot` of a split screen.
+#[allow(clippy::too_many_arguments)]
+pub fn underlay_slot(
+    ctx: &egui::Context,
+    ed: &edit::Editor,
+    rect: Rect,
+    ppp: f64,
+    drawing: &cc_drawing::Drawing,
+    space: usize,
+    view: &View2D,
+    slot: usize,
+) -> Vec<(egui::TextureId, Rect, Rect)> {
     if !cloud().borrow().has() {
         return Vec::new();
     }
     let Some(sp) = drawing.spaces.get(space) else { return Vec::new() };
     if sp.kind == cc_drawing::SpaceKind::Model {
-        return underlay(ctx, ed, rect, ppp, Some(view), &[]);
+        return underlay(ctx, ed, rect, ppp, Some(view), &[], slot);
     }
     let pt = ppp as f32;
     let vps: Vec<(View2D, Rect)> = sp
@@ -186,7 +211,7 @@ pub fn underlay_for(
             (crate::canvas::viewport_view(view, vp), Rect::from_points(&pts))
         })
         .collect();
-    underlay(ctx, ed, rect, ppp, None, &vps)
+    underlay(ctx, ed, rect, ppp, None, &vps, slot)
 }
 
 /// The cloud for CadCraft's 3D tab (ws3d.js `cloudChanged`): placed by `matrix3d` in metres, its slice as a band of
