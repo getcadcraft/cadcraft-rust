@@ -66,7 +66,7 @@ impl CivilView {
     }
 
     /// One picked point is the selected point (its Properties and grip); more are the picked set.
-    pub(crate) fn set_picked(&mut self, s: BTreeSet<String>) {
+    pub fn set_picked(&mut self, s: BTreeSet<String>) {
         self.profile.sel_pvi = None;
         if s.len() == 1 {
             self.sel = s.into_iter().next().map(Sel::Point);

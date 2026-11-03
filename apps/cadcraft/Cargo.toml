@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 cc-ui-egui.workspace = true
+cc-civil.workspace = true
 cc-mcp.workspace = true
 cc-recovery.workspace = true
 cc-engine.workspace = true

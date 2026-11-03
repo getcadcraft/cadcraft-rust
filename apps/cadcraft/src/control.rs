@@ -98,7 +98,7 @@ pub struct Win<'a> {
 }
 
 /// The apps whose 0.5 windows have live tools (agents.js); the others list only `app_info`.
-const LIVE_APPS: [&str; 5] = ["cadcraft", "takeoffcraft", "markupcraft", "modelcraft", "detailcraft"];
+const LIVE_APPS: [&str; 6] = ["cadcraft", "takeoffcraft", "markupcraft", "modelcraft", "detailcraft", "civilcraft"];
 
 impl Win<'_> {
     /// CadCraft's tools work on the drawing open for editing: a drawing only viewed is opened for editing first.
@@ -256,6 +256,63 @@ impl Win<'_> {
     }
 }
 
+/// CivilCraft's live tools (civil-agent.js civilTools): those of the groups Settings › CivilCraft › Assistants allows,
+/// none while it is off.
+fn civil_defs(app: &UiApp) -> Vec<ToolDef> {
+    let Some(cv) = app.civil.as_ref() else { return Vec::new() };
+    if !cv.pt_settings.assist {
+        return Vec::new();
+    }
+    cc_civil::civil_agent::tools()
+        .into_iter()
+        .filter(|t| cv.pt_settings.assist_groups.iter().any(|g| g == t.group))
+        .map(|t| ToolDef::new(t.name, t.group, t.title, t.description, t.input_schema))
+        .collect()
+}
+
+impl Win<'_> {
+    /// A CivilCraft tool on the open site (civil-agent.js run); points_select changes the selection only.
+    fn civil_run(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        let cv = self.app.civil.as_mut().ok_or("No CivilCraft site is open.")?;
+        if !cv.pt_settings.assist {
+            return Err("CivilCraft does not take assistants: they are turned off in its Settings › Assistants.".into());
+        }
+        let def = cc_civil::civil_agent::tools()
+            .into_iter()
+            .find(|t| t.name == name)
+            .ok_or_else(|| format!("{name} is not a CivilCraft tool."))?;
+        if !cv.pt_settings.assist_groups.iter().any(|g| g == def.group) {
+            return Err(format!("{name} needs the {} permission, which CivilCraft's Settings › Assistants does not allow.", def.group));
+        }
+        let mut picked = cv.points.picked.clone();
+        let mut changed = false;
+        let mut select = |nums: &[String], mode: &str| -> usize {
+            if mode == "replace" {
+                picked = nums.iter().cloned().collect();
+            } else {
+                for n in nums {
+                    if mode == "add" {
+                        picked.insert(n.clone());
+                    } else {
+                        picked.remove(n);
+                    }
+                }
+            }
+            changed = true;
+            picked.len()
+        };
+        let r = cc_civil::civil_agent::run(name, &mut cv.project, args, &mut select);
+        if changed {
+            let n = picked.len();
+            cv.set_picked(picked);
+            cv.sel = None;
+            cv.profile.sel_pvi = None;
+            cv.message = cc_civil::tr!("cv.pts.selected", n = n, count = cc_civil::units::grouped(n as f64, 0));
+        }
+        r
+    }
+}
+
 /// Save a drawing in one of CadCraft's save formats.
 fn cc_io_cad_save(doc: &cc_cad::Doc, fmt: &str) -> Result<(Vec<u8>, &'static str, Value), String> {
     cc_io_cad::save_bytes(doc, fmt, None).map_err(|e| e.0)
@@ -264,6 +321,9 @@ fn cc_io_cad_save(doc: &cc_cad::Doc, fmt: &str) -> Result<(Vec<u8>, &'static str
 impl Tools for Win<'_> {
     fn tools(&self) -> Vec<ToolDef> {
         let slug = self.app.active_app();
+        if slug == "civilcraft" {
+            return civil_defs(self.app);
+        }
         if LIVE_APPS.contains(&slug) {
             return cc_mcp::defs::live_defs(slug);
         }
@@ -333,6 +393,7 @@ impl Tools for Win<'_> {
                     cc_mcp::modelcraft::run(&mut mc.tools.host.model, name, &args, &groups)
                 }
             },
+            "civilcraft" => self.civil_run(name, &args),
             "detailcraft" => match name {
                 "app_info" => Ok(json!({"app": "detailcraft", "title": "DetailCraft", "allowed": groups})),
                 other => {
@@ -348,7 +409,15 @@ impl Tools for Win<'_> {
     }
     fn info(&mut self) -> Option<Value> {
         let slug = self.app.active_app();
-        Some(json!({"app": slug, "title": app_title(slug), "version": env!("CARGO_PKG_VERSION"), "enabled": true, "groups": self.groups}))
+        let mut v =
+            json!({"app": slug, "title": app_title(slug), "version": env!("CARGO_PKG_VERSION"), "enabled": true, "groups": self.groups});
+        // civilcraft.js control.configure({ info: () => ({ site, points, unsaved }) })
+        if let (Some(cv), Some(m)) = (self.app.civil.as_ref(), v.as_object_mut()) {
+            m.insert("site".into(), cv.project.state.get("name").cloned().unwrap_or(Value::Null));
+            m.insert("points".into(), json!(cv.project.points.len()));
+            m.insert("unsaved".into(), json!(cv.project.dirty()));
+        }
+        Some(v)
     }
 }
 
@@ -360,6 +429,16 @@ impl Window for Win<'_> {
         app_title(self.app.active_app()).to_string()
     }
     fn busy(&self) -> Option<String> {
+        // civilcraft.js control.configure({ busy }): a line being drawn, points being pasted
+        if let Some(cv) = self.app.civil.as_ref().filter(|_| self.app.active_app() == "civilcraft") {
+            return if !cv.tools.draft.is_empty() {
+                Some("drawing on the plan".into())
+            } else if cv.points.paste.is_some() {
+                Some("pasting points".into())
+            } else {
+                None
+            };
+        }
         let ed = self.app.editor.as_ref()?;
         if ed.eng.busy() { ed.eng.running().map(str::to_string) } else { None }
     }
@@ -456,5 +535,29 @@ mod tests {
         assert!(d["structuredContent"]["instances"].as_array().unwrap().iter().any(|i| i["name"] == "Box"));
         let u = call(&mut c, &mut app, "undo", json!({}));
         assert_eq!(u["structuredContent"]["undone"], json!(["Assistant: box"]));
+    }
+
+    /// CivilCraft's tools (civil-agent.js) through the channel: none until Settings › Assistants is on, then those of
+    /// its groups; points_select changes the window's selection only.
+    #[test]
+    fn civilcraft_tools_follow_its_settings() {
+        let all: Vec<String> = ["read", "edit", "save", "export"].iter().map(|s| s.to_string()).collect();
+        let mut c = Control::new(all, "t");
+        let mut app = UiApp::default();
+        app.run("civil.sample", &cc_ui_egui::Params::default()).unwrap();
+        let list = ask(&mut c, &mut app, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}));
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 1, "assistants off: windows_list only");
+        app.run("civil.settings", &cc_ui_egui::Params { name: Some("assist=on".into()), ..Default::default() }).unwrap();
+        let list = ask(&mut c, &mut app, json!({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}));
+        let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"site_describe") && !names.contains(&"points_select"), "{names:?}");
+        let d = call(&mut c, &mut app, "site_describe", json!({}));
+        assert_eq!(d["structuredContent"]["points"]["count"], 276, "{d}");
+        let refused = call(&mut c, &mut app, "points_select", json!({"numbers": ["1"]}));
+        assert!(refused.is_null() || refused["isError"] == true, "edit is not allowed yet: {refused}");
+        app.run("civil.settings", &cc_ui_egui::Params { name: Some("assist.edit=on".into()), ..Default::default() }).unwrap();
+        let sel = call(&mut c, &mut app, "points_select", json!({"numbers": ["1", "2"]}));
+        assert_eq!(sel["structuredContent"]["selected"], 2, "{sel}");
+        assert_eq!(app.civil.as_ref().unwrap().points.picked.len(), 2);
     }
 }
