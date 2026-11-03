@@ -304,9 +304,8 @@ impl Win<'_> {
         let r = cc_civil::civil_agent::run(name, &mut cv.project, args, &mut select);
         if changed {
             let n = picked.len();
+            // one picked point is the selected point (set_picked keeps it there)
             cv.set_picked(picked);
-            cv.sel = None;
-            cv.profile.sel_pvi = None;
             cv.message = cc_civil::tr!("cv.pts.selected", n = n, count = cc_civil::units::grouped(n as f64, 0));
         }
         r
@@ -559,5 +558,8 @@ mod tests {
         let sel = call(&mut c, &mut app, "points_select", json!({"numbers": ["1", "2"]}));
         assert_eq!(sel["structuredContent"]["selected"], 2, "{sel}");
         assert_eq!(app.civil.as_ref().unwrap().points.picked.len(), 2);
+        let one = call(&mut c, &mut app, "points_select", json!({"numbers": ["1"]}));
+        assert_eq!(one["structuredContent"]["selected"], 1);
+        assert_eq!(app.civil.as_ref().unwrap().picked_numbers().len(), 1, "one point stays selected");
     }
 }

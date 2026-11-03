@@ -90,6 +90,28 @@ impl CivilView {
         self.message = tr!("cv.pts.selected", n = n, count = count(n));
     }
 
+    /// civilcraft.js long press (touch): Enter while drawing; in Select the survey point within 14 px joins or leaves
+    /// the selection (Shift+click), said; elsewhere nothing.
+    pub fn long_press(&mut self, x: f64, y: f64) {
+        if !self.tools.draft.is_empty() {
+            self.finish();
+            return;
+        }
+        if self.tools.tool != crate::civiltools::Tool::Select {
+            return;
+        }
+        let s = self.css(x, y);
+        let Some(p) = self.nearest_px(s, 14.0, false).and_then(|i| self.project.points.get(i)).map(|p| p.n.clone()) else { return };
+        let mut set = self.picked_numbers();
+        if !set.remove(&p) {
+            set.insert(p);
+        }
+        let n = set.len();
+        // (one picked point is the selected point: set_picked keeps it there)
+        self.set_picked(set);
+        self.message = tr!("cv.pts.selected", n = n, count = count(n));
+    }
+
     /// civilcraft.js `boxSelect(a, b)` in world units: the survey points inside join the selection.
     pub fn box_select(&mut self, a: (f64, f64), b: (f64, f64)) {
         let (x0, x1, y0, y1) = (a.0.min(b.0), a.0.max(b.0), a.1.min(b.1), a.1.max(b.1));

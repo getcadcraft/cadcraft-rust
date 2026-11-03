@@ -374,6 +374,8 @@ pub fn use_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
     let mut open = true;
     egui::Window::new(tr!("vec.use.title", layer = l.name.as_str()))
         .id(egui::Id::unique("cv_gis_use"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
         .open(&mut open)
         .collapsible(false)
         .default_width(420.0)

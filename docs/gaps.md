@@ -78,14 +78,16 @@ Last updated 2026-10-28 · Change: BimCraft's DWG view extras in the viewer: equ
    system), touch's draft bar, the 3D view's Drive panel and Sun menu, GIS layers (import dialog, the left panel,
    picked features, GIS › Export with zoned dates), the Coordinates window (search, the systems the site fits) and
    lat/lon in the status bar, map layers (pictures with world files, tiles, WMS, WMTS, ArcGIS) carried by the PDF and DWG.
-   Missing: the Coordinates window's Ground / Local modes, .prj files, grid shift files and converting the project's
-   coordinates; GIS layers' "Use for the surface" and moving them when the system changes; terrain (elevation grids,
-   LiDAR) and DWG / DXF linework (gis-cad-ui.js); a GeoTIFF picture as a map layer; map layers draped in 3D; asking for
-   a system when a lat/lon point file or a GIS file needs one (0.5's askCrs: here the dialog lists suggestions, the point
-   file waits); Settings' assistants are kept but CivilCraft has no assistant tools in the control channel yet; the
-   desktop app has no HTTP client, so map servers are asked only by the web build (a dependency decision: ureq + rustls
-   would bring ring's C code); touch's long press. Speed (M11.23–M11.25): reading 500,000 point rows 2.0× the JS, the
-   33 MB GeoJSON read 1.3×, its import 1.8×, GIS export 1.4–2.4×; section sheets PDF runs 1.4× the JS (S.2).
+   Then (M11.26–M11.31, cvtooldiff-civil3, 0 differences in UTC, America/Denver and es-MX): the Coordinates window in
+   full (Ground / Local, .prj files, grid shift files, converting the project's coordinates), askCrs (the system picker
+   for GIS files, latitude / longitude point files and pictures without a .prj), GIS layers moved with the system and
+   Use for the surface, terrain (elevation grids, LiDAR; the surface out as a GeoTIFF), DWG / DXF linework with block
+   points, RGB GeoTIFF pictures, map layers draped in 3D, the assistant tools in the control channel, touch's long press.
+   Missing: the desktop app has no HTTP client, so map servers and cdn.proj.org grids are asked only by the web build
+   (a dependency decision: ureq + rustls would bring ring's C code); a single picked point is the selected point, so
+   finishing a line drops it (0.5 keeps it picked); GeoTIFF pictures are kept as the app's own PNG / JPEG (0.5: the
+   browser canvas's). Speed: reading 500,000 point rows 2.0× the JS, the 33 MB GeoJSON read 1.3×, its import 1.8×, GIS
+   export 1.4–2.4×; a 4000² DEM import 1.0×; section sheets PDF runs 1.4× the JS (S.2).
 5. **ModelCraft** (M6.17: panels, components, 3D-print check, inference keys at parity): missing imported pictures as textures in the view (`img:` paints show their average colour), the scenes' WebM recording,
    terrain, the starter library, Blender key style. Copy / paste, duplicate, flip and 3D text: M6.19; solids, intersect
    faces, storeys, drawing axes: M6.20; components that stretch (part rules, stretch dialog): M6.21; sun shadows in the view: M6.22; material textures (view and swatches): M6.23; Lights panel and lamp editor: M6.24; Render a picture (Fast and High quality; thin glass, no lamp shadows in Fast): M6.25; the scenes' Play: M6.26.

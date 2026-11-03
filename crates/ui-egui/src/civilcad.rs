@@ -187,6 +187,7 @@ impl CadDlg {
 impl CivilView {
     /// A DWG or DXF opened while CivilCraft is open (gis-cad-ui.js openFiles → readModel → chooseDialog).
     pub fn cad_open(&mut self, name: &str, bytes: &[u8]) {
+        let t_open = web_time::Instant::now();
         if bytes.len() > MAX_BYTES {
             self.message = tr!("cad.ui.too.big", file = name, mb = 200);
             return;
@@ -235,6 +236,7 @@ impl CivilView {
         };
         d.rebuild(pu);
         self.gis3.cad = Some(Box::new(d));
+        self.timings.insert("cad open", t_open.elapsed().as_secs_f64() * 1000.0);
     }
 
     /// `civil.cad=<action>`: units=<"" | ft | ft-us | m | mm | cm | in> · layer=<name>:on|off · use=<layer>|<geom>:<i|-1>
@@ -524,172 +526,187 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
     let pu = if cv.project.units() == "m" { "m" } else { "ft" };
     egui::Window::new(tr!("cad.ui.title", file = d.file.as_str()))
         .id(egui::Id::unique("cv_cad"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
         .open(&mut open)
         .collapsible(false)
         .default_width(640.0)
         .show(ctx, |ui| {
-            egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.75).show(ui, |ui| {
-                dim(ui, &t0("cad.ui.lede"));
-                egui::Grid::new("cv_cad_layers").num_columns(5).spacing([10.0, 3.0]).striped(true).show(ui, |ui| {
-                    ui.label("");
-                    for h in ["cad.ui.col.layer", "cad.ui.col.holds", "cad.ui.col.z", "cad.ui.col.use"] {
-                        ui.label(RichText::new(t0(h)).small().strong().color(tk.text_dim));
-                    }
-                    ui.end_row();
-                    for cl in &d.r.cad_layers {
-                        let mut on = d.pick.contains(&cl.name);
-                        if ui.checkbox(&mut on, "").on_hover_text(tr!("cad.ui.add.layer", layer = cl.name.as_str())).changed() {
-                            acts.push(("civil.cad", format!("layer={}:{}", cl.name, if on { "on" } else { "off" })));
-                        }
-                        ui.label(format!("{}{}", cl.name, if cl.on { String::new() } else { format!(" {}", t0("cad.ui.off")) }));
-                        let kinds: Vec<String> = [
-                            (cl.lines > 0).then(|| tr!("cad.ui.n.lines", n = cl.lines)),
-                            (cl.polygons > 0).then(|| tr!("cad.ui.n.closed", n = cl.polygons)),
-                            (cl.points > 0).then(|| tr!("cad.ui.n.points", n = cl.points)),
-                        ]
-                        .into_iter()
-                        .flatten()
-                        .collect();
-                        ui.label(RichText::new(kinds.join(", ")).small());
-                        ui.label(RichText::new(t0(if cl.z { "cad.ui.z.yes" } else { "cad.ui.z.no" })).small());
-                        ui.vertical(|ui| {
-                            let mut any = false;
-                            for l in d.r.layers.iter().filter(|l| l.cad_layer == cl.name) {
-                                let ch = CadDlg::choices(l);
-                                if ch.is_empty() {
-                                    continue;
-                                }
-                                any = true;
-                                let u = d.use_of(l);
-                                let key = CadDlg::key(l);
-                                let sel = usize::try_from(u)
-                                    .ok()
-                                    .and_then(|i| ch.get(i))
-                                    .map_or_else(|| t0("cad.ui.use.none"), |c| string_of(c.get("label")));
-                                egui::ComboBox::new(("cv_cad_use", key.clone()), "").selected_text(sel).width(220.0).show_ui(ui, |ui| {
-                                    if ui.selectable_label(u < 0, t0("cad.ui.use.none")).clicked() {
-                                        acts.push(("civil.cad", format!("use={key}:-1")));
-                                    }
-                                    for (i, c) in ch.iter().enumerate() {
-                                        if ui.selectable_label(u == i as i64, string_of(c.get("label"))).clicked() {
-                                            acts.push(("civil.cad", format!("use={key}:{i}")));
-                                        }
-                                    }
-                                });
-                            }
-                            if !any {
-                                ui.label(RichText::new(t0("cad.ui.use.nothing")).small().color(tk.text_dim));
-                            }
-                        });
-                        ui.end_row();
-                    }
-                });
-                ui.horizontal(|ui| {
-                    ui.label(t0("cad.ui.units"));
-                    let file_label = if d.r.units.label.is_empty() { t0("cad.ui.units.none") } else { d.r.units.label.clone() };
-                    let label = |k: &str| {
-                        if k.is_empty() { tr!("cad.ui.units.file", unit = file_label.as_str()) } else { t0(&format!("cad.ui.unit.{k}")) }
-                    };
-                    let cur = UNIT_CHOICES.iter().find(|c| c.1 == d.unit_code).map_or("", |c| c.0);
-                    egui::ComboBox::new("cv_cad_units", "").selected_text(label(cur)).show_ui(ui, |ui| {
-                        for (k, _) in UNIT_CHOICES {
-                            if ui.selectable_label(cur == k, label(k)).clicked() {
-                                acts.push(("civil.cad", format!("units={k}")));
-                            }
-                        }
-                    });
-                });
-                let mut h = d.model.get("header").and_then(V::as_obj).cloned().unwrap_or_default();
-                if let Some(c) = d.unit_code {
-                    h.set("INSUNITS", V::Num(c));
-                }
-                let us = cad_linework::unit_scale(Some(&h), pu);
-                dim(ui, &us.note.unwrap_or_else(|| tr!("cad.ui.units.same", unit = t0(&format!("cad.unit.{pu}")))));
-                if !d.r.notes.is_empty() {
-                    crate::civilpanel::report_pub(ui, tk, &d.r.notes, false);
-                }
-                if !d.br.refs.is_empty() {
-                    ui.separator();
-                    ui.label(RichText::new(t0("cad.blk.head")).strong().color(tk.text_strong));
-                    dim(ui, &t0("cad.blk.lede"));
-                    egui::Grid::new("cv_cad_blocks").num_columns(5).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(ctx.content_rect().height() * 0.75)
+                .min_scrolled_height(ctx.content_rect().height() * 0.6)
+                .show(ui, |ui| {
+                    dim(ui, &t0("cad.ui.lede"));
+                    egui::Grid::new("cv_cad_layers").num_columns(5).spacing([10.0, 3.0]).striped(true).show(ui, |ui| {
                         ui.label("");
-                        for h in ["cad.blk.col.block", "cad.blk.col.count", "cad.blk.col.layers", "cad.blk.col.tags"] {
+                        for h in ["cad.ui.col.layer", "cad.ui.col.holds", "cad.ui.col.z", "cad.ui.col.use"] {
                             ui.label(RichText::new(t0(h)).small().strong().color(tk.text_dim));
                         }
                         ui.end_row();
-                        for (name, count, layers, tags) in &d.br.blocks {
-                            let mut on = d.b_pick.contains(name);
-                            if ui.checkbox(&mut on, "").on_hover_text(tr!("cad.blk.take", block = name.as_str())).changed() {
-                                acts.push(("civil.cad", format!("block={name}:{}", if on { "on" } else { "off" })));
+                        for cl in &d.r.cad_layers {
+                            let mut on = d.pick.contains(&cl.name);
+                            if ui.checkbox(&mut on, "").on_hover_text(tr!("cad.ui.add.layer", layer = cl.name.as_str())).changed() {
+                                acts.push(("civil.cad", format!("layer={}:{}", cl.name, if on { "on" } else { "off" })));
                             }
-                            ui.label(name);
-                            ui.label(cc_civil::units::grouped(*count as f64, 0));
-                            ui.label(RichText::new(layers.join(", ")).small());
-                            ui.label(RichText::new(if tags.is_empty() { "—".to_string() } else { tags.join(", ") }).small());
+                            ui.label(format!("{}{}", cl.name, if cl.on { String::new() } else { format!(" {}", t0("cad.ui.off")) }));
+                            let kinds: Vec<String> = [
+                                (cl.lines > 0).then(|| tr!("cad.ui.n.lines", n = cl.lines)),
+                                (cl.polygons > 0).then(|| tr!("cad.ui.n.closed", n = cl.polygons)),
+                                (cl.points > 0).then(|| tr!("cad.ui.n.points", n = cl.points)),
+                            ]
+                            .into_iter()
+                            .flatten()
+                            .collect();
+                            ui.label(RichText::new(kinds.join(", ")).small());
+                            ui.label(RichText::new(t0(if cl.z { "cad.ui.z.yes" } else { "cad.ui.z.no" })).small());
+                            ui.vertical(|ui| {
+                                let mut any = false;
+                                for l in d.r.layers.iter().filter(|l| l.cad_layer == cl.name) {
+                                    let ch = CadDlg::choices(l);
+                                    if ch.is_empty() {
+                                        continue;
+                                    }
+                                    any = true;
+                                    let u = d.use_of(l);
+                                    let key = CadDlg::key(l);
+                                    let sel = usize::try_from(u)
+                                        .ok()
+                                        .and_then(|i| ch.get(i))
+                                        .map_or_else(|| t0("cad.ui.use.none"), |c| string_of(c.get("label")));
+                                    egui::ComboBox::new(("cv_cad_use", key.clone()), "").selected_text(sel).width(220.0).show_ui(
+                                        ui,
+                                        |ui| {
+                                            if ui.selectable_label(u < 0, t0("cad.ui.use.none")).clicked() {
+                                                acts.push(("civil.cad", format!("use={key}:-1")));
+                                            }
+                                            for (i, c) in ch.iter().enumerate() {
+                                                if ui.selectable_label(u == i as i64, string_of(c.get("label"))).clicked() {
+                                                    acts.push(("civil.cad", format!("use={key}:{i}")));
+                                                }
+                                            }
+                                        },
+                                    );
+                                }
+                                if !any {
+                                    ui.label(RichText::new(t0("cad.ui.use.nothing")).small().color(tk.text_dim));
+                                }
+                            });
                             ui.end_row();
                         }
                     });
-                    dim(ui, &t0("cad.blk.bylayer"));
-                    for (name, count) in &d.br.layers {
-                        let mut on = d.l_pick.contains(name);
-                        if ui
-                            .checkbox(&mut on, tr!("cad.blk.layer", layer = name.as_str(), n = cc_civil::units::grouped(*count as f64, 0)))
-                            .changed()
-                        {
-                            acts.push(("civil.cad", format!("blklayer={name}:{}", if on { "on" } else { "off" })));
-                        }
-                    }
-                    let tags = sorted_tags(&d.br, &d.b_pick, &d.l_pick);
-                    for (k, label, fixed) in [
-                        ("num", "cad.blk.num", vec![("next", t0("cad.blk.num.next"))]),
-                        ("desc", "cad.blk.desc", vec![("block", t0("cad.blk.desc.block")), ("layer", t0("cad.blk.desc.layer"))]),
-                        ("z", "cad.blk.z", vec![("insert", t0("cad.blk.z.insert")), ("none", t0("cad.blk.z.none"))]),
-                    ] {
-                        let cur = match k {
-                            "num" => &d.num,
-                            "desc" => &d.desc,
-                            _ => &d.z,
+                    ui.horizontal(|ui| {
+                        ui.label(t0("cad.ui.units"));
+                        let file_label = if d.r.units.label.is_empty() { t0("cad.ui.units.none") } else { d.r.units.label.clone() };
+                        let label = |k: &str| {
+                            if k.is_empty() {
+                                tr!("cad.ui.units.file", unit = file_label.as_str())
+                            } else {
+                                t0(&format!("cad.ui.unit.{k}"))
+                            }
                         };
-                        let show = |v: &str| {
-                            fixed
-                                .iter()
-                                .find(|f| f.0 == v)
-                                .map(|f| f.1.clone())
-                                .unwrap_or_else(|| tr!("cad.blk.attr", tag = v.trim_start_matches("attr:")))
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label(t0(label));
-                            egui::ComboBox::new(("cv_cad_how", k), "").selected_text(show(cur)).show_ui(ui, |ui| {
-                                for (v, l) in &fixed {
-                                    if ui.selectable_label(cur == v, l).clicked() {
-                                        acts.push(("civil.cad", format!("{k}={v}")));
-                                    }
+                        let cur = UNIT_CHOICES.iter().find(|c| c.1 == d.unit_code).map_or("", |c| c.0);
+                        egui::ComboBox::new("cv_cad_units", "").selected_text(label(cur)).show_ui(ui, |ui| {
+                            for (k, _) in UNIT_CHOICES {
+                                if ui.selectable_label(cur == k, label(k)).clicked() {
+                                    acts.push(("civil.cad", format!("units={k}")));
                                 }
-                                for tg in &tags {
-                                    let v = format!("attr:{tg}");
-                                    if ui.selectable_label(*cur == v, tr!("cad.blk.attr", tag = tg.as_str())).clicked() {
-                                        acts.push(("civil.cad", format!("{k}={v}")));
-                                    }
-                                }
-                            });
+                            }
                         });
+                    });
+                    let mut h = d.model.get("header").and_then(V::as_obj).cloned().unwrap_or_default();
+                    if let Some(c) = d.unit_code {
+                        h.set("INSUNITS", V::Num(c));
                     }
-                    let n = d.chosen_refs();
-                    dim(ui, &if n > 0 { tr!("cad.blk.what", n = n) } else { t0("cad.blk.what.none") });
-                }
-                ui.label(RichText::new(t0("cad.ui.what.head")).strong().color(tk.text_strong));
-                dim(ui, &d.what());
-                ui.horizontal(|ui| {
-                    if ui.button(t0("cad.ui.cancel")).clicked() {
-                        acts.push(("civil.cad", "cancel".into()));
+                    let us = cad_linework::unit_scale(Some(&h), pu);
+                    dim(ui, &us.note.unwrap_or_else(|| tr!("cad.ui.units.same", unit = t0(&format!("cad.unit.{pu}")))));
+                    if !d.r.notes.is_empty() {
+                        crate::civilpanel::report_pub(ui, tk, &d.r.notes, false);
                     }
-                    let can = !d.chosen().is_empty() || d.chosen_refs() > 0;
-                    if ui.add_enabled(can, egui::Button::new(t0("cad.ui.add"))).clicked() {
-                        acts.push(("civil.cad", "go".into()));
+                    if !d.br.refs.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new(t0("cad.blk.head")).strong().color(tk.text_strong));
+                        dim(ui, &t0("cad.blk.lede"));
+                        egui::Grid::new("cv_cad_blocks").num_columns(5).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
+                            ui.label("");
+                            for h in ["cad.blk.col.block", "cad.blk.col.count", "cad.blk.col.layers", "cad.blk.col.tags"] {
+                                ui.label(RichText::new(t0(h)).small().strong().color(tk.text_dim));
+                            }
+                            ui.end_row();
+                            for (name, count, layers, tags) in &d.br.blocks {
+                                let mut on = d.b_pick.contains(name);
+                                if ui.checkbox(&mut on, "").on_hover_text(tr!("cad.blk.take", block = name.as_str())).changed() {
+                                    acts.push(("civil.cad", format!("block={name}:{}", if on { "on" } else { "off" })));
+                                }
+                                ui.label(name);
+                                ui.label(cc_civil::units::grouped(*count as f64, 0));
+                                ui.label(RichText::new(layers.join(", ")).small());
+                                ui.label(RichText::new(if tags.is_empty() { "—".to_string() } else { tags.join(", ") }).small());
+                                ui.end_row();
+                            }
+                        });
+                        dim(ui, &t0("cad.blk.bylayer"));
+                        for (name, count) in &d.br.layers {
+                            let mut on = d.l_pick.contains(name);
+                            if ui
+                                .checkbox(
+                                    &mut on,
+                                    tr!("cad.blk.layer", layer = name.as_str(), n = cc_civil::units::grouped(*count as f64, 0)),
+                                )
+                                .changed()
+                            {
+                                acts.push(("civil.cad", format!("blklayer={name}:{}", if on { "on" } else { "off" })));
+                            }
+                        }
+                        let tags = sorted_tags(&d.br, &d.b_pick, &d.l_pick);
+                        for (k, label, fixed) in [
+                            ("num", "cad.blk.num", vec![("next", t0("cad.blk.num.next"))]),
+                            ("desc", "cad.blk.desc", vec![("block", t0("cad.blk.desc.block")), ("layer", t0("cad.blk.desc.layer"))]),
+                            ("z", "cad.blk.z", vec![("insert", t0("cad.blk.z.insert")), ("none", t0("cad.blk.z.none"))]),
+                        ] {
+                            let cur = match k {
+                                "num" => &d.num,
+                                "desc" => &d.desc,
+                                _ => &d.z,
+                            };
+                            let show = |v: &str| {
+                                fixed
+                                    .iter()
+                                    .find(|f| f.0 == v)
+                                    .map(|f| f.1.clone())
+                                    .unwrap_or_else(|| tr!("cad.blk.attr", tag = v.trim_start_matches("attr:")))
+                            };
+                            ui.horizontal(|ui| {
+                                ui.label(t0(label));
+                                egui::ComboBox::new(("cv_cad_how", k), "").selected_text(show(cur)).show_ui(ui, |ui| {
+                                    for (v, l) in &fixed {
+                                        if ui.selectable_label(cur == v, l).clicked() {
+                                            acts.push(("civil.cad", format!("{k}={v}")));
+                                        }
+                                    }
+                                    for tg in &tags {
+                                        let v = format!("attr:{tg}");
+                                        if ui.selectable_label(*cur == v, tr!("cad.blk.attr", tag = tg.as_str())).clicked() {
+                                            acts.push(("civil.cad", format!("{k}={v}")));
+                                        }
+                                    }
+                                });
+                            });
+                        }
+                        let n = d.chosen_refs();
+                        dim(ui, &if n > 0 { tr!("cad.blk.what", n = n) } else { t0("cad.blk.what.none") });
                     }
+                    ui.label(RichText::new(t0("cad.ui.what.head")).strong().color(tk.text_strong));
+                    dim(ui, &d.what());
+                    ui.horizontal(|ui| {
+                        if ui.button(t0("cad.ui.cancel")).clicked() {
+                            acts.push(("civil.cad", "cancel".into()));
+                        }
+                        let can = !d.chosen().is_empty() || d.chosen_refs() > 0;
+                        if ui.add_enabled(can, egui::Button::new(t0("cad.ui.add"))).clicked() {
+                            acts.push(("civil.cad", "go".into()));
+                        }
+                    });
                 });
-            });
         });
     if !open {
         acts.push(("civil.cad", "cancel".into()));

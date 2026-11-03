@@ -151,6 +151,7 @@ impl CivilView {
 
     /// A terrain file opened (gis-terrain-ui.js openFiles): read, then the dialog.
     pub fn terrain_open(&mut self, name: &str, bytes: Vec<u8>) {
+        let t_open = web_time::Instant::now();
         crate::civilgis::ensure_catalog();
         let lower = name.to_ascii_lowercase();
         let file = InFile { name: name.to_string(), bytes };
@@ -271,6 +272,7 @@ impl CivilView {
             }
         }
         self.gis3.terrain = Some(Box::new(d));
+        self.timings.insert("terrain open", t_open.elapsed().as_secs_f64() * 1000.0);
         let sp = self.terrain_default_spacing();
         if let Some(d) = self.gis3.terrain.as_mut() {
             d.spacing = num_to_string(sp);
@@ -1146,6 +1148,8 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
     };
     egui::Window::new(t0(if lidar { "tui.title.lidar" } else { "tui.title.grid" }))
         .id(egui::Id::unique("cv_terrain"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
         .open(&mut open)
         .collapsible(false)
         .default_width(520.0)
@@ -1529,16 +1533,20 @@ pub fn geotiff_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
         return;
     }
     let mut open = true;
-    egui::Window::new(t0("tui.gt.title")).id(egui::Id::unique("cv_geotiff")).open(&mut open).collapsible(false).default_width(440.0).show(
-        ctx,
-        |ui| {
+    egui::Window::new(t0("tui.gt.title"))
+        .id(egui::Id::unique("cv_geotiff"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
+        .open(&mut open)
+        .collapsible(false)
+        .default_width(440.0)
+        .show(ctx, |ui| {
             ui.add(egui::Label::new(RichText::new(t0("tui.gt.lede")).small().color(tk.text_dim)).wrap());
             geotiff_section(cv, ui, tk, acts);
             if ui.button(t0("cad.ui.close")).clicked() {
                 acts.push(("civil.geotiff", "close".into()));
             }
-        },
-    );
+        });
     if !open {
         acts.push(("civil.geotiff", "close".into()));
     }

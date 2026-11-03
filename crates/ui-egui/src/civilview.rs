@@ -367,6 +367,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{} → the import dialog's summary, its first six rows and the rows not read, on the status line",
     ),
     ("civil.draft", "Draft bar", "", "{name: finish | back | cancel} → the touch screen's draft bar: Finish, Undo point, Cancel"),
+    (
+        "civil.longpress",
+        "Long press",
+        "",
+        "{name: \"x,y\"} → a touch screen's long press there: Enter while a line is drawn, else Shift+click in Select (the survey point within 14 px joins or leaves the selection)",
+    ),
     ("civil.touch", "Touch screen", "", "{name?: \"off\"} → as if a touch screen were used (the draft bar shows while drawing)"),
     (
         "civil.drive",
@@ -1355,7 +1361,35 @@ impl CivilView {
             self.hover_pt = None;
             self.tools.snap = None;
         }
+        // touch (0.4 S.8): a long press (500 ms without moving 10 px) is Enter while drawing and Shift+click in Select;
+        // the lift that follows is not a tap
+        let long_done = self.gis3.long_fired;
+        if self.touch {
+            let (down, origin, latest, start, now) = ui.ctx().input(|i| {
+                (i.pointer.primary_down(), i.pointer.press_origin(), i.pointer.latest_pos(), i.pointer.press_start_time(), i.time)
+            });
+            if down
+                && !grip_used
+                && !self.gis3.long_fired
+                && resp.hovered()
+                && let (Some(o), Some(l), Some(st)) = (origin, latest, start)
+                && o.distance(l) <= 10.0
+            {
+                if now - st >= LONG_PRESS_S {
+                    self.gis3.long_fired = true;
+                    let (sx, sy) = to_px(o);
+                    let (wx, wy) = self.view.to_world(sx, sy);
+                    self.long_press(wx, wy);
+                } else {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(60));
+                }
+            }
+            if !down {
+                self.gis3.long_fired = false;
+            }
+        }
         if !grip_used
+            && !long_done
             && resp.clicked_by(egui::PointerButton::Primary)
             && let Some(p) = resp.interact_pointer_pos()
         {
@@ -2117,6 +2151,9 @@ pub fn is_map_file(lower: &str) -> bool {
     [".png", ".jpg", ".jpeg", ".pgw", ".pngw", ".jgw", ".jpgw", ".jpegw", ".tfw", ".tifw", ".wld"].iter().any(|e| lower.ends_with(e))
 }
 
+/// civilcraft.js LONG_MS: a press held this long (seconds) without moving is a long press.
+const LONG_PRESS_S: f64 = 0.5;
+
 /// A file CivilCraft's terrain, GeoTIFF picture or CAD linework openers take.
 pub fn is_terrain_file(lower: &str) -> bool {
     [".las", ".laz", ".asc", ".tif", ".tiff", ".dwg", ".dxf"].iter().any(|e| lower.ends_with(e))
@@ -2692,6 +2729,10 @@ fn run_open(app: &mut UiApp, id: &str, name: &str, params: &Params, dark: bool) 
         "civil.maps.export" => cv.export.no_map = name == "off",
         "civil.draft" => cv.draft_bar(&name)?,
         "civil.touch" => cv.touch = name != "off",
+        "civil.longpress" => {
+            let v = xy_param(&name).filter(|v| v.len() >= 2).ok_or("civil.longpress: x,y (world)")?;
+            cv.long_press(v.first().copied().unwrap_or(0.0), v.get(1).copied().unwrap_or(0.0));
+        }
         "civil.drive" => cv.drive_command(&name, dark)?,
         "civil.drive.info" => cv.message = cv.drive_info(),
         "civil.sun" => cv.sun_command(&name, now_ms(), zone)?,

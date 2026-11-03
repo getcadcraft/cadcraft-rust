@@ -2,6 +2,43 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-03 — M11.26–M11.31 CivilCraft complete for 0.5 (agent, work/civil3)
+
+- M11.26 (civilcrs.rs, civilgis3.rs, civilpics.rs): the Coordinates window as gis-crs-ui.js — the system now and its
+  grid shift file (NTv2 / PROJ GeoTIFF from a file, kept in the project; cdn.proj.org only with Settings' internet on and
+  only where the build can fetch: the desktop has no HTTP client), search / fits / near / a .prj (picker, or a lone .prj
+  opened), the chosen system's facts, Grid / Ground (factor typed, computed or picked on the plan) / Local (two control
+  points and a check point, grid or lat/long), Apply asking whether to convert the project's coordinates
+  (reprojectProject, one undo step; nothing changes when a coordinate fails, where 0.5 left a half-converted state),
+  Remove. Its pick mode is 0.5's askCrs: the GIS import's project and unknown systems, a lat/long point file, a picture
+  without a .prj ("Where is …?"). GIS layers follow a changed system (asked, or with converted coordinates); Use for the
+  surface (breaklines, boundary, survey points). 0.5's host.ask questions are `civil.ask=<button>`. civil_prj fuzz target.
+- M11.27 (civilterrain.rs): elevation grids (GeoTIFF, ESRI ASCII) and LiDAR (LAS / LAZ) through gis-terrain-ui.js's
+  dialog (facts, systems, area, thinning, classes, z unit, points or the surface with the replace question); the surface
+  as a GeoTIFF (its window and GIS › Export's section); RGB GeoTIFFs become map layer pictures.
+- M11.28 (civilcad.rs): a DWG / DXF as linework (gis-cad-ui.js): layers, units, uses (contours start as breaklines),
+  block points with attribute guesses, Add as undo steps; GIS › Linework; civil_cad fuzz target.
+- M11.29 (civildrape.rs): the 3D view's surface colour (bands, one colour, map layers); the map layers painted over the
+  surfaces' box are cut into 4 × 4 texture layers (1024 px across) and each triangle clipped at the tiles; Scene3D
+  carries its own texture layers.
+- M11.30 (apps/cadcraft control.rs): civil-agent.js's tools in the control channel / MCP (site_describe, points_list,
+  surface_elevation, alignment_station, points_select) while Settings › CivilCraft › Assistants is on, for its groups.
+- M11.31: touch's long press (500 ms still: Enter while drawing, Shift+click in Select; `civil.longpress`); a web GIS ›
+  Import picker's files now open (they were never consumed); docs.
+- Parity (tools/cvtooldiff-civil3.mjs + cvtool-crs-civil3.mjs, cvtool-terrain-civil3.mjs, cvtool-cad-civil3.mjs — they
+  replace cvtooldiff.mjs at merge; cvuidiff-civil3.mjs is cvuidiff.mjs unchanged): 156/156 projects, 4,812/4,812 status
+  lines, 46/46 files in UTC and in America/Denver; the new scenarios in es-MX 40/40, 1,480/1,480, 4/4; cvuidiff sample
+  and demo identical. New scenarios: crs3, prj3, grid3, askcrs3, gisuse3, terrain3, terrain3b, cad3, longpress3 (and maps
+  with the picture question). GeoTIFF pictures are compared by pixels (PNG exact, JPEG mean < 3 levels). Fixtures:
+  forks/lead/scratch/civil3/fix (mkfix.mjs, mkterrain.mjs, mkcad.mjs) and civil_example-imperial.dwg. cvdiff not rerun:
+  no engine crate changed.
+- Timings (tools/cvbench-civil3.mjs, best of 3, ms JS 0.5 / Rust): Coordinates window on the survey (fits) 60 / 16;
+  4000² DEM open 712 / 334, its import as 500k points 786 / 770; 90 MB LAS open (classes pass) 161 / 70; DWG linework
+  dialog 10 / 8; GeoTIFF export at 1 ft 26 / 23.
+- Screenshots: forks/lead/shots/civil3 (drape-3d, crs-ground, terrain-las, cad-dxf).
+- Plain-English labels (no catalog key): the grid download's "downloading is not available in this version of the app";
+  the "⌖" glyph on the pick buttons.
+- Left: a desktop HTTP client (owner decision); a single picked point is the selected point, so finishing a line drops it.
 ## 2026-10-28 — M3.9–M3.10 the viewer's DWG extras (BimCraft 0.5's DWG view) and the help's reader context (agent, work/dwgview)
 
 - M3.9 `cc-dwgview` (new, L5; DOM-free ports of BimCraft 0.5): `equipment` (dwg-equipment.js with libitem.js's KCL

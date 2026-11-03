@@ -216,6 +216,8 @@ pub struct Gis3 {
     pub geotiff: Option<crate::civilterrain::GeoTiffDlg>,
     /// the DWG / DXF linework dialog
     pub cad: Option<Box<crate::civilcad::CadDlg>>,
+    /// a long press fired for the press still held (touch)
+    pub long_fired: bool,
     /// the 3D view's surface colour: "" / bands, single, map (site-view3d.js state.color)
     pub color3d: String,
     /// the drape's note (no map layer to drape, the layers' attribution)
@@ -237,6 +239,7 @@ impl CivilView {
         if self.crs_dlg.is_some() {
             return;
         }
+        let t_open = web_time::Instant::now();
         ensure_catalog();
         let current = self.crs_now();
         let (is_pick, reason, near, purpose, pick_for) = match pick {
@@ -319,6 +322,7 @@ impl CivilView {
             self.crs_render_local();
         }
         self.crs_default_list();
+        self.timings.insert("crs open", t_open.elapsed().as_secs_f64() * 1000.0);
     }
 
     // ------------------------------------------------------------------------------------------------- lists
@@ -1525,195 +1529,210 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
     let mut open = true;
     let title = if d.pick { t0("crs.d.title.pick") } else { t0("vec.import.crs") };
     let problem = egui::Color32::from_rgb(0xd0, 0x4a, 0x5a);
-    egui::Window::new(title).id(egui::Id::unique("cv_crs")).open(&mut open).collapsible(false).default_width(520.0).show(ctx, |ui| {
-        egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.8).show(ui, |ui| {
-            if !d.reason.is_empty() {
-                ui.add(egui::Label::new(RichText::new(&d.reason).color(tk.text)).wrap());
-            }
-            if !d.pick {
-                match &d.current {
-                    None => {
-                        ui.add(
-                            egui::Label::new(RichText::new(tr!("crs.d.none", none = t0("crs.d.none.word"))).small().color(tk.text_dim))
-                                .wrap(),
-                        );
+    egui::Window::new(title)
+        .id(egui::Id::unique("cv_crs"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
+        .open(&mut open)
+        .collapsible(false)
+        .default_width(520.0)
+        .show(ctx, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(ctx.content_rect().height() * 0.8)
+                .min_scrolled_height(ctx.content_rect().height() * 0.6)
+                .show(ui, |ui| {
+                    if !d.reason.is_empty() {
+                        ui.add(egui::Label::new(RichText::new(&d.reason).color(tk.text)).wrap());
                     }
-                    Some(c) => {
-                        ui.label(RichText::new(t0("crs.d.now")).strong().color(tk.text_strong));
-                        show_lines(ui, tk, &facts(&crs_pick::describe(c)));
-                    }
-                }
-            }
-            if let Some(g) = &grid {
-                ui.separator();
-                for (k, l) in g {
-                    match k.as_str() {
-                        "head" => {
-                            ui.label(RichText::new(l.text()).strong().color(tk.text_strong));
-                        }
-                        "file" | "off" => {
-                            if ui.button(l.text()).clicked() {
-                                acts.push(("civil.crs.dlg", format!("grid={k}")));
+                    if !d.pick {
+                        match &d.current {
+                            None => {
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(tr!("crs.d.none", none = t0("crs.d.none.word"))).small().color(tk.text_dim),
+                                    )
+                                    .wrap(),
+                                );
+                            }
+                            Some(c) => {
+                                ui.label(RichText::new(t0("crs.d.now")).strong().color(tk.text_strong));
+                                show_lines(ui, tk, &facts(&crs_pick::describe(c)));
                             }
                         }
-                        k if k.starts_with("cdn:") => {
-                            let on = cv.pt_settings.internet;
-                            let b = ui.add_enabled(on, egui::Button::new(l.text()));
-                            let b = if on { b } else { b.on_disabled_hover_text(t0("mapl.net_first")) };
-                            if b.clicked() {
-                                acts.push(("civil.crs.dlg", format!("grid={k}")));
-                            }
-                        }
-                        _ => show_lines(ui, tk, std::slice::from_ref(l)),
                     }
-                }
-            }
-            ui.separator();
-            ui.label(
-                RichText::new(t0(if d.pick || d.current.is_none() { "crs.d.pick.head" } else { "crs.d.change.head" }))
-                    .strong()
-                    .color(tk.text_strong),
-            );
-            ui.horizontal(|ui| {
-                let l = ui.label(t0("crs.d.search"));
-                let mut q = d.q.clone();
-                let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(t0("crs.d.search.ph")).desired_width(300.0)).labelled_by(l.id);
-                if r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    acts.push(("civil.crs.dlg", format!("search={q}")));
-                }
-            });
-            ui.horizontal(|ui| {
-                let l = ui.label(t0("crs.d.near"));
-                let mut q = d.near.clone();
-                let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text("30.27, -97.74").desired_width(200.0)).labelled_by(l.id);
-                if r.changed()
-                    && let Some(x) = cv.crs_dlg.as_mut()
-                {
-                    x.near = q.clone();
-                }
-                if ui.button(t0("crs.d.suggest")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                    acts.push(("civil.crs.dlg", format!("near={q}")));
-                }
-            });
-            ui.horizontal(|ui| {
-                if d.has_data && ui.link(t0("crs.d.fits")).clicked() {
-                    acts.push(("civil.crs.dlg", "fits".into()));
-                }
-                if ui.link(t0("crs.d.prj")).clicked() {
-                    acts.push(("civil.crs.dlg", "prj".into()));
-                }
-            });
-            ui.add(egui::Label::new(RichText::new(&d.head).small().color(tk.text_dim)).wrap());
-            let chosen_code = d.chosen.as_ref().and_then(|c| c.code);
-            egui::ScrollArea::vertical().id_salt("cv_crs_list").max_height(200.0).show(ui, |ui| {
-                for (i, code) in d.list.iter().enumerate() {
-                    let Some(e) = crs::by_code(*code).ok().flatten() else { continue };
-                    let meta = list_item(*code, &units, d.for_project, d.extra.get(i).map_or("", String::as_str), false);
-                    let meta = meta.split_once(" · ").map_or(meta.as_str(), |(_, m)| m).to_string();
-                    let sel = chosen_code == Some(*code);
-                    let r = ui.selectable_label(sel, RichText::new(&e.name).color(tk.text));
-                    ui.label(RichText::new(meta).small().color(tk.text_dim));
-                    if r.clicked() {
-                        acts.push(("civil.crs.dlg", format!("choose={}", num_to_string(*code))));
-                    }
-                }
-            });
-            ui.separator();
-            ui.label(RichText::new(t0("crs.d.chosen")).strong().color(tk.text_strong));
-            show_lines(ui, tk, &chosen);
-            if let Some(p) = &d.problem {
-                ui.add(egui::Label::new(RichText::new(p).small().color(problem)).wrap());
-            }
-            if !d.pick {
-                ui.separator();
-                ui.label(RichText::new(t0("crs.d.ggl")).strong().color(tk.text_strong));
-                ui.horizontal(|ui| {
-                    for (m, k) in [("grid", "crs.d.mode.grid"), ("ground", "crs.d.mode.ground"), ("local", "crs.d.mode.local")] {
-                        if ui.radio(d.gmode == m, t0(k)).clicked() {
-                            acts.push(("civil.crs.dlg", format!("mode={m}")));
-                        }
-                    }
-                });
-                match d.gmode.as_str() {
-                    "grid" => {
-                        ui.add(egui::Label::new(RichText::new(t0("crs.d.grid.note")).small().color(tk.text_dim)).wrap());
-                    }
-                    "ground" => {
-                        ui.add(egui::Label::new(RichText::new(t0("crs.d.ground.note")).small().color(tk.text_dim)).wrap());
-                        field(ui, &t0("crs.d.csf"), &d.csf, "0.99987", 120.0, acts, "csf");
-                        field(ui, &t0("crs.d.base.e"), &d.be, "", 120.0, acts, "be");
-                        field(ui, &t0("crs.d.base.n"), &d.bn, "", 120.0, acts, "bn");
-                        ui.add(egui::Label::new(RichText::new(t0("crs.d.base.note")).small().color(tk.text_dim)).wrap());
-                        ui.label(RichText::new(t0("crs.d.factor.head")).strong().color(tk.text_strong));
-                        field(ui, &t0("crs.d.e"), &d.ae, "", 120.0, acts, "ae");
-                        field(ui, &t0("crs.d.n"), &d.an, "", 120.0, acts, "an");
-                        field(ui, &tr!("crs.d.elev", unit = if units == "m" { "m" } else { "ft" }), &d.az, "", 120.0, acts, "az");
-                        ui.horizontal(|ui| {
-                            if ui.button(format!("⌖ {}", t0("crs.d.pick.point"))).clicked() {
-                                acts.push(("civil.crs.dlg", "pick=factor".into()));
-                            }
-                            if ui.button(t0("crs.d.compute")).clicked() {
-                                acts.push(("civil.crs.dlg", "compute".into()));
-                            }
-                        });
-                        show_lines(ui, tk, &d.factors);
-                        if let Some(f) = &d.usef
-                            && ui.button(tr!("crs.d.usef", f = f.as_str())).clicked()
-                        {
-                            acts.push(("civil.crs.dlg", "usef".into()));
-                        }
-                    }
-                    _ => {
-                        ui.add(egui::Label::new(RichText::new(t0("crs.d.local.note")).small().color(tk.text_dim)).wrap());
-                        for (i, key) in ["crs.d.cp1", "crs.d.cp2", "crs.d.cp3"].iter().enumerate() {
-                            let Some(c) = d.cps.get(i) else { continue };
-                            let title = t0(key);
-                            ui.label(RichText::new(&title).small().strong().color(tk.text_strong));
-                            ui.horizontal(|ui| {
-                                for (f, val, hint, w) in [
-                                    ("n", &c.n, t0("crs.d.cp.no"), 80.0),
-                                    ("ge", &c.ge, if c.ge_ph.is_empty() { t0("crs.d.cp.ge.ph") } else { c.ge_ph.clone() }, 110.0),
-                                    ("gn", &c.gn, if c.gn_ph.is_empty() { t0("crs.d.cp.gn.ph") } else { c.gn_ph.clone() }, 110.0),
-                                    ("ll", &c.ll, t0("crs.d.cp.ll.ph"), 130.0),
-                                ] {
-                                    let mut s = val.clone();
-                                    let r = ui.add(egui::TextEdit::singleline(&mut s).hint_text(hint).desired_width(w));
-                                    if r.changed() {
-                                        acts.push(("civil.crs.dlg", format!("cp={i}:{f}={s}")));
-                                    }
-                                    if f == "n" && ui.button(format!("⌖ {}", t0("crs.d.pick"))).clicked() {
-                                        acts.push(("civil.crs.dlg", format!("pick=cp{i}")));
+                    if let Some(g) = &grid {
+                        ui.separator();
+                        for (k, l) in g {
+                            match k.as_str() {
+                                "head" => {
+                                    ui.label(RichText::new(l.text()).strong().color(tk.text_strong));
+                                }
+                                "file" | "off" => {
+                                    if ui.button(l.text()).clicked() {
+                                        acts.push(("civil.crs.dlg", format!("grid={k}")));
                                     }
                                 }
-                            });
-                            if !c.at.is_empty() {
-                                ui.label(RichText::new(&c.at).small().color(tk.text_dim));
+                                k if k.starts_with("cdn:") => {
+                                    let on = cv.pt_settings.internet;
+                                    let b = ui.add_enabled(on, egui::Button::new(l.text()));
+                                    let b = if on { b } else { b.on_disabled_hover_text(t0("mapl.net_first")) };
+                                    if b.clicked() {
+                                        acts.push(("civil.crs.dlg", format!("grid={k}")));
+                                    }
+                                }
+                                _ => show_lines(ui, tk, std::slice::from_ref(l)),
                             }
                         }
-                        show_lines(ui, tk, &d.local);
                     }
-                }
-            }
-            ui.separator();
-            ui.horizontal(|ui| {
-                if !d.pick && d.current.is_some() && ui.button(t0("crs.d.remove")).clicked() {
-                    acts.push(("civil.crs.dlg", "remove".into()));
-                }
-                if ui.button(t0("vec.cancel")).clicked() {
-                    acts.push(("civil.crs.dlg", "close".into()));
-                }
-                let label = if d.pick { t0("vec.ask.go") } else { t0("crs.d.apply") };
-                let b = ui.add_enabled(apply_off.is_none(), egui::Button::new(label));
-                let b = match &apply_off {
-                    Some(w) => b.on_disabled_hover_text(w),
-                    None => b,
-                };
-                if b.clicked() {
-                    acts.push(("civil.crs.dlg", "apply".into()));
-                }
-            });
+                    ui.separator();
+                    ui.label(
+                        RichText::new(t0(if d.pick || d.current.is_none() { "crs.d.pick.head" } else { "crs.d.change.head" }))
+                            .strong()
+                            .color(tk.text_strong),
+                    );
+                    ui.horizontal(|ui| {
+                        let l = ui.label(t0("crs.d.search"));
+                        let mut q = d.q.clone();
+                        let r = ui
+                            .add(egui::TextEdit::singleline(&mut q).hint_text(t0("crs.d.search.ph")).desired_width(300.0))
+                            .labelled_by(l.id);
+                        if r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                            acts.push(("civil.crs.dlg", format!("search={q}")));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        let l = ui.label(t0("crs.d.near"));
+                        let mut q = d.near.clone();
+                        let r =
+                            ui.add(egui::TextEdit::singleline(&mut q).hint_text("30.27, -97.74").desired_width(200.0)).labelled_by(l.id);
+                        if r.changed()
+                            && let Some(x) = cv.crs_dlg.as_mut()
+                        {
+                            x.near = q.clone();
+                        }
+                        if ui.button(t0("crs.d.suggest")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                            acts.push(("civil.crs.dlg", format!("near={q}")));
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if d.has_data && ui.link(t0("crs.d.fits")).clicked() {
+                            acts.push(("civil.crs.dlg", "fits".into()));
+                        }
+                        if ui.link(t0("crs.d.prj")).clicked() {
+                            acts.push(("civil.crs.dlg", "prj".into()));
+                        }
+                    });
+                    ui.add(egui::Label::new(RichText::new(&d.head).small().color(tk.text_dim)).wrap());
+                    let chosen_code = d.chosen.as_ref().and_then(|c| c.code);
+                    egui::ScrollArea::vertical().id_salt("cv_crs_list").max_height(200.0).show(ui, |ui| {
+                        for (i, code) in d.list.iter().enumerate() {
+                            let Some(e) = crs::by_code(*code).ok().flatten() else { continue };
+                            let meta = list_item(*code, &units, d.for_project, d.extra.get(i).map_or("", String::as_str), false);
+                            let meta = meta.split_once(" · ").map_or(meta.as_str(), |(_, m)| m).to_string();
+                            let sel = chosen_code == Some(*code);
+                            let r = ui.selectable_label(sel, RichText::new(&e.name).color(tk.text));
+                            ui.label(RichText::new(meta).small().color(tk.text_dim));
+                            if r.clicked() {
+                                acts.push(("civil.crs.dlg", format!("choose={}", num_to_string(*code))));
+                            }
+                        }
+                    });
+                    ui.separator();
+                    ui.label(RichText::new(t0("crs.d.chosen")).strong().color(tk.text_strong));
+                    show_lines(ui, tk, &chosen);
+                    if let Some(p) = &d.problem {
+                        ui.add(egui::Label::new(RichText::new(p).small().color(problem)).wrap());
+                    }
+                    if !d.pick {
+                        ui.separator();
+                        ui.label(RichText::new(t0("crs.d.ggl")).strong().color(tk.text_strong));
+                        ui.horizontal(|ui| {
+                            for (m, k) in [("grid", "crs.d.mode.grid"), ("ground", "crs.d.mode.ground"), ("local", "crs.d.mode.local")] {
+                                if ui.radio(d.gmode == m, t0(k)).clicked() {
+                                    acts.push(("civil.crs.dlg", format!("mode={m}")));
+                                }
+                            }
+                        });
+                        match d.gmode.as_str() {
+                            "grid" => {
+                                ui.add(egui::Label::new(RichText::new(t0("crs.d.grid.note")).small().color(tk.text_dim)).wrap());
+                            }
+                            "ground" => {
+                                ui.add(egui::Label::new(RichText::new(t0("crs.d.ground.note")).small().color(tk.text_dim)).wrap());
+                                field(ui, &t0("crs.d.csf"), &d.csf, "0.99987", 120.0, acts, "csf");
+                                field(ui, &t0("crs.d.base.e"), &d.be, "", 120.0, acts, "be");
+                                field(ui, &t0("crs.d.base.n"), &d.bn, "", 120.0, acts, "bn");
+                                ui.add(egui::Label::new(RichText::new(t0("crs.d.base.note")).small().color(tk.text_dim)).wrap());
+                                ui.label(RichText::new(t0("crs.d.factor.head")).strong().color(tk.text_strong));
+                                field(ui, &t0("crs.d.e"), &d.ae, "", 120.0, acts, "ae");
+                                field(ui, &t0("crs.d.n"), &d.an, "", 120.0, acts, "an");
+                                field(ui, &tr!("crs.d.elev", unit = if units == "m" { "m" } else { "ft" }), &d.az, "", 120.0, acts, "az");
+                                ui.horizontal(|ui| {
+                                    if ui.button(format!("⌖ {}", t0("crs.d.pick.point"))).clicked() {
+                                        acts.push(("civil.crs.dlg", "pick=factor".into()));
+                                    }
+                                    if ui.button(t0("crs.d.compute")).clicked() {
+                                        acts.push(("civil.crs.dlg", "compute".into()));
+                                    }
+                                });
+                                show_lines(ui, tk, &d.factors);
+                                if let Some(f) = &d.usef
+                                    && ui.button(tr!("crs.d.usef", f = f.as_str())).clicked()
+                                {
+                                    acts.push(("civil.crs.dlg", "usef".into()));
+                                }
+                            }
+                            _ => {
+                                ui.add(egui::Label::new(RichText::new(t0("crs.d.local.note")).small().color(tk.text_dim)).wrap());
+                                for (i, key) in ["crs.d.cp1", "crs.d.cp2", "crs.d.cp3"].iter().enumerate() {
+                                    let Some(c) = d.cps.get(i) else { continue };
+                                    let title = t0(key);
+                                    ui.label(RichText::new(&title).small().strong().color(tk.text_strong));
+                                    ui.horizontal(|ui| {
+                                        for (f, val, hint, w) in [
+                                            ("n", &c.n, t0("crs.d.cp.no"), 80.0),
+                                            ("ge", &c.ge, if c.ge_ph.is_empty() { t0("crs.d.cp.ge.ph") } else { c.ge_ph.clone() }, 110.0),
+                                            ("gn", &c.gn, if c.gn_ph.is_empty() { t0("crs.d.cp.gn.ph") } else { c.gn_ph.clone() }, 110.0),
+                                            ("ll", &c.ll, t0("crs.d.cp.ll.ph"), 130.0),
+                                        ] {
+                                            let mut s = val.clone();
+                                            let r = ui.add(egui::TextEdit::singleline(&mut s).hint_text(hint).desired_width(w));
+                                            if r.changed() {
+                                                acts.push(("civil.crs.dlg", format!("cp={i}:{f}={s}")));
+                                            }
+                                            if f == "n" && ui.button(format!("⌖ {}", t0("crs.d.pick"))).clicked() {
+                                                acts.push(("civil.crs.dlg", format!("pick=cp{i}")));
+                                            }
+                                        }
+                                    });
+                                    if !c.at.is_empty() {
+                                        ui.label(RichText::new(&c.at).small().color(tk.text_dim));
+                                    }
+                                }
+                                show_lines(ui, tk, &d.local);
+                            }
+                        }
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if !d.pick && d.current.is_some() && ui.button(t0("crs.d.remove")).clicked() {
+                            acts.push(("civil.crs.dlg", "remove".into()));
+                        }
+                        if ui.button(t0("vec.cancel")).clicked() {
+                            acts.push(("civil.crs.dlg", "close".into()));
+                        }
+                        let label = if d.pick { t0("vec.ask.go") } else { t0("crs.d.apply") };
+                        let b = ui.add_enabled(apply_off.is_none(), egui::Button::new(label));
+                        let b = match &apply_off {
+                            Some(w) => b.on_disabled_hover_text(w),
+                            None => b,
+                        };
+                        if b.clicked() {
+                            acts.push(("civil.crs.dlg", "apply".into()));
+                        }
+                    });
+                });
         });
-    });
     if !open {
         acts.push(("civil.crs.dlg", "close".into()));
     }
@@ -1722,20 +1741,27 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
 /// A question (0.5's host.ask) as a small window.
 pub fn ask_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec<(&'static str, String)>) {
     let Some(a) = &cv.gis3.ask else { return };
-    egui::Window::new(&a.title).id(egui::Id::unique("cv_ask")).collapsible(false).resizable(false).default_width(420.0).show(ctx, |ui| {
-        ui.add(egui::Label::new(RichText::new(&a.text).color(tk.text)).wrap());
-        ui.add_space(6.0);
-        ui.horizontal(|ui| {
-            for (id, label) in &a.buttons {
-                if ui.button(label).clicked() {
-                    acts.push(("civil.ask", (*id).to_string()));
+    egui::Window::new(&a.title)
+        .id(egui::Id::unique("cv_ask"))
+        .pivot(egui::Align2::CENTER_TOP)
+        .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
+        .collapsible(false)
+        .resizable(false)
+        .default_width(420.0)
+        .show(ctx, |ui| {
+            ui.add(egui::Label::new(RichText::new(&a.text).color(tk.text)).wrap());
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                for (id, label) in &a.buttons {
+                    if ui.button(label).clicked() {
+                        acts.push(("civil.ask", (*id).to_string()));
+                    }
                 }
+            });
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) && a.buttons.iter().any(|b| b.0 == "cancel") {
+                acts.push(("civil.ask", "cancel".into()));
             }
         });
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) && a.buttons.iter().any(|b| b.0 == "cancel") {
-            acts.push(("civil.ask", "cancel".into()));
-        }
-    });
 }
 
 #[cfg(test)]
