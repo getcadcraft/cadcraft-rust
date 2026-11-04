@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-04 M14.5–M14.8, M16.12: DetailCraft edits on grid24x12x5 at 1.3–2× the JS (drag 0.9× → 1.6×, duplicate everything 72 s → 0.37 s; dcdiff 44,589 calls, 0 differences), bolts picked in 3D select their connection, the shop drawing dialog, `?detail` in the web build with a Chromium load test (and a stale-3D-scene fix), the Live window in 0.5 Studio's words.
 - 2026-11-04 M14.4, M16.9–M16.11: DetailCraft's drag, view cube, exact cuts, Drawings dialog with issue log, kept settings (1,124 comparisons, 0 differences); Studio Live's network side (session server, SPAKE2 + sealed frames, LAN WebSocket; 0.5's JS suites pass against it) and DetailCraft co-editing with the 0.5 page; view_screenshot and DetailCraft's live tools.
 - 2026-11-04 M7.20–M7.24: BimCraft's Build menu (roof plane, foundation, countertop, stair, railing, framing, terrain, pad, paving, section line, electrical), Sheets, Takeoff, IFC equipment schedule, Library credits; bmrestooldiff 304/304 steps, 74/74 IFC byte-identical, sheet and takeoff PDFs byte-identical, en and es-MX.
 - 2026-11-04 M7.18–M7.19: BimCraft Library panel (LibraryCraft and feeds on the web, This file, Files…), Swap item… / update, copy / cut / paste / paste in place / duplicate / delete of placements and any element, several picked; bmclipdiff, bmlibdiff, bmuidiff, bimdiff, bmgripdiff at 0 differences in en and es-MX; 1.9–7.2× the JS.

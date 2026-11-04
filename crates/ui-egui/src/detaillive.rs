@@ -717,14 +717,38 @@ impl LiveSession {
     }
 }
 
-/// Plain-English words of the hosting UI (Studio's own dialogs are not in the 0.5 catalogs).
+/// A word of 0.5 Studio's Live window (`window.live.*` in Studio's catalog, the shell's `lang/`).
+#[cfg(not(target_arch = "wasm32"))]
+fn sw(key: &str, vars: &[(&str, String)]) -> String {
+    crate::lang::t(&crate::lang::STUDIO, key, vars)
+}
+
+/// The people in the session, this window counted once.
+#[cfg(not(target_arch = "wasm32"))]
+fn people_in(s: &LiveSession) -> usize {
+    let mut n = s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed").count();
+    if !s.doc.peers.contains_key(&s.doc.c) {
+        n = n.saturating_add(1);
+    }
+    n
+}
+
+/// The session's line, in 0.5 Studio's words: "Live, 3 people" (or "Viewing live"), and for the host the code and the
+/// address ("The code: K7-Q4M2X · Address 192.168.1.20:4545").
 #[cfg(not(target_arch = "wasm32"))]
 pub fn hosting_line(s: &LiveSession) -> String {
-    let people = s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed").count();
+    let n = people_in(s).to_string();
+    let key = if s.doc.role == "viewer" { "window.live.status.viewing" } else { "window.live.status.live" };
+    let status = sw(key, &[("n", n)]);
     if s.server.is_some() {
-        format!("Live: hosting at {} · code {} · {} in", s.addr, if s.code.is_empty() { "…" } else { &s.code }, people)
+        let code = if s.code.is_empty() { "…".to_string() } else { s.code.clone() };
+        format!(
+            "{status} · {} · {}",
+            sw("window.live.code.label", &[("code", code)]),
+            sw("window.live.code.address", &[("address", s.addr.clone())])
+        )
     } else {
-        format!("Live: joined {} · {} others in", s.addr, people)
+        status
     }
 }
 
@@ -1046,7 +1070,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &crate::theme::Token
         return;
     }
     let run = |acts: &mut Vec<crate::detailpanel::Act>, id: &'static str, name: String| acts.push(crate::detailpanel::Act::Run(id, name));
-    crate::shell::Dialog::new(RichText::new("Live session").strong())
+    crate::shell::Dialog::new(RichText::new(sw("window.live.title", &[])).strong())
         .modeless()
         .default_width(380.0)
         .pivot(egui::Align2::CENTER_CENTER)
@@ -1056,49 +1080,72 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &crate::theme::Token
             Some(s) => {
                 ui.label(hosting_line(s));
                 if s.server.is_some() {
-                    ui.label(
-                        RichText::new(format!("Joiners open DetailCraft and join {} with the code {}.", s.addr, s.code)).color(tk.text_dim),
-                    );
+                    if !s.knocks.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(sw("window.live.waiting.title", &[])).strong());
+                    }
                     for (c, name) in &s.knocks {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{name} asks to join"));
-                            if ui.add(crate::shell::Btn::new("Let in")).clicked() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(sw("window.live.knock", &[("name", name.clone())]));
+                            if ui.add(crate::shell::Btn::primary(sw("window.live.approve.edit", &[]))).clicked() {
                                 run(acts, "detail.live.approve", format!("{c} editor"));
                             }
-                            if ui.add(crate::shell::Btn::new("View only")).clicked() {
+                            if ui.add(crate::shell::Btn::new(sw("window.live.approve.view", &[]))).clicked() {
                                 run(acts, "detail.live.approve", format!("{c} viewer"));
                             }
-                            if ui.add(crate::shell::Btn::new("Turn away")).clicked() {
+                            if ui.add(crate::shell::Btn::new(sw("window.live.approve.deny", &[]))).clicked() {
                                 run(acts, "detail.live.deny", c.to_string());
                             }
                         });
                     }
                 }
+                ui.add_space(4.0);
+                let n = people_in(s).to_string();
+                ui.label(RichText::new(sw("window.live.people.title", &[("n", n)])).strong());
                 for p in s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed") {
-                    ui.label(RichText::new(format!("{} ({})", p.name, p.role)).color(tk.text_dim));
+                    let role = match p.role.as_str() {
+                        "host" => sw("window.live.role.host", &[]),
+                        "viewer" => sw("window.live.role.viewer", &[]),
+                        "assistant" => sw("window.live.role.assistant", &[]),
+                        _ => sw("window.live.role.editor", &[]),
+                    };
+                    let name = if p.name.is_empty() { sw("window.live.noname", &[]) } else { p.name.clone() };
+                    let you = if p.c == s.doc.c { format!(" {}", sw("window.live.people.you", &[])) } else { String::new() };
+                    ui.label(RichText::new(format!("{name}{you} · {role}")).color(tk.text_dim));
                 }
-                if ui.add(crate::shell::Btn::new(if s.server.is_some() { "End the session" } else { "Leave" })).clicked() {
+                ui.add_space(4.0);
+                let (end, hint) = if s.server.is_some() {
+                    ("window.live.end", "window.live.end.hint")
+                } else {
+                    ("window.live.leave", "window.live.leave.hint")
+                };
+                if ui.add(crate::shell::Btn::new(sw(end, &[]))).on_hover_text(sw(hint, &[])).clicked() {
                     run(acts, "detail.live.leave", String::new());
                 }
             }
             None => {
-                ui.label(RichText::new("Work on this model together with others on your network.").color(tk.text_dim));
-                if ui.add(crate::shell::Btn::primary("Host a session")).clicked() {
+                ui.label(RichText::new(sw("window.live.link.noshell", &[])).color(tk.text_dim));
+                if ui.add(crate::shell::Btn::primary(sw("window.live.share", &[]))).clicked() {
                     run(acts, "detail.live.host", String::new());
                 }
                 ui.separator();
+                // 0.5's "Join with the drawing open here": one field, the host's address and the code after it
+                ui.label(RichText::new(sw("window.live.here.title", &[])).strong());
                 let fid = egui::Id::unique("dc_live_join");
                 let mut f: (String, String) = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
-                ui.horizontal(|ui| {
-                    let l = ui.label("Address");
-                    ui.add(crate::shell::field(&mut f.0).desired_width(160.0).hint_text("192.168.1.20:47620")).labelled_by(l.id);
-                });
-                ui.horizontal(|ui| {
-                    let l = ui.label("Code");
-                    ui.add(crate::shell::field(&mut f.1).desired_width(100.0).hint_text("K7-Q4M2X")).labelled_by(l.id);
-                });
-                if ui.add_enabled(!f.0.trim().is_empty() && !f.1.trim().is_empty(), crate::shell::Btn::new("Join")).clicked() {
-                    run(acts, "detail.live.join", format!("{} {}", f.0.trim(), f.1.trim()));
+                let l = ui.label(sw("window.live.here.label", &[]));
+                ui.add(crate::shell::field(&mut f.0).desired_width(260.0).hint_text("192.168.1.20:4545 K7-Q4M2X")).labelled_by(l.id);
+                if !f.1.is_empty() {
+                    ui.label(RichText::new(&f.1).color(tk.accent));
+                }
+                if ui.add_enabled(!f.0.trim().is_empty(), crate::shell::Btn::new(sw("window.live.here.join", &[]))).clicked() {
+                    match join_words(&f.0) {
+                        Ok(spec) => {
+                            f.1.clear();
+                            run(acts, "detail.live.join", spec);
+                        }
+                        Err(key) => f.1 = sw(key, &[]),
+                    }
                 }
                 ctx.data_mut(|d| d.insert_temp(fid, f));
             }
@@ -1106,8 +1153,71 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &crate::theme::Token
     dv.live_window = open;
 }
 
+/// The join field (an address with a code after it, as 0.5's "Join here") → `detail.live.join`'s `<host:port> <code>`,
+/// or the Studio key saying what is missing. A code alone needs the network search (mDNS), which the fork has not.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn join_words(text: &str) -> Result<String, &'static str> {
+    let mut it = text.split_whitespace();
+    let (Some(a), b, None) = (it.next(), it.next(), it.next()) else { return Err("window.live.here.bad") };
+    let is_addr = |x: &str| x.rsplit_once(':').is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok());
+    match b {
+        Some(code) if is_addr(a) => Ok(format!("{a} {code}")),
+        None if is_addr(a) => Err("window.live.here.needcode"),
+        None => Err("window.live.here.needcode"),
+        Some(_) => Err("window.live.here.bad"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_join_field_reads_an_address_and_a_code() {
+        use super::join_words;
+        assert_eq!(join_words(" 192.168.1.20:4545  K7-Q4M2X "), Ok("192.168.1.20:4545 K7-Q4M2X".into()));
+        assert_eq!(join_words("192.168.1.20:4545"), Err("window.live.here.needcode"));
+        assert_eq!(join_words("K7-Q4M2X"), Err("window.live.here.needcode"));
+        assert_eq!(join_words("a b c"), Err("window.live.here.bad"));
+        assert_eq!(join_words("host:99999 K7"), Err("window.live.here.bad"));
+        assert_eq!(join_words(""), Err("window.live.here.bad"));
+        // every word the window uses is in Studio's catalog, en and es-MX
+        for k in [
+            "window.live.title",
+            "window.live.share",
+            "window.live.link.noshell",
+            "window.live.code.label",
+            "window.live.code.address",
+            "window.live.knock",
+            "window.live.approve.edit",
+            "window.live.approve.view",
+            "window.live.approve.deny",
+            "window.live.waiting.title",
+            "window.live.people.you",
+            "window.live.role.host",
+            "window.live.role.editor",
+            "window.live.role.viewer",
+            "window.live.role.assistant",
+            "window.live.noname",
+            "window.live.end",
+            "window.live.end.hint",
+            "window.live.leave",
+            "window.live.leave.hint",
+            "window.live.here.title",
+            "window.live.here.label",
+            "window.live.here.join",
+            "window.live.here.needcode",
+            "window.live.here.bad",
+            "window.live.button",
+            "window.live.button.title",
+            "window.live.status.live",
+            "window.live.status.viewing",
+            "window.live.people.title",
+        ] {
+            for l in [cc_lang::Locale::En, cc_lang::Locale::EsMx] {
+                assert!(crate::lang::STUDIO.get_in(l, k).is_some(), "{k} {l:?}");
+            }
+        }
+    }
+
     use super::*;
 
     fn sample_state() -> J {

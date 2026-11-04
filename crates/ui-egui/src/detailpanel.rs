@@ -64,8 +64,8 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
             label: t0("page.group.file"),
             tools: vec![
                 Tool::new("save", "download", t0("page.tool.save")).tip(t("page.tool.save.title", &[("key", F::S("Ctrl+S".into()))])),
-                Tool::new("live", "globe", "Live".to_string())
-                    .tip("Work on this model together (Studio Live)".to_string())
+                Tool::new("live", "globe", crate::lang::t0(&crate::lang::STUDIO, "window.live.button"))
+                    .tip(crate::lang::t0(&crate::lang::STUDIO, "window.live.button.title"))
                     .on(dv.live.is_some()),
             ],
         },

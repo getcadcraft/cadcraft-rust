@@ -2,6 +2,18 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.12 the Live window in 0.5 Studio's words (agent, work/detailfin)
+
+- 0.5 Studio's Live window has its words in Studio's catalog (`window.live.*`, the shell's `lang/`, already in
+  `assets/lang/studio`, en + es-MX): DetailCraft's Live button and tip, the window ("Work together live"), Share live,
+  "This Studio can't make invite links. Sessions on your own network work.", the status ("Live, 3 people" / "Viewing
+  live"), "The code: …", "Address …", "Waiting to join", "{name} wants to join." with Edit / View only / Deny, "In the
+  session: n" with the roles and "(you)", End the session / Leave with their hints, and "Join with the drawing open
+  here" as one field (an address and the code; a code alone or a malformed entry gets 0.5's "Add the code after the
+  address." / "That isn't a code, …"). No plain-English words left. Test `the_join_field_reads_an_address_and_a_code`;
+  screenshots en + es-MX checked; dclive-interop (its copy reads the new line) 3/3 in each of js-host, rust-host,
+  rust-rust.
+
 ## 2026-11-04 — M14.8 DetailCraft in the web build: `?detail`, and a load test in Chromium (agent, work/detailfin)
 
 - 0.5 has a page per app (`/apps/detailcraft/`, opening on the starter grids) and no app flag; the web build's
