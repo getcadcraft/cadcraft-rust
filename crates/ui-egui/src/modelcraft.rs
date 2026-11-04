@@ -415,7 +415,12 @@ impl ModelView {
             near: c.near,
             far: c.far,
         };
-        view3d::paint(ui, rect, &self.scene, &cam, &self.style);
+        // 0.7: the view on the page's sheet colour (tokens.css --sheet, both spaces), as every other 3D view here;
+        // only the screen: exports and prints keep the style's own
+        let mut style = self.style;
+        let c = t.canvas_bg;
+        style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
+        view3d::paint(ui, rect, &self.scene, &cam, &style);
         self.overlay(ui, rect, t);
         self.take_tool_message();
         self.dialogs(ui.ctx());

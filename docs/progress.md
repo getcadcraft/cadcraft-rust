@@ -66,7 +66,9 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   current), Tools (LAYISO … RENAME); the status bar's Object snaps after QP (`edit.snapkind`, the ten kinds; the
   default set unchanged). kdiff 5250/5250 en and es-MX, propsdiff 720/720, panediff 0, mytoolsdiff 0. The kinds are
   not kept between runs yet (0.5 keeps them with the page's settings).
-- Next (gaps item 12): 3D backgrounds.
+- M17.14: ModelCraft's 3D view on the page's sheet colour as 0.7 (tokens.css --sheet: #F3F6F8 paper, #1D232B model;
+  the screen only, exports keep the style's own); the other 3D views were on it already. Full sweep 0 differences.
+- M17 done: what still differs is in gaps item 12.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 
