@@ -109,21 +109,13 @@ Last updated 2026-11-04 · Change: ModelCraft finished on main (M6.27–M6.35: f
    sync (res-follow.js: foundations, countertops, stairs, electrical, framing follow the walls; terrain only once the
    ground is loaded); no Library panel (LibraryCraft / feeds search, the open drawing's blocks, the Files… adapters for
    DWG / DXF / IFC / glTF / OBJ / RFA / CSV), swap / update of placed items, copy / paste of placements.
-7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): every 0.5 MarkupCraft drawing tool (M9.14) with select /
-   move / grips / window, the text editor and the Properties panel, save marked-up PDF at parity; takeoff count / linear
-   / area, exports, Auto count. Copy / paste, the Markups list and its exports, replies, sheet rename and the Pages menu
-   (M9.16); picture and signature stamps and the tool chest (M9.17); cut-outs, spaces, legends, sheet links and the
-   punch list (M9.18); BCF export / import, compare's picture overlay, line-up and whole-set compare (M9.19). Missing in
-   MarkupCraft: auto-link (sheet callouts found in the drawings' text), Find text, slip-sheet, flatten, print,
-   bookmarks, the custom columns editor, closing one PDF of a plan set; BCF snapshots are drawn by hayro (their
-   pictures differ from 0.5's canvas).
-   TakeoffCraft has its item / mark panels, assemblies, bid areas, alternates, deducts, slopes and cut-outs (M9.13);
-   arcs and circles, corner and arc drags, several marks selected and the clipboard (M9.20); typical groups, notes,
-   clouds and highlights (M9.21); revisions: compare, align, find changes, move the takeoff, flags (M9.22; pixel counts
-   are hayro's, not pdf.js's); the 3D view, its stack, picks and GLB (M9.23); still missing there: the sheet's picture
-   on the 3D ground, the 3D view's PNG and standard views; snapping to the drawing's linework, typed lengths, 45°.
-   Copy + paste in place of 251 marks is 0.7× the JS (S.6: 2.1 → 0.9 ms against 0.6–0.8; what is left is the clip read
-   back as a project, the undo snapshot of the whole state and the quantities, all on serde values).
+7. **PDF sheets: MarkupCraft and TakeoffCraft** (M8/M9): done for 0.5 (M9.13–M9.28): every MarkupCraft tool, panel,
+   export, compare, BCF, Find text, sheet-callout links, bookmarks, custom columns, slip-sheet, flattened copy, print
+   and Close the set; every TakeoffCraft panel, revisions, the 3D view (camera, standard views, the sheet on the ground,
+   PNG, levels), snapping to the drawing's linework, typed lengths and 45°. What stays different, by the renderer: BCF
+   snapshot pictures and Find changes' pixel counts are hayro's, not pdf.js's canvas (the BCF data and the marks flagged
+   match; a pixel match would need pdf.js itself); the 3D PNG is the fork's own view. 0.5 has no "close one PDF of a
+   set": its Close closes the set, as the fork's now does.
 8. **PartCraft** (M13): part view on the mesh kernel — open part / script, sample, 3D with face picking, history,
    parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity; the sketcher (every 0.5 sketch
    tool, relations, dimensions, live drag) and the feature tools (extrude … shell, edge / face picking, edit, delete, move,

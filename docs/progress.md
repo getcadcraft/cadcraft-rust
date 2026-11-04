@@ -2,6 +2,46 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M9.24–M9.28 MarkupCraft and TakeoffCraft done for 0.5 (agent, work/markfin)
+
+- M9.24 `markupfind.rs`: Find text (each sheet's own text as pdf.js `getTextContent` gives it, cc-markup textsearch;
+  every sheet or this one, case, whole words; hits listed, drawn on the sheet, shown zoomed; Cloud all in one undo
+  step), Link sheet callouts (autoLink: "3/A-501" and the like reviewed, then thin blue link boxes), the open file's
+  bookmarks (read with the file, follow / rename / remove / build from sheets / add, written on Save), the custom
+  columns editor and each column's field in Properties (checked as columns.js fieldOk). The sheet view's render scale now
+  stays inside the renderer's pixel budget (a sheet zoomed in on a few words said "raster too large").
+- M9.25 `markupslip.rs`: slip-sheet (the revised set pairs by sheet number, scans by page order; markups with replies,
+  statuses and punch items carried in one step, scales copied on the same paper, old sheets stamped Superseded), Save a
+  flattened copy (all or the selected markups), Print (this sheet / file / set / pages, markups drawn in, one PDF to the
+  host's PDF viewer; cc-io-markup `print_pdf`), Close the set with the unsaved question. 0.5 has no "close one PDF of a
+  set": its Close closes the set.
+- M9.26 `takeoffsnap.rs`: TakeoffCraft's pointFor — snaps to the drawing's linework within 10 px (marker and name, F3 /
+  Snap), 45° with Shift or Snap to 45° (a dragged corner from its neighbour), typed lengths (12'6", 12'<45, @6',-4',
+  6',4', a circle's radius). Engine fix: cc-io-takeoff linework keeps pdf.js's float32 path points, so snaps land where
+  0.5's do (930.47998046875, not 930.48; regression test in tests/pdfs.rs).
+- M9.27 `takeoff3d.rs` / `view3d.rs`: the 3D view on ModelCraft's camera (standard views fit the takeoff, Zoom extents,
+  Perspective), the sheet's picture on the ground (≤ 2048 px, inverted in a dark theme, the Sheet box), PNG at the
+  view's size or twice it (an offscreen draw read back without waiting on the GPU, `Snapshot`), the Levels window.
+- M9.28 speed: copy + paste in place of 251 marks 0.7 → 1.1× the JS (cc-takeoff `copy_read`: the copy is read back in
+  one pass, equal to copy then read — test `copy_read_is_copy_then_read`; paste looks item kinds up once).
+- BCF snapshots: drawn by hayro; 0.5 draws them with pdf.js on a canvas. A pixel match would need pdf.js itself, so
+  nothing more is done; parity holds on the BCF data (topics, comments, viewpoints, statuses).
+- Parity (harness copies mkuidiff-markfin.mjs and tkopsdiff-markfin.mjs replace the shared ones at merge; new
+  scenarios find, autolink, autolink2, bookmarks, bookmarks2, columns, slip, slip2, flatprint, close2, snap, snap2,
+  views3d; the app prints panel / window text as `note` lines, the harness compares them): mkuidiff 27/27 and tkopsdiff
+  77/77 (292/292 status lines) in en and es-MX, TZ UTC and America/Denver; todiff 1839 records + 29 PDF checks, mkdiff
+  425 records, mkdiff --pdf 219 comparisons: 0 differences. Web build loaded in Chromium: Find on a dropped PDF, no
+  errors.
+- Timings (ms, best of runs; JS = the frozen 0.5 modules in Node; Rust = the app, the 200-sheet rows as a headless run with the action less one without):
+
+  | action | JS 0.5 | Rust | JS/Rust |
+  |---|---|---|---|
+  | copy + paste in place, 251 marks (tkactbench, 40 runs) | 0.7 | 0.6 | 1.1× |
+  | Find "plan" on the 200-sheet set | 594.6 | 92.9 | 6.4× |
+  | Link sheet callouts, 200 sheets | 561.1 | 100.1 | 5.6× |
+  | Print a 200-page file (flattened, copied) | 112.9 | 34.8 | 3.2× |
+
+- Screenshots: forks/lead/shots/markfin/ (find-panel, bm-panel, slip, print, snap, d3, levels, web1-2).
 ## 2026-11-04 — M16.11 DetailCraft co-editing in Studio Live (agent, work/detailfin)
 
 - `cc_live::doc` (live-client.js's document side without its socket): own steps go out at once (applied, pending),
