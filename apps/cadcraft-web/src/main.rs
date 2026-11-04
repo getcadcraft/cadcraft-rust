@@ -104,6 +104,13 @@ mod web {
         let demo3d = search.split(['?', '&']).any(|p| p == "demo3d");
         let model3 = search.split(['?', '&']).any(|p| p == "model");
         let ifc = search.split(['?', '&']).any(|p| p == "ifc");
+        // DetailCraft (0.5 has a page per app, /apps/detailcraft/, opening on the starter grids): `?detail` the same,
+        // `?detail=sample` its sample frame
+        let detail = search.split(['?', '&']).find_map(|p| match p {
+            "detail" => Some("detail.new"),
+            "detail=sample" => Some("detail.sample"),
+            _ => None,
+        });
         if bench_frames {
             bench();
         }
@@ -341,6 +348,9 @@ mod web {
                         }
                         if ifc {
                             let _ = app.run("file.sample.ifc", &Params::default());
+                        }
+                        if let Some(id) = detail {
+                            let _ = app.run(id, &Params::default());
                         }
                         Ok(Box::new(App { app, shown: 0, bench: bench_frames, saved }))
                     }),

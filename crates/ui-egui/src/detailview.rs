@@ -723,7 +723,10 @@ impl DetailView {
         let key = (self.model.version, self.hidden_phases.iter().map(|p| p.to_bits()).collect::<Vec<u64>>(), self.settings.bolts);
         if self.scene_key.as_ref() != Some(&key) {
             let t1 = web_time::Instant::now();
-            self.seq = self.seq.wrapping_add(1);
+            // the GPU keeps meshes by scene id: one count for every window, so a model opened after another (a new
+            // DetailView) never reuses the last one's meshes
+            static SCENES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            self.seq = SCENES.fetch_add(1, std::sync::atomic::Ordering::Relaxed).wrapping_add(1);
             let id = (1u64 << 42) + self.seq;
             let first = self.scene.is_none();
             self.scene = Some(detail3d::build(&self.model.state, &self.built, &self.marks, id, &self.hidden_phases, self.settings.bolts));
@@ -1875,6 +1878,17 @@ mod tests {
         v.shop_cmd("close", 0.0).unwrap();
         assert!(v.shop.is_none());
         assert!(v.shop_cmd("nope", 0.0).is_err());
+    }
+
+    #[test]
+    fn a_model_opened_after_another_gets_a_scene_of_its_own() {
+        let mut a = DetailView::sample().unwrap();
+        a.sync_scene();
+        let mut b = DetailView::empty();
+        b.sync_scene();
+        let ida = a.scene.as_ref().unwrap().scene.id;
+        let idb = b.scene.as_ref().unwrap().scene.id;
+        assert_ne!(ida, idb, "the GPU would keep drawing the first model's meshes");
     }
 
     #[test]

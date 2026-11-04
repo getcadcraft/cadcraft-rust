@@ -2,6 +2,18 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M14.8 DetailCraft in the web build: `?detail`, and a load test in Chromium (agent, work/detailfin)
+
+- 0.5 has a page per app (`/apps/detailcraft/`, opening on the starter grids) and no app flag; the web build's
+  equivalent: `?detail` (the starter grids, as 0.5's page) and `?detail=sample` (the sample frame), with `?lang=`.
+- Load test (headless Chromium 1140, WebGPU on SwiftShader: a CPU-emulated GPU, so frame times are the floor of a slow
+  machine, not a real GPU's): `?detail=sample` up and drawing in 8.3 s from a cold start; grid24x12x5 dropped on the page
+  (2.1 MB, 5868 parts, 16 332 bolts) opens and draws in one 1.65 s frame; JS heap 491 MB after, no page errors; idle
+  frames 16.7 ms; orbiting it 1–4 s a frame on SwiftShader (grid10x6x4: 83 ms; the sample: 83 ms).
+- Found and fixed by it: a model opened after another kept drawing the first one's 3D meshes (each new DetailView
+  counted scene ids from 1, and the GPU keeps meshes by id; desktop and web). Scene ids now count across windows; test
+  `a_model_opened_after_another_gets_a_scene_of_its_own`.
+
 ## 2026-11-04 — M14.7 DetailCraft's shop drawing dialog (agent, work/detailfin)
 
 - Shop drawing (the bar, a part's or a plate's properties) opens 0.5's dialog instead of downloading at once: "Shop
