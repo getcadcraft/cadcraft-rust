@@ -1473,21 +1473,42 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     if let Some(dv) = app.detail.as_mut() {
         dv.recompute();
         keys(dv, ui, &mut acts);
+        let groups = crate::detailpanel::bar_groups(dv);
+        let h = crate::shell::toolbar_height(ui, &groups, ui.available_width());
         egui::Panel::top("detail_bar")
-            .exact_size(32.0)
-            .frame(egui::Frame::new().fill(tok.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
-            .show(ui, |ui| crate::detailpanel::bar(dv, ui, &tok, &mut acts));
+            .exact_size(h)
+            .frame(egui::Frame::new().fill(tok.app_bar))
+            .show(ui, |ui| crate::detailpanel::bar(dv, ui, &tok, &mut acts, &groups));
         let frame = egui::Frame::new().fill(tok.panel).inner_margin(8);
-        egui::Panel::left("detail_left").default_size(272.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                crate::detailpanel::left_head(dv, ui, &tok, &mut acts);
-                crate::detailprops::left_setup(dv, ui, &tok, &mut acts);
-                crate::detailpanel::left(dv, ui, &tok, &mut acts);
+        // 0.7's docks: a grip over each side panel, the body inset
+        let app_c = tok.app("detailcraft");
+        let inset = egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 4 });
+        egui::Panel::left("detail_left")
+            .default_size(272.0)
+            .size_range(190.0..=420.0)
+            .resizable(true)
+            .frame(crate::shell::panel_frame(&tok))
+            .show(ui, |ui| {
+                crate::shell::grip(ui, &tok, app_c, &cc_detail::i18n::t0("page.left.model"), false, false);
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    inset.show(ui, |ui| {
+                        crate::detailpanel::left_head(dv, ui, &tok, &mut acts);
+                        crate::detailprops::left_setup(dv, ui, &tok, &mut acts);
+                        crate::detailpanel::left(dv, ui, &tok, &mut acts);
+                    });
+                });
             });
-        });
-        egui::Panel::right("detail_right").default_size(300.0).size_range(230.0..=480.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::detailprops::right(dv, ui, &tok, &mut acts));
-        });
+        egui::Panel::right("detail_right")
+            .default_size(300.0)
+            .size_range(230.0..=480.0)
+            .resizable(true)
+            .frame(crate::shell::panel_frame(&tok))
+            .show(ui, |ui| {
+                crate::shell::grip(ui, &tok, app_c, &cc_detail::i18n::t0("page.right.props"), false, false);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| inset.show(ui, |ui| crate::detailprops::right(dv, ui, &tok, &mut acts)));
+            });
         egui::Panel::bottom("detail_reports").default_size(220.0).size_range(90.0..=520.0).resizable(true).frame(frame).show(ui, |ui| {
             crate::detailpanel::reports(dv, ui, &tok, &mut acts);
         });

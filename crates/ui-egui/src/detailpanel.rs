@@ -32,113 +32,229 @@ fn mm(v: f64) -> String {
     cc_detail::js::num_to_string(v.round())
 }
 
-/// The bar above the view.
-pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
-    egui::ScrollArea::horizontal().show(ui, |ui| {
-        ui.horizontal_centered(|ui| {
-            let name = dv.model.state.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-            let dirty = if dv.model.dirty() { "• " } else { "" };
-            ui.label(RichText::new(format!("{dirty}{name}")).strong().color(tk.text_strong));
-            ui.separator();
-            if ui.button(t0("page.tool.save")).on_hover_text(t("page.tool.save.title", &[("key", F::S("Ctrl+S".into()))])).clicked() {
-                acts.push(Act::Run("detail.save", String::new()));
+/// The bar's groups as 0.7's toolbar (DetailCraft ui.inc: File, Place, Connect, Edit, Output, and the view's turns):
+/// each button's id is what [`bar`] runs.
+pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
+    use crate::shell::{Tool, ToolGroup};
+    let tool = dv.tools.tool;
+    let picked = dv.selected();
+    let sel_type = match &dv.sel {
+        Some(Ref::Member(id)) => dv.member(id).map(|m| m.get("type").and_then(Value::as_str).unwrap_or("").to_string()).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
+    let last = |s: &[cc_detail::model::Step]| s.last().map(|x| x.label.clone()).unwrap_or_default();
+    let undo_tip =
+        if dv.model.can_undo() { t("app.bar.undo.label", &[("label", F::S(last(&dv.model.undo_stack)))]) } else { t0("app.bar.undo") };
+    let redo_tip =
+        if dv.model.can_redo() { t("app.bar.redo.label", &[("label", F::S(last(&dv.model.redo_stack)))]) } else { t0("app.bar.redo") };
+    let place = [
+        ("select", "page.tool.select", "V", "cursor"),
+        ("beam", "page.tool.beam", "B", "dash-lg"),
+        ("column", "page.tool.column", "C", "grip-vertical"),
+        ("brace", "page.tool.brace", "R", "slash-lg"),
+        ("plate", "page.tool.plate", "P", "square"),
+        ("footing", "page.tool.footing", "F", "grid-3x3"),
+        ("stair", "page.tool.stair", "S", "bar-chart-steps"),
+    ];
+    let why_shop = cc_detail::shop::shop_refusal(dv.selected_part());
+    let view = |v: &str, key: &str| if v == "iso" { crate::lang::mc(key) } else { crate::lang::t0(&cc_detail::i18n::CATALOG, key) };
+    vec![
+        ToolGroup {
+            label: t0("page.group.file"),
+            tools: vec![
+                Tool::new("save", "download", t0("page.tool.save")).tip(t("page.tool.save.title", &[("key", F::S("Ctrl+S".into()))])),
+            ],
+        },
+        ToolGroup {
+            label: t0("page.group.place"),
+            tools: place
+                .iter()
+                .map(|(id, key, letter, icon)| {
+                    Tool::new(format!("tool:{id}"), icon, t0(key))
+                        .tip(t(&format!("{key}.title"), &[("key", F::S((*letter).into()))]))
+                        .on(tool == *id)
+                })
+                .collect(),
+        },
+        ToolGroup {
+            label: t0("page.group.connect"),
+            tools: vec![
+                Tool::new("act:endplates", "layout-split", t0("page.tool.endplates"))
+                    .tip(t0("page.tool.endplates.title"))
+                    .enabled(sel_type == "beam"),
+                Tool::new("act:baseplate", "bounding-box", t0("page.tool.baseplate"))
+                    .tip(t0("page.tool.baseplate.title"))
+                    .enabled(sel_type == "column"),
+                Tool::new("menu:conn", "three-dots", t0("tool.out.more")).tip(t0("tool.conn.more.title")),
+            ],
+        },
+        ToolGroup {
+            label: t0("page.group.edit"),
+            tools: vec![
+                Tool::new("undo", "arrow-counterclockwise", t0("page.tool.undo")).tip(undo_tip).enabled(dv.model.can_undo()),
+                Tool::new("redo", "arrow-clockwise", t0("page.tool.redo")).tip(redo_tip).enabled(dv.model.can_redo()),
+                Tool::new("act:copy", "copy", t0("page.tool.copy"))
+                    .tip(t("page.tool.copy.title", &[("key", F::S("Ctrl+C".into()))]))
+                    .enabled(copyable),
+                Tool::new("act:paste", "clipboard-plus", t0("page.tool.paste"))
+                    .tip(t("page.tool.paste.title", &[("key", F::S("Ctrl+V".into()))]))
+                    .enabled(dv.tools.clip.is_some()),
+                Tool::new("menu:edit", "three-dots", t0("page.edit.more")).tip(t0("page.edit.more.title")),
+            ],
+        },
+        ToolGroup {
+            label: t0("page.group.output"),
+            tools: vec![
+                Tool::new("menu:export", "box-arrow-up-right", t0("input.m.export")),
+                Tool::new("menu:drawings", "files", t0("page.tool.drawings")).tip(t0("page.tool.drawings.title")),
+                Tool::new("shop", "file-earmark-arrow-down", t0("page.tool.shop"))
+                    .tip(why_shop.clone().unwrap_or_else(|| t0("page.tool.shop.title")))
+                    .enabled(why_shop.is_none()),
+            ],
+        },
+        ToolGroup {
+            label: t0("input.grp.view"),
+            tools: vec![
+                Tool::new("cam:iso", "box", view("iso", "ui.views.iso")),
+                Tool::new("cam:top", "square", view("top", "viewcube.face.top")),
+                Tool::new("cam:front", "layout-sidebar", view("front", "viewcube.face.front")),
+                Tool::new("cam:right", "layout-sidebar-inset", view("right", "viewcube.face.right")),
+                Tool::new("bolts", "record-circle", t0("app.k.bolts")).on(dv.settings.bolts),
+                Tool::new("settings", "gear", t0("input.cmd.app.settings")),
+            ],
+        },
+    ]
+}
+
+/// The bar over DetailCraft's view (0.7's toolbar from [`bar_groups`]): the buttons' commands, the Connect, Edit,
+/// Export and Drawings menus under their buttons.
+pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, groups: &[crate::shell::ToolGroup]) {
+    let picked = dv.selected();
+    let sel_type = match &dv.sel {
+        Some(Ref::Member(id)) => dv.member(id).map(|m| m.get("type").and_then(Value::as_str).unwrap_or("").to_string()).unwrap_or_default(),
+        _ => String::new(),
+    };
+    let has_type = |tys: &[&str]| {
+        picked.iter().any(|r| match r {
+            Ref::Member(i) => dv.member(i).is_some_and(|m| tys.contains(&m.get("type").and_then(Value::as_str).unwrap_or(""))),
+            _ => false,
+        })
+    };
+    let (splice_ok, gusset_ok) = (has_type(&["beam", "column"]), has_type(&["brace"]));
+    let sel_conn = matches!(dv.sel, Some(Ref::Conn(_)));
+    let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
+    let can_paste = dv.tools.clip.is_some();
+    let any = dv.model.state.get("members").and_then(Value::as_array).map_or(0, Vec::len)
+        + dv.model.state.get("footings").and_then(Value::as_array).map_or(0, Vec::len)
+        > 0;
+    let app_c = tk.app("detailcraft");
+    let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));
+    for (id, resp) in crate::shell::toolbar(ui, tk, app_c, "dc-tb", groups) {
+        match id.as_str() {
+            "menu:conn" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    for (a, label, tip, on) in [
+                        ("sheartabs", "page.tool.sheartabs", "page.tool.sheartabs.title", sel_type == "beam"),
+                        ("splice", "page.tool.splice", "page.tool.splice.title", splice_ok),
+                        ("gusset", "page.tool.gusset", "page.tool.gusset.title", gusset_ok),
+                        ("similar", "page.tool.similar", "page.tool.similar.title", sel_conn),
+                    ] {
+                        if ui.add_enabled(on, egui::Button::new(t0(label))).on_hover_text(t0(tip)).clicked() {
+                            run(acts, "detail.act", a.into());
+                            ui.close();
+                        }
+                    }
+                });
             }
-            let last = |s: &[cc_detail::model::Step]| s.last().map(|x| x.label.clone()).unwrap_or_default();
-            let undo_tip = if dv.model.can_undo() {
-                t("app.bar.undo.label", &[("label", F::S(last(&dv.model.undo_stack)))])
-            } else {
-                t0("app.bar.undo")
-            };
-            if ui.add_enabled(dv.model.can_undo(), egui::Button::new(t0("page.tool.undo"))).on_hover_text(undo_tip).clicked() {
-                acts.push(Act::Run("detail.undo", String::new()));
+            "menu:edit" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    for (a, label, key, on) in [
+                        ("cut", "page.edit.cut", "Ctrl+X", copyable),
+                        ("copy", "page.edit.copy", "Ctrl+C", copyable),
+                        ("paste", "page.edit.paste", "Ctrl+V", can_paste),
+                        ("paste-in-place", "page.edit.paste-in-place", "Ctrl+Shift+V", can_paste),
+                        ("duplicate", "page.edit.duplicate", "Ctrl+D", copyable),
+                        ("move", "page.edit.move", "M", copyable),
+                        ("delete", "page.edit.delete", "Delete", !picked.is_empty()),
+                        ("select-all", "page.edit.select-all", "Ctrl+A", any),
+                        ("select-none", "page.edit.select-none", "Esc", !picked.is_empty()),
+                    ] {
+                        if ui.add_enabled(on, egui::Button::new(format!("{}    {key}", t0(label)))).clicked() {
+                            run(acts, "detail.act", a.into());
+                            ui.close();
+                        }
+                    }
+                });
             }
-            let redo_tip = if dv.model.can_redo() {
-                t("app.bar.redo.label", &[("label", F::S(last(&dv.model.redo_stack)))])
-            } else {
-                t0("app.bar.redo")
-            };
-            if ui.add_enabled(dv.model.can_redo(), egui::Button::new(t0("page.tool.redo"))).on_hover_text(redo_tip).clicked() {
-                acts.push(Act::Run("detail.redo", String::new()));
+            "menu:export" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    for (kind, label, tip) in [
+                        ("ifc", "page.tool.ifc", "page.tool.ifc.title"),
+                        ("nc", "page.tool.nc", "page.tool.nc.title"),
+                        ("bom", "page.tool.bom", "page.tool.bom.title"),
+                        ("bending", "page.tool.bending", "page.tool.bending.title"),
+                        ("kiss", "tool.kiss", "tool.kiss.title"),
+                        ("cutlist", "nest.tab", "nest.file"),
+                        ("report-csv", "tool.report", "rep.csv"),
+                        ("report-pdf", "tool.report", "rep.pdf"),
+                    ] {
+                        let text = if kind.starts_with("report") { format!("{} ({})", t0(label), t0(tip)) } else { t0(label) };
+                        if ui.button(text).on_hover_text(t0(tip)).clicked() {
+                            run(acts, "detail.export", kind.into());
+                            ui.close();
+                        }
+                    }
+                });
             }
-            ui.separator();
-            crate::detailprops::tool_bar(dv, ui, tk, acts);
-            ui.separator();
-            ui.menu_button(t0("input.m.export"), |ui| {
-                for (kind, label, tip) in [
-                    ("ifc", "page.tool.ifc", "page.tool.ifc.title"),
-                    ("nc", "page.tool.nc", "page.tool.nc.title"),
-                    ("bom", "page.tool.bom", "page.tool.bom.title"),
-                    ("bending", "page.tool.bending", "page.tool.bending.title"),
-                    ("kiss", "tool.kiss", "tool.kiss.title"),
-                    ("cutlist", "nest.tab", "nest.file"),
-                    ("report-csv", "tool.report", "rep.csv"),
-                    ("report-pdf", "tool.report", "rep.pdf"),
-                ] {
-                    let text = if kind.starts_with("report") { format!("{} ({})", t0(label), t0(tip)) } else { t0(label) };
-                    if ui.button(text).on_hover_text(t0(tip)).clicked() {
-                        acts.push(Act::Run("detail.export", kind.into()));
+            "menu:drawings" => {
+                egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                    ui.label(RichText::new(t0("dwg.format.label")).color(tk.text_dim));
+                    for f in ["pdf", "dwg-AC1032", "dwg-AC1027", "dwg-AC1024", "dwg-AC1021", "dwg-AC1018", "dwg-AC1015", "dxf"] {
+                        let label = crate::detailexport::format_name(f).unwrap_or_default();
+                        ui.radio_value(&mut dv.dwg_format, f.to_string(), label);
+                    }
+                    ui.separator();
+                    let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
+                    let mut paper = dv.settings.paper.clone();
+                    egui::ComboBox::new("detail_paper", "")
+                        .selected_text(cc_detail::paper::paper_label(&paper))
+                        .show_ui(ui, |ui| {
+                            for k in cc_detail::paper::PAPER_KEYS {
+                                ui.selectable_value(&mut paper, k.to_string(), cc_detail::paper::paper_label(k));
+                            }
+                        })
+                        .response
+                        .labelled_by(pl.id);
+                    if paper != dv.settings.paper {
+                        run(acts, "detail.setting", format!("paper={paper}"));
+                    }
+                    ui.separator();
+                    let fname = crate::detailexport::format_name(&dv.dwg_format).unwrap_or_default();
+                    if ui.button(t("dwg.all", &[("format", F::S(fname))])).on_hover_text(t0("page.tool.drawings.title")).clicked() {
+                        run(acts, "detail.export", format!("drawings:{}", dv.dwg_format));
                         ui.close();
                     }
-                }
-            });
-            ui.menu_button(t0("page.tool.drawings"), |ui| {
-                ui.label(RichText::new(t0("dwg.format.label")).color(tk.text_dim));
-                for f in ["pdf", "dwg-AC1032", "dwg-AC1027", "dwg-AC1024", "dwg-AC1021", "dwg-AC1018", "dwg-AC1015", "dxf"] {
-                    let label = crate::detailexport::format_name(f).unwrap_or_default();
-                    ui.radio_value(&mut dv.dwg_format, f.to_string(), label);
-                }
-                ui.separator();
-                let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
-                let mut paper = dv.settings.paper.clone();
-                egui::ComboBox::new("detail_paper", "")
-                    .selected_text(cc_detail::paper::paper_label(&paper))
-                    .show_ui(ui, |ui| {
-                        for k in cc_detail::paper::PAPER_KEYS {
-                            ui.selectable_value(&mut paper, k.to_string(), cc_detail::paper::paper_label(k));
-                        }
-                    })
-                    .response
-                    .labelled_by(pl.id);
-                if paper != dv.settings.paper {
-                    acts.push(Act::Run("detail.setting", format!("paper={paper}")));
-                }
-                ui.separator();
-                let fname = crate::detailexport::format_name(&dv.dwg_format).unwrap_or_default();
-                if ui.button(t("dwg.all", &[("format", F::S(fname))])).on_hover_text(t0("page.tool.drawings.title")).clicked() {
-                    acts.push(Act::Run("detail.export", format!("drawings:{}", dv.dwg_format)));
-                    ui.close();
-                }
-            })
-            .response
-            .on_hover_text(t0("page.tool.drawings.title"));
-            let part = dv.selected_part();
-            let why = cc_detail::shop::shop_refusal(part);
-            if ui
-                .add_enabled(why.is_none(), egui::Button::new(t0("page.tool.shop")))
-                .on_hover_text(why.unwrap_or_else(|| t0("page.tool.shop.title")))
-                .clicked()
-            {
-                acts.push(Act::Run("detail.export", "shop".into()));
+                });
             }
-            ui.separator();
-            // the 0.5 app turns the view with its view cube: its faces' words (and ModelCraft's Iso)
-            for (v, key) in
-                [("iso", "ui.views.iso"), ("top", "viewcube.face.top"), ("front", "viewcube.face.front"), ("right", "viewcube.face.right")]
-            {
-                let label = if v == "iso" { crate::lang::mc(key) } else { crate::lang::t0(&cc_detail::i18n::CATALOG, key) };
-                if ui.small_button(label).clicked() {
-                    acts.push(Act::Run("detail.camera", v.into()));
+            _ if !resp.clicked() => {}
+            "save" => run(acts, "detail.save", String::new()),
+            "undo" => run(acts, "detail.undo", String::new()),
+            "redo" => run(acts, "detail.redo", String::new()),
+            "shop" => run(acts, "detail.export", "shop".into()),
+            "bolts" => run(acts, "detail.setting", format!("bolts={}", !dv.settings.bolts)),
+            "settings" => run(acts, "detail.settings", "open".into()),
+            x => {
+                if let Some(v) = x.strip_prefix("tool:") {
+                    run(acts, "detail.tool", v.into());
+                } else if let Some(v) = x.strip_prefix("act:") {
+                    run(acts, "detail.act", v.into());
+                } else if let Some(v) = x.strip_prefix("cam:") {
+                    run(acts, "detail.camera", v.into());
                 }
             }
-            let mut bolts = dv.settings.bolts;
-            if ui.checkbox(&mut bolts, t0("app.k.bolts")).changed() {
-                acts.push(Act::Run("detail.setting", format!("bolts={bolts}")));
-            }
-            if ui.button(t0("input.cmd.app.settings")).clicked() {
-                acts.push(Act::Run("detail.settings", "open".into()));
-            }
-        });
-    });
+        }
+    }
 }
 
 /// The left panel's head: the model's name.
