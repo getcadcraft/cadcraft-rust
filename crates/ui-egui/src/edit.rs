@@ -601,6 +601,8 @@ pub struct Editor {
     pub line: String,
     pub name: String,
     pub osnap: bool,
+    /// the object snap kinds on (cadcraft.js settings.kinds; the status bar's Object snaps)
+    pub kinds: Vec<&'static str>,
     pub ortho: bool,
     /// polar tracking (F10): points line up on multiples of the POLARANG step from the base point
     pub polar: bool,
@@ -628,6 +630,7 @@ impl Editor {
             line: String::new(),
             name: name.to_string(),
             osnap: true,
+            kinds: SNAP_KINDS.to_vec(),
             ortho: false,
             polar: false,
             snap: None,
@@ -683,7 +686,7 @@ impl Editor {
         let shift = self.hs.borrow().shift;
         if self.osnap && !shift && px_per_unit > 0.0 {
             let r = 10.0 / px_per_unit;
-            let s = snap(&self.eng.doc(), raw, r, SNAP_KINDS, base);
+            let s = snap(&self.eng.doc(), raw, r, &self.kinds, base);
             // view.js snapExtra: a point cloud's points (Node), after the drawing's own
             let pr = s.as_ref().map_or(u8::MAX, |s| snap_priority(s.kind));
             let s = crate::cloudview::snap(self, raw, r, s.as_ref(), pr).or(s);

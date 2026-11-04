@@ -60,7 +60,13 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   the right, a 1 px rule under it; the page dimmed behind a modal one; the Library, Sheet set, Parameters and Quick
   Properties panels stay modeless) and the dialogs' main action is 0.7's filled button (`Btn::primary`: Download PDF,
   OK, Apply; 21 places). Full sweep 0 differences.
-- Next (gaps item 12): CadCraft's layer flags and snap kinds, 3D backgrounds.
+- M17.13: CadCraft's layer rows as 0.5 / 0.7 (cadcraft.js renderLayers): the current dot and the name make a layer
+  current (`layer.current`, setCurrent: on and thawed, one undo step), the on / freeze / lock / plot flags turn over
+  in the drawing (`layer.flag`; the current layer is not turned off), + New layer's form (`layer.new`: colour 7, made
+  current), Tools (LAYISO … RENAME); the status bar's Object snaps after QP (`edit.snapkind`, the ten kinds; the
+  default set unchanged). kdiff 5250/5250 en and es-MX, propsdiff 720/720, panediff 0, mytoolsdiff 0. The kinds are
+  not kept between runs yet (0.5 keeps them with the page's settings).
+- Next (gaps item 12): 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

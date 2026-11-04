@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-03 M17.13: CadCraft's layer rows (current, on / freeze / lock / plot, New layer, Tools) and the status bar's Object snaps; kdiff 5250/5250 en + es-MX, propsdiff 720/720.
 - 2026-11-03 M17.12: dialogs as 0.7's (left title row with ✕, dimmed page behind modal ones, filled primary buttons); full harness sweep 0 differences.
 - 2026-11-03 M17.11: every panel's and dialog's buttons as 0.7's outlined action buttons, 0.7's dialog headings; full harness sweep 0 differences.
 - 2026-11-03 M17.10: every panel's one-line fields and tab rows in 0.7's shapes (`shell::field`, `shell::tab`); full harness sweep 0 differences.

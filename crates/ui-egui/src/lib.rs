@@ -260,6 +260,20 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("edit.osnap", "Object snap on / off", "F3", "{}"),
     ("edit.ortho", "Ortho on / off", "F8", "{}"),
     ("edit.grid", "Grid on / off", "F7", "{} → the drafting grid (cadcraft.js toggle('grid'); the status bar's Grid)"),
+    (
+        "edit.snapkind",
+        "Object snap kind on / off",
+        "",
+        "{name: end|mid|cen|quad|int|perp|tan|near|node|ins} → that kind of object snap (the status bar's Object snaps)",
+    ),
+    ("layer.current", "Make a layer current", "", "{name: layer} → the layer current, turned on and thawed (cadcraft.js setCurrent)"),
+    (
+        "layer.flag",
+        "Layer flag on / off",
+        "",
+        "{name: \"<layer>=on|frozen|locked|plot\"} → that flag of the layer turned over (renderLayers' flags)",
+    ),
+    ("layer.new", "New layer", "", "{name: layer} → a new layer (colour 7), made current (the Layers panel's New layer)"),
     ("edit.polar", "Polar tracking on / off", "F10", "{} → points line up on multiples of the POLARANG step"),
     ("edit.lwt", "Line weights on / off", "", "{} → lines drawn as wide as their weight (LWDISPLAY; the status bar's LWT)"),
     ("file.edit", "Edit this drawing", "", "{} → imports the open DWG / DXF into an editable drawing (CadCraft's importer)"),
@@ -1689,6 +1703,70 @@ impl UiApp {
                 let what = lang::cad(if id == "edit.osnap" { "app.object_snap" } else { "ui.ortho" });
                 self.message = format!("{what}: {}", lang::cad(if on { "props.f.on" } else { "opt.off" }));
             }
+            "edit.snapkind" => {
+                let k = params.name.clone().unwrap_or_default();
+                let kind = cc_cad_geom::pick::SNAP_KINDS
+                    .iter()
+                    .copied()
+                    .find(|x| *x == k)
+                    .ok_or_else(|| format!("edit.snapkind: {k} is not one of {}", cc_cad_geom::pick::SNAP_KINDS.join(", ")))?;
+                let ed = self.editor.as_mut().ok_or("edit.snapkind: no drawing is open for editing")?;
+                if let Some(i) = ed.kinds.iter().position(|x| *x == kind) {
+                    ed.kinds.remove(i);
+                } else {
+                    ed.kinds.push(kind);
+                }
+            }
+            "layer.current" | "layer.flag" | "layer.new" => {
+                let arg = params.name.clone().ok_or(format!("{id}: name is required"))?;
+                let ed = self.editor.as_mut().ok_or(format!("{id}: no drawing is open for editing"))?;
+                let msg = {
+                    let mut doc = ed.eng.doc_mut();
+                    let fail = |e: cc_cad::doc::DocError| format!("{id}: {e:?}");
+                    match id {
+                        "layer.current" => {
+                            if !doc.layers.contains_key(&arg) {
+                                return Err(format!("layer.current: no layer {arg}"));
+                            }
+                            doc.set_layer(&arg, &cc_cad::entity::Obj::new(), true).map_err(fail)?;
+                            lang::t(&lang::CADCRAFT, "app.layer.current_status", &[("name", arg.clone())])
+                        }
+                        "layer.new" => {
+                            if doc.layers.contains_key(&arg) {
+                                lang::t(&lang::CADCRAFT, "app.layer.exists", &[("name", arg.clone())])
+                            } else {
+                                let mut patch = cc_cad::entity::Obj::new();
+                                patch.insert("color".into(), serde_json::json!(7));
+                                doc.set_layer(&arg, &patch, true).map_err(fail)?;
+                                lang::t(&lang::CADCRAFT, "app.layer.added", &[("name", arg.clone())])
+                            }
+                        }
+                        _ => {
+                            let (name, key) = arg.rsplit_once('=').ok_or("layer.flag: name = \"<layer>=on|frozen|locked|plot\"")?;
+                            let l = doc.layers.get(name).ok_or(format!("layer.flag: no layer {name}"))?;
+                            let now = match key {
+                                "on" => l.on,
+                                "frozen" => l.frozen,
+                                "locked" => l.locked,
+                                "plot" => l.plot,
+                                _ => return Err(format!("layer.flag: {key} is not one of on, frozen, locked, plot")),
+                            };
+                            if key == "on" && name == doc.current.layer && l.on {
+                                lang::cad("app.current_layer_make_another")
+                            } else {
+                                let mut patch = cc_cad::entity::Obj::new();
+                                patch.insert(key.into(), serde_json::json!(!now));
+                                doc.set_layer(name, &patch, false).map_err(fail)?;
+                                String::new()
+                            }
+                        }
+                    }
+                };
+                self.sync_editor();
+                if !msg.is_empty() {
+                    self.message = msg;
+                }
+            }
             "edit.grid" => {
                 if self.editor.is_none() {
                     return Err("edit.grid: no drawing is open for editing".into());
@@ -2639,6 +2717,7 @@ impl UiApp {
             None => Vec::new(),
         };
         let mut press: Option<(&'static str, String)> = None;
+        let mut snapkind: Option<&'static str> = None;
         egui::Panel::bottom("status")
             .exact_size(shell::STATUS_H)
             .frame(egui::Frame::new().fill(t.app_bar).inner_margin(egui::Margin { left: 16, right: 16, top: 0, bottom: 0 }))
@@ -2671,6 +2750,46 @@ impl UiApp {
                                 .color(t.text_disabled),
                         );
                         ui.add_space(8.0);
+                        // ui.inc .cc-snapkinds: the object snap kinds, after QP
+                        if let Some(kinds) = self.editor.as_ref().map(|ed| ed.kinds.clone()) {
+                            let (r, resp) = ui.allocate_exact_size(egui::vec2(26.0, 24.0), egui::Sense::click());
+                            ui.painter().rect(
+                                r,
+                                2.0,
+                                if resp.hovered() { t.hover } else { Color32::TRANSPARENT },
+                                egui::Stroke::new(1.0, t.line),
+                                egui::StrokeKind::Inside,
+                            );
+                            ribbon::paint_icon(
+                                ui.painter(),
+                                egui::Rect::from_center_size(r.center(), egui::vec2(12.0, 12.0)),
+                                "chevron-up",
+                                t.text,
+                            );
+                            let resp = resp.on_hover_text(lang::cad("ui.choose_snaps")).on_hover_cursor(egui::CursorIcon::PointingHand);
+                            egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+                                ui.label(RichText::new(lang::cad("ui.object_snaps")).font(theme::bold(13.0)).color(t.text_strong));
+                                for k in cc_cad_geom::pick::SNAP_KINDS {
+                                    let mut on = kinds.contains(&k);
+                                    // view.js SNAP_LABELS (the JS's own English words)
+                                    let label = match k {
+                                        "end" => "Endpoint",
+                                        "mid" => "Midpoint",
+                                        "cen" => "Center",
+                                        "quad" => "Quadrant",
+                                        "int" => "Intersection",
+                                        "perp" => "Perpendicular",
+                                        "tan" => "Tangent",
+                                        "near" => "Nearest",
+                                        "node" => "Node",
+                                        _ => "Insertion",
+                                    };
+                                    if ui.checkbox(&mut on, label).changed() {
+                                        snapkind = Some(k);
+                                    }
+                                }
+                            });
+                        }
                         for (label, tip, cmd, on) in aids.iter().rev() {
                             if shell::toggle(ui, &t, label, *on).on_hover_text(tip).clicked() {
                                 press = Some((cmd, label.clone()));
@@ -2679,6 +2798,9 @@ impl UiApp {
                     });
                 });
             });
+        if let Some(k) = snapkind {
+            self.run_ui("edit.snapkind", &Params { name: Some(k.into()), ..Default::default() });
+        }
         match press {
             Some(("qp", _)) => self.run_ui("props.quick", &Params::default()),
             Some((cmd, label)) => ribbon::press_pub(self, cmd, &label),
@@ -2709,6 +2831,14 @@ impl UiApp {
         layers.sort_by(|a, b| natural_cmp(&a.0, &b.0));
         let editing = self.editor.is_some();
         let current = self.editor.as_ref().map(|ed| ed.eng.doc().current.layer.clone());
+        // the drawing's own layer flags while editing (cadcraft.js renderLayers: on, frozen, locked, plot)
+        let flags: HashMap<String, [bool; 4]> = self
+            .editor
+            .as_ref()
+            .map(|ed| ed.eng.doc().layers.iter().map(|(n, l)| (n.clone(), [l.on, l.frozen, l.locked, l.plot])).collect())
+            .unwrap_or_default();
+        let mut new_layer = self.look.new_layer.take();
+        let mut tool_cmd: Option<(&'static str, String)> = None;
         // cadcraft.js renderBlocks / renderInfo: the named blocks (with their uses) and the drawing's facts
         let mut blocks: Vec<(String, usize)> = Vec::new();
         let facts: Vec<(String, String)> = match self.editor.as_ref() {
@@ -2784,28 +2914,135 @@ impl UiApp {
                     ui.spacing_mut().item_spacing.y = 6.0;
                     shell::section_frame().show(ui, |ui| {
                         shell::section_head(ui, &t, &lang::cad("ui.layers"), |ui| {
-                            if shell::link(ui, &t, "", &lang::cad("opt.showall")).clicked() {
-                                act = Some(("layer.all", Params::default()));
+                            if !editing {
+                                if shell::link(ui, &t, "", &lang::cad("opt.showall")).clicked() {
+                                    act = Some(("layer.all", Params::default()));
+                                }
+                                return;
+                            }
+                            // ui.inc: Tools (the layer commands' menu), then + New layer (right to left here)
+                            let tools = shell::link(ui, &t, "", &lang::cad("layers.tools")).on_hover_text(lang::cad("layers.tools.title"));
+                            egui::Popup::menu(&tools).show(|ui| {
+                                for x in [
+                                    Some(("LAYISO", "layers.tools.iso")),
+                                    Some(("LAYUNISO", "layers.tools.uniso")),
+                                    Some(("LAYOFF", "layers.tools.off")),
+                                    Some(("LAYFRZ", "layers.tools.frz")),
+                                    Some(("LAYMCUR", "layers.tools.mcur")),
+                                    None,
+                                    Some(("LAYON", "layers.tools.on")),
+                                    Some(("LAYTHW", "layers.tools.thw")),
+                                    None,
+                                    Some(("LAYMRG", "layers.tools.mrg")),
+                                    Some(("LAYDEL", "layers.tools.del")),
+                                    Some(("RENAME", "layers.tools.ren")),
+                                ] {
+                                    match x {
+                                        None => {
+                                            ui.separator();
+                                        }
+                                        Some((cmd, key)) => {
+                                            let label = lang::cad(key);
+                                            if ui.button(format!("{label}    {cmd}")).clicked() {
+                                                tool_cmd = Some((cmd, label));
+                                                ui.close();
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            if shell::link(ui, &t, "plus", &lang::cad("ui.new_layer")).clicked() {
+                                new_layer = if new_layer.is_some() { None } else { Some(String::new()) };
                             }
                         });
+                        // the New layer form (ui.inc data-layer-form): a name and Add
+                        if let Some(name) = new_layer.as_mut() {
+                            let mut add = false;
+                            ui.horizontal(|ui| {
+                                let r =
+                                    ui.add(shell::field(name).hint_text(lang::cad("ui.layer_name")).desired_width(140.0).char_limit(255));
+                                add = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                add |= ui.add(shell::Btn::primary(lang::cad("ui.add"))).clicked();
+                            });
+                            if add && !name.trim().is_empty() {
+                                act = Some(("layer.new", Params { name: Some(name.trim().to_string()), ..Default::default() }));
+                            }
+                        }
                         for (name, c) in &layers {
-                            let on = !self.hidden.contains(name);
+                            let f = flags.get(name).copied().unwrap_or([true, false, false, true]);
+                            let on = if editing { f[0] && !f[1] } else { !self.hidden.contains(name) };
                             let cur = current.as_deref() == Some(name.as_str());
                             ui.horizontal(|ui| {
                                 ui.set_min_height(32.0);
                                 ui.spacing_mut().item_spacing.x = 8.0;
                                 if editing {
-                                    let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                                    // the current dot: a click makes the layer current (cadcraft.js setCurrent)
+                                    let (r, resp) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::click());
                                     if cur {
                                         ui.painter().circle_filled(r.center(), 5.5, t.text_strong);
                                     } else {
                                         ui.painter().circle_stroke(r.center(), 5.0, egui::Stroke::new(1.0, t.line));
                                     }
+                                    let tip = lang::cad(if cur { "app.current_layer" } else { "app.make_current" });
+                                    if resp.on_hover_text(tip).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() && !cur {
+                                        act = Some(("layer.current", Params { name: Some(name.clone()), ..Default::default() }));
+                                    }
                                 }
                                 shell::swatch(ui, &t, 16.0, *c);
                                 let font = if cur { theme::bold(14.0) } else { egui::FontId::proportional(14.0) };
                                 let ink = if on { t.text } else { t.text_disabled };
-                                ui.label(RichText::new(name).font(font).color(ink));
+                                let nr = ui.add(egui::Label::new(RichText::new(name).font(font).color(ink)).sense(egui::Sense::click()));
+                                if editing && nr.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                    act = Some(("layer.current", Params { name: Some(name.clone()), ..Default::default() }));
+                                }
+                                if editing {
+                                    // the flags, right to left: plot, lock, freeze, on (0.7: pressed ones in the orange)
+                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.spacing_mut().item_spacing.x = 2.0;
+                                        for (key, pressed, icon, tip) in [
+                                            ("plot", !f[3], "printer", if f[3] { "app.do_not_plot_layer" } else { "app.plot_layer" }),
+                                            (
+                                                "locked",
+                                                f[2],
+                                                if f[2] { "lock" } else { "unlock" },
+                                                if f[2] { "app.layer.unlock" } else { "app.layer.lock" },
+                                            ),
+                                            ("frozen", f[1], "snow", if f[1] { "app.layer.thaw" } else { "app.layer.freeze" }),
+                                            (
+                                                "on",
+                                                !f[0],
+                                                if f[0] { "eye" } else { "eye-slash" },
+                                                if f[0] { "app.turn_off" } else { "app.turn_on" },
+                                            ),
+                                        ] {
+                                            let (r, resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
+                                            if resp.hovered() {
+                                                ui.painter().rect(
+                                                    r,
+                                                    2.0,
+                                                    t.hover,
+                                                    egui::Stroke::new(1.0, t.line),
+                                                    egui::StrokeKind::Inside,
+                                                );
+                                            }
+                                            let col = if pressed { t.layers[6] } else { t.text_dim };
+                                            ribbon::paint_icon(
+                                                ui.painter(),
+                                                egui::Rect::from_center_size(r.center(), egui::vec2(15.0, 15.0)),
+                                                icon,
+                                                col,
+                                            );
+                                            if resp.on_hover_text(lang::cad(tip)).on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
+                                            {
+                                                act = Some((
+                                                    "layer.flag",
+                                                    Params { name: Some(format!("{name}={key}")), ..Default::default() },
+                                                ));
+                                            }
+                                        }
+                                    });
+                                    return;
+                                }
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     let (r, resp) = ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
                                     if resp.hovered() {
@@ -2893,6 +3130,10 @@ impl UiApp {
                 });
             },
         );
+        self.look.new_layer = if matches!(act, Some(("layer.new", _))) { None } else { new_layer };
+        if let Some((cmd, label)) = tool_cmd {
+            ribbon::press_pub(self, cmd, &label);
+        }
         if let Some((id, p)) = act {
             if id == "layers.close" {
                 self.show_layers = false;
@@ -3707,6 +3948,47 @@ mod tests {
             assert!(
                 !b.cadprops.autohide && b.cadprops.hide.get("x") == Some(&vec!["a".to_string()]) && !b.cadprops.hide.contains_key("line")
             );
+        });
+    }
+
+    /// M17.13: the Layers panel's rows (cadcraft.js renderLayers / setCurrent / the New layer form) and the status
+    /// bar's Object snaps, as commands.
+    #[test]
+    fn layer_rows_and_snap_kinds() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let mut app = UiApp::default();
+            app.run("file.new", &Params::default()).unwrap();
+            let run = |app: &mut UiApp, id: &str, name: &str| app.run(id, &Params { name: Some(name.into()), ..Default::default() });
+            run(&mut app, "layer.new", "Walls").unwrap();
+            assert_eq!(app.message, "Added layer Walls and made it current.");
+            assert_eq!(app.editor.as_ref().unwrap().eng.doc().current.layer, "Walls");
+            run(&mut app, "layer.new", "Walls").unwrap();
+            assert_eq!(app.message, "There is already a layer called Walls.");
+            // the current layer is not turned off; another one is
+            run(&mut app, "layer.flag", "Walls=on").unwrap();
+            assert_eq!(app.message, "That is the current layer. Make another layer current first.");
+            run(&mut app, "layer.current", "0").unwrap();
+            assert_eq!(app.message, "Current layer: 0");
+            for f in ["on", "frozen", "locked", "plot"] {
+                run(&mut app, "layer.flag", &format!("Walls={f}")).unwrap();
+            }
+            {
+                let d = app.editor.as_ref().unwrap().eng.doc();
+                let l = d.layers.get("Walls").unwrap();
+                assert!(!l.on && l.frozen && l.locked && !l.plot);
+            }
+            // one undo step each
+            app.run("edit.undo", &Params::default()).unwrap();
+            assert!(app.editor.as_ref().unwrap().eng.doc().layers.get("Walls").unwrap().plot);
+            assert!(run(&mut app, "layer.flag", "Walls=color").is_err());
+            assert!(run(&mut app, "layer.current", "Nope").is_err());
+            // snap kinds: the default set, then one more and one fewer
+            assert_eq!(app.editor.as_ref().unwrap().kinds, crate::edit::SNAP_KINDS.to_vec());
+            run(&mut app, "edit.snapkind", "tan").unwrap();
+            run(&mut app, "edit.snapkind", "end").unwrap();
+            let k = &app.editor.as_ref().unwrap().kinds;
+            assert!(k.contains(&"tan") && !k.contains(&"end"));
+            assert!(run(&mut app, "edit.snapkind", "bogus").is_err());
         });
     }
 

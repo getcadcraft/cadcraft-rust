@@ -332,11 +332,13 @@ pub struct Look {
     pub grid: bool,
     /// the Start drawing card has gone (0.5 `hideHint()`: a command ran, or the drawing has objects)
     pub hint_gone: bool,
+    /// the Layers panel's New layer form: the name being typed (None: closed)
+    pub new_layer: Option<String>,
 }
 
 impl Default for Look {
     fn default() -> Self {
-        Look { grid: true, hint_gone: false }
+        Look { grid: true, hint_gone: false, new_layer: None }
     }
 }
 
