@@ -21,6 +21,12 @@
 //!   stack:on|off | levels:<file>:<page>=<length>;… (a blank length takes the sheet out of the stack).
 //! - `takeoff.edit` name = copy | cut | paste | paste-in-place | duplicate | select-all | select-none | delete | escape.
 //! - `takeoff.deduct` name = on | off (no name: toggles).
+//! - `takeoff.pointer` name = `x,y[,shift]`: a click through pointFor (Snap to the drawing's linework, 45°);
+//!   `takeoff.hover` the same, where the pointer rests (typed lengths go toward it); `takeoff.pdrag` name =
+//!   `x1,y1:x2,y2[,shift]`: a corner of the selected mark dragged, its end through pointFor.
+//! - `takeoff.snap` name = on | off (F3); `takeoff.snap45` name = on | off (Settings › Snap to 45° without Shift);
+//!   `takeoff.type` name = TEXT: the typed entry of the run, outline, cut-out or circle being drawn (Enter; an empty
+//!   text finishes it).
 //! - `takeoff.click` name = `x,y[,shift]` (PDF user space of the open sheet): a click with the tool.
 //! - `takeoff.mark` name = `select:<id>` | `field=text` (see `TakeoffMode::mark_field`).
 //! - `takeoff.area` name = see `TakeoffMode::area_edit`.
@@ -269,6 +275,44 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             Ok(())
         }
         "takeoff.note" => tk.note_edit(&name),
+        "takeoff.pointer" | "takeoff.hover" | "takeoff.pdrag" => {
+            // the pointer through pointFor (Snap, 45°): a click, where it rests, or a press, a move and the release
+            let shift = name.ends_with(",shift");
+            let spec = name.trim_end_matches(",shift");
+            let key = p.takeoff.cur_sheet.clone();
+            match id {
+                "takeoff.pointer" => {
+                    let q = p.tk_point_for(pt(spec, id)?, shift);
+                    p.takeoff.click_mod(&key, q, shift);
+                }
+                "takeoff.hover" => {
+                    let q = p.tk_point_for(pt(spec, id)?, shift);
+                    p.takeoff.cursor = Some(q);
+                }
+                _ => {
+                    let (a, b) = spec.split_once(':').ok_or("takeoff.pdrag: name = x1,y1:x2,y2[,shift]")?;
+                    let (a, b) = (pt(a, id)?, pt(b, id)?);
+                    let tk = &mut p.takeoff;
+                    tk.drag = if tk.tool == "select" && tk.paste.is_none() { tk.handle_at(&key, a) } else { None };
+                    if p.takeoff.drag.is_some() {
+                        let q = p.tk_point_for(b, shift);
+                        p.takeoff.cursor = Some(q);
+                        p.takeoff.drag_to(q);
+                        p.takeoff.commit_drag();
+                    }
+                }
+            }
+            Ok(())
+        }
+        "takeoff.snap" => {
+            p.tk_toggle_snap(name != "off");
+            Ok(())
+        }
+        "takeoff.snap45" => {
+            p.takeoff.snap.s45 = name != "off";
+            Ok(())
+        }
+        "takeoff.type" => p.tk_type(&name),
         "takeoff.group" => tk.group_edit(&name),
         "takeoff.compare" => p.takeoff_compare(&name),
         "takeoff.view3d" => p.takeoff_3d(&name),

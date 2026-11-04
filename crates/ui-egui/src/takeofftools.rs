@@ -86,6 +86,8 @@ pub struct TakeoffMode {
     pub edits: std::collections::HashMap<String, (String, String)>,
     /// the New bid area window (its name field) and the Manage bid areas window
     pub area_dialog: Option<String>,
+    /// snapping to the drawing's linework, 45° and the typed entry (takeoffsnap.rs)
+    pub snap: crate::takeoffsnap::SnapState,
     pub manage_areas: bool,
     pub new_area: String,
 }
@@ -198,6 +200,7 @@ impl TakeoffMode {
             px: 1.0,
             edits: std::collections::HashMap::new(),
             area_dialog: None,
+            snap: crate::takeoffsnap::SnapState::default(),
             manage_areas: false,
             new_area: String::new(),
         }

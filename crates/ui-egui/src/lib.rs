@@ -131,6 +131,7 @@ pub mod takeoffedit;
 pub mod takeoffnotes;
 pub mod takeoffprops;
 pub mod takeoffrev;
+pub mod takeoffsnap;
 pub mod takeofftools;
 pub mod theme;
 pub mod tkbench;

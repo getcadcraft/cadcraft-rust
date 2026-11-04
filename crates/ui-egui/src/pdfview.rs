@@ -664,7 +664,16 @@ impl PdfView {
             self.sync_takeoff();
             let key = self.takeoff.cur_sheet.clone();
             let shift = ui.input(|i| i.modifiers.shift);
-            self.takeoff.cursor = resp.hover_pos().map(|p| self.to_pdf(origin, p));
+            // pointFor: the pointer lands on the drawing's linework (Snap) or 45° from the last point
+            // (pointerleave clears it; with no pointer at all — scripts — what a command set stays)
+            if let Some(p) = resp.hover_pos() {
+                let raw = self.to_pdf(origin, p);
+                self.takeoff.cursor = Some(self.tk_point_for(raw, shift));
+            } else if ui.input(|i| i.pointer.has_pointer()) {
+                self.takeoff.cursor = None;
+                self.takeoff.snap.hit = None;
+            }
+            crate::takeoffsnap::keys(self, ui);
             if resp.drag_started_by(egui::PointerButton::Primary) {
                 // a corner (or an arc's middle) of the selected mark is grabbed where the press began
                 let at = ui.input(|i| i.pointer.press_origin()).or_else(|| resp.interact_pointer_pos());
@@ -677,7 +686,8 @@ impl PdfView {
             }
             if self.takeoff.drag.is_some() && resp.dragged_by(egui::PointerButton::Primary) {
                 if let Some(p) = resp.interact_pointer_pos() {
-                    let q = self.to_pdf(origin, p);
+                    let raw = self.to_pdf(origin, p);
+                    let q = self.tk_point_for(raw, shift);
                     self.takeoff.drag_to(q);
                 }
             } else if resp.dragged() {
@@ -692,12 +702,13 @@ impl PdfView {
             } else if resp.clicked()
                 && let Some(p) = resp.interact_pointer_pos()
             {
-                let q = self.to_pdf(origin, p);
+                let raw = self.to_pdf(origin, p);
+                let q = self.tk_point_for(raw, shift);
                 self.takeoff.click_mod(&key, q, shift);
             } else if resp.secondary_clicked() {
                 self.takeoff.finish(&key);
             }
-            if !ui.ctx().egui_wants_keyboard_input() {
+            if !ui.ctx().egui_wants_keyboard_input() && self.takeoff.snap.typein.is_none() {
                 let (enter, esc, e, r) = ui.input(|i| {
                     let plain = !i.modifiers.command && !i.modifiers.alt;
                     (
@@ -935,6 +946,9 @@ impl PdfView {
                 o + Vec2::new((vx * z) as f32, (vy * z) as f32)
             };
             self.takeoff.draw(&painter, &self.takeoff.sheet(self.page), &at);
+            if self.mode == "takeoff" {
+                self.tk_draw_snap(&painter, &at, t);
+            }
         }
         if let Some(e) = &self.error {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, e, egui::FontId::proportional(14.0), t.text);
@@ -1292,6 +1306,7 @@ impl PdfView {
             if let Some(id) = act {
                 self.takeoff.toolbar_click(&id, &sheet);
             }
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 2)).show(ui, |ui| self.tk_snap_row(ui, t));
             return save;
         }
         {

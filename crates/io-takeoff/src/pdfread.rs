@@ -298,13 +298,16 @@ pub fn page_linework(doc: &Doc, index: usize, max_segs: usize) -> Result<snap::L
                 return;
             }
             let c = props.transform.as_coeffs();
+            // pdf.js keeps a path's points in a Float32Array (constructPath's path data): the snap points are those
+            #[allow(clippy::cast_possible_truncation)]
+            let f = |v: f64| f64::from(v as f32);
             let mut d = Vec::new();
             for el in path.elements() {
                 match el {
-                    PathEl::MoveTo(p) => d.extend_from_slice(&[0.0, p.x, p.y]),
-                    PathEl::LineTo(p) => d.extend_from_slice(&[1.0, p.x, p.y]),
-                    PathEl::CurveTo(a, b, p) => d.extend_from_slice(&[2.0, a.x, a.y, b.x, b.y, p.x, p.y]),
-                    PathEl::QuadTo(a, p) => d.extend_from_slice(&[3.0, a.x, a.y, p.x, p.y]),
+                    PathEl::MoveTo(p) => d.extend_from_slice(&[0.0, f(p.x), f(p.y)]),
+                    PathEl::LineTo(p) => d.extend_from_slice(&[1.0, f(p.x), f(p.y)]),
+                    PathEl::CurveTo(a, b, p) => d.extend_from_slice(&[2.0, f(a.x), f(a.y), f(b.x), f(b.y), f(p.x), f(p.y)]),
+                    PathEl::QuadTo(a, p) => d.extend_from_slice(&[3.0, f(a.x), f(a.y), f(p.x), f(p.y)]),
                     PathEl::ClosePath => d.push(4.0),
                 }
             }

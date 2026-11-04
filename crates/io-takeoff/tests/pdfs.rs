@@ -195,8 +195,10 @@ fn kitchen_plan_sheet() {
     let idx = SnapIndex::new(&lw);
     let c1 = idx.snap(931.6, 1158.3, 3.0, Kinds::default()).unwrap();
     let c2 = idx.snap(929.7, 1327.1, 3.0, Kinds::default()).unwrap();
-    assert!(c1.kind == "end" && near(c1.x, 930.48, 1e-6) && near(c1.y, 1157.28, 1e-6), "{c1:?}");
-    assert!(c2.kind == "end" && near(c2.x, 930.48, 1e-6) && near(c2.y, 1328.28, 1e-6), "{c2:?}");
+    // pdf.js hands the path's points over as float32: snaps land on those values (930.47998046875, as 0.5 saves)
+    let f = |v: f32| f64::from(v);
+    assert!(c1.kind == "end" && c1.x == f(930.48) && c1.y == f(1157.28), "{c1:?}");
+    assert!(c2.kind == "end" && c2.x == f(930.48) && c2.y == f(1328.28), "{c2:?}");
     let ft = u::parse_length("9'-6\"", "ft").unwrap();
     let (snap_fpu, _) = u::calibrate(c1.x, c1.y, c2.x, c2.y, ft).unwrap();
     assert!(near(snap_fpu, 1.0 / 18.0, 1e-6));

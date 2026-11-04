@@ -37,6 +37,9 @@ pub struct Drag {
     pub pts: Vec<P>,
     pub holes: Vec<Vec<P>>,
     pub moved: bool,
+    /// where a 45° step is measured from while the corner moves (the corner before it; a run's second point for its
+    /// first; none for a count or an arc's middle)
+    pub anchor: Option<P>,
 }
 
 /// An arc's middle handle: its ring, its start corner and where the handle sits.
@@ -270,13 +273,21 @@ impl TakeoffMode {
         for (r, ring) in std::iter::once(&pts).chain(holes.iter()).enumerate() {
             for (i, c) in ring.iter().enumerate() {
                 if G::dist(c, &q) <= hit {
-                    return Some(Drag { id, ring: r, i, arc: false, pts: pts.clone(), holes: holes.clone(), moved: false });
+                    let kind = s(m.get("kind"));
+                    let anchor = if kind == "count" {
+                        None
+                    } else if kind == "linear" && i == 0 {
+                        ring.get(1).copied()
+                    } else {
+                        ring.get((i + ring.len() - 1) % ring.len()).copied()
+                    };
+                    return Some(Drag { id, ring: r, i, arc: false, pts: pts.clone(), holes: holes.clone(), moved: false, anchor });
                 }
             }
         }
         for h in arc_handles(m) {
             if G::dist(&h.at, &q) <= hit {
-                return Some(Drag { id, ring: h.ring, i: h.i, arc: true, pts, holes, moved: false });
+                return Some(Drag { id, ring: h.ring, i: h.i, arc: true, pts, holes, moved: false, anchor: None });
             }
         }
         None
