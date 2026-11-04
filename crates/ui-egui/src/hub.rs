@@ -429,42 +429,44 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
 }
 
 /// The website's drafting paper (site.css body): 8 px and 40 px grid lines in paper space, the same grid as dots in
-/// model space.
+/// model space. One 40 × 40 tile is drawn once per look and repeated by the GPU (one quad per frame).
 fn paper_grid(p: &egui::Painter, r: egui::Rect, t: &Tokens, dark: bool) {
     let minor = t.canvas_grid.gamma_multiply(0.45);
     let major = t.canvas_grid.gamma_multiply(0.95);
-    if dark {
-        let mut y = r.top();
-        while y < r.bottom() {
-            let mut x = r.left();
-            while x < r.right() {
-                let maj = ((x - r.left()) as i32) % 40 == 0 && ((y - r.top()) as i32) % 40 == 0;
-                p.circle_filled(egui::pos2(x + 1.0, y + 1.0), if maj { 1.25 } else { 0.8 }, if maj { major } else { minor });
-                x += 8.0;
+    let key = egui::Id::unique(("cc-paper-tile", dark, minor, major));
+    let ctx = p.ctx();
+    let tex = ctx.data(|d| d.get_temp::<egui::TextureHandle>(key)).unwrap_or_else(|| {
+        let n = 40usize;
+        let mut img = egui::ColorImage::filled([n, n], Color32::TRANSPARENT);
+        for y in 0..n {
+            for x in 0..n {
+                let c = if dark {
+                    // dots: 1.25 px at every 40 px, 0.8 px at every 8 px (one pixel each at 100 %)
+                    if x == 0 && y == 0 || (x <= 1 && y <= 1 && (x + y) <= 1) {
+                        major
+                    } else if x % 8 == 0 && y % 8 == 0 {
+                        minor
+                    } else {
+                        continue;
+                    }
+                } else if x == 0 || y == 0 {
+                    major
+                } else if x % 8 == 0 || y % 8 == 0 {
+                    minor
+                } else {
+                    continue;
+                };
+                if let Some(px) = img.pixels.get_mut(y * n + x) {
+                    *px = c;
+                }
             }
-            y += 8.0;
         }
-        return;
-    }
-    let mut i = 0;
-    let mut x = r.left();
-    while x < r.right() {
-        p.line_segment(
-            [egui::pos2(x + 0.5, r.top()), egui::pos2(x + 0.5, r.bottom())],
-            egui::Stroke::new(1.0, if i % 5 == 0 { major } else { minor }),
-        );
-        x += 8.0;
-        i += 1;
-    }
-    let (mut i, mut y) = (0, r.top());
-    while y < r.bottom() {
-        p.line_segment(
-            [egui::pos2(r.left(), y + 0.5), egui::pos2(r.right(), y + 0.5)],
-            egui::Stroke::new(1.0, if i % 5 == 0 { major } else { minor }),
-        );
-        y += 8.0;
-        i += 1;
-    }
+        let h = ctx.load_texture("cc-paper-tile", img, egui::TextureOptions::NEAREST_REPEAT);
+        ctx.data_mut(|d| d.insert_temp(key, h.clone()));
+        h
+    });
+    let uv = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(r.width() / 40.0, r.height() / 40.0));
+    p.image(tex.id(), r, uv, Color32::WHITE);
 }
 
 /// The website's dimension-line divider (site.css .dim-divider): a 1 px ink line with ticks at both ends, the label

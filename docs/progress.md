@@ -36,7 +36,16 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   0.7's toolbar across the window (Select, Draw, Revise, Annotate, Measure, Edit with More; icons from ui.inc) with the
   colours, scale, Pages and Save on the row under it, the Sheets / Markup panels / Takeoff docks under grips.
   mcuidiff 1243/1243 files, mkuidiff 17 checks 0 different, tkopsdiff 61 checks 0 different (262/262 status lines).
-- Next: the other apps' own bars and panels onto `shell::toolbar` / `shell::grip` (gaps item 12).
+- M17.3–M17.7: DetailCraft (File, Place, Connect with More, Edit with More, Output with Export / Drawings menus,
+  Views: the turns, Bolts, Settings), PartCraft (File with Export, Sketch, Features with More, Edit, View; the sketch's
+  own bar stays a row while a sketch is open; Properties | Parameters as tabs), BimCraft's IFC view (View, Edit, Build,
+  Output; Back / Left / projection / style stay in the app bar) and CivilCraft (File, Surface, Design, Edit, View with
+  Plan | 3D and the 3D turns; the site name, GIS, Settings and the 3D view's choices on a row under it) as 0.7's
+  toolbars, every side dock under a grip; the start screen's drafting grid drawn as one repeated 40 px tile (one quad a
+  frame instead of 25,000 dots in model space).
+- Next: TakeoffCraft's own tool rows (its tools live in its panel), the 3D views' view cubes and the remaining dialogs
+  (gaps item 12).
+
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 
 - M4.57 (panes.rs, paneview.rs): split panes as panes.js and view.js's pane handling. SPLIT / VPORTS in the model ask

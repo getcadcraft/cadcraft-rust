@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-03 M17.3–M17.7: DetailCraft, PartCraft, BimCraft (IFC view) and CivilCraft with 0.7's toolbars and docked grips; the start screen's grid as one tile; every harness at 0 differences.
 - 2026-11-03 M17.2: ModelCraft's tools and MarkupCraft's tools as 0.7's toolbar groups, their docks under grips, the viewer's app-bar toggles; mcuidiff 1243/1243, mkuidiff and tkopsdiff 0 different.
 - 2026-11-03 M17.1: the 0.7 look — 0.7's tokens (five presets), Archivo, the app shell (app bar, status bar, toolbar groups, dock grips, tabs, command area), CadCraft's whole window, the start screen as the website's /apps page; every harness unchanged at 0 differences (kdiff 5250/5250 en + es-MX, mk / cv / dc / pc / tk / mc / bm all identical).
 - 2026-11-03 M4.57–M4.60: CadCraft's last 0.5 gaps — split panes (SPLIT / VPORTS / LINKVIEWS, saved in the VPORT table; panediff 2,010 cases 0 differences in en and es-MX), Settings › CadCraft's corner indicator (axis icon by default, the Model tab's view cube, the 3D tab's axes), My tools with CUIx import (mytoolsdiff 12,023 cases 0 differences; a 1,900-button CUIx 74 ms vs the JS's 720 ms), SHEETSET on the web (directory picker or read-only fallback); kdiff 5250/5250 en and es-MX, idiff 78 kit files 0, plotdiff 32/32. The point cloud overscan was left out: not provably equal to a full redraw.

@@ -165,9 +165,10 @@ the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG im
     contrast), Archivo, the app bar (mark, swatch, name™, test chip, bordered buttons, Paper | Model), the status bar
     and its toggles, CadCraft's whole window (0.7 toolbar groups that wrap, "Layers and drawing" with blocks / sheet
     set / drawing, the Properties grip, tabs, the command area, the grid and axis icon, the Start drawing card) and
-    the start screen laid out as the website's /apps page are in (docs/ui-notes.md). Still the old look: the other
-    apps' own bars and panels (ModelCraft's and MarkupCraft's toolbars are in since M17.2; TakeoffCraft's own tool rows, CivilCraft,
-    DetailCraft, PartCraft and BimCraft's panels) — they get the shell (app bar, status bar, theme, fonts, widgets)
-    but not yet 0.7's toolbar groups and dock grips (`shell::toolbar`, `shell::grip` are ready for them). Not in
+    the start screen laid out as the website's /apps page are in (docs/ui-notes.md). The other
+    apps' toolbars and docks are 0.7's since M17.2–M17.6 (ModelCraft, MarkupCraft, DetailCraft, PartCraft, BimCraft's
+    IFC view, CivilCraft); still the old look: TakeoffCraft's tool rows (in its panel), PartCraft's sketch bar,
+    BimCraft's draw-mode bars, the panels' inner widgets (they use the themed egui widgets, not 0.7's exact field and
+    tab shapes everywhere), the dialogs' layouts. Not in
     CadCraft's window yet: the layer row's freeze / lock / plot flags, "New layer" and "Tools", clicking a layer name
     to make it current, the snap-kinds menu after QP, the command history's first lines ("CadCraft is ready…").
