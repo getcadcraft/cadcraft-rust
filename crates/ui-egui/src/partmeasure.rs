@@ -184,7 +184,7 @@ impl PartView {
 
     /// measure-ui.js `start()`.
     pub fn measure_start(&mut self) {
-        if self.mode == Mode::Sketch {
+        if self.mode == Mode::Sketch || self.drawing.is_some() {
             self.note = tr("app.measure.model_only");
             return;
         }
@@ -361,7 +361,7 @@ impl PartView {
 
     /// measure-ui.js `mass()`: mass properties of the part.
     pub fn measure_mass(&mut self) {
-        if self.mode == Mode::Sketch {
+        if self.mode == Mode::Sketch || self.drawing.is_some() {
             self.note = tr("app.measure.mass_model_only");
             return;
         }
@@ -497,7 +497,7 @@ impl PartView {
 
     /// section-ui.js `start()`.
     pub fn section_start(&mut self) {
-        if self.mode == Mode::Sketch {
+        if self.mode == Mode::Sketch || self.drawing.is_some() {
             self.note = tr("section.blocked");
             return;
         }

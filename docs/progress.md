@@ -2,6 +2,22 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M13.9 PartCraft drawings (PDF) (agent, work/partfin)
+
+- `crates/ui-egui/src/partdraw.rs`: partcraft.js drawing mode on the mesh kernel — the toolbar's Drawing group
+  (Drawing, then Datum / Frame / Finish / Detail / PDF / Back; Sketch and Features hidden while the sheet is open),
+  the sheet drawn as sheetview.js draws it (fit, wheel zoom, middle / right drag pan, notes dragged, hover boxes), the
+  views and section A-A from kernel_section.rs, GD&T notes placed with a click (snapped to the nearest line within
+  2.5 mm), the sheet panel (paper, section and its cut, detail B, hole table, title block, revisions) and a note's own
+  panel, the keys (Esc, Delete, arrows nudge 1 mm, F fits), the Edit menu's drawing states, PDF from the sheet or
+  from the model (drawing.rs `to_pdf`). Every change is one undo step; selecting a feature leaves the sheet; Measure
+  and Section say "model only" there. Commands `part.drawing` / `part.drawing.set`.
+- Parity: `pcuidiff-partfin.mjs --scenario drawing` (pchost-partfin.mjs: partcraft.js drawing mode with the real
+  drawing.js, gdt.js, threads.js; the PDF compared inflated, dates out): 93 steps + 6 files (PDF, save, STL, 3MF,
+  STEP, IFC) identical in en and es-MX. Harness fixes in the copies: es-MX rebuild notes stripped, the newest of
+  several async PDF exports kept, the Edit menu's drawing states and selectFeature leaving the sheet as 0.5 does.
+- Speed: the scenario's 93 commands take 331 ms in the app against 760 ms of JS ops (2.3x).
+
 ## 2026-10-22 — M13.8 PartCraft DXF of a sketch or face, design-table import (agent, work/part)
 
 - `crates/ui-egui/src/partfiles.rs`: partcraft.js `exportDxf` — Export › DXF takes the open sketch, else the selected

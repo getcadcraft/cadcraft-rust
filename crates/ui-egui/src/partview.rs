@@ -53,6 +53,18 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "M",
         "{name: toggle|on|off|mass|clear|copy|escape|rows|density:<g/cm³>} → measure-ui.js (rows: the card in the status line)",
     ),
+    (
+        "part.drawing",
+        "Drawing sheet",
+        "",
+        "{name: enter|back|pdf[@<ms>]|clock:<ms>|tool:datum|fcf|finish|detail|click:x,y (sheet mm)|sel:<note id>|delete|key:Escape|Delete|ArrowLeft…|f|drag:<id>:dx,dy} → partcraft.js drawing mode",
+    ),
+    (
+        "part.drawing.set",
+        "Drawing sheet: set a field",
+        "",
+        "{name: \"<field>=<value>\": sheet|section|at|detail|detail_r|detail_scale|holes|title:<k>|rev_add|rev:<i>:<k>|rev_delete:<i>; with a note selected letter|char|tol|dia|mod|datum:<i>|dmod:<i>|ra|process|note}",
+    ),
     ("part.measure.at", "Measure: pick by name", "", "{name: snap:<i> | edge:<i> | face:<name>[|x,y,z] | body|x,y,z}"),
     ("part.measure.click", "Measure: click in the view", "", "{name: x,y[,shift] (view pixels)}"),
     (
@@ -168,6 +180,10 @@ pub struct PartView {
     pub section: crate::partmeasure::Section,
     /// a Design panel's Pick button waiting for a click in the view (design-ui.js `slot`)
     pub slot: Option<crate::partdesign::Slot>,
+    /// the drawing sheet while it is open (partcraft.js mode 'drawing', `drawingState`)
+    pub drawing: Option<crate::partdraw::DrawSt>,
+    /// the clock the sheet's dates use (None = today; `part.drawing=clock:<ms>` pins it)
+    pub clock_ms: Option<f64>,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -256,6 +272,8 @@ impl PartView {
             measure: crate::partmeasure::Measure::default(),
             section: crate::partmeasure::Section::default(),
             slot: None,
+            drawing: None,
+            clock_ms: None,
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -445,6 +463,9 @@ impl PartView {
         }
         self.measure_refresh();
         self.apply_section();
+        if self.drawing.is_some() {
+            self.drawing_refresh();
+        }
     }
 
     fn editing_index(&self) -> Option<usize> {
@@ -739,7 +760,7 @@ impl PartView {
         v
     }
 
-    fn push_undo(&mut self, label: &str, before: Value) {
+    pub(crate) fn push_undo(&mut self, label: &str, before: Value) {
         self.undo.push((label.to_string(), before));
         if self.undo.len() > 200 {
             self.undo.remove(0);
@@ -1172,6 +1193,7 @@ impl PartView {
                 return;
             }
         }
+        self.leave_drawing();
         self.sel_feature = id;
         self.sel_plane = None;
     }
@@ -2360,6 +2382,49 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             let fid = pv.feature_id(&name).ok_or_else(|| format!("part.sketch.on: no feature {name}"))?;
             pv.start_sketch_on(jv::obj(vec![("kind", "ref".into()), ("feature", fid.into())]));
         }
+        "part.drawing" => {
+            let (k, arg) = name.split_once(':').unwrap_or((name.as_str(), ""));
+            match k {
+                "enter" => pv.enter_drawing(),
+                "back" => pv.leave_drawing(),
+                "clock" => pv.clock_ms = arg.trim().parse::<f64>().ok().filter(|x| x.is_finite()),
+                "tool" => pv.drawing_tool(arg),
+                "click" => {
+                    let (x, y) = arg.split_once(',').ok_or("part.drawing: click:x,y")?;
+                    let (x, y) = (x.trim().parse::<f64>().map_err(|e| e.to_string())?, y.trim().parse::<f64>().map_err(|e| e.to_string())?);
+                    if x.is_finite() && y.is_finite() {
+                        pv.drawing_click(x, y);
+                    }
+                }
+                "sel" => {
+                    if let Some(st) = pv.drawing.as_mut() {
+                        st.sel = (!arg.is_empty()).then(|| arg.to_string());
+                        st.tool = None;
+                    }
+                    pv.compose_show();
+                }
+                "delete" => pv.delete_note(),
+                "key" => pv.drawing_key(arg),
+                "drag" => {
+                    let (nid, d) = arg.rsplit_once(':').ok_or("part.drawing: drag:<id>:dx,dy")?;
+                    let (dx, dy) = d.split_once(',').ok_or("part.drawing: drag:<id>:dx,dy")?;
+                    let (dx, dy) =
+                        (dx.trim().parse::<f64>().map_err(|e| e.to_string())?, dy.trim().parse::<f64>().map_err(|e| e.to_string())?);
+                    if dx.is_finite() && dy.is_finite() {
+                        pv.drop_note(nid, dx, dy);
+                    }
+                }
+                _ if name == "pdf" || name.starts_with("pdf@") => {
+                    let at = name.strip_prefix("pdf@").and_then(|m| m.trim().parse::<f64>().ok()).filter(|x| x.is_finite());
+                    let ms = at.or(pv.clock_ms).unwrap_or_else(now_ms);
+                    if let Some((file, bytes, words)) = pv.export_drawing(ms)? {
+                        save_out(app, &file, bytes, words)?;
+                    }
+                }
+                _ => return Err(format!("part.drawing: unknown {name}")),
+            }
+        }
+        "part.drawing.set" => pv.drawing_set(&name)?,
         id if id.starts_with("part.sk.") => sketch_cmd(pv, id, &name)?,
         other => return Err(format!("unknown command {other}")),
     }

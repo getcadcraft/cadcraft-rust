@@ -111,6 +111,7 @@ pub mod panes;
 pub mod paneview;
 pub mod parpanel;
 pub mod partdesign;
+pub mod partdraw;
 pub mod partedit;
 pub mod partfeat;
 pub mod partfiles;

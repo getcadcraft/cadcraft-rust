@@ -45,6 +45,17 @@ impl PartView {
         if self.mode == Mode::Pick {
             return Err(tr("app.edit.picking"));
         }
+        if let Some(st) = self.drawing.as_ref() {
+            let s = st.sel.is_some();
+            return match cmd {
+                "delete" if s => Ok(()),
+                "delete" => Err(tr("app.edit.select_note")),
+                "select-all" => Err(tr("app.edit.notes_one_at_a_time")),
+                "select-none" if s => Ok(()),
+                "select-none" => Err(tr("app.edit.nothing_selected")),
+                _ => Err(tr("app.edit.drawing")),
+            };
+        }
         if self.mode == Mode::Sketch {
             let sk = self.sketch();
             let ents = self.sketch_ents();
@@ -127,6 +138,17 @@ impl PartView {
         }
         if let Err(why) = self.edit_state(cmd, clip.as_ref()) {
             self.note = why;
+            return Ok(clip);
+        }
+        if self.drawing.is_some() {
+            if cmd == "delete" {
+                self.delete_note();
+            } else if cmd == "select-none" {
+                if let Some(st) = self.drawing.as_mut() {
+                    st.sel = None;
+                }
+                self.compose_show();
+            }
             return Ok(clip);
         }
         if self.mode == Mode::Sketch {

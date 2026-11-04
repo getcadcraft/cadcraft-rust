@@ -125,6 +125,8 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         let rect = ui.max_rect();
         if pv.mode == Mode::Sketch {
             crate::partsketchui::stage(ui, rect, pv, &t, dark, &mut act);
+        } else if pv.drawing.is_some() {
+            crate::partdraw::sheet_ui(ui, rect, pv, &t, &mut act);
         } else {
             stage(ui, rect, pv, &t, &mut act);
         }
@@ -151,6 +153,8 @@ fn part_side(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         if pv.tab == "params" {
             parameters(ui, pv, t, act);
+        } else if pv.drawing.is_some() {
+            crate::partdraw::drawing_panel(ui, pv, t, act);
         } else if pv.mode == Mode::Sketch {
             let mut num = std::mem::take(&mut pv.num_entry);
             crate::partsketchui::sketch_props(ui, pv, t, act, &mut num);
@@ -196,17 +200,49 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
     }
     view.push(Tool::new("edges", "bounding-box", cc_part::i18n::t0("app.fillet.edges")).on(pv.view.style.edges));
     view.push(Tool::new("menu:views", "box", tr("ui.tb.views")).tip(tr("views.menu.title")).on(pv.measure.active || pv.section.active));
-    vec![
-        ToolGroup {
-            label: tr("ui.tb.group.file"),
-            tools: vec![
-                Tool::new("new", "file-earmark-plus", tr("ui.tb.file.new")).tip(tr("ui.tb.file.new.title")),
-                Tool::new("save", "download", tr("ui.tb.file.save")).tip(tr("ui.tb.file.save.title")),
-                Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
-            ],
-        },
-        ToolGroup { label: tr("ui.tb.group.sketch"), tools: vec![sketch] },
-        ToolGroup { label: tr("ui.tb.group.features"), tools: features },
+    let drawing = match pv.drawing.as_ref() {
+        // ui.inc's Drawing group: the sheet's tools while it is open, else the button that opens it
+        Some(st) => {
+            let mut tools: Vec<Tool> = [
+                ("datum", "triangle", "dr_datum"),
+                ("fcf", "card-text", "dr_fcf"),
+                ("finish", "check2-all", "dr_finish"),
+                ("detail", "zoom-in", "dr_detail"),
+            ]
+            .iter()
+            .map(|(k, ic, key)| {
+                Tool::new(format!("dr:tool:{k}"), ic, tr(&format!("ui.tb.drawing.{key}")))
+                    .tip(tr(&format!("ui.tb.drawing.{key}.title")))
+                    .on(st.tool.as_deref() == Some(*k))
+            })
+            .collect();
+            tools.push(Tool::new("dr:pdf", "file-earmark-arrow-down", tr("ui.tb.drawing.dr_pdf")).tip(tr("ui.tb.drawing.dr_pdf.title")));
+            tools.push(Tool::new("dr:back", "box", tr("ui.tb.drawing.dr_back")).tip(tr("ui.tb.drawing.dr_back.title")));
+            tools
+        }
+        None => vec![
+            Tool::new("dr:enter", "layout-text-window", tr("ui.tb.drawing.drawing"))
+                .tip(tr("ui.tb.drawing.drawing.title"))
+                .enabled(pv.mode == Mode::Model && pv.regen.mesh.is_some()),
+        ],
+    };
+    let in_dr = pv.drawing.is_some();
+    let mut groups = vec![ToolGroup {
+        label: tr("ui.tb.group.file"),
+        tools: vec![
+            Tool::new("new", "file-earmark-plus", tr("ui.tb.file.new")).tip(tr("ui.tb.file.new.title")),
+            Tool::new("save", "download", tr("ui.tb.file.save")).tip(tr("ui.tb.file.save.title")),
+            Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
+        ],
+    }];
+    if !in_dr {
+        groups.push(ToolGroup { label: tr("ui.tb.group.sketch"), tools: vec![sketch] });
+        groups.push(ToolGroup { label: tr("ui.tb.group.features"), tools: features });
+    }
+    if pv.mode != Mode::Pick {
+        groups.push(ToolGroup { label: tr("ui.tb.group.drawing"), tools: drawing });
+    }
+    groups.extend([
         ToolGroup {
             label: tr("ui.tb.group.edit"),
             tools: vec![
@@ -216,7 +252,8 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             ],
         },
         ToolGroup { label: tr("ui.tb.group.view"), tools: view },
-    ]
+    ]);
+    groups
 }
 
 fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Value>, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
@@ -272,8 +309,13 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
             "redo" => *act = cmd("part.redo", ""),
             "fit" => pv.fit(),
             "edges" => pv.view.style.edges = !pv.view.style.edges,
+            "dr:enter" => *act = cmd("part.drawing", "enter"),
+            "dr:pdf" => *act = cmd("part.drawing", "pdf"),
+            "dr:back" => *act = cmd("part.drawing", "back"),
             x => {
-                if let Some(v) = x.strip_prefix("view:") {
+                if let Some(k) = x.strip_prefix("dr:tool:") {
+                    *act = cmd("part.drawing", format!("tool:{k}"));
+                } else if let Some(v) = x.strip_prefix("view:") {
                     pv.standard(v);
                 } else if let Some(f) = x.strip_prefix("feature:")
                     && let Some((c, _, _)) = crate::partfeat::FEATURE_CMDS.iter().find(|c| c.0 == f)
