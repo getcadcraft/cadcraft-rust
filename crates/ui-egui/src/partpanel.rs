@@ -276,6 +276,7 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             Tool::new("new", "file-earmark-plus", tr("ui.tb.file.new")).tip(tr("ui.tb.file.new.title")),
             Tool::new("save", "download", tr("ui.tb.file.save")).tip(tr("ui.tb.file.save.title")),
             Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
+            Tool::new("live", "globe", "Live".to_string()).tip("Work on this part together (Studio Live)".to_string()).on(pv.live_on),
         ],
     }];
     if !in_dr && !in_asm {
@@ -294,11 +295,15 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             tools: vec![
                 Tool::new("undo", "arrow-counterclockwise", tr("ui.tb.edit.undo")).tip(tr("ui.tb.edit.undo.title")).enabled(if in_asm {
                     pv.asm.as_ref().is_some_and(|s| !s.undo.is_empty())
+                } else if pv.live_on {
+                    pv.live_can.0
                 } else {
                     pv.can_undo()
                 }),
                 Tool::new("redo", "arrow-clockwise", tr("ui.tb.edit.redo")).tip(tr("ui.tb.edit.redo.title")).enabled(if in_asm {
                     pv.asm.as_ref().is_some_and(|s| !s.redo.is_empty())
+                } else if pv.live_on {
+                    pv.live_can.1
                 } else {
                     pv.can_redo()
                 }),
@@ -376,6 +381,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
             _ if !resp.clicked() => {}
             "new" => *act = cmd("part.new", ""),
             "save" => *act = cmd("part.save", ""),
+            "live" => *act = cmd("part.live.window", "open"),
             "sketch" => *act = cmd("part.sketch", ""),
             "pick-done" => *act = cmd("part.pick.done", ""),
             "undo" => *act = cmd("part.undo", ""),

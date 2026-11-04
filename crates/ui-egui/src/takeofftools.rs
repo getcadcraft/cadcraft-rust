@@ -58,6 +58,13 @@ pub struct TakeoffMode {
     /// the 3D button was pressed (the view opens it: it owns the sheets)
     pub want_3d: bool,
     pub message: String,
+    /// in a Studio Live session (takeofflive.rs): Undo / Redo are the person's own steps there, asked for through
+    /// `live_req` (Some(redo))
+    pub live_on: bool,
+    pub live_req: Option<bool>,
+    /// while live: the session's Undo / Redo can act (set each frame), and the Live button was pressed
+    pub live_can: (bool, bool),
+    pub want_live: bool,
     /// the name and type the "Add item" row uses
     new_name: String,
     new_type: String,
@@ -183,6 +190,10 @@ impl TakeoffMode {
             goto: None,
             want_3d: false,
             message: String::new(),
+            live_on: false,
+            live_req: None,
+            live_can: (false, false),
+            want_live: false,
             new_name: String::new(),
             new_type: "count".into(),
             export: None,
@@ -646,14 +657,26 @@ impl TakeoffMode {
         .map(|(k, key, icon)| Tool::new(format!("export:{k}"), icon, tr(key)).tip(tr(&format!("{key}.title"))))
         .collect();
         let edit = vec![
-            Tool::new("undo", "arrow-counterclockwise", tr("tool.undo")).enabled(self.tk.can_undo()),
-            Tool::new("redo", "arrow-clockwise", tr("tool.redo")).enabled(self.tk.can_redo()),
+            Tool::new("undo", "arrow-counterclockwise", tr("tool.undo")).enabled(if self.live_on {
+                self.live_can.0
+            } else {
+                self.tk.can_undo()
+            }),
+            Tool::new("redo", "arrow-clockwise", tr("tool.redo")).enabled(if self.live_on { self.live_can.1 } else { self.tk.can_redo() }),
             Tool::new("edit:copy", "copy", tr("edit.copy")),
             Tool::new("edit:paste", "clipboard-plus", tr("edit.paste")),
             Tool::new("menu:edit", "three-dots", tr("edit.more")),
         ];
         vec![
             ToolGroup { label: tr("group.export"), tools: export },
+            ToolGroup {
+                label: String::new(),
+                tools: vec![
+                    Tool::new("live", "globe", "Live".to_string())
+                        .tip("Work on this takeoff together (Studio Live)".to_string())
+                        .on(self.live_on),
+                ],
+            },
             ToolGroup {
                 label: tr("group.takeoff"),
                 tools: vec![
@@ -716,6 +739,7 @@ impl TakeoffMode {
                 self.toggle_deduct(!self.deduct);
             }
             "3d" => self.want_3d = true,
+            "live" => self.want_live = true,
             _ => {}
         }
     }

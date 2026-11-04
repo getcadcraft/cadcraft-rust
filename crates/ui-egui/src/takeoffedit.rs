@@ -216,6 +216,11 @@ impl TakeoffMode {
     pub fn history(&mut self, redo: bool) {
         self.end_paste(true);
         self.cancel_draft();
+        if self.live_on {
+            // while live, Undo / Redo are the person's own steps in the session (liveapps.rs carries them out)
+            self.live_req = Some(redo);
+            return;
+        }
         let l = if redo { self.tk.redo() } else { self.tk.undo() };
         self.message = match (l, redo) {
             (Some(w), false) => tf("undo.did", &[("what", F::S(w))]),

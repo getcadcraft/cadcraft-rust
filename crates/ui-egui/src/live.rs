@@ -21,7 +21,6 @@ use cc_live::doc::Adapter;
 use cc_live::doc::{DocEvent, LiveDoc};
 #[cfg(not(target_arch = "wasm32"))]
 use cc_live::envelope::Envelope;
-#[cfg(not(target_arch = "wasm32"))]
 use cc_live::msgpack::Value as Mp;
 
 /// One app window's side of Live: implemented by each app's view.
@@ -48,6 +47,15 @@ pub trait LiveView {
     fn tr(&self, key: &str, vars: &[(&str, String)]) -> String;
     /// Show a message on the app's status line.
     fn say(&mut self, msg: String);
+    /// The app's own steps since the last call (live.js's wrapped `change` / `step`): (label, ops, inverse), each with
+    /// its `{o:'g'}` mark from `g()`. Apps that send their steps themselves (DetailCraft: `live_local`) keep the default.
+    fn local_steps(&mut self, _g: &mut dyn FnMut() -> String) -> Vec<(String, Mp, Mp)> {
+        vec![]
+    }
+    /// The shared document as live.js `hash()` sees it (what the convergence checks compare), as JSON.
+    fn live_state(&mut self) -> Option<serde_json::Value> {
+        None
+    }
     /// The hosting UI's own words (Studio's, not in the 0.5 app catalogs): plain English, listed in docs/gaps.md.
     fn label_live_window(&self) -> String {
         "Live session".into()
@@ -73,6 +81,7 @@ pub struct Knock {
 #[cfg(target_arch = "wasm32")]
 pub struct LiveSession {
     pub doc: cc_live::doc::LiveDoc,
+    pub app: &'static str,
 }
 
 /// How this window talks to the session.
@@ -158,7 +167,12 @@ impl LiveSession {
 pub fn hosting_line(s: &LiveSession) -> String {
     let people = s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed").count();
     if s.server.is_some() {
-        format!("Live: hosting at {} · code {} · {} in", s.addr, if s.code.is_empty() { "…" } else { &s.code }, people)
+        // a session open to the LAN is reached at this machine's address, not 0.0.0.0
+        let addr = match (s.addr.strip_prefix("0.0.0.0:"), s.lan.first()) {
+            (Some(port), Some(ip)) => format!("{ip}:{port}"),
+            _ => s.addr.clone(),
+        };
+        format!("Live: hosting at {addr} · code {} · {people} in", if s.code.is_empty() { "…" } else { &s.code })
     } else {
         format!("Live: joined {} · {} others in", s.addr, people)
     }
@@ -211,9 +225,14 @@ pub fn poll<V: LiveView>(v: &mut V) {
             }
         }
     }
+    // the window's own steps first: they were made on the model as it was before what arrived now
+    let steps = v.local_steps(&mut || s.next_group());
     let v0 = v.model_version();
     let c = s.doc.c;
     v.with_adapter(c, &mut |a| {
+        for (label, ops, inverse) in &steps {
+            s.doc.local_change(a, label, ops.clone(), inverse.clone());
+        }
         for e in &got {
             s.doc.message(a, e);
         }
@@ -572,6 +591,14 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                                 ui.label(RichText::new(format!("Code {}", s.code)).strong().size(16.0));
                                 ui.label(RichText::new("Joiners type the code in their Join box (the network finds this session), scan the QR, or open the link:").color(tk.text_dim));
                                 ui.label(RichText::new(&link).monospace().color(tk.text_dim));
+                                ui.label(
+                                    RichText::new(if s.advert.is_some() {
+                                        "Others on this network find the session by its code."
+                                    } else {
+                                        "This network can't announce the session: joiners scan the QR or type the address."
+                                    })
+                                    .color(tk.text_dim),
+                                );
                                 if ui.add(crate::shell::Btn::new("New code")).clicked() {
                                     acts.push((cmd("invite"), String::new()));
                                 }

@@ -84,12 +84,14 @@ pub mod lang;
 pub mod libdlg;
 pub mod lispdlg;
 pub mod live;
+pub mod liveapps;
 pub mod livestate;
 pub mod markupbcf;
 pub mod markupchest;
 pub mod markupcompare;
 pub mod markupedit;
 pub mod markupfind;
+pub mod markuplive;
 pub mod markupplus;
 pub mod markupprops;
 pub mod markupslip;
@@ -123,6 +125,7 @@ pub mod partdraw;
 pub mod partedit;
 pub mod partfeat;
 pub mod partfiles;
+pub mod partlive;
 pub mod partmeasure;
 pub mod partpanel;
 pub mod partsketch;
@@ -142,6 +145,7 @@ pub mod sheetsetdlg;
 pub mod shell;
 pub mod takeoff3d;
 pub mod takeoffedit;
+pub mod takeofflive;
 pub mod takeoffnotes;
 pub mod takeoffprops;
 pub mod takeoffrev;
@@ -374,6 +378,13 @@ pub struct UiApp {
     ifc_name: String,
     /// an open PDF plan set
     pub pdf: Option<pdfview::PdfView>,
+    /// the Studio Live session of this window (every app but DetailCraft, which keeps its own: liveapps.rs) and its window
+    pub live: Option<live::LiveSession>,
+    pub live_window: bool,
+    /// a joiner's takeoff while the snapshot's PDFs are not open yet (takeofflive.rs)
+    pub live_hold_tk: Option<cc_takeoff::model::Takeoff>,
+    /// …and a joiner's markups (markuplive.rs)
+    pub live_hold_mk: Option<cc_markup::model::Store>,
     /// the zone local-time fields are written in (0.5 writes zip dates, LandXML date / time, the KISS header … with
     /// `getHours()`): the machine's, or a fixed offset (`app.tz`: scripts and tests)
     pub zone: cc_clock::Zone,
@@ -507,6 +518,10 @@ impl Default for UiApp {
             bim: bimtools::BimTools::default(),
             ifc_name: String::new(),
             pdf: None,
+            live: None,
+            live_window: false,
+            live_hold_tk: None,
+            live_hold_mk: None,
             zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
             cv_prefs: serde_json::Value::Null,
@@ -1450,6 +1465,18 @@ impl UiApp {
     }
 
     pub fn run(&mut self, id: &str, params: &Params) -> Result<(), String> {
+        // Studio Live (liveapps.rs): `<app>.live.*`, and after every command the app's new steps go out
+        if let Some(r) = liveapps::run(self, id, params.name.as_deref().unwrap_or("")) {
+            return r;
+        }
+        let r = self.run_one(id, params);
+        if self.live.is_some() {
+            liveapps::pump(self);
+        }
+        r
+    }
+
+    fn run_one(&mut self, id: &str, params: &Params) -> Result<(), String> {
         detailview::before_run(self, id);
         match id {
             "app.tz" => {
@@ -2221,6 +2248,7 @@ impl UiApp {
         for f in incoming {
             self.open_file(&f);
         }
+        liveapps::frame(self, &ctx);
         recover::frame(self);
         recoverdlg::show(self, &ctx);
         if let Some(t) = self.recovery.auto.as_ref().and_then(cc_recovery::Autosave::next_due) {

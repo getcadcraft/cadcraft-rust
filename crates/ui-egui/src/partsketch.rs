@@ -287,6 +287,11 @@ fn pick_tool(tool: &str) -> bool {
 }
 
 impl SketchEd {
+    /// A point or entity is being dragged (Studio Live sends the step once it stops).
+    pub fn dragging(&self) -> bool {
+        self.drag.is_some()
+    }
+
     // ------------------------------------------------------------------ geometry helpers
     pub fn to_screen(&self, p: P2) -> [f64; 2] {
         let (w, h) = self.size;

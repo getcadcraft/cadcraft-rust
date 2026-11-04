@@ -283,6 +283,11 @@ impl PdfView {
     /// `afterHistory`: undo (or redo) one step; the status line says what.
     pub fn history(&mut self, redo: bool) {
         self.settle();
+        if self.live_on {
+            // while live, Undo / Redo are the person's own steps in the session (liveapps.rs carries them out)
+            self.live_req = Some(redo);
+            return;
+        }
         let label = if redo { self.store.redo() } else { self.store.undo() };
         let store = &self.store;
         self.tools.sel.retain(|id| store.get(id).is_some());

@@ -120,6 +120,14 @@ pub struct PartView {
     /// how long the last rebuild took (ms)
     pub regen_ms: f64,
     pub(crate) undo: Vec<(String, Value)>,
+    /// in a Studio Live session (partlive.rs): Undo / Redo asked for (Some(undo)), what the session's can do, the part
+    /// as last sent or received, the last step's label, a counter of what others' edits changed
+    pub live_on: bool,
+    pub live_req: Option<bool>,
+    pub live_can: (bool, bool),
+    pub live_known: Option<Value>,
+    pub live_label: String,
+    pub live_ver: u64,
     pub(crate) redo: Vec<(String, Value)>,
     pub dirty: bool,
     pub scene: Scene3D,
@@ -246,6 +254,12 @@ impl PartView {
             regen: kernel::regenerate(&Value::Null, None),
             regen_ms: 0.0,
             undo: Vec::new(),
+            live_on: false,
+            live_req: None,
+            live_can: (false, false),
+            live_known: None,
+            live_label: String::new(),
+            live_ver: 0,
             redo: Vec::new(),
             dirty: false,
             scene: Scene3D::new(0, Vec::new(), Vec::new(), [f64::NAN; 3], [f64::NAN; 3]),
@@ -735,6 +749,11 @@ impl PartView {
 
     /// partcraft.js `undoRedo`.
     pub fn undo_redo(&mut self, undo: bool) {
+        if self.live_on {
+            // while live, Undo / Redo are the person's own steps in the session (liveapps.rs carries them out)
+            self.live_req = Some(undo);
+            return;
+        }
         let (from, to) = if undo { (&mut self.undo, &mut self.redo) } else { (&mut self.redo, &mut self.undo) };
         let Some((label, snap)) = from.pop() else {
             self.note = tr(if undo { "app.undo.nothing_undo" } else { "app.undo.nothing_redo" });
@@ -762,6 +781,30 @@ impl PartView {
         self.sk.sel.clear();
         self.rebuild();
         self.note = trv(if undo { "app.undo.undid" } else { "app.undo.redid" }, &[("what", label.to_lowercase())]);
+    }
+
+    /// Others' edits landed in the part (partlive.rs; partcraft.js `liveApplied`): a feature being edited that is gone
+    /// closes, the selection follows, the part is rebuilt.
+    pub fn live_applied(&mut self) {
+        self.live_ver = self.live_ver.wrapping_add(1);
+        self.dirty = true;
+        self.edits.clear();
+        if let Some(id) = self.editing.clone()
+            && P::feature_by_id(&self.part, &id).is_none()
+        {
+            if self.mode == Mode::Sketch {
+                self.sk.active = false;
+                self.sk.ask = None;
+            }
+            self.mode = Mode::Model;
+            self.editing = None;
+        }
+        if let Some(id) = self.sel_feature.clone()
+            && P::feature_by_id(&self.part, &id).is_none()
+        {
+            self.sel_feature = None;
+        }
+        self.rebuild();
     }
 
     // ------------------------------------------------------------------ the sketch editor's host (sketchview.js `host`)

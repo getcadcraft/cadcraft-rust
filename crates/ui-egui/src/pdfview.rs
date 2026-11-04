@@ -248,6 +248,12 @@ pub struct PdfView {
     pub mode: &'static str,
     /// TakeoffCraft's takeoff of this plan set
     pub takeoff: crate::takeofftools::TakeoffMode,
+    /// MarkupCraft in a Studio Live session (markuplive.rs): Undo / Redo asked for (Some(redo)), what the session's can
+    /// do, the Live button pressed
+    pub live_on: bool,
+    pub live_req: Option<bool>,
+    pub live_can: (bool, bool),
+    pub want_live: bool,
     /// draw the markups over the sheet
     pub show_markups: bool,
     /// the last primary press (time, screen point): a second one close by is a double-click (`e.detail`)
@@ -330,6 +336,10 @@ impl PdfView {
             tools: crate::markuptools::MarkupTools::default(),
             mode: "markup",
             takeoff,
+            live_on: false,
+            live_req: None,
+            live_can: (false, false),
+            want_live: false,
             cur,
             others: Vec::new(),
             file_seq: 1,
@@ -383,6 +393,40 @@ impl PdfView {
         self.switch(self.others.len() - 1);
         self.go(0);
         Ok(())
+    }
+
+    /// Studio Live (markuplive.rs): a file of the plan set a host shares, opened under the host's file id; its own
+    /// annotations are not read in (the markups come from the session: markupcraft.js `openFiles(…, {ids, keepMarkups})`).
+    pub fn add_shared(&mut self, id: &str, name: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.files().iter().any(|f| f.id == id) {
+            return Ok(());
+        }
+        let mut scratch = cc_markup::model::Store::new();
+        let f = PdfFile::read(id, name, bytes, &mut scratch)?;
+        let n = id.trim_start_matches('f').parse::<usize>().unwrap_or(0);
+        self.file_seq = self.file_seq.max(n);
+        self.takeoff.add_file(f.hash(), name, bytes.len(), f.pages.len());
+        page_infos(&mut self.takeoff, &f);
+        self.others.push(f);
+        self.others.sort_by_key(|f| f.id.trim_start_matches('f').parse::<usize>().unwrap_or(0));
+        Ok(())
+    }
+
+    /// Studio Live: a new plan set from the files a host shares (under the host's ids), markups from the session.
+    pub fn open_shared(files: &[(String, String, Vec<u8>)]) -> Result<PdfView, String> {
+        let ((id0, name0, bytes0), rest) = files.split_first().ok_or("the session shares no PDF")?;
+        let mut p = PdfView::open(name0, bytes0)?;
+        if id0 != "f1" {
+            let mut scratch = cc_markup::model::Store::new();
+            p.cur = PdfFile::read(id0, name0, bytes0, &mut scratch)?;
+            p.file_seq = id0.trim_start_matches('f').parse::<usize>().unwrap_or(1);
+        }
+        for (id, name, bytes) in rest {
+            p.add_shared(id, name, bytes)?;
+        }
+        p.fitted = false;
+        p.tex = None;
+        Ok(p)
     }
 
     /// TakeoffCraft's view of the sheet on screen (its key, the pick distances), and a sheet it asked to go to.
@@ -1355,8 +1399,16 @@ impl PdfView {
             groups.push(ToolGroup {
                 label: t0("group.edit"),
                 tools: vec![
-                    Tool::new("act:undo", "arrow-counterclockwise", t0("tool.undo")).enabled(!self.store.undo_stack.is_empty()),
-                    Tool::new("act:redo", "arrow-clockwise", t0("tool.redo")).enabled(!self.store.redo_stack.is_empty()),
+                    Tool::new("act:undo", "arrow-counterclockwise", t0("tool.undo")).enabled(if self.live_on {
+                        self.live_can.0
+                    } else {
+                        !self.store.undo_stack.is_empty()
+                    }),
+                    Tool::new("act:redo", "arrow-clockwise", t0("tool.redo")).enabled(if self.live_on {
+                        self.live_can.1
+                    } else {
+                        !self.store.redo_stack.is_empty()
+                    }),
                     Tool::new("act:copy", "copy", t0("menu.copy")).enabled(!self.tools.sel.is_empty()),
                     Tool::new("act:paste", "clipboard-plus", t0("menu.paste")).enabled(self.clip.is_some()),
                     Tool::new("menu:more", "three-dots", t0("menu.more")),
@@ -1404,6 +1456,7 @@ impl PdfView {
                 });
             }
             match act.as_deref() {
+                Some("act:live") => self.want_live = true,
                 Some("act:undo") => self.history(false),
                 Some("act:redo") => self.history(true),
                 Some("act:copy") => {
@@ -1444,6 +1497,13 @@ impl PdfView {
                 }
                 if ui.add(crate::shell::Btn::new(t0("tool.close"))).on_hover_text(t0("tool.close.title")).clicked() {
                     self.close_start();
+                }
+                if ui
+                    .add(crate::shell::Btn::new(if self.live_on { "Live ●" } else { "Live" }))
+                    .on_hover_text("Work on this plan set together (Studio Live)")
+                    .clicked()
+                {
+                    self.want_live = true;
                 }
             })
         });
