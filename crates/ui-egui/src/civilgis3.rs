@@ -405,10 +405,10 @@ pub fn use_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
             }
             ui.add(egui::Label::new(RichText::new(t0("vec.use.note")).small().color(tk.text_dim)).wrap());
             ui.horizontal(|ui| {
-                if ui.button(t0("vec.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("vec.cancel"))).clicked() {
                     acts.push(("civil.gis.use.dlg", "cancel".into()));
                 }
-                if ui.button(t0("vec.use.go")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("vec.use.go"))).clicked() {
                     acts.push(("civil.gis.use.dlg", "go".into()));
                 }
             });

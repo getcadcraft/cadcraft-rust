@@ -678,16 +678,16 @@ pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Vec<(&'static str, Opti
         }
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.button(t("mytools.add")).clicked() {
+        if ui.add(crate::shell::Btn::new(t("mytools.add"))).clicked() {
             act.push(("mytools.add", None));
         }
-        if ui.button(t("mytools.import")).clicked() {
+        if ui.add(crate::shell::Btn::new(t("mytools.import"))).clicked() {
             act.push(("mytools.import", None));
         }
-        if ui.button(t("mytools.import_cuix")).clicked() {
+        if ui.add(crate::shell::Btn::new(t("mytools.import_cuix"))).clicked() {
             act.push(("mytools.cuix", None));
         }
-        if ui.add_enabled(!d.groups.is_empty(), egui::Button::new(t("mytools.export"))).clicked() {
+        if ui.add_enabled(!d.groups.is_empty(), crate::shell::Btn::new(t("mytools.export"))).clicked() {
             act.push(("mytools.export", None));
         }
     });
@@ -757,7 +757,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             ui.label(RichText::new(t("mytools.icon.none")).small().color(tk.text_dim));
                         }
                     }
-                    if ui.button(t("mytools.icon.pick")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("mytools.icon.pick"))).clicked() {
                         acts.push(("mytools.icon", None));
                     }
                     if e.icon.is_some() && ui.link(t("mytools.icon.remove")).clicked() {
@@ -770,10 +770,10 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 ui.label(RichText::new(&e.err).color(tk.text_strong));
             }
             ui.horizontal(|ui| {
-                if ui.button(t("mytools.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("mytools.cancel"))).clicked() {
                     acts.push(("mytools.cancel", None));
                 }
-                if ui.button(t("mytools.save")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("mytools.save"))).clicked() {
                     acts.push(("mytools.save", None));
                 }
             });

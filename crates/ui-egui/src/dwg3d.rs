@@ -599,7 +599,7 @@ fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                 ("left", "viewcube.face.left", "ui.v3.left.title"),
                 ("right", "viewcube.face.right", "ui.v3.right.title"),
             ] {
-                if ui.button(w(label)).on_hover_text(w(title)).clicked() {
+                if ui.add(crate::shell::Btn::new(w(label))).on_hover_text(w(title)).clicked() {
                     act = Some(("viewer.3d.view", Params { name: Some(v.into()), ..Default::default() }));
                 }
             }
@@ -607,7 +607,7 @@ fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
             if ui.selectable_label(persp, w("ui.v3.persp")).on_hover_text(w("ui.v3.persp.title")).clicked() {
                 act = Some(("viewer.3d.view", Params { name: Some("persp".into()), ..Default::default() }));
             }
-            if ui.button(w("ui.v3.extents")).on_hover_text(w("ui.v3.extents.title")).clicked() {
+            if ui.add(crate::shell::Btn::new(w("ui.v3.extents"))).on_hover_text(w("ui.v3.extents.title")).clicked() {
                 act = Some(("viewer.3d.view", Params { name: Some("extents".into()), ..Default::default() }));
             }
             ui.separator();

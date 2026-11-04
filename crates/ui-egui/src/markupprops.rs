@@ -497,10 +497,10 @@ impl crate::pdfview::PdfView {
             self.props_extra(ui, tok, &mc);
             ui.add_space(4.0);
             self.thread_section(ui, tok, &mc);
-            if ui.button(t0("chest.save.one")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("chest.save.one"))).clicked() {
                 self.dlg = Some(crate::markupedit::Dialog::ChestName { name: self.chest_name_for(&mc), error: String::new() });
             }
-            if ui.button(t0("menu.delete")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("menu.delete"))).clicked() {
                 self.tools.delete_selected(&mut self.store);
             }
         } else if sel.len() > 1 {
@@ -593,7 +593,7 @@ impl crate::pdfview::PdfView {
                         ui.image((tex.id(), sz * k)).on_hover_text(label);
                     }
                     let again = if self.tools.stamp == crate::markupchest::SIG { "image.signature.again" } else { "image.pick.again" };
-                    if ui.button(t0(again)).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0(again))).clicked() {
                         pic_act = Some(if self.tools.stamp == crate::markupchest::SIG { "sign-again" } else { "picture" });
                     }
                 }
@@ -639,7 +639,7 @@ impl crate::pdfview::PdfView {
             }
             kv(ui, t0("props.scale"), self.store.calibrations.get(&key).map_or_else(|| t0("status.scale.none"), |c| c.label.clone()));
             kv(ui, t0("tab.list"), self.store.on_sheet(&key).len().to_string());
-            if ui.button(t0("props.rename")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("props.rename"))).clicked() {
                 let (number, title) = self.rename_start();
                 self.dlg = Some(crate::markupedit::Dialog::Rename { number, title });
             }

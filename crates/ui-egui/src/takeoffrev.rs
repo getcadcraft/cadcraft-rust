@@ -464,7 +464,7 @@ impl PdfView {
                             ui.label(t("cmp.pick.none"));
                         }
                         for (spec, key) in &others {
-                            if ui.button(label(self, key)).clicked() {
+                            if ui.add(crate::shell::Btn::new(label(self, key))).clicked() {
                                 op = Some(spec.clone());
                                 ui.close();
                             }
@@ -483,10 +483,10 @@ impl PdfView {
                     ui.label(RichText::new(t("cmp.scale.title")).strong());
                     ui.label(tf("cmp.scale.text", &[("old", F::S(o)), ("new", F::S(n))]));
                     ui.horizontal(|ui| {
-                        if ui.button(t("cmp.scale.cancel")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("cmp.scale.cancel"))).clicked() {
                             self.tk_scale_ask = None;
                         }
-                        if ui.button(t("cmp.scale.keep")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("cmp.scale.keep"))).clicked() {
                             self.tk_scale_ask = None;
                             op = Some("move".into());
                         }

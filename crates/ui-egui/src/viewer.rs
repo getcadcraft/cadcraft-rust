@@ -774,10 +774,10 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                             .color(t.text_dim),
                     );
                     ui.horizontal_wrapped(|ui| {
-                        if ui.button(w("dwg.linked.add")).clicked() {
+                        if ui.add(crate::shell::Btn::new(w("dwg.linked.add"))).clicked() {
                             act = Some(("viewer.add", "drawing"));
                         }
-                        if can_folder && ui.button(w("ui.open.folder")).clicked() {
+                        if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
                             act = Some(("viewer.folder", ""));
                         }
                     });
@@ -806,10 +806,10 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                             .color(t.text_dim),
                     );
                     ui.horizontal_wrapped(|ui| {
-                        if ui.button(w("dwg.img.add")).clicked() {
+                        if ui.add(crate::shell::Btn::new(w("dwg.img.add"))).clicked() {
                             act = Some(("viewer.add", "pictures"));
                         }
-                        if can_folder && ui.button(w("ui.open.folder")).clicked() {
+                        if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
                             act = Some(("viewer.folder", ""));
                         }
                     });

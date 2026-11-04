@@ -389,7 +389,7 @@ fn keys_window(app: &mut UiApp, ctx: &egui::Context) {
                 ui.end_row();
             });
             ui.horizontal(|ui| {
-                if ui.button(t("keys.add")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("keys.add"))).clicked() {
                     acts.push(("keys.add", format!("{}={}", w.picked, w.command.trim())));
                 }
             });

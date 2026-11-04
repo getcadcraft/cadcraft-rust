@@ -2382,7 +2382,10 @@ impl UiApp {
                                 shell::bar_menu(ui, &t, &lang::t0(&cc_detail::i18n::CATALOG, "page.tool.sample"), |ui| {
                                     for (slug, name, _, _) in hub::APPS {
                                         if let Some(cmd) = hub::sample_command(slug)
-                                            && ui.button(name).on_hover_text(hub::word(hub::loc(), slug, "short")).clicked()
+                                            && ui
+                                                .add(crate::shell::Btn::new(name))
+                                                .on_hover_text(hub::word(hub::loc(), slug, "short"))
+                                                .clicked()
                                         {
                                             sample = Some(cmd);
                                             ui.close();
@@ -2415,7 +2418,7 @@ impl UiApp {
                                     let mut pick: Option<&str> = None;
                                     shell::bar_menu(ui, &t, &lang::mc("ui.export"), |ui| {
                                         for (f, label, _) in cc_m3d_files::EXPORT_FORMATS {
-                                            if ui.button(*label).clicked() {
+                                            if ui.add(crate::shell::Btn::new(*label)).clicked() {
                                                 pick = Some(f);
                                                 ui.close();
                                             }
@@ -2435,7 +2438,7 @@ impl UiApp {
                                                 "dxf12" => "DXF R12".to_string(),
                                                 v => format!("DWG {v}"),
                                             };
-                                            if ui.button(label).clicked() {
+                                            if ui.add(crate::shell::Btn::new(label)).clicked() {
                                                 pick = Some(f);
                                                 ui.close();
                                             }
@@ -2595,7 +2598,7 @@ impl UiApp {
             let now = hub::now_ms();
             for (i, r) in recent.iter().enumerate().take(15) {
                 let when = lang::shell("shell.recent.opened", &[("when", hub::when(r.when, now, self.zone))]);
-                let b = ui.add_enabled(r.dir.is_some(), egui::Button::new(&r.name)).on_hover_text(when);
+                let b = ui.add_enabled(r.dir.is_some(), crate::shell::Btn::new(&r.name)).on_hover_text(when);
                 if b.clicked() {
                     act = Some(("hub.recent", Params { index: Some(i), ..Default::default() }));
                     ui.close();
@@ -2603,7 +2606,7 @@ impl UiApp {
             }
             if !recent.is_empty() {
                 ui.separator();
-                if ui.button(lang::shell("shell.recent.clear", &[])).clicked() {
+                if ui.add(crate::shell::Btn::new(lang::shell("shell.recent.clear", &[]))).clicked() {
                     act = Some(("hub.clear", Params::default()));
                     ui.close();
                 }

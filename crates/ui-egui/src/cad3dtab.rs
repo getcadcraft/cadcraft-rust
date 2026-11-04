@@ -359,7 +359,7 @@ fn toolbar(app: &mut UiApp, ui: &mut egui::Ui) {
                 ("SUBTRACT", "toolbar.bool.subtract"),
                 ("INTERSECT", "toolbar.bool.intersect"),
             ] {
-                if ui.button(tr(k)).clicked() {
+                if ui.add(crate::shell::Btn::new(tr(k))).clicked() {
                     pick = Some(c.into());
                     ui.close();
                 }
@@ -377,7 +377,7 @@ fn toolbar(app: &mut UiApp, ui: &mut egui::Ui) {
                 ("VIEW L", "ui.left"),
                 ("VIEW R", "ui.right"),
             ] {
-                if ui.button(tr(k)).clicked() {
+                if ui.add(crate::shell::Btn::new(tr(k))).clicked() {
                     pick = Some(c.into());
                     ui.close();
                 }
@@ -392,7 +392,7 @@ fn toolbar(app: &mut UiApp, ui: &mut egui::Ui) {
                 ui.close();
             }
             ui.separator();
-            if ui.button(tr("ui.zoom_everything")).clicked() {
+            if ui.add(crate::shell::Btn::new(tr("ui.zoom_everything"))).clicked() {
                 pick = Some("VIEW E".into());
                 ui.close();
             }
@@ -417,7 +417,7 @@ fn toolbar(app: &mut UiApp, ui: &mut egui::Ui) {
         .on_hover_text(tr("ui.visual_style_shaded_edges"));
         ui.menu_button(tr("ui.export"), |ui| {
             for (c, k) in [("GLBOUT", "ui.glb_gltf_viewers_web"), ("OBJOUT", "ui.obj"), ("STLOUT", "ui.stl_3d_printing_millimeters")] {
-                if ui.button(tr(k)).clicked() {
+                if ui.add(crate::shell::Btn::new(tr(k))).clicked() {
                     pick = Some(c.into());
                     ui.close();
                 }

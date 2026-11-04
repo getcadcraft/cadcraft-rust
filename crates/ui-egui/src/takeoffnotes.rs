@@ -290,10 +290,10 @@ impl TakeoffMode {
             let l = ui.label(t("note.f.text"));
             ui.add(egui::TextEdit::multiline(&mut ask.text).desired_rows(4).char_limit(2000)).labelled_by(l.id);
             ui.horizontal(|ui| {
-                if ui.button(t("btn.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                     done = Some(None);
                 }
-                if ui.button(t("note.add")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("note.add"))).clicked() {
                     done = Some(Some(ask.text.clone()));
                 }
             });
@@ -697,10 +697,10 @@ impl TakeoffMode {
                 ui.label(RichText::new(&ask.error).color(ui.visuals().error_fg_color));
             }
             ui.horizontal(|ui| {
-                if ui.button(t("btn.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                     act = Some(false);
                 }
-                if ui.button(t("group.dlg.ok")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("group.dlg.ok"))).clicked() {
                     act = Some(true);
                 }
             });

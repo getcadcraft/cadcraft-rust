@@ -53,7 +53,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M17.10: every one-line field in every panel and dialog comes through `shell::field` (0.7's `.cc-input`: text centred
   in the box, 8 px in), and the panels' tab rows (MarkupCraft's panels, DetailCraft's reports, the input styles'
   Customize) are 0.7's tabs (`shell::tab`). Full sweep 0 differences.
-- Next (gaps item 12): dialogs, CadCraft's layer flags, 3D backgrounds.
+- M17.11: buttons in every panel and dialog as 0.7's `.btn-line` (`shell::Btn`: the action colour's text and 2 px
+  border, 30 px; plain items inside menus), 0.7's 17 px bold heading for window titles; the theme's tokens kept in the
+  context for widgets that get none. Full sweep 0 differences.
+- Next (gaps item 12): CadCraft's layer flags, 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

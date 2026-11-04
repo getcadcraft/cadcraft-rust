@@ -1354,10 +1354,10 @@ pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
                     run.push(("props.custom.reset", None));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(l.s("props.custom.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(l.s("props.custom.ok"))).clicked() {
                         run.push(("props.custom.ok", None));
                     }
-                    if ui.button(l.s("props.custom.cancel")).clicked() {
+                    if ui.add(crate::shell::Btn::new(l.s("props.custom.cancel"))).clicked() {
                         run.push(("props.custom.cancel", None));
                     }
                 });
@@ -1576,7 +1576,7 @@ fn none_selected(
             }
         });
         ui.horizontal(|ui| {
-            if ui.button(l.s("props.sheet.plot")).clicked() {
+            if ui.add(crate::shell::Btn::new(l.s("props.sheet.plot"))).clicked() {
                 asks.run.push(("cmd.line".into(), "PLOT".into()));
             }
             if ui.link(RichText::new(l.s("props.sheet.delete")).color(egui::Color32::from_rgb(0xe0, 0x60, 0x50))).clicked() {

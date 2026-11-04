@@ -685,14 +685,14 @@ pub fn layers_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: 
             };
             ui.label(RichText::new(count).small().color(tk.text_dim)).on_hover_text(kind_word(&l.geom, l.has_z, false));
             ui.menu_button("⋯", |ui| {
-                if ui.button(t0("vec.zoomto")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("vec.zoomto"))).clicked() {
                     acts.push(Act::Run("civil.gis.layer", format!("zoom={}", l.id)));
                     ui.close();
                 }
                 let can_use =
                     !cc_io_civil::gis_layers::use_choices(l, cc_io_civil::gis_layers::features_of(&cv.project.gis_features, &l.id))
                         .is_empty();
-                if ui.add_enabled(can_use, egui::Button::new(t0("vec.use.open"))).clicked() {
+                if ui.add_enabled(can_use, crate::shell::Btn::new(t0("vec.use.open"))).clicked() {
                     acts.push(Act::Run("civil.gis.use", l.id.clone()));
                     ui.close();
                 }
@@ -716,7 +716,7 @@ pub fn layers_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: 
                     }
                 }
                 ui.separator();
-                if ui.button(t0("vec.layer.remove")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("vec.layer.remove"))).clicked() {
                     acts.push(Act::Run("civil.gis.layer", format!("remove={}", l.id)));
                     ui.close();
                 }
@@ -952,7 +952,7 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 }
                 "pick" => {
                     let label = if has_target { t0("vec.offer.another") } else { t0("vec.pick.project") };
-                    if ui.button(label).clicked() {
+                    if ui.add(crate::shell::Btn::new(label)).clicked() {
                         acts.push(("civil.gis.import", "pickcrs".into()));
                     }
                 }
@@ -975,10 +975,10 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
             ui.label(RichText::new(t0("vec.import.what")).strong().color(tk.text_strong));
             ui.add(egui::Label::new(RichText::new(&what).small().color(tk.text)).wrap());
             ui.horizontal(|ui| {
-                if ui.button(t0("vec.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("vec.cancel"))).clicked() {
                     acts.push(("civil.gis.import", "cancel".into()));
                 }
-                if ui.add_enabled(!disabled, egui::Button::new(t0("vec.import.go"))).clicked() {
+                if ui.add_enabled(!disabled, crate::shell::Btn::new(t0("vec.import.go"))).clicked() {
                     acts.push(("civil.gis.import", "ok".into()));
                 }
             });
@@ -1000,7 +1000,7 @@ pub fn gis_menu(ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>) {
             ("civil.maps.open", "ui.tb.basemap"),
             ("civil.cad.pick", "toolbar.cad"),
         ] {
-            if ui.button(t0(key)).on_hover_text(t0(&format!("{key}.title"))).clicked() {
+            if ui.add(crate::shell::Btn::new(t0(key))).on_hover_text(t0(&format!("{key}.title"))).clicked() {
                 acts.push((cmd, String::new()));
                 ui.close();
             }

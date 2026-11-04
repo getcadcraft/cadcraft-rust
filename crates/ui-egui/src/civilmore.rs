@@ -284,7 +284,7 @@ pub fn settings_window(cv: &mut CivilView, ctx: &egui::Context, tk: &crate::them
                     }
                 });
                 ui.add_space(8.0);
-                if ui.button("Reset to defaults").clicked() {
+                if ui.add(crate::shell::Btn::new("Reset to defaults")).clicked() {
                     acts.push(("civil.settings", "reset".into()));
                 }
             });

@@ -535,17 +535,17 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
         let l = ui.label(bt("ui.place.xy", &[]));
         let r = ui.add(crate::shell::field(&mut xy).desired_width(110.0).hint_text("1200, 3400").id_salt("bim_place_xy")).labelled_by(l.id);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if ui.button(bt("ui.place.here", &[])).clicked() || enter {
+        if ui.add(crate::shell::Btn::new(bt("ui.place.here", &[]))).clicked() || enter {
             run_ids.push(("bim.place.at", xy.clone()));
         }
         if ui.add(egui::Button::new(bt("ui.place.snap", &[])).selected(snap)).on_hover_text(bt("ui.place.snap.title", &[])).clicked() {
             run_ids.push(("bim.place.snap", String::new()));
         }
         ui.label(RichText::new(at_text).color(t.text_dim));
-        if ui.button(bt("place.turn", &[])).on_hover_text(bt("place.turn.title", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(bt("place.turn", &[]))).on_hover_text(bt("place.turn.title", &[])).clicked() {
             run_ids.push(("bim.place.turn", String::new()));
         }
-        if ui.button(bt("ui.place.stop", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(bt("ui.place.stop", &[]))).clicked() {
             run_ids.push(("bim.place.stop", String::new()));
         }
     });
@@ -577,10 +577,10 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
                 field(ui, "place.dlg.height", h, "bim_place_h");
             }
             ui.horizontal(|ui| {
-                if ui.button(bt("place.dlg.ok", &[])).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if ui.add(crate::shell::Btn::new(bt("place.dlg.ok", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     act = Some("bim.place.ok");
                 }
-                if ui.button(bt("dialog.cancel", &[])).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                if ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     act = Some("bim.place.cancel");
                 }
             });

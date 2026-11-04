@@ -52,7 +52,7 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
                                 });
                                 if *alive {
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if ui.button(st("shell.autosave.discard", &[])).clicked() {
+                                        if ui.add(crate::shell::Btn::new(st("shell.autosave.discard", &[]))).clicked() {
                                             act = Some(("recovery.discard", live));
                                         }
                                         let rb = egui::Button::new(
@@ -79,7 +79,7 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(hint).small().color(tok.text_dim));
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button(st("shell.autosave.discard_all", &[])).clicked() {
+                if ui.add(crate::shell::Btn::new(st("shell.autosave.discard_all", &[]))).clicked() {
                     act = Some(("recovery.discard_all", 0));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

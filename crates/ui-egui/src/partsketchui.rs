@@ -228,14 +228,14 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
         let dims: Vec<&str> = app.iter().copied().filter(|ty| S::DIMENSIONS.contains(ty)).collect();
         ui.horizontal_wrapped(|ui| {
             for ty in &rel {
-                if ui.button(format!("{} {}", glyph(ty), S::label_of(ty).unwrap_or_default())).clicked() {
+                if ui.add(crate::shell::Btn::new(format!("{} {}", glyph(ty), S::label_of(ty).unwrap_or_default()))).clicked() {
                     *act = cmd("part.sk.rel", *ty);
                 }
             }
         });
         ui.horizontal_wrapped(|ui| {
             for ty in &dims {
-                if ui.button(S::label_of(ty).unwrap_or_default()).clicked() {
+                if ui.add(crate::shell::Btn::new(S::label_of(ty).unwrap_or_default())).clicked() {
                     *act = cmd("part.sk.rel", *ty);
                 }
             }
@@ -245,11 +245,11 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
         }
         ui.horizontal_wrapped(|ui| {
             if ents.iter().any(|id| S::by_id(&sk, id).is_some_and(|e| e.ty() != "point"))
-                && ui.button(tr("app.sketch.construction_toggle")).clicked()
+                && ui.add(crate::shell::Btn::new(tr("app.sketch.construction_toggle"))).clicked()
             {
                 *act = cmd("part.sk.construction", "");
             }
-            if ui.button(tr("app.btn.delete")).clicked() {
+            if ui.add(crate::shell::Btn::new(tr("app.btn.delete"))).clicked() {
                 *act = cmd("part.delete", "");
             }
         });
@@ -263,7 +263,7 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
         }
     } else if !cons.is_empty() {
         ui.label(RichText::new(tr("app.sketch.selected_relations")).strong().color(t.text_strong));
-        if ui.button(tr("app.btn.delete")).clicked() {
+        if ui.add(crate::shell::Btn::new(tr("app.btn.delete"))).clicked() {
             *act = cmd("part.delete", "");
         }
         let list: Vec<Value> = S::constraints(&sk).iter().filter(|c| cons.iter().any(|id| jv::is_str(c.get("id"), id))).cloned().collect();
@@ -308,16 +308,16 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
             ui.end_row();
         }
     });
-    if ui.button(tr("app.num.add")).clicked() {
+    if ui.add(crate::shell::Btn::new(tr("app.num.add"))).clicked() {
         let kind = if num.0.is_empty() { "line".to_string() } else { num.0.clone() };
         *act = cmd("part.sk.num", format!("{kind}:{};{}", num.1, num.2));
     }
     ui.separator();
     ui.horizontal_wrapped(|ui| {
-        if ui.button(RichText::new(tr("app.sketch.exit")).strong()).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.sketch.exit")).strong())).clicked() {
             *act = cmd("part.sketch.exit", "");
         }
-        if ui.button(tr("app.sketch.fit")).clicked() {
+        if ui.add(crate::shell::Btn::new(tr("app.sketch.fit"))).clicked() {
             *act = cmd("part.sk.fit", "");
         }
     });

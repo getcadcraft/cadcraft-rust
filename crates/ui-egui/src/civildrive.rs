@@ -522,7 +522,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, rect: egui::Rect, tk: &Token
                         }
                     },
                 );
-                if ui.button(t0("dv.stop")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("dv.stop"))).clicked() {
                     acts.push(("civil.drive", "off".into()));
                 }
             });

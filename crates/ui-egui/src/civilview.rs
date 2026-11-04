@@ -2944,7 +2944,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     for (id, k) in gacts {
                         cmd.push((id, Params { name: Some(k), ..Default::default() }));
                     }
-                    if ui.button(t0("input.cmd.app.settings")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0("input.cmd.app.settings"))).clicked() {
                         cmd.push(("civil.settings.open", Params::default()));
                     }
                     if cv.show3d {

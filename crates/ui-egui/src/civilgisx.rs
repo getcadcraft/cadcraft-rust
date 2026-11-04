@@ -628,7 +628,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
             crate::civilterrain::geotiff_section(cv, ui, tk, acts);
         }
         ui.horizontal(|ui| {
-            if ui.button(t0("vec.close")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("vec.close"))).clicked() {
                 acts.push(("civil.gis.export", "close".into()));
             }
             let go = match d.format.as_str() {
@@ -638,7 +638,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 "geojson" => "vec.x.go.geojson",
                 _ => "vec.x.go.shp",
             };
-            if ui.add_enabled(!d.keys.is_empty(), egui::Button::new(t0(go))).clicked() {
+            if ui.add_enabled(!d.keys.is_empty(), crate::shell::Btn::new(t0(go))).clicked() {
                 acts.push(("civil.gis.export", "go".into()));
             }
         });

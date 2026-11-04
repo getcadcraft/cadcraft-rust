@@ -249,13 +249,13 @@ impl PdfView {
         ui.label(RichText::new(t0("chest.note")).small().color(tok.text_dim));
         let mut act: Option<(&str, usize)> = None;
         ui.horizontal_wrapped(|ui| {
-            if ui.button(t0("chest.save")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("chest.save"))).clicked() {
                 act = Some(("save", 0));
             }
-            if ui.button(t0("chest.import")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("chest.import"))).clicked() {
                 act = Some(("import", 0));
             }
-            if ui.button(t0("chest.export")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("chest.export"))).clicked() {
                 act = Some(("export", 0));
             }
         });
@@ -337,11 +337,11 @@ impl PdfView {
                 ui.colored_label(ui.visuals().error_fg_color, &error);
             }
             ui.horizontal(|ui| {
-                if ui.button(t0("image.signature.clear")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("image.signature.clear"))).clicked() {
                     strokes.clear();
                 }
-                close = ui.button(t0("dlg.cancel")).clicked();
-                ok = ui.button(t0("image.signature.ok")).clicked();
+                close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                ok = ui.add(crate::shell::Btn::new(t0("image.signature.ok"))).clicked();
             });
         });
         if ok {

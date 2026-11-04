@@ -1254,7 +1254,7 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
         |ui| {
             if !cv.internet_on() {
                 ui.label(RichText::new(format!("{} {}", t0("mapl.off.head"), t0("mapl.off.body"))).small().color(tk.text));
-                if ui.button(t0("mapl.open_settings")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("mapl.open_settings"))).clicked() {
                     acts.push(("civil.settings.open", String::new()));
                 }
             }
@@ -1277,16 +1277,17 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                     if ui.add(egui::Slider::new(&mut op, 0.0..=100.0).step_by(5.0).text(t0("mapl.opacity"))).drag_stopped() {
                         acts.push(("civil.maps", format!("opacity={id}:{}", op / 100.0)));
                     }
-                    if ui.add_enabled(i > 0, egui::Button::new("↓")).on_hover_text(t0("mapl.down.title")).clicked() {
+                    if ui.add_enabled(i > 0, crate::shell::Btn::new("↓")).on_hover_text(t0("mapl.down.title")).clicked() {
                         acts.push(("civil.maps", format!("move={id}:-1")));
                     }
-                    if ui.add_enabled(i + 1 < n, egui::Button::new("↑")).on_hover_text(t0("mapl.up.title")).clicked() {
+                    if ui.add_enabled(i + 1 < n, crate::shell::Btn::new("↑")).on_hover_text(t0("mapl.up.title")).clicked() {
                         acts.push(("civil.maps", format!("move={id}:1")));
                     }
-                    if m.get("kind").and_then(Value::as_str) == Some("image") && ui.button(t0("vec.zoomto")).clicked() {
+                    if m.get("kind").and_then(Value::as_str) == Some("image") && ui.add(crate::shell::Btn::new(t0("vec.zoomto"))).clicked()
+                    {
                         acts.push(("civil.maps", format!("zoom={id}")));
                     }
-                    if ui.button("✕").on_hover_text(t0("mapl.remove.title")).clicked() {
+                    if ui.add(crate::shell::Btn::new("✕")).on_hover_text(t0("mapl.remove.title")).clicked() {
                         acts.push(("civil.maps", format!("remove={id}")));
                     }
                 });
@@ -1313,7 +1314,7 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
             });
             if d.kind == "image" {
                 ui.label(RichText::new(t0("mapl.files.help")).small().color(tk.text_dim));
-                if ui.button(t0("mapl.files")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("mapl.files"))).clicked() {
                     acts.push(("civil.gis.pick", String::new()));
                 }
             } else {
@@ -1337,12 +1338,12 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                             cv.maps.dlg.get_or_insert_with(MapDlg::default).att = d.att.clone();
                         }
                     });
-                    if ui.button(t0("mapl.add")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0("mapl.add"))).clicked() {
                         acts.push(("civil.maps", format!("xyz={}|{}|{}", d.url, d.name, d.att)));
                     }
                 } else {
                     let label = if d.kind == "arcgis" { t0("mapl.read_service") } else { t0("mapl.get_layers") };
-                    if ui.add_enabled(cv.internet_on(), egui::Button::new(label)).clicked() {
+                    if ui.add_enabled(cv.internet_on(), crate::shell::Btn::new(label)).clicked() {
                         acts.push(("civil.maps", "read".into()));
                     }
                     if let Some((_, cap, _)) = &d.found {
@@ -1358,7 +1359,7 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                                     }
                                 });
                         }
-                        if ui.button(t0("mapl.add")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t0("mapl.add"))).clicked() {
                             acts.push(("civil.maps", format!("add={}", d.layer)));
                         }
                     }

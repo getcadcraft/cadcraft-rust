@@ -951,11 +951,11 @@ impl PdfView {
         let mut export: Option<&str> = None;
         ui.horizontal_wrapped(|ui| {
             for (k, label) in [("csv", "list.csv"), ("xlsx", "list.xlsx"), ("pdf", "list.pdf"), ("bcf", "list.bcf")] {
-                if ui.button(t0(label)).clicked() {
+                if ui.add(crate::shell::Btn::new(t0(label))).clicked() {
                     export = Some(k);
                 }
             }
-            if ui.button(t0("bcfin.button")).on_hover_text(t0("bcfin.title")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("bcfin.button"))).on_hover_text(t0("bcfin.title")).clicked() {
                 self.want_pick = Some("bcf-import");
             }
         });
@@ -1063,7 +1063,10 @@ impl PdfView {
         ui.add(egui::TextEdit::multiline(draft).desired_rows(2).desired_width(w).hint_text(t0("thread.placeholder"))).labelled_by(l.id);
         let (send, photo) = ui
             .horizontal(|ui| {
-                (ui.button(t0("thread.reply")).clicked(), ui.button(t0("photo.add")).on_hover_text(t0("photo.add.title")).clicked())
+                (
+                    ui.add(crate::shell::Btn::new(t0("thread.reply"))).clicked(),
+                    ui.add(crate::shell::Btn::new(t0("photo.add"))).on_hover_text(t0("photo.add.title")).clicked(),
+                )
             })
             .inner;
         if photo {
@@ -1091,15 +1094,15 @@ impl PdfView {
                 ("delete", "pages.page_delete"),
                 ("extract", "pages.page_extract"),
             ] {
-                if ui.button(t0(label)).clicked() {
+                if ui.add(crate::shell::Btn::new(t0(label))).clicked() {
                     act = Some(k);
                 }
             }
-            if self.cur.blank.is_some() && ui.button(t0("sheets.add_blank")).clicked() {
+            if self.cur.blank.is_some() && ui.add(crate::shell::Btn::new(t0("sheets.add_blank"))).clicked() {
                 act = Some("add-blank");
             }
             ui.separator();
-            if ui.button(t0("props.rename")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("props.rename"))).clicked() {
                 act = Some("rename");
             }
             if let Some(a) = act {
@@ -1143,8 +1146,8 @@ impl PdfView {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
                     ui.horizontal(|ui| {
-                        close = ui.button(t0("dlg.cancel")).clicked();
-                        save = ui.button(t0("chest.dlg.save")).clicked();
+                        close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                        save = ui.add(crate::shell::Btn::new(t0("chest.dlg.save"))).clicked();
                     });
                 });
                 if save {
@@ -1166,8 +1169,8 @@ impl PdfView {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
                     ui.horizontal(|ui| {
-                        close = ui.button(t0("dlg.cancel")).clicked();
-                        add = ui.button(t0("space.add")).clicked();
+                        close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                        add = ui.add(crate::shell::Btn::new(t0("space.add"))).clicked();
                     });
                 });
                 if add {
@@ -1186,8 +1189,8 @@ impl PdfView {
                 egui::Window::new(t0("chest.remove.h")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t("chest.remove.text", &[("tool", Fill::S(name))]));
                     ui.horizontal(|ui| {
-                        close = ui.button(t0("dlg.cancel")).clicked();
-                        ok = ui.button(t0("chest.remove.ok")).clicked();
+                        close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                        ok = ui.add(crate::shell::Btn::new(t0("chest.remove.ok"))).clicked();
                     });
                 });
                 if ok {
@@ -1204,8 +1207,8 @@ impl PdfView {
                     let l = ui.label(t0("rename.title"));
                     ui.add(crate::shell::field(&mut title)).labelled_by(l.id);
                     ui.horizontal(|ui| {
-                        close = ui.button(t0("dlg.cancel")).clicked();
-                        save = ui.button(t0("dlg.save")).clicked();
+                        close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                        save = ui.add(crate::shell::Btn::new(t0("dlg.save"))).clicked();
                     });
                 });
                 if save {
@@ -1234,8 +1237,8 @@ impl PdfView {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
                     ui.horizontal(|ui| {
-                        close = ui.button(t0("dlg.cancel")).clicked();
-                        go = ui.button(t0(ok)).clicked();
+                        close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
+                        go = ui.add(crate::shell::Btn::new(t0(ok))).clicked();
                     });
                 });
                 if go {

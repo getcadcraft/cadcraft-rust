@@ -617,16 +617,16 @@ pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Vec<(&'static str, Opti
     };
     ui.label(RichText::new(hint).small().color(t.text_dim));
     ui.horizontal_wrapped(|ui| {
-        if ui.button(shell("shell.input.customize", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(shell("shell.input.customize", &[]))).clicked() {
             act.push(("input.customize", None));
         }
-        if ui.button(shell("shell.input.export", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(shell("shell.input.export", &[]))).clicked() {
             act.push(("input.export", None));
         }
-        if ui.button(shell("shell.input.import", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(shell("shell.input.import", &[]))).clicked() {
             act.push(("input.import", None));
         }
-        if !raw_builtin && ui.button(shell("shell.input.delete", &[])).clicked() {
+        if !raw_builtin && ui.add(crate::shell::Btn::new(shell("shell.input.delete", &[]))).clicked() {
             act.push(("input.delete", None));
         }
     });
@@ -708,10 +708,10 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(conflicts.is_empty(), egui::Button::new(shell("shell.input.dlg.save", &[]))).clicked() {
+                    if ui.add_enabled(conflicts.is_empty(), crate::shell::Btn::new(shell("shell.input.dlg.save", &[]))).clicked() {
                         act.push(("input.custom.save", None));
                     }
-                    if ui.button(shell("shell.input.dlg.cancel", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(shell("shell.input.dlg.cancel", &[]))).clicked() {
                         act.push(("input.custom.cancel", None));
                     }
                 });

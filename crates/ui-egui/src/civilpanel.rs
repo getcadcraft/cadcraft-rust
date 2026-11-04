@@ -269,7 +269,7 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
     head(ui, tk, &t0("ui.tb.group.export"));
     let units = cv.project.units().to_string();
     let mut btn = |ui: &mut egui::Ui, label: &str, tip: &str, name: &str| {
-        if ui.button(label).on_hover_text(tip).clicked() {
+        if ui.add(crate::shell::Btn::new(label)).on_hover_text(tip).clicked() {
             acts.push(Act::Export(name.to_string()));
         }
     };
@@ -404,16 +404,16 @@ fn objects(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
 fn parcel_blocks(ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     head(ui, tk, &t0("pc.head"));
     ui.horizontal_wrapped(|ui| {
-        if ui.button(t0("pc.draw")).on_hover_text(t0("pc.hint")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("pc.draw"))).on_hover_text(t0("pc.hint")).clicked() {
             acts.push(Act::Run("civil.tool", "parcel".into()));
         }
-        if ui.button(t0("pc.calls")).on_hover_text(t0("pc.dlg.title")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("pc.calls"))).on_hover_text(t0("pc.dlg.title")).clicked() {
             acts.push(Act::Run("civil.calls", String::new()));
         }
     });
     head(ui, tk, &t0("tv.head"));
     note(ui, tk, &t0("tv.lede"));
-    if ui.button(t0("tv.open")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("tv.open"))).clicked() {
         acts.push(Act::Run("civil.traverse", String::new()));
     }
 }
@@ -602,7 +602,7 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
         .as_ref()
         .map(|c| c.problems.iter().map(|p| (p.id.clone(), p.kind.to_string(), p.msg.clone())).collect())
         .unwrap_or_default();
-    if ui.button(t0("cv.net.auto")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("cv.net.auto"))).clicked() {
         acts.push(Act::Run("civil.prop", "net.auto=".into()));
     }
     if probs.is_empty() {
@@ -754,7 +754,7 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
         let aid = string_of(a.get("id"));
         if pvis.is_empty() {
             note(ui, tk, &t0("cv.prof.none"));
-            if ui.button(t0("cv.prof.start")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("cv.prof.start"))).clicked() {
                 acts.push(Act::Run("civil.profile.start", String::new()));
             }
         } else {
@@ -828,7 +828,7 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
                 }
             }
         }
-        if ui.button(t0("cv.prof.view")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("cv.prof.view"))).clicked() {
             acts.push(Act::Run("civil.profile.al", aid.clone()));
             acts.push(Act::Run("civil.profile", "on".into()));
         }
@@ -931,7 +931,7 @@ fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, a
     head(ui, tk, &t0("sec.props.head"));
     let Some(smp) = a.get("sampling").filter(|s| s.is_object()) else {
         note(ui, tk, &t0("sec.props.none"));
-        if ui.button(t0("sec.props.add")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("sec.props.add"))).clicked() {
             acts.push(Act::Run("civil.sampling", "add".into()));
         }
         return;
@@ -979,19 +979,19 @@ fn sample_lines(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, a
         note(ui, tk, &facts);
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.button(t0("sec.props.view")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("sec.props.view"))).clicked() {
             acts.push(Act::Run("civil.sections.al", aid.clone()));
             acts.push(Act::Run("civil.sections", "on".into()));
         }
         // sections-ui.js: "Section sheets (PDF)" with one section or more, "Mass haul" with two or more (0.4 V17, V24)
         let n = cv.project.sections(a).map_or(0, |s| s.sections.len());
-        if n > 0 && ui.button(t0("xs.ui.open")).clicked() {
+        if n > 0 && ui.add(crate::shell::Btn::new(t0("xs.ui.open"))).clicked() {
             acts.push(Act::Run("civil.xs", String::new()));
         }
-        if n > 1 && ui.button(t0("mh.open")).clicked() {
+        if n > 1 && ui.add(crate::shell::Btn::new(t0("mh.open"))).clicked() {
             acts.push(Act::Run("civil.mh", String::new()));
         }
-        if ui.button(t0("sec.props.remove.all")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("sec.props.remove.all"))).clicked() {
             acts.push(Act::Run("civil.sampling", "remove".into()));
         }
     });
@@ -1207,7 +1207,7 @@ fn pipe(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, p: &Value, acts: &mu
     }
     let (rows, probs) = cv.dr_pipe_rows(&id);
     crate::civildrain::rows_block(ui, tk, &rows, &probs, &id);
-    if ui.button(t0("cv.pp.auto")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("cv.pp.auto"))).clicked() {
         acts.push(Act::Run("civil.prop", "auto=".into()));
     }
 }
@@ -1305,10 +1305,10 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
         prop_row(cv, ui, tk, &format!("fl:{id}:raise"), &t0("fl.props.raise"), "", &u, "raise", acts);
     });
     ui.horizontal_wrapped(|ui| {
-        if ui.button(t0("fl.props.surface")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("fl.props.surface"))).clicked() {
             acts.push(Act::Run("civil.prop", "surface=".into()));
         }
-        if fl.pts.len() > 2 && ui.button(t0("fl.props.even")).clicked() {
+        if fl.pts.len() > 2 && ui.add(crate::shell::Btn::new(t0("fl.props.even"))).clicked() {
             acts.push(Act::Run("civil.prop", "even=".into()));
         }
     });
@@ -1338,7 +1338,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
     });
     cv.profile.offset_form = Some((id.clone(), dist.clone(), how.clone(), amt.clone()));
     note(ui, tk, &t0("fl.offset.note"));
-    if ui.button(t0("fl.offset.go")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("fl.offset.go"))).clicked() {
         acts.push(Act::Run("civil.prop", format!("offset={dist},{how},{amt}")));
     }
 }
@@ -1408,10 +1408,10 @@ fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &
         egui::TextEdit::multiline(&mut legal).desired_rows(10).desired_width(f32::INFINITY).font(egui::TextStyle::Small).interactive(true),
     );
     ui.horizontal(|ui| {
-        if ui.button(t0("pc.copy")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("pc.copy"))).clicked() {
             acts.push(Act::Run("civil.pc.copy", String::new()));
         }
-        if ui.button(t0("pc.download")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("pc.download"))).clicked() {
             acts.push(Act::Run("civil.pc.download", String::new()));
         }
     });

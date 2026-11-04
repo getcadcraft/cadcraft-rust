@@ -407,10 +407,12 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
                     });
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button(t("opt.cancel")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("opt.cancel"))).clicked() {
                             act = Some(("answer", "cancel".into()));
                         }
-                        if ui.button(t("app.insertf.insert")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        if ui.add(crate::shell::Btn::new(t("app.insertf.insert"))).clicked()
+                            || ui.input(|i| i.key_pressed(egui::Key::Enter))
+                        {
                             act = Some(("answer", dlg.sel.clone().unwrap_or_else(|| "whole".into())));
                         }
                     });
@@ -433,7 +435,7 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
                         for (k, l) in buttons {
-                            if ui.button(l).clicked() {
+                            if ui.add(crate::shell::Btn::new(l)).clicked() {
                                 act = Some(("answer", k.clone()));
                             }
                         }
@@ -488,7 +490,10 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                 }
                 ui.separator();
-                if lib.source == "files" && lib.view == "browse" && ui.button(t("lib.panel.choose_file").trim()).clicked() {
+                if lib.source == "files"
+                    && lib.view == "browse"
+                    && ui.add(crate::shell::Btn::new(t("lib.panel.choose_file").trim())).clicked()
+                {
                     act.push(("lib.files", String::new()));
                 }
                 if ui.link(t("lib.panel.library_credits")).clicked() {
@@ -514,10 +519,10 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
                         }
                     });
                     ui.horizontal(|ui| {
-                        if ui.button(t("lib.panel.copy_all")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("lib.panel.copy_all"))).clicked() {
                             copy = Some(credits_text(&uses));
                         }
-                        if ui.button(t("lib.panel.download_csv")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("lib.panel.download_csv"))).clicked() {
                             act.push(("lib.credits.csv", String::new()));
                         }
                     });
@@ -573,7 +578,7 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
                                         );
                                     });
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if ui.button(t("lib.panel.place")).clicked() {
+                                        if ui.add(crate::shell::Btn::new(t("lib.panel.place"))).clicked() {
                                             act.push(("lib.place", i.saturating_add(1).to_string()));
                                         }
                                     });

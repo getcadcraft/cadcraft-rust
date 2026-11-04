@@ -160,7 +160,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
                         ("gusset", "page.tool.gusset", "page.tool.gusset.title", gusset_ok),
                         ("similar", "page.tool.similar", "page.tool.similar.title", sel_conn),
                     ] {
-                        if ui.add_enabled(on, egui::Button::new(t0(label))).on_hover_text(t0(tip)).clicked() {
+                        if ui.add_enabled(on, crate::shell::Btn::new(t0(label))).on_hover_text(t0(tip)).clicked() {
                             run(acts, "detail.act", a.into());
                             ui.close();
                         }
@@ -180,7 +180,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
                         ("select-all", "page.edit.select-all", "Ctrl+A", any),
                         ("select-none", "page.edit.select-none", "Esc", !picked.is_empty()),
                     ] {
-                        if ui.add_enabled(on, egui::Button::new(format!("{}    {key}", t0(label)))).clicked() {
+                        if ui.add_enabled(on, crate::shell::Btn::new(format!("{}    {key}", t0(label)))).clicked() {
                             run(acts, "detail.act", a.into());
                             ui.close();
                         }
@@ -200,7 +200,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
                         ("report-pdf", "tool.report", "rep.pdf"),
                     ] {
                         let text = if kind.starts_with("report") { format!("{} ({})", t0(label), t0(tip)) } else { t0(label) };
-                        if ui.button(text).on_hover_text(t0(tip)).clicked() {
+                        if ui.add(crate::shell::Btn::new(text)).on_hover_text(t0(tip)).clicked() {
                             run(acts, "detail.export", kind.into());
                             ui.close();
                         }
@@ -231,7 +231,11 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
                     }
                     ui.separator();
                     let fname = crate::detailexport::format_name(&dv.dwg_format).unwrap_or_default();
-                    if ui.button(t("dwg.all", &[("format", F::S(fname))])).on_hover_text(t0("page.tool.drawings.title")).clicked() {
+                    if ui
+                        .add(crate::shell::Btn::new(t("dwg.all", &[("format", F::S(fname))])))
+                        .on_hover_text(t0("page.tool.drawings.title"))
+                        .clicked()
+                    {
                         run(acts, "detail.export", format!("drawings:{}", dv.dwg_format));
                         ui.close();
                     }
@@ -512,7 +516,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         let why = cc_detail::shop::shop_refusal(dv.built.get(id));
-        if why.is_none() && ui.button(t0("app.btn.shop")).clicked() {
+        if why.is_none() && ui.add(crate::shell::Btn::new(t0("app.btn.shop"))).clicked() {
             acts.push(Act::Run("detail.export", format!("shop:{id}")));
         }
     });
@@ -680,7 +684,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                 let mut tol = dv.clash_tol;
                 ui.add(egui::DragValue::new(&mut tol).range(0.0..=50.0).speed(0.5));
                 dv.clash_tol = tol;
-                if ui.button(t0("clash.run")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("clash.run"))).clicked() {
                     acts.push(Act::Run("detail.clash", cc_detail::js::num_to_string(tol)));
                 }
             });

@@ -480,7 +480,7 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut open = true;
     dialog(t("appload.title"), "cad_appload", ctx).open(&mut open).default_size([520.0, 440.0]).show(ctx, |ui| {
         ui.horizontal(|ui| {
-            if ui.button(t("appload.loadfile")).clicked() {
+            if ui.add(crate::shell::Btn::new(t("appload.loadfile"))).clicked() {
                 act = Some(("lisp.load", String::new()));
             }
             ui.label(RichText::new(t("appload.drop")).small().color(tok.text_dim));
@@ -550,7 +550,7 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(t("appload.refused.text")).small().color(tok.text_dim));
         });
         ui.separator();
-        if ui.button(t("appload.close")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        if ui.add(crate::shell::Btn::new(t("appload.close"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             act = Some(("lisp.appload.close", String::new()));
         }
     });
@@ -576,10 +576,10 @@ fn alias_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.add(egui::TextEdit::multiline(&mut text).font(egui::TextStyle::Monospace).desired_rows(14).desired_width(f32::INFINITY));
         });
         ui.horizontal(|ui| {
-            if ui.button(t("aliases.cancel")).clicked() {
+            if ui.add(crate::shell::Btn::new(t("aliases.cancel"))).clicked() {
                 act = Some("lisp.alias.cancel");
             }
-            if ui.button(t("aliases.save")).clicked() {
+            if ui.add(crate::shell::Btn::new(t("aliases.save"))).clicked() {
                 act = Some("lisp.alias.save");
             }
         });
@@ -621,10 +621,10 @@ fn blocks_window(app: &mut UiApp, ctx: &egui::Context) {
         });
         ui.label(RichText::new(t("delblocks.dialog.note")).small());
         ui.horizontal(|ui| {
-            if ui.button(t("aliases.cancel")).clicked() {
+            if ui.add(crate::shell::Btn::new(t("aliases.cancel"))).clicked() {
                 answer = Some(String::new());
             }
-            if ui.button(t("delblocks.dialog.ok")).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if ui.add(crate::shell::Btn::new(t("delblocks.dialog.ok"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 answer = Some(picked.join(","));
             }
         });
@@ -716,7 +716,7 @@ fn tile_ui(ui: &mut egui::Ui, t: &Tile, v: &mut DclView, used: &mut Option<(Stri
         }
         "button" => {
             let text = if label.is_empty() { key.clone() } else { label };
-            if ui.add_enabled(enabled, egui::Button::new(text)).clicked() && !key.is_empty() {
+            if ui.add_enabled(enabled, crate::shell::Btn::new(text)).clicked() && !key.is_empty() {
                 *used = Some((key, None));
             }
         }

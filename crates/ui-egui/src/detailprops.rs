@@ -228,7 +228,7 @@ pub fn right(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>)
                 if nb > 0 {
                     ui.add_space(6.0);
                     note(ui, tk, &t("app.bolts.loose", &[("n", F::N(nb as f64))]));
-                    if ui.button(t0("app.btn.bolts-remove")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0("app.btn.bolts-remove"))).clicked() {
                         run(acts, "detail.act", "remove-bolts".into());
                     }
                 }
@@ -362,7 +362,7 @@ fn by_grid_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
             }
         });
     }
-    if ui.button(t0("app.grid.add")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("app.grid.add"))).clicked() {
         let b = &dv.forms.by_grid;
         let a = format!("{}/{}/{}", b[0], b[1], b[2]);
         run(acts, "detail.bygrid", if two { format!("{a};{}/{}/{}", b[3], b[4], b[5]) } else { a });
@@ -540,10 +540,10 @@ fn paste_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         }
     });
     ui.horizontal(|ui| {
-        if ui.button(t0("app.paste.offset.go")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("app.paste.offset.go"))).clicked() {
             run(acts, "detail.paste", format!("offset:{}", dv.forms.paste_off.join(",")));
         }
-        if ui.button(t0("app.paste.in-place")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("app.paste.in-place"))).clicked() {
             run(acts, "detail.paste", "in-place".into());
         }
     });
@@ -562,7 +562,7 @@ fn paste_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
             }
         });
     }
-    if ui.button(t0("app.paste.grid.go")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("app.paste.grid.go"))).clicked() {
         run(acts, "detail.paste", format!("at:{}", dv.forms.paste_at.join("/")));
     }
 }
@@ -642,13 +642,13 @@ fn multi_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
     let copyable = mem.len() + foots.len() > 0;
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
-        if ui.add_enabled(copyable, egui::Button::new(t0("app.btn.copy"))).clicked() {
+        if ui.add_enabled(copyable, crate::shell::Btn::new(t0("app.btn.copy"))).clicked() {
             run(acts, "detail.act", "copy".into());
         }
-        if ui.add_enabled(copyable, egui::Button::new(t0("app.btn.duplicate"))).clicked() {
+        if ui.add_enabled(copyable, crate::shell::Btn::new(t0("app.btn.duplicate"))).clicked() {
             run(acts, "detail.act", "duplicate".into());
         }
-        if ui.button(RichText::new(t0("app.btn.delete")).color(tk.accent)).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
             run(acts, "detail.act", "delete".into());
         }
     });
@@ -717,10 +717,10 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
         }
     });
     ui.horizontal(|ui| {
-        if ui.button(t0("xf.move.go")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("xf.move.go"))).clicked() {
             run(acts, "detail.xf", format!("move:{}{keep}", dv.forms.xf_off.join(",")));
         }
-        if ui.button(t0("xf.move.pick")).on_hover_text(t0("xf.move.pick.title")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("xf.move.pick"))).on_hover_text(t0("xf.move.pick.title")).clicked() {
             run(acts, "detail.tool", "move".into());
         }
     });
@@ -738,7 +738,7 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
             dv.forms.xf_about = v;
         }
     });
-    if ui.button(t0("xf.rotate.go")).clicked() {
+    if ui.add(crate::shell::Btn::new(t0("xf.rotate.go"))).clicked() {
         let at = if dv.forms.xf_about.is_empty() { String::new() } else { format!("@{}", dv.forms.xf_about) };
         run(acts, "detail.xf", format!("rotate:{}{at}{keep}", dv.forms.xf_deg));
     }
@@ -753,7 +753,7 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
                 dv.forms.xf_line = v;
             }
         });
-        if ui.button(t0("xf.mirror.go")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("xf.mirror.go"))).clicked() {
             run(acts, "detail.xf", format!("mirror:{}{keep}", dv.forms.xf_line));
         }
     }
@@ -806,7 +806,7 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
                 }
             });
         }
-        if ui.button(t0("app.holes.add")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("app.holes.add"))).clicked() {
             run(acts, "detail.hole", format!("{id}:add:{}", dv.forms.hole.join(",")));
         }
     }
@@ -853,7 +853,7 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
                 }
             });
         }
-        if ui.button(t0("app.copes.add")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("app.copes.add"))).clicked() {
             run(acts, "detail.cope", format!("{id}:add:{}", dv.forms.cope.join(",")));
         }
     }
@@ -862,17 +862,17 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         if kind == "beam" {
-            if ui.button(t0("app.btn.endplates")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("app.btn.endplates"))).clicked() {
                 run(acts, "detail.act", "endplates".into());
             }
-            if ui.button(t0("app.btn.sheartabs")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("app.btn.sheartabs"))).clicked() {
                 run(acts, "detail.act", "sheartabs".into());
             }
         }
-        if kind == "column" && ui.button(t0("app.btn.baseplate")).clicked() {
+        if kind == "column" && ui.add(crate::shell::Btn::new(t0("app.btn.baseplate"))).clicked() {
             run(acts, "detail.act", "baseplate".into());
         }
-        if ui.button(RichText::new(t0("app.btn.delete")).color(tk.accent)).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
             run(acts, "detail.act", "delete".into());
         }
     });
@@ -1008,13 +1008,13 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
     let shop = plate.is_some() && cc_detail::shop::shop_refusal(plate).is_none();
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
-        if ui.add_enabled(n > 0, egui::Button::new(t("app.conn.similar", &[("n", F::N(n as f64))]))).clicked() {
+        if ui.add_enabled(n > 0, crate::shell::Btn::new(t("app.conn.similar", &[("n", F::N(n as f64))]))).clicked() {
             run(acts, "detail.act", "similar".into());
         }
-        if shop && ui.button(t0("app.btn.plate-drawing")).clicked() {
+        if shop && ui.add(crate::shell::Btn::new(t0("app.btn.plate-drawing"))).clicked() {
             run(acts, "detail.export", "shop".into());
         }
-        if ui.button(RichText::new(t0("app.btn.delete")).color(tk.accent)).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
             run(acts, "detail.act", "delete".into());
         }
     });
@@ -1084,7 +1084,7 @@ fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         }
     }
     xf_block(dv, ui, tk, acts);
-    if ui.button(RichText::new(t0("app.btn.delete")).color(tk.accent)).clicked() {
+    if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
         run(acts, "detail.act", "delete".into());
     }
 }
@@ -1126,7 +1126,7 @@ fn stair_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
     }
     note(ui, tk, &t0("app.stair.props-note"));
     xf_block(dv, ui, tk, acts);
-    if ui.button(RichText::new(t0("app.btn.delete")).color(tk.accent)).clicked() {
+    if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
         run(acts, "detail.act", "delete".into());
     }
 }
@@ -1159,7 +1159,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
             if touched || dv.forms.grids.is_some() {
                 dv.forms.grids = Some(form.clone());
             }
-            if ui.button(t0("page.left.grids.apply")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("page.left.grids.apply"))).clicked() {
                 run(acts, "detail.grids", form.join("|"));
                 dv.forms.grids = None;
             }
@@ -1210,7 +1210,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
                     rows.push((t("app.levels.default", &[("n", F::N((zs.len() + 1) as f64))]), num_to_string(z)));
                     touched = true;
                 }
-                if ui.button(t0("page.left.levels.apply")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("page.left.levels.apply"))).clicked() {
                     let spec: Vec<String> = rows.iter().map(|(n, z)| format!("{n}={z}")).collect();
                     run(acts, "detail.levels", spec.join(";"));
                     dv.forms.levels = None;
@@ -1304,7 +1304,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
                     }
                 });
             }
-            if ui.button(t0("page.left.profile.add")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("page.left.profile.add"))).clicked() {
                 let dims: Vec<String> = dv.forms.pdims.iter().map(|(k, v)| format!("{k}={v}")).collect();
                 run(acts, "detail.profile", format!("{};{};{}", dv.forms.pname, dv.forms.pkind, dims.join(";")));
             }
@@ -1349,8 +1349,9 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
             _ => false,
         })
     };
-    let btn =
-        |ui: &mut Ui, on: bool, label: &str, tip: &str| ui.add_enabled(on, egui::Button::new(t0(label))).on_hover_text(t0(tip)).clicked();
+    let btn = |ui: &mut Ui, on: bool, label: &str, tip: &str| {
+        ui.add_enabled(on, crate::shell::Btn::new(t0(label))).on_hover_text(t0(tip)).clicked()
+    };
     if btn(ui, sel_type == "beam", "page.tool.endplates", "page.tool.endplates.title") {
         run(acts, "detail.act", "endplates".into());
     }
@@ -1376,14 +1377,14 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
     let can_paste = dv.tools.clip.is_some();
     if ui
-        .add_enabled(copyable, egui::Button::new(t0("page.tool.copy")))
+        .add_enabled(copyable, crate::shell::Btn::new(t0("page.tool.copy")))
         .on_hover_text(t("page.tool.copy.title", &[("key", F::S("Ctrl+C".into()))]))
         .clicked()
     {
         run(acts, "detail.act", "copy".into());
     }
     if ui
-        .add_enabled(can_paste, egui::Button::new(t0("page.tool.paste")))
+        .add_enabled(can_paste, crate::shell::Btn::new(t0("page.tool.paste")))
         .on_hover_text(t("page.tool.paste.title", &[("key", F::S("Ctrl+V".into()))]))
         .clicked()
     {
@@ -1402,7 +1403,7 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
             ("select-all", "page.edit.select-all", "Ctrl+A", any),
             ("select-none", "page.edit.select-none", "Esc", !picked.is_empty()),
         ] {
-            if ui.add_enabled(on, egui::Button::new(format!("{}    {key}", t0(label)))).clicked() {
+            if ui.add_enabled(on, crate::shell::Btn::new(format!("{}    {key}", t0(label)))).clicked() {
                 run(acts, "detail.act", a.into());
                 ui.close();
             }
@@ -1441,7 +1442,7 @@ pub fn view_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
                 run(acts, "detail.view", format!("elevation:{v}"));
             }
         }
-        if ui.button(t0("page.view.fit")).on_hover_text(t0("page.view.fit.title")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("page.view.fit"))).on_hover_text(t0("page.view.fit.title")).clicked() {
             acts.push(Act::Fit);
         }
     });

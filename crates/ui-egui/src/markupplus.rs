@@ -123,7 +123,7 @@ impl PdfView {
                 ui.label(RichText::new(format!("{no} {n}")).small().color(tok.text_dim));
             });
         }
-        if ui.button(t0("space.new")).clicked() {
+        if ui.add(crate::shell::Btn::new(t0("space.new"))).clicked() {
             self.start_space();
         }
         if let Some(id) = go
@@ -339,8 +339,8 @@ impl PdfView {
         ui.label(RichText::new(t0("punch.note")).small().color(tok.text_dim));
         let (mut add, mut export) = (false, false);
         ui.horizontal_wrapped(|ui| {
-            add = ui.button(t0("punch.add")).clicked();
-            export = ui.button(t0("punch.csv")).clicked();
+            add = ui.add(crate::shell::Btn::new(t0("punch.add"))).clicked();
+            export = ui.add(crate::shell::Btn::new(t0("punch.csv"))).clicked();
         });
         if add {
             let sel = self.tools.sel.clone();
@@ -474,19 +474,19 @@ impl PdfView {
             {
                 self.tools.message = e;
             }
-        } else if ui.button(t0("punch.add.one")).clicked() {
+        } else if ui.add(crate::shell::Btn::new(t0("punch.add.one"))).clicked() {
             self.add_to_punch(std::slice::from_ref(&m.id));
         }
         // cut-outs of an area
         if m.kind == "area" {
             ui.horizontal_wrapped(|ui| {
-                if ui.button(t0("hole.add")).clicked()
+                if ui.add(crate::shell::Btn::new(t0("hole.add"))).clicked()
                     && let Err(e) = self.start_cutout()
                 {
                     self.tools.message = e;
                 }
                 let n = m.holes.as_ref().map_or(0, Vec::len);
-                if n > 0 && ui.button(t("hole.remove", &[("n", Fill::N(n as f64))])).clicked() {
+                if n > 0 && ui.add(crate::shell::Btn::new(t("hole.remove", &[("n", Fill::N(n as f64))]))).clicked() {
                     let _ = self.remove_cutouts();
                 }
             });

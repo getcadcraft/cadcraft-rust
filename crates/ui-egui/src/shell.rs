@@ -551,3 +551,40 @@ pub fn bar_toggle(ui: &mut egui::Ui, t: &Tokens, label: &str, on: bool) -> Respo
 pub fn field(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
     egui::TextEdit::singleline(text).align(egui::Align2::LEFT_CENTER).margin(egui::Margin::symmetric(8, 4))
 }
+
+/// The theme's tokens as the last `Tokens::apply` left them (for widgets that get no tokens passed in).
+pub fn tokens_of(ctx: &egui::Context) -> Tokens {
+    ctx.data(|d| d.get_temp::<Tokens>(egui::Id::unique(TOKENS_KEY))).unwrap_or_else(|| Tokens::preset(crate::theme::Preset::Light))
+}
+
+pub(crate) const TOKENS_KEY: &str = "cc-shell-tokens";
+
+/// A panel's or dialog's button as 0.7 draws it (`.btn-line.btn-sm-cc`): the action colour's text and 2 px border,
+/// 30 px tall, the fill on hover; greyed out when the ui is disabled. Inside a menu it is the menu's plain item.
+pub struct Btn {
+    text: egui::WidgetText,
+}
+
+impl Btn {
+    pub fn new(text: impl Into<egui::WidgetText>) -> Btn {
+        Btn { text: text.into() }
+    }
+}
+
+impl egui::Widget for Btn {
+    fn ui(self, ui: &mut egui::Ui) -> Response {
+        if egui::containers::menu::is_in_menu(ui) {
+            return ui.add(egui::Button::new(self.text));
+        }
+        let t = tokens_of(ui.ctx());
+        let on = ui.is_enabled();
+        let ink = if on { t.accent } else { t.text_disabled };
+        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, semi(14.0));
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 30.0), Sense::click());
+        let fill = if on && resp.hovered() { t.row_selected } else { Color32::TRANSPARENT };
+        let edge = if on { t.accent } else { t.line };
+        ui.painter().rect(r, 2.0, fill, Stroke::new(if on { 2.0 } else { 1.0 }, edge), egui::StrokeKind::Inside);
+        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, ink);
+        if on { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
+    }
+}

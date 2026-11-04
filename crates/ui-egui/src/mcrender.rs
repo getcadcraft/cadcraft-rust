@@ -729,13 +729,13 @@ impl ModelView {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&d.status).small());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button(mt("render.close", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("render.close", &[]))).clicked() {
                             *act = Some("render-close".into());
                         }
-                        if ui.add_enabled(!running && d.png.is_some(), egui::Button::new(mt("render.save", &[]))).clicked() {
+                        if ui.add_enabled(!running && d.png.is_some(), crate::shell::Btn::new(mt("render.save", &[]))).clicked() {
                             *act = Some("render-save".into());
                         }
-                        if ui.button(mt(if running { "render.stop" } else { "render.go" }, &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt(if running { "render.stop" } else { "render.go" }, &[]))).clicked() {
                             *act = Some("render-go".into());
                         }
                     });

@@ -265,13 +265,13 @@ impl BimTools {
             }
         });
         ui.horizontal(|ui| {
-            if ui.button(bt("find.go", &[])).clicked()
+            if ui.add(crate::shell::Btn::new(bt("find.go", &[]))).clicked()
                 && let Some(keys) = self.run_find(bytes)
             {
                 act = Some(BimAct::Isolate(keys));
             }
             let has = self.found.as_ref().is_some_and(|f| !f.is_empty());
-            if ui.add_enabled(has, egui::Button::new("Hide them")).clicked() {
+            if ui.add_enabled(has, crate::shell::Btn::new("Hide them")).clicked() {
                 act = self.found.clone().map(BimAct::Hide);
             }
             if ui.small_button(bt("vis.showall", &[])).clicked() {

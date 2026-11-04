@@ -2151,7 +2151,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                     }
                 });
                 ui.label(RichText::new(format!("{} × {}", fmt_len(os.width, &dr.units), fmt_len(os.height, &dr.units))).color(t.text_dim));
-                if ui.button(bt("model.ot.flip", &[])).on_hover_text(bt("model.ot.flip.title", &[])).clicked() {
+                if ui.add(crate::shell::Btn::new(bt("model.ot.flip", &[]))).on_hover_text(bt("model.ot.flip.title", &[])).clicked() {
                     run.push(("bim.flip", String::new()));
                 }
             }
@@ -2199,17 +2199,17 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                 run.push(("bim.layout", k.into()));
             }
         }
-        if ui.button(bt("model.fit", &[])).on_hover_text(bt("model.fit.title", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(bt("model.fit", &[]))).on_hover_text(bt("model.fit.title", &[])).clicked() {
             run.push(("bim.fit", String::new()));
         }
         let ul = if dr.units == "mm" { "model.units.mm" } else { "model.units.ftin" };
-        if ui.button(bt(ul, &[])).on_hover_text(bt("model.units", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(bt(ul, &[]))).on_hover_text(bt("model.units", &[])).clicked() {
             run.push(("bim.units", if dr.units == "mm" { "ftin".into() } else { "mm".into() }));
         }
         if ui.add(egui::Button::new(bt("model.dims", &[])).selected(dr.dims)).on_hover_text(bt("model.dims.title", &[])).clicked() {
             run.push(("bim.dims", String::new()));
         }
-        if ui.button(bt("model.print", &[])).on_hover_text(bt("model.print.title", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(bt("model.print", &[]))).on_hover_text(bt("model.print.title", &[])).clicked() {
             run.push(("bim.print", String::new()));
         }
         if ui.add(egui::Button::new(bt("model.sch.title", &[])).selected(dr.show_sched)).clicked() {
@@ -2284,7 +2284,7 @@ pub fn levels_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                     );
                 });
             }
-            if ui.button(bt("model.lv.add", &[])).clicked() {
+            if ui.add(crate::shell::Btn::new(bt("model.lv.add", &[]))).clicked() {
                 out.push(("bim.level.add", String::new()));
             }
             ui.label(RichText::new(bt("model.levels.note", &[])).small().color(t.text_dim));
@@ -2314,7 +2314,7 @@ pub fn schedules_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                         out.push(("bim.schedule", k.into()));
                     }
                 }
-                if ui.button(bt("model.sch.csv", &[])).clicked() {
+                if ui.add(crate::shell::Btn::new(bt("model.sch.csv", &[]))).clicked() {
                     out.push(("bim.schedule", format!("{which}:csv")));
                 }
             });
@@ -2400,7 +2400,7 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label(RichText::new(bt("model.prop.outside", &[])).small().color(t.text_dim));
             ui.label(bt(if w0.ext_side == "right" { "model.prop.right" } else { "model.prop.left" }, &[]));
-            if ui.button(bt("model.ot.flip", &[])).clicked() {
+            if ui.add(crate::shell::Btn::new(bt("model.ot.flip", &[]))).clicked() {
                 out = Some("outside=flip".into());
             }
         });
@@ -2431,11 +2431,11 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
             }
         }
         ui.horizontal(|ui| {
-            if ui.button(format!("{}: {}", bt("model.prop.hinges", &[]), bt("model.ot.flip", &[]))).clicked() {
+            if ui.add(crate::shell::Btn::new(format!("{}: {}", bt("model.prop.hinges", &[]), bt("model.ot.flip", &[])))).clicked() {
                 out = Some("hinges=flip".into());
             }
             let fk = if o0.door { "model.prop.swing" } else { "model.prop.wface" };
-            if ui.button(format!("{}: {}", bt(fk, &[]), bt("model.ot.flip", &[]))).clicked() {
+            if ui.add(crate::shell::Btn::new(format!("{}: {}", bt(fk, &[]), bt("model.ot.flip", &[])))).clicked() {
                 out = Some("face=flip".into());
             }
         });
@@ -2493,7 +2493,7 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
                             ("gable-long", "model.rf.gable.long"),
                             ("shed", "res.rf.shed"),
                         ] {
-                            if ui.button(bt(key, &[])).clicked() {
+                            if ui.add(crate::shell::Btn::new(bt(key, &[]))).clicked() {
                                 out = Some(format!("ends={e}"));
                             }
                         }

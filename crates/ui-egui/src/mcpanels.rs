@@ -666,7 +666,7 @@ impl ModelView {
                     *renaming = Some(d.id.clone());
                 }
                 r.context_menu(|ui| {
-                    if ui.button(mt("app.scene.rename", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(mt("app.scene.rename", &[]))).clicked() {
                         *renaming = Some(d.id.clone());
                         ui.close();
                     }

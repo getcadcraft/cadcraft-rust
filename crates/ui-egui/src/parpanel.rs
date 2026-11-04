@@ -410,7 +410,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
         ui.horizontal(|ui| {
             ui.add(crate::shell::field(&mut app.par.new_name).hint_text(t("params.panel.name")).desired_width(90.0));
             ui.add(crate::shell::field(&mut app.par.new_expr).hint_text(t("params.panel.value_expression")).desired_width(160.0));
-            if ui.button(t("params.panel.add")).clicked() && !app.par.new_name.trim().is_empty() {
+            if ui.add(crate::shell::Btn::new(t("params.panel.add"))).clicked() && !app.par.new_name.trim().is_empty() {
                 act.push(("par.add", format!("{}={}", app.par.new_name.trim(), app.par.new_expr.trim())));
             }
         });
@@ -419,11 +419,11 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(&ch.text);
             ui.horizontal(|ui| {
                 for c in ch.choices.iter().take(6) {
-                    if ui.button(c).clicked() {
+                    if ui.add(crate::shell::Btn::new(c)).clicked() {
                         act.push(("par.value", format!("{}={}|{c}", ch.target, cc_cad::js::num_to_string(ch.value))));
                     }
                 }
-                if ui.button(t("opt.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("opt.cancel"))).clicked() {
                     act.push(("par.cancel", String::new()));
                 }
             });
@@ -508,10 +508,10 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
             }
             ui.label(RichText::new(format!("{what}.")).small());
             ui.horizontal(|ui| {
-                if ui.button(t("dlg.qs.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
                     cancel = true;
                 }
-                if ui.button(crate::lang::t0(&cc_civil::i18n::CATALOG, "crs.d.apply")).clicked() {
+                if ui.add(crate::shell::Btn::new(crate::lang::t0(&cc_civil::i18n::CATALOG, "crs.d.apply"))).clicked() {
                     apply = true;
                 }
             });

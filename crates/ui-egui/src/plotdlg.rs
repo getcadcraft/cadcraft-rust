@@ -449,16 +449,17 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if sheets >= 2 && ui.button(t("plot.publish")).on_hover_text(t("plot.publish.title")).clicked() {
+                        if sheets >= 2 && ui.add(crate::shell::Btn::new(t("plot.publish"))).on_hover_text(t("plot.publish.title")).clicked()
+                        {
                             publish = true;
                         }
-                        if ui.add_enabled(sheet.is_some(), egui::Button::new(t("ui.download_pdf"))).clicked() {
+                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.download_pdf"))).clicked() {
                             do_save = true;
                         }
-                        if ui.add_enabled(sheet.is_some(), egui::Button::new(t("ui.open_print"))).clicked() {
+                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.open_print"))).clicked() {
                             do_print = true;
                         }
-                        if ui.button(t("ui.close")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("ui.close"))).clicked() {
                             close = true;
                         }
                     });

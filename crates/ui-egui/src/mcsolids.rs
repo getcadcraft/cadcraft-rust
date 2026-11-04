@@ -375,10 +375,10 @@ impl ModelView {
                         }
                     });
                     ui.horizontal(|ui| {
-                        if ui.button(mt("app.btn.cancel", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("app.btn.cancel", &[]))).clicked() {
                             a = Some("storeys-cancel".into());
                         }
-                        if ui.button(mt("app.btn.save", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("app.btn.save", &[]))).clicked() {
                             a = Some("storeys-ok".into());
                         }
                     });

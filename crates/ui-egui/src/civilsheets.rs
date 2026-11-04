@@ -344,10 +344,10 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                 ui.add(egui::Label::new(RichText::new(info).small().color(tk.text)).wrap());
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(t("pp.ui.cancel", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("pp.ui.cancel", &[]))).clicked() {
                         close = true;
                     }
-                    if ui.add(egui::Button::new(RichText::new(t("xs.ui.go", &[])).strong())).clicked() {
+                    if ui.add(crate::shell::Btn::new(RichText::new(t("xs.ui.go", &[])).strong())).clicked() {
                         acts.push(("civil.xs.go", String::new()));
                     }
                 });
@@ -424,10 +424,10 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(t("pc.dlg.cancel", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         close = true;
                     }
-                    if ui.add_enabled(res.is_some(), egui::Button::new("CSV")).clicked() {
+                    if ui.add_enabled(res.is_some(), crate::shell::Btn::new("CSV")).clicked() {
                         acts.push(("civil.mh.csv", String::new()));
                     }
                 });

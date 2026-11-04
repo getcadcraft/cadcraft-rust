@@ -1568,13 +1568,13 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                     ui.label(RichText::new(l.text()).strong().color(tk.text_strong));
                                 }
                                 "file" | "off" => {
-                                    if ui.button(l.text()).clicked() {
+                                    if ui.add(crate::shell::Btn::new(l.text())).clicked() {
                                         acts.push(("civil.crs.dlg", format!("grid={k}")));
                                     }
                                 }
                                 k if k.starts_with("cdn:") => {
                                     let on = cv.pt_settings.internet;
-                                    let b = ui.add_enabled(on, egui::Button::new(l.text()));
+                                    let b = ui.add_enabled(on, crate::shell::Btn::new(l.text()));
                                     let b = if on { b } else { b.on_disabled_hover_text(t0("mapl.net_first")) };
                                     if b.clicked() {
                                         acts.push(("civil.crs.dlg", format!("grid={k}")));
@@ -1607,7 +1607,9 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                         {
                             x.near = q.clone();
                         }
-                        if ui.button(t0("crs.d.suggest")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                        if ui.add(crate::shell::Btn::new(t0("crs.d.suggest"))).clicked()
+                            || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                        {
                             acts.push(("civil.crs.dlg", format!("near={q}")));
                         }
                     });
@@ -1665,16 +1667,16 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                 field(ui, &t0("crs.d.n"), &d.an, "", 120.0, acts, "an");
                                 field(ui, &tr!("crs.d.elev", unit = if units == "m" { "m" } else { "ft" }), &d.az, "", 120.0, acts, "az");
                                 ui.horizontal(|ui| {
-                                    if ui.button(format!("⌖ {}", t0("crs.d.pick.point"))).clicked() {
+                                    if ui.add(crate::shell::Btn::new(format!("⌖ {}", t0("crs.d.pick.point")))).clicked() {
                                         acts.push(("civil.crs.dlg", "pick=factor".into()));
                                     }
-                                    if ui.button(t0("crs.d.compute")).clicked() {
+                                    if ui.add(crate::shell::Btn::new(t0("crs.d.compute"))).clicked() {
                                         acts.push(("civil.crs.dlg", "compute".into()));
                                     }
                                 });
                                 show_lines(ui, tk, &d.factors);
                                 if let Some(f) = &d.usef
-                                    && ui.button(tr!("crs.d.usef", f = f.as_str())).clicked()
+                                    && ui.add(crate::shell::Btn::new(tr!("crs.d.usef", f = f.as_str()))).clicked()
                                 {
                                     acts.push(("civil.crs.dlg", "usef".into()));
                                 }
@@ -1697,7 +1699,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                             if r.changed() {
                                                 acts.push(("civil.crs.dlg", format!("cp={i}:{f}={s}")));
                                             }
-                                            if f == "n" && ui.button(format!("⌖ {}", t0("crs.d.pick"))).clicked() {
+                                            if f == "n" && ui.add(crate::shell::Btn::new(format!("⌖ {}", t0("crs.d.pick")))).clicked() {
                                                 acts.push(("civil.crs.dlg", format!("pick=cp{i}")));
                                             }
                                         }
@@ -1712,14 +1714,14 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     }
                     ui.separator();
                     ui.horizontal(|ui| {
-                        if !d.pick && d.current.is_some() && ui.button(t0("crs.d.remove")).clicked() {
+                        if !d.pick && d.current.is_some() && ui.add(crate::shell::Btn::new(t0("crs.d.remove"))).clicked() {
                             acts.push(("civil.crs.dlg", "remove".into()));
                         }
-                        if ui.button(t0("vec.cancel")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t0("vec.cancel"))).clicked() {
                             acts.push(("civil.crs.dlg", "close".into()));
                         }
                         let label = if d.pick { t0("vec.ask.go") } else { t0("crs.d.apply") };
-                        let b = ui.add_enabled(apply_off.is_none(), egui::Button::new(label));
+                        let b = ui.add_enabled(apply_off.is_none(), crate::shell::Btn::new(label));
                         let b = match &apply_off {
                             Some(w) => b.on_disabled_hover_text(w),
                             None => b,
@@ -1750,7 +1752,7 @@ pub fn ask_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 for (id, label) in &a.buttons {
-                    if ui.button(label).clicked() {
+                    if ui.add(crate::shell::Btn::new(label)).clicked() {
                         acts.push(("civil.ask", (*id).to_string()));
                     }
                 }

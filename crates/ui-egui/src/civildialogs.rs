@@ -539,18 +539,18 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(t("pc.dlg.cancel", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         cancel = true;
                     }
                     let ok = matches!(read, Read::Ok(_));
                     let lp = matches!(&read, Read::Ok(r) if r.loop_);
-                    if ui.add_enabled(ok, egui::Button::new(t("tv.csv", &[]))).clicked() {
+                    if ui.add_enabled(ok, crate::shell::Btn::new(t("tv.csv", &[]))).clicked() {
                         add = Some("csv");
                     }
-                    if ui.add_enabled(lp, egui::Button::new(t("tv.add.parcel", &[]))).clicked() {
+                    if ui.add_enabled(lp, crate::shell::Btn::new(t("tv.add.parcel", &[]))).clicked() {
                         add = Some("parcel");
                     }
-                    if ui.add_enabled(ok, egui::Button::new(t("tv.add.points", &[]))).clicked() {
+                    if ui.add_enabled(ok, crate::shell::Btn::new(t("tv.add.points", &[]))).clicked() {
                         add = Some("points");
                     }
                 });
@@ -632,10 +632,10 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    if ui.button(t("pc.dlg.cancel", &[])).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         cancel = true;
                     }
-                    if ui.add_enabled(matches!(read, Read::Ok(_)), egui::Button::new(t("pc.dlg.add", &[]))).clicked() {
+                    if ui.add_enabled(matches!(read, Read::Ok(_)), crate::shell::Btn::new(t("pc.dlg.add", &[]))).clicked() {
                         go = true;
                     }
                 });

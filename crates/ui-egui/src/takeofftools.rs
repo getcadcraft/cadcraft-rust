@@ -678,7 +678,7 @@ impl TakeoffMode {
             ("select-all", "edit.select_all"),
             ("select-none", "edit.select_none"),
         ] {
-            if ui.button(cc_takeoff::i18n::t(k)).clicked() {
+            if ui.add(crate::shell::Btn::new(cc_takeoff::i18n::t(k))).clicked() {
                 let _ = self.edit(sheet, a);
                 ui.close();
             }
@@ -818,7 +818,7 @@ impl TakeoffMode {
                 ui.radio_value(&mut self.new_type, ty.to_string(), label);
             }
         });
-        if ui.button(cc_takeoff::i18n::t("items.new")).clicked() {
+        if ui.add(crate::shell::Btn::new(cc_takeoff::i18n::t("items.new"))).clicked() {
             let name = if self.new_name.trim().is_empty() {
                 format!("Item {}", self.tk.items().len() + 1)
             } else {
@@ -943,10 +943,10 @@ impl TakeoffMode {
             });
             let n = ac.adding().len();
             ui.horizontal(|ui| {
-                if ui.add_enabled(n > 0, egui::Button::new(tn("ac.accept", n as f64))).clicked() {
+                if ui.add_enabled(n > 0, crate::shell::Btn::new(tn("ac.accept", n as f64))).clicked() {
                     accept = true;
                 }
-                if ui.button(tr("ac.discard")).clicked() {
+                if ui.add(crate::shell::Btn::new(tr("ac.discard"))).clicked() {
                     discard = true;
                 }
             });

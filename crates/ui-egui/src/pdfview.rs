@@ -1322,27 +1322,27 @@ impl PdfView {
             if let Some(resp) = more {
                 egui::Popup::menu(&resp).show(|ui| {
                     let sel = !self.tools.sel.is_empty();
-                    if ui.add_enabled(sel, egui::Button::new(t0("menu.cut"))).clicked() {
+                    if ui.add_enabled(sel, crate::shell::Btn::new(t0("menu.cut"))).clicked() {
                         self.cut();
                         ui.close();
                     }
-                    if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste_in_place"))).clicked() {
+                    if ui.add_enabled(self.clip.is_some(), crate::shell::Btn::new(t0("menu.paste_in_place"))).clicked() {
                         self.paste("place", None);
                         ui.close();
                     }
-                    if ui.add_enabled(sel, egui::Button::new(t0("menu.duplicate"))).clicked() {
+                    if ui.add_enabled(sel, crate::shell::Btn::new(t0("menu.duplicate"))).clicked() {
                         self.duplicate();
                         ui.close();
                     }
-                    if ui.add_enabled(sel, egui::Button::new(t0("menu.delete"))).clicked() {
+                    if ui.add_enabled(sel, crate::shell::Btn::new(t0("menu.delete"))).clicked() {
                         self.tools.delete_selected(&mut self.store);
                         ui.close();
                     }
-                    if ui.button(t0("menu.select_all")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0("menu.select_all"))).clicked() {
                         self.select_all();
                         ui.close();
                     }
-                    if ui.add_enabled(sel, egui::Button::new(t0("menu.select_none"))).clicked() {
+                    if ui.add_enabled(sel, crate::shell::Btn::new(t0("menu.select_none"))).clicked() {
                         self.tools.sel.clear();
                         ui.close();
                     }
@@ -1379,7 +1379,7 @@ impl PdfView {
                 ui.separator();
                 self.scale_row(ui);
                 self.pages_menu(ui);
-                if ui.button(t0("tool.save")).on_hover_text(t0("tool.save.title")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("tool.save"))).on_hover_text(t0("tool.save.title")).clicked() {
                     save = true;
                 }
             })
@@ -1404,7 +1404,7 @@ impl PdfView {
                 }
             });
             let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button(t0("cal.set")).clicked() || enter {
+            if ui.add(crate::shell::Btn::new(t0("cal.set"))).clicked() || enter {
                 self.tools.apply_calibration(&mut self.store, &key);
             }
         }
@@ -1424,7 +1424,7 @@ impl PdfView {
         if let Some(c) = pick {
             self.tools.set_scale(&mut self.store, &key, Some(c));
         }
-        if cal.is_some() && ui.button(t0("cal.remove")).clicked() {
+        if cal.is_some() && ui.add(crate::shell::Btn::new(t0("cal.remove"))).clicked() {
             self.tools.set_scale(&mut self.store, &key, None);
         }
     }

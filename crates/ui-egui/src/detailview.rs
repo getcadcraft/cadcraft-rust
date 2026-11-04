@@ -1538,7 +1538,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         }
                         ui.label(RichText::new(t0("app.ifc.rep.note")).color(tok.text_dim));
                     });
-                    if ui.button(t0("app.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t0("app.ok"))).clicked() {
                         acts.push(crate::detailpanel::Act::CloseReport);
                     }
                 });

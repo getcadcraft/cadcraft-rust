@@ -1274,10 +1274,10 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
                 dim(ui, &d.msg);
             }
             ui.horizontal(|ui| {
-                if ui.button(t0("cad.ui.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("cad.ui.cancel"))).clicked() {
                     acts.push(("civil.terrain", "cancel".into()));
                 }
-                if ui.add_enabled(plan.ok, egui::Button::new(t0("tui.import"))).clicked() {
+                if ui.add_enabled(plan.ok, crate::shell::Btn::new(t0("tui.import"))).clicked() {
                     acts.push(("civil.terrain", "go".into()));
                 }
             });
@@ -1522,7 +1522,7 @@ pub fn geotiff_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts:
     for l in &lines {
         ui.add(egui::Label::new(RichText::new(l).small().color(tk.text_dim)).wrap());
     }
-    if has_eg && ui.add_enabled(ready, egui::Button::new(t0("tui.gt.download"))).clicked() {
+    if has_eg && ui.add_enabled(ready, crate::shell::Btn::new(t0("tui.gt.download"))).clicked() {
         acts.push(("civil.geotiff", "go".into()));
     }
 }
@@ -1543,7 +1543,7 @@ pub fn geotiff_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
         .show(ctx, |ui| {
             ui.add(egui::Label::new(RichText::new(t0("tui.gt.lede")).small().color(tk.text_dim)).wrap());
             geotiff_section(cv, ui, tk, acts);
-            if ui.button(t0("cad.ui.close")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("cad.ui.close"))).clicked() {
                 acts.push(("civil.geotiff", "close".into()));
             }
         });

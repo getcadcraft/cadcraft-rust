@@ -394,15 +394,15 @@ pub fn save_button(app: &mut UiApp, ui: &mut egui::Ui) {
     let n = app.bimh.ed.as_ref().map_or(0, |d| d.ed.changes.len());
     let label = if n > 0 { bt("save.ifc.count", &[("n", &n.to_string())]) } else { bt("save.ifc", &[]) };
     let can = unsaved(app);
-    if ui.add_enabled(can, egui::Button::new(label)).on_hover_text(bt("ui.save.note", &[])).clicked() {
+    if ui.add_enabled(can, crate::shell::Btn::new(label)).on_hover_text(bt("ui.save.note", &[])).clicked() {
         app.run_ui("bim.save", &Params::default());
     }
     let undo_ok = app.bimh.ed.as_ref().is_some_and(|d| !d.ed.changes.is_empty());
-    if ui.add_enabled(undo_ok, egui::Button::new(bt("ui.undo", &[]))).clicked() {
+    if ui.add_enabled(undo_ok, crate::shell::Btn::new(bt("ui.undo", &[]))).clicked() {
         app.run_ui("bim.undo", &Params::default());
     }
     let redo_ok = app.bimh.ed.as_ref().is_some_and(|d| d.ed.can_redo());
-    if ui.add_enabled(redo_ok, egui::Button::new(bt("ui.redo", &[]))).clicked() {
+    if ui.add_enabled(redo_ok, crate::shell::Btn::new(bt("ui.redo", &[]))).clicked() {
         app.run_ui("bim.redo", &Params::default());
     }
 }
@@ -585,8 +585,8 @@ pub fn new_dialog(app: &mut UiApp, ctx: &egui::Context) {
             ui.colored_label(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c), &dlg.problem);
         }
         ui.horizontal(|ui| {
-            go = ui.button(bt("new.create", &[])).clicked();
-            cancel = ui.button(bt("dialog.cancel", &[])).clicked();
+            go = ui.add(crate::shell::Btn::new(bt("new.create", &[]))).clicked();
+            cancel = ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked();
         });
     });
     if cancel {

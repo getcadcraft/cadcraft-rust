@@ -247,7 +247,7 @@ impl ModelView {
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
                     for k in ["point", "spot", "area"] {
-                        if ui.button(mt(&format!("ui.lights.{k}"), &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt(&format!("ui.lights.{k}"), &[]))).clicked() {
                             acts.push(format!("light-add:{k}"));
                         }
                     }
@@ -319,7 +319,7 @@ impl ModelView {
                             }
                         }
                         ui.label("");
-                        if ui.button(mt("app.light.delete", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("app.light.delete", &[]))).clicked() {
                             acts.push("light-del".into());
                         }
                         ui.end_row();

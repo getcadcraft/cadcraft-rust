@@ -378,10 +378,10 @@ impl ModelView {
                         ui.colored_label(egui::Color32::from_rgb(0xd0, 0x22, 0x3e), &err);
                     }
                     ui.horizontal(|ui| {
-                        if ui.button(mt("app.btn.cancel", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("app.btn.cancel", &[]))).clicked() {
                             act = Some("text3d-cancel".into());
                         }
-                        if ui.button(mt("app.text3d.place", &[])).clicked() {
+                        if ui.add(crate::shell::Btn::new(mt("app.text3d.place", &[]))).clicked() {
                             act = Some(format!("text3d-place:{}", serde_json::json!({ "text": text, "height": height, "depth": depth })));
                         }
                     });
@@ -404,29 +404,29 @@ impl ModelView {
 pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
     let mut act: Option<String> = None;
     ui.horizontal_wrapped(|ui| {
-        if ui.button(mt("ui.tool.copy", &[])).on_hover_text(mt("ui.tool.copy.title", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(mt("ui.tool.copy", &[]))).on_hover_text(mt("ui.tool.copy.title", &[])).clicked() {
             act = Some("copy".into());
         }
-        if ui.button(mt("ui.tool.paste", &[])).on_hover_text(mt("ui.tool.paste.title", &[])).clicked() {
+        if ui.add(crate::shell::Btn::new(mt("ui.tool.paste", &[]))).on_hover_text(mt("ui.tool.paste.title", &[])).clicked() {
             act = Some("paste".into());
         }
     });
     ui.menu_button(mt("ui.editmenu", &[]), |ui| edit_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.editmenu.title", &[]));
     ui.menu_button(mt("ui.solids", &[]), |ui| solids_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.solids.title", &[]));
-    if ui.button(mt("ui.tool.text3d", &[])).on_hover_text(mt("ui.tool.text3d.title", &[])).clicked() {
+    if ui.add(crate::shell::Btn::new(mt("ui.tool.text3d", &[]))).on_hover_text(mt("ui.tool.text3d.title", &[])).clicked() {
         act = Some("text3d".into());
     }
-    if ui.button(mt("ui.export.storeys", &[])).clicked() {
+    if ui.add(crate::shell::Btn::new(mt("ui.export.storeys", &[]))).clicked() {
         act = Some("storeys".into());
     }
-    if ui.button(mt("ui.export.render", &[])).clicked() {
+    if ui.add(crate::shell::Btn::new(mt("ui.export.render", &[]))).clicked() {
         act = Some("render".into());
     }
     act
 }
 
 fn menu_item(ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>) {
-    if ui.button(mt(key, &[])).clicked() {
+    if ui.add(crate::shell::Btn::new(mt(key, &[]))).clicked() {
         *act = Some(a.to_string());
         ui.close();
     }

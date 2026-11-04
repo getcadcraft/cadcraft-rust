@@ -524,10 +524,10 @@ impl PdfView {
         self.cmp_pick = pick.clone();
         let mut act: Option<String> = None;
         ui.horizontal_wrapped(|ui| {
-            if ui.button(t0("compare.start")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("compare.start"))).clicked() {
                 act = Some("start".into());
             }
-            if self.cmp.on && ui.button(t0("compare.stop")).clicked() {
+            if self.cmp.on && ui.add(crate::shell::Btn::new(t0("compare.stop"))).clicked() {
                 act = Some("stop".into());
             }
         });
@@ -539,7 +539,7 @@ impl PdfView {
                     }
                 }
             });
-            if ui.button(t0("compare.cloud")).on_hover_text(t0("compare.cloud.title")).clicked() {
+            if ui.add(crate::shell::Btn::new(t0("compare.cloud"))).on_hover_text(t0("compare.cloud.title")).clicked() {
                 act = Some("cloud".into());
             }
             let l = ui.label(egui::RichText::new(t0("compare.balance")).small());
@@ -557,7 +557,7 @@ impl PdfView {
                         "down" => "↓",
                         _ => "→",
                     };
-                    if ui.button(arrow).on_hover_text(t0(&format!("compare.nudge.{w}.title"))).clicked() {
+                    if ui.add(crate::shell::Btn::new(arrow)).on_hover_text(t0(&format!("compare.nudge.{w}.title"))).clicked() {
                         act = Some(format!("nudge:{d}"));
                     }
                 }
@@ -570,10 +570,10 @@ impl PdfView {
                     });
             });
             ui.horizontal_wrapped(|ui| {
-                if ui.button(t0("compare.align")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("compare.align"))).clicked() {
                     act = Some("align".into());
                 }
-                if ui.button(t0("compare.reset")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("compare.reset"))).clicked() {
                     act = Some("reset".into());
                 }
             });
@@ -622,10 +622,10 @@ impl PdfView {
                 }
             }
             ui.horizontal_wrapped(|ui| {
-                if ui.button(t0("setcmp.run")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("setcmp.run"))).clicked() {
                     act = Some("set".into());
                 }
-                if self.cmp.set_rows.iter().any(|r| r.len >= 6.0) && ui.button(t0("setcmp.cloud")).clicked() {
+                if self.cmp.set_rows.iter().any(|r| r.len >= 6.0) && ui.add(crate::shell::Btn::new(t0("setcmp.cloud"))).clicked() {
                     act = Some("set-cloud".into());
                 }
             });

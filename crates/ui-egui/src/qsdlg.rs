@@ -408,10 +408,10 @@ fn qs_window(app: &mut UiApp, ctx: &egui::Context) {
                 let total = if q.apply == "sel" { q.current.len() } else { total };
                 ui.label(RichText::new(tv("dlg.qs.count", &[("n", found.to_string()), ("total", total.to_string())])).color(tok.text_dim));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(RichText::new(t("dlg.qs.ok")).strong()).clicked() {
+                    if ui.add(crate::shell::Btn::new(RichText::new(t("dlg.qs.ok")).strong())).clicked() {
                         ok = true;
                     }
-                    if ui.button(t("dlg.qs.cancel")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
                         cancel = true;
                     }
                 });
@@ -512,13 +512,13 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(RichText::new(tv("dlg.find.results", &[("n", n.to_string())])).color(tok.text_dim));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(!f.what.is_empty(), egui::Button::new(RichText::new(t("dlg.find.replace")).strong())).clicked() {
+                    if ui.add_enabled(!f.what.is_empty(), crate::shell::Btn::new(RichText::new(t("dlg.find.replace")).strong())).clicked() {
                         act = Some("find.replace");
                     }
-                    if ui.add_enabled(!f.what.is_empty(), egui::Button::new(t("dlg.find.select"))).clicked() {
+                    if ui.add_enabled(!f.what.is_empty(), crate::shell::Btn::new(t("dlg.find.select"))).clicked() {
                         act = Some("find.select");
                     }
-                    if ui.button(t("dlg.find.close")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("dlg.find.close"))).clicked() {
                         act = Some("find.close");
                     }
                 });

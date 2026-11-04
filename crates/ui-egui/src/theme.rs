@@ -285,13 +285,16 @@ impl Tokens {
         v.popup_shadow = egui::Shadow::NONE;
         v.striped = false;
         ctx.set_visuals(v);
+        // the tokens for widgets that get none passed in (shell::Btn)
+        ctx.data_mut(|d| d.insert_temp(egui::Id::unique(crate::shell::TOKENS_KEY), *self));
         ctx.all_styles_mut(|s| {
             use egui::{FontFamily, FontId, TextStyle};
             s.text_styles = [
                 (TextStyle::Small, FontId::new(12.0, FontFamily::Proportional)),
                 (TextStyle::Body, FontId::new(14.0, FontFamily::Proportional)),
                 (TextStyle::Button, FontId::new(14.0, FontFamily::Proportional)),
-                (TextStyle::Heading, FontId::new(15.0, FontFamily::Name(BOLD.into()))),
+                // window titles and headings: 0.7's dialog heading (17 px bold)
+                (TextStyle::Heading, FontId::new(17.0, FontFamily::Name(BOLD.into()))),
                 (TextStyle::Monospace, FontId::new(13.0, FontFamily::Monospace)),
             ]
             .into();

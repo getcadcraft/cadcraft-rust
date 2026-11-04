@@ -277,7 +277,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 crate::inputdlg::section(app, ui, &mut input_act);
             }
             ui.add_space(10.0);
-            if ui.button(s("shell.settings.done")).clicked() {
+            if ui.add(crate::shell::Btn::new(s("shell.settings.done"))).clicked() {
                 done = true;
             }
         });

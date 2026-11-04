@@ -275,7 +275,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
                 }
             });
         });
-        if ui.add_enabled(idx > 0, egui::Button::new("‹")).on_hover_text(t("sec.prev", &[])).clicked() {
+        if ui.add_enabled(idx > 0, crate::shell::Btn::new("‹")).on_hover_text(t("sec.prev", &[])).clicked() {
             acts.push(SecAct::Run("civil.sections.go", "prev".into()));
         }
         let shown = set.as_ref().and_then(|s| s.sections.get(idx)).map_or(String::new(), |s| format_station(s.sta, &units, None));
@@ -290,7 +290,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
                 }
             });
         });
-        if ui.add_enabled(n > 0 && idx + 1 < n, egui::Button::new("›")).on_hover_text(t("sec.next", &[])).clicked() {
+        if ui.add_enabled(n > 0 && idx + 1 < n, crate::shell::Btn::new("›")).on_hover_text(t("sec.next", &[])).clicked() {
             acts.push(SecAct::Run("civil.sections.go", "next".into()));
         }
         let ve_name = |v: f64| if v == 0.0 { t("sec.ve.fit", &[]) } else { format!("{}×", cc_civil::js::num_to_string(v)) };
@@ -301,7 +301,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
                 }
             }
         });
-        if ui.add_enabled(n > 0, egui::Button::new(t("sec.csv", &[]))).on_hover_text(t("sec.csv.title", &[])).clicked() {
+        if ui.add_enabled(n > 0, crate::shell::Btn::new(t("sec.csv", &[]))).on_hover_text(t("sec.csv.title", &[])).clicked() {
             acts.push(SecAct::Run("civil.sections.csv", String::new()));
         }
         if let Some(s) = &set

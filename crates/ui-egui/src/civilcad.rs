@@ -698,11 +698,11 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     ui.label(RichText::new(t0("cad.ui.what.head")).strong().color(tk.text_strong));
                     dim(ui, &d.what());
                     ui.horizontal(|ui| {
-                        if ui.button(t0("cad.ui.cancel")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t0("cad.ui.cancel"))).clicked() {
                             acts.push(("civil.cad", "cancel".into()));
                         }
                         let can = !d.chosen().is_empty() || d.chosen_refs() > 0;
-                        if ui.add_enabled(can, egui::Button::new(t0("cad.ui.add"))).clicked() {
+                        if ui.add_enabled(can, crate::shell::Btn::new(t0("cad.ui.add"))).clicked() {
                             acts.push(("civil.cad", "go".into()));
                         }
                     });

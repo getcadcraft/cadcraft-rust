@@ -308,10 +308,10 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
             }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button(t0("ui.cancel")).clicked() {
+                if ui.add(crate::shell::Btn::new(t0("ui.cancel"))).clicked() {
                     acts.push(("civil.import", "cancel".into()));
                 }
-                if ui.add_enabled(!d.res.points.is_empty(), egui::Button::new(t0("ui.imp.ok"))).clicked() {
+                if ui.add_enabled(!d.res.points.is_empty(), crate::shell::Btn::new(t0("ui.imp.ok"))).clicked() {
                     acts.push(("civil.import", "ok".into()));
                 }
             });

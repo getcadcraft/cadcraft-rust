@@ -996,7 +996,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 ui.menu_button(t("sheetset.menu"), |ui| {
                     let has = p.set.is_some();
                     let mut item = |ui: &mut egui::Ui, key: &str, id: &'static str, on: bool| {
-                        if ui.add_enabled(on, egui::Button::new(t(key))).clicked() {
+                        if ui.add_enabled(on, crate::shell::Btn::new(t(key))).clicked() {
                             acts.push((id, String::new()));
                             ui.close();
                         }
@@ -1312,14 +1312,14 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.f.name"), name, false);
                     field(ui, &t("sheetset.f.projectname"), pname, false);
                     field(ui, &t("sheetset.f.projectnumber"), pnumber, false);
-                    if ui.button(t("sheetset.ok")).clicked() && !name.trim().is_empty() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() && !name.trim().is_empty() {
                         picked_folder = true;
                     }
                 }
                 Form::Which { sets } => {
                     ui.label(tv("sheetset.which.text", &[("folder", fname.clone())]));
                     for s in sets.iter() {
-                        if ui.button(s).clicked() {
+                        if ui.add(crate::shell::Btn::new(s)).clicked() {
                             // (a folder the browser picked has no path: "|<file>")
                             ok = Some(("ss.open", format!("{folder}|{s}")));
                         }
@@ -1329,7 +1329,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(t("sheetset.add.text"));
                     egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
                         for f in files.iter() {
-                            if ui.button(f).clicked() {
+                            if ui.add(crate::shell::Btn::new(f)).clicked() {
                                 extra = Some(Form::Layouts { file: f.clone(), layouts: Vec::new() });
                             }
                         }
@@ -1339,7 +1339,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     for (l, on) in layouts.iter_mut() {
                         ui.checkbox(on, l.as_str());
                     }
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         let chosen: Vec<String> = layouts.iter().filter(|x| x.1).map(|x| x.0.clone()).collect();
                         ok = Some(("ss.add", format!("{file}|{}", chosen.join(","))));
                     }
@@ -1357,20 +1357,20 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         let (tf, tl) = template.split_once('|').unwrap_or((template.as_str(), ""));
                         ok = Some(("ss.newsheet", format!("{}|{}|{tf}|{tl}", number.trim(), title.trim())));
                     }
                 }
                 Form::Subset { name } => {
                     field(ui, &t("sheetset.f.name"), name, false);
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.subset", name.clone()));
                     }
                 }
                 Form::RenameSubset { name, .. } => {
                     field(ui, &t("sheetset.f.name"), name, false);
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.rename", name.clone()));
                     }
                 }
@@ -1381,7 +1381,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.f.description"), description, true);
                     field(ui, &t("sheetset.f.sheetfields"), fields, true);
                     ui.label(RichText::new(t("sheetset.f.custom.hint")).small());
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.rename", json!({ "number": number, "title": title, "description": description, "fields": fields }).to_string()));
                     }
                 }
@@ -1395,7 +1395,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.renumber.start"), start, false);
                     field(ui, &t("sheetset.renumber.step"), step, false);
                     field(ui, &t("sheetset.renumber.digits"), digits, false);
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.renumber", format!("{which}|{prefix}|{start}|{step}|{digits}")));
                     }
                 }
@@ -1405,7 +1405,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(RichText::new(t("sheetset.rule.hint")).small());
                     field(ui, &t("sheetset.rule.start"), start, false);
                     ui.checkbox(auto, t("sheetset.rule.auto.yes"));
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.numbering", format!("{rule}|{start}|{}", if *auto { "yes" } else { "no" })));
                     }
                 }
@@ -1426,35 +1426,35 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    if ui.button(t("sheetset.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.props", json!({ "name": name, "PROJECTNAME": pname, "PROJECTNUMBER": pnumber, "custom": custom, "layoutNames": layout_names }).to_string()));
                     }
                 }
                 Form::Remove { text, .. } => {
                     ui.label(text.as_str());
-                    if ui.button(t("sheetset.remove")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.remove"))).clicked() {
                         ok = Some(("ss.remove", String::new()));
                     }
                 }
                 Form::Publish { name, .. } => {
                     ui.label(tv("sheetset.publish.which", &[("name", name.clone())]));
                     ui.horizontal(|ui| {
-                        if ui.button(t("sheetset.publish.subset")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("sheetset.publish.subset"))).clicked() {
                             ok = Some(("ss.publish", "subset".into()));
                         }
-                        if ui.button(t("sheetset.publish.all")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("sheetset.publish.all"))).clicked() {
                             ok = Some(("ss.publish", "all".into()));
                         }
                     });
                 }
                 Form::Update { n } => {
                     ui.label(tv("sheetset.update.text", &[("n", n.to_string())]));
-                    if ui.button(t("sheetset.update.ok")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("sheetset.update.ok"))).clicked() {
                         ok = Some(("ss.update", String::new()));
                     }
                 }
             }
-            if ui.button(t("sheetset.cancel")).clicked() {
+            if ui.add(crate::shell::Btn::new(t("sheetset.cancel"))).clicked() {
                 done = true;
             }
         });

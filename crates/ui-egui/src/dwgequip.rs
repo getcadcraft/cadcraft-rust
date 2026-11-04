@@ -169,7 +169,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
             if r.changed() {
                 act = Some(("viewer.equip.filter", Params { name: Some(q), ..Default::default() }));
             }
-            if ui.add_enabled(!rows.is_empty(), egui::Button::new(&head.csv)).clicked() {
+            if ui.add_enabled(!rows.is_empty(), crate::shell::Btn::new(&head.csv)).clicked() {
                 act = Some(("viewer.equip.csv", Params::default()));
             }
         });

@@ -578,10 +578,10 @@ impl TakeoffMode {
                 let r = ui.add(crate::shell::field(&mut name).hint_text(t("area.name.placeholder"))).labelled_by(l.id);
                 let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.horizontal(|ui| {
-                    if ui.button(t("btn.cancel")).clicked() {
+                    if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                         done = Some(false);
                     }
-                    if ui.button(t("btn.create")).clicked() || enter {
+                    if ui.add(crate::shell::Btn::new(t("btn.create"))).clicked() || enter {
                         done = Some(true);
                     }
                 });
@@ -630,13 +630,13 @@ impl TakeoffMode {
                                 }
                             }
                         });
-                        if ui.add_enabled(i > 0, egui::Button::new("↑")).on_hover_text(t("area.up")).clicked() {
+                        if ui.add_enabled(i > 0, crate::shell::Btn::new("↑")).on_hover_text(t("area.up")).clicked() {
                             act = Some(format!("up:{id}"));
                         }
-                        if ui.add_enabled(i + 1 < n, egui::Button::new("↓")).on_hover_text(t("area.down")).clicked() {
+                        if ui.add_enabled(i + 1 < n, crate::shell::Btn::new("↓")).on_hover_text(t("area.down")).clicked() {
                             act = Some(format!("down:{id}"));
                         }
-                        if ui.button(t("area.delete")).clicked() {
+                        if ui.add(crate::shell::Btn::new(t("area.delete"))).clicked() {
                             act = Some(format!("delete:{id}"));
                         }
                     });
@@ -645,12 +645,12 @@ impl TakeoffMode {
                 ui.horizontal(|ui| {
                     let r = ui.add(crate::shell::field(&mut self.new_area).hint_text(t("area.name.placeholder")).desired_width(180.0));
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                    if (ui.button(t("area.add")).clicked() || enter) && !self.new_area.trim().is_empty() {
+                    if (ui.add(crate::shell::Btn::new(t("area.add"))).clicked() || enter) && !self.new_area.trim().is_empty() {
                         act = Some(format!("add:{}", self.new_area));
                         self.new_area.clear();
                     }
                 });
-                if ui.button(t("area.done")).clicked() {
+                if ui.add(crate::shell::Btn::new(t("area.done"))).clicked() {
                     self.manage_areas = false;
                 }
             });

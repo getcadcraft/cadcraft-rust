@@ -198,7 +198,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
                         ("step214", "ui.tb.export.step214_faceted"),
                         ("ifc", "ui.tb.export.ifc"),
                     ] {
-                        if ui.button(tr(key)).clicked() {
+                        if ui.add(crate::shell::Btn::new(tr(key))).clicked() {
                             *act = cmd("part.export", k);
                             ui.close();
                         }
@@ -207,7 +207,11 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, gro
             }
             "menu:more" => {
                 egui::Popup::menu(&resp).show(|ui| {
-                    if ui.button(tr("ui.tb.fmore.revolve_cut")).on_hover_text(tr("ui.tb.fmore.revolve_cut.title")).clicked() {
+                    if ui
+                        .add(crate::shell::Btn::new(tr("ui.tb.fmore.revolve_cut")))
+                        .on_hover_text(tr("ui.tb.fmore.revolve_cut.title"))
+                        .clicked()
+                    {
                         *act = cmd("part.feature", "revolve-cut");
                         ui.close();
                     }
@@ -316,18 +320,18 @@ fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     ui.horizontal(|ui| {
         let n = feats.len() as f64;
         let b = if built.is_finite() { built } else { n };
-        if ui.add_enabled(b > 0.0, egui::Button::new("◀")).on_hover_text(tr("ui.roll.back.title")).clicked() {
+        if ui.add_enabled(b > 0.0, crate::shell::Btn::new("◀")).on_hover_text(tr("ui.roll.back.title")).clicked() {
             let back = (b - 1.0).max(0.0) as usize;
             *act = feats.get(back).and_then(|f| cmd("part.rollto", jv::s(f, "id")));
         }
-        if ui.add_enabled(rolled_back, egui::Button::new("▶")).on_hover_text(tr("ui.roll.forward.title")).clicked() {
+        if ui.add_enabled(rolled_back, crate::shell::Btn::new("▶")).on_hover_text(tr("ui.roll.forward.title")).clicked() {
             let fwd = (b + 1.0) as usize;
             *act = match feats.get(fwd) {
                 Some(f) => cmd("part.rollto", jv::s(f, "id")),
                 None => cmd("part.rollto", "end"),
             };
         }
-        if ui.add_enabled(rolled_back, egui::Button::new("▶▶")).on_hover_text(tr("ui.roll.end.title")).clicked() {
+        if ui.add_enabled(rolled_back, crate::shell::Btn::new("▶▶")).on_hover_text(tr("ui.roll.end.title")).clicked() {
             *act = cmd("part.rollto", "end");
         }
     });
@@ -431,10 +435,10 @@ fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t: &Tokens, 
     }
     let picking = pv.mode == Mode::Pick && pv.editing.as_deref() == Some(id.as_str());
     if picking {
-        if ui.button(RichText::new(tr("app.refs.done_picking")).strong()).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.refs.done_picking")).strong())).clicked() {
             *act = cmd("part.pick.done", "");
         }
-    } else if ui.button(tr(if key == "edges" { "app.refs.pick_edges" } else { "app.refs.pick_faces" })).clicked() {
+    } else if ui.add(crate::shell::Btn::new(tr(if key == "edges" { "app.refs.pick_edges" } else { "app.refs.pick_faces" }))).clicked() {
         *act = cmd("part.pick", id);
     }
 }
@@ -509,7 +513,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
                     ui.end_row();
                 }
             });
-            if ui.button(RichText::new(tr("app.btn.edit_sketch")).strong()).clicked() {
+            if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.edit_sketch")).strong())).clicked() {
                 *act = cmd("part.sketch", id.clone());
             }
             dims_block(ui, pv, &id, "app.dims.driving", t, act);
@@ -795,29 +799,29 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
     let i = P::index_of(&pv.part, &id).map_or(0.0, cc_part::js::f);
     ui.horizontal_wrapped(|ui| {
         let off = jv::truthy(f.get("suppressed"));
-        if ui.button(tr(if off { "app.history.unsuppress" } else { "app.history.suppress" })).clicked() {
+        if ui.add(crate::shell::Btn::new(tr(if off { "app.history.unsuppress" } else { "app.history.suppress" }))).clicked() {
             *act = cmd("part.suppress", id.clone());
         }
-        if ui.button(tr("app.history.roll_here")).on_hover_text(tr("app.history.roll_here_title")).clicked() {
+        if ui.add(crate::shell::Btn::new(tr("app.history.roll_here"))).on_hover_text(tr("app.history.roll_here_title")).clicked() {
             *act = cmd("part.rollto", id.clone());
         }
         let up = P::can_move(&pv.part, &id, i - 1.0);
         let down = P::can_move(&pv.part, &id, i + 1.0);
         if ui
-            .add_enabled(up.is_ok(), egui::Button::new(tr("app.history.move_up")))
+            .add_enabled(up.is_ok(), crate::shell::Btn::new(tr("app.history.move_up")))
             .on_hover_text(up.err().unwrap_or_else(|| tr("app.history.move_up_title")))
             .clicked()
         {
             *act = cmd("part.move", "up");
         }
         if ui
-            .add_enabled(down.is_ok(), egui::Button::new(tr("app.history.move_down")))
+            .add_enabled(down.is_ok(), crate::shell::Btn::new(tr("app.history.move_down")))
             .on_hover_text(down.err().unwrap_or_else(|| tr("app.history.move_down_title")))
             .clicked()
         {
             *act = cmd("part.move", "down");
         }
-        if ui.button(RichText::new(tr("app.btn.delete")).color(t.text_strong)).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.delete")).color(t.text_strong))).clicked() {
             *act = cmd("part.delete", "");
         }
     });
@@ -836,10 +840,10 @@ fn confirm_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
     egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ui.ctx(), |ui| {
         ui.label(RichText::new(text).color(t.text));
         ui.horizontal(|ui| {
-            if ui.button(tr("app.btn.cancel")).clicked() {
+            if ui.add(crate::shell::Btn::new(tr("app.btn.cancel"))).clicked() {
                 pv.confirm = None;
             }
-            if ui.button(RichText::new(tr("app.btn.delete_all")).strong()).clicked() {
+            if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.delete_all")).strong())).clicked() {
                 *act = cmd("part.delete", "yes");
             }
         });
@@ -997,7 +1001,7 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
             .on_hover_text(tr("ui.params.new.name"));
         ui.add(crate::shell::field(&mut pv.new_param.1).hint_text(tr("ui.params.new.value_ph")).desired_width(110.0))
             .on_hover_text(tr("ui.params.new.value"));
-        if ui.button(tr("touch.add")).clicked() {
+        if ui.add(crate::shell::Btn::new(tr("touch.add"))).clicked() {
             let (n, v) = (pv.new_param.0.trim().to_string(), pv.new_param.1.trim().to_string());
             if n.is_empty() {
                 pv.message = tr("ui.params.need_name");
@@ -1076,12 +1080,12 @@ fn configurations(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         let r = ui.add(crate::shell::field(&mut text).hint_text(tr("configs.new_placeholder")).desired_width(130.0));
         pv.edits.insert(key.clone(), text.clone());
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-        if ui.button(tr("configs.save")).clicked() || enter {
+        if ui.add(crate::shell::Btn::new(tr("configs.save"))).clicked() || enter {
             *act = cmd("part.config", format!("save:{text}"));
             pv.edits.remove(&key);
         }
     });
-    if ui.button(tr("configs.export")).clicked() {
+    if ui.add(crate::shell::Btn::new(tr("configs.export"))).clicked() {
         *act = cmd("part.config", "export");
     }
 }
