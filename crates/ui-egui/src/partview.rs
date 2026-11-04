@@ -1912,7 +1912,7 @@ pub fn open_file(app: &mut UiApp, f: &ImportedFile) {
     }
 }
 
-fn now_ms() -> f64 {
+pub(crate) fn now_ms() -> f64 {
     web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
@@ -2326,6 +2326,14 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             }
         }
         "part.undo" | "part.redo" if pv.in_asm() => pv.asm_undo_redo(id == "part.undo"),
+        // asm-ui.js `exportCmd`: what an assembly exports as a whole
+        "part.export" if pv.in_asm() => {
+            let (kind, ms) = name.split_once('@').unwrap_or((name.as_str(), ""));
+            let ms = ms.trim().parse::<f64>().ok().filter(|x| x.is_finite()).or(pv.clock_ms).unwrap_or_else(now_ms);
+            if let Some((file, bytes, words)) = pv.asm_export(kind, ms) {
+                save_out(app, &file, bytes, words)?;
+            }
+        }
         "part.asm.set" => pv.asm_set(&name)?,
         "part.save" => {
             let (file, bytes) = pv.save_bytes();

@@ -213,7 +213,8 @@ impl PartView {
                 self.note = e;
                 return;
             }
-            self.asm = Some(AsmSt { asm: a, dirty: true, ..AsmSt::default() });
+            self.asm =
+                Some(AsmSt { asm: a, dirty: true, tools: crate::partasmui::ToolsSt { t: 1.0, ..Default::default() }, ..AsmSt::default() });
             self.note = trv("app.asm.started", &[("name", name.to_string())]);
         } else if let Some(st) = self.asm.as_ref() {
             self.note = trv("app.asm.back_in", &[("name", jv::s(&st.asm, "name").to_string())]);
@@ -251,6 +252,9 @@ impl PartView {
 
     /// partcraft.js `asmPick(h)`: a face of a part copy (instance id, face index in its build), or nothing.
     pub fn asm_pick(&mut self, hit: Option<(String, usize)>) {
+        if self.asm_tools_pick(hit.as_ref()) {
+            return;
+        }
         let Some(st) = self.asm.as_mut() else { return };
         if st.joint_pick.is_some() {
             let Some((iid, fi)) = hit else {
@@ -516,6 +520,7 @@ impl PartView {
         let Some(p) = st.part_of(&pid).cloned() else { return };
         let (pname, aname) = (jv::s(&p, "name").to_string(), jv::s(&st.asm, "name").to_string());
         let pt = p.get("part").cloned().unwrap_or(Value::Null);
+        self.asm_tools_reset();
         let stash = EditPartOf {
             pid,
             part: std::mem::replace(&mut self.part, jv::json_copy(&pt)),
@@ -598,6 +603,7 @@ impl PartView {
                 _ => {}
             }
         }
+        self.asm_tools_reset();
         self.asm = None;
         self.rebuild();
         self.standard("iso");
@@ -632,7 +638,7 @@ impl PartView {
         self.section_stop();
         self.analysis_stop();
         let (n, nj) = (insts(&a).len(), jv::arr(a.get("joints")).len());
-        self.asm = Some(AsmSt { asm: a, ..AsmSt::default() });
+        self.asm = Some(AsmSt { asm: a, tools: crate::partasmui::ToolsSt { t: 1.0, ..Default::default() }, ..AsmSt::default() });
         self.asm_rebuild();
         self.standard("iso");
         self.fit();
@@ -1381,5 +1387,34 @@ mod tests {
         assert!(app.part.as_ref().unwrap().asm.is_some(), "asks first: changes not saved");
         run(&mut app, "part.asm", "answer:discard").unwrap();
         assert!(app.part.as_ref().unwrap().asm.is_none());
+    }
+
+    #[test]
+    fn bom_exploded_views_moves_and_exports() {
+        let saved: std::sync::Arc<std::sync::Mutex<Vec<String>>> = std::sync::Arc::default();
+        let mut app = UiApp::default();
+        let s2 = saved.clone();
+        app.services.save = Some(Box::new(move |name: &str, _bytes: Vec<u8>| {
+            s2.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(name.to_string());
+            Ok(Some(name.to_string()))
+        }));
+        run(&mut app, "part.sample", "").unwrap();
+        run(&mut app, "part.asm", "new").unwrap();
+        run(&mut app, "part.asm", "insert-copy").unwrap();
+        run(&mut app, "part.asm", "sel:inst:i3").unwrap();
+        run(&mut app, "part.asm.set", "part:material=0").unwrap();
+        run(&mut app, "part.asm.set", "part:density=1e400").unwrap();
+        run(&mut app, "part.asm.set", "move=10,NaN,5").unwrap();
+        run(&mut app, "part.asm.set", "turn=q,45").unwrap();
+        assert!(app.part.as_ref().unwrap().asm_bom_words().contains(" g"));
+        run(&mut app, "part.asm", "explode-auto:radial").unwrap();
+        run(&mut app, "part.asm", "explode-t:-5").unwrap();
+        assert!(app.part.as_ref().unwrap().asm_steps_words().contains("1."));
+        assert!(run(&mut app, "part.asm", "step-dir:../x").is_err());
+        for k in ["stl", "3mf", "ifc@1760700000000", "bom", "step", "drawing"] {
+            run(&mut app, "part.export", k).unwrap();
+        }
+        let names = saved.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
+        assert_eq!(names.len(), 4, "{names:?}");
     }
 }

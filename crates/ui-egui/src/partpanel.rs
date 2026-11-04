@@ -314,7 +314,26 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
     for (id, resp) in crate::shell::toolbar(ui, t, t.app("partcraft"), "pc-tb", groups) {
         match id.as_str() {
             "menu:export" => {
+                let in_asm = pv.in_asm();
                 egui::Popup::menu(&resp).show(|ui| {
+                    if in_asm {
+                        // partcraft.js ASM_EXPORTS: what an assembly exports as a whole
+                        for (k, key) in [
+                            ("stl", "ui.tb.export.stl"),
+                            ("3mf", "ui.tb.export.3mf"),
+                            ("step", "ui.tb.export.step"),
+                            ("step214", "ui.tb.export.step214"),
+                            ("ifc", "ui.tb.export.ifc"),
+                            ("drawing", "ui.tb.export.drawing"),
+                            ("bom", "ui.tb.export.bom"),
+                        ] {
+                            if ui.add(crate::shell::Btn::new(tr(key))).clicked() {
+                                *act = cmd("part.export", k);
+                                ui.close();
+                            }
+                        }
+                        return;
+                    }
                     for (k, key) in [
                         ("stl", "ui.tb.export.stl"),
                         ("3mf", "ui.tb.export.3mf"),

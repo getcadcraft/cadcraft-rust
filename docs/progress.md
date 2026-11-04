@@ -2,6 +2,18 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M13.12 PartCraft assembly tools: part properties, BOM, exploded views, exports (agent, work/partfin)
+
+- `crates/ui-egui/src/partasmui.rs`: asm-ui.js — a part's number, description, material (bom.js presets, custom,
+  density) and mass; moving and turning a part no joint holds by typed values; the BOM table and its CSV; exploded
+  views (automatic radial / along joints, new, steps with ticked parts, ±X/Y/Z or a picked face's normal, distance,
+  remove, rename, delete, the slider, drawn exploded); the assembly's exports from Export (STL, 3MF, IFC4, BOM CSV;
+  exact STEP and the assembly drawing say "not built", as 0.5's mesh build does).
+- Parity: `pcuidiff-partfin.mjs --scenario asm-tools`: 75 steps + 10 files (assembly STL, 3MF, IFC, BOM CSV, the
+  assembly JSON …) identical in en and es-MX; all 15 scenarios 921 steps, 66 files, 0 differences in both languages.
+- Not here: the three.js gizmo (drag to move / turn a part, and the explode step's Drag direction); typed values do
+  the same moves.
+
 ## 2026-11-04 — M13.11 PartCraft assemblies (agent, work/partfin)
 
 - `crates/ui-egui/src/partasm.rs`, `partasmui.rs`: partcraft.js assembly mode on the mesh kernel — New assembly (the
