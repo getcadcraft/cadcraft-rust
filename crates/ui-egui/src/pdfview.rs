@@ -297,6 +297,8 @@ pub struct PdfView {
     pub fdlg: Option<crate::markupfind::FDialog>,
     /// what a panel or window says after the last command (the Find count line, a window's text): for the trace
     pub note: String,
+    /// what the host is to do next (show a PDF to print, close the set)
+    pub host_act: Option<crate::markupslip::HostAct>,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -357,6 +359,7 @@ impl PdfView {
             find: crate::markupfind::FindState::default(),
             fdlg: None,
             note: String::new(),
+            host_act: None,
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -1418,6 +1421,14 @@ impl PdfView {
                 self.pages_menu(ui);
                 if ui.add(crate::shell::Btn::new(t0("tool.save"))).on_hover_text(t0("tool.save.title")).clicked() {
                     save = true;
+                }
+                if ui.add(crate::shell::Btn::new(t0("tool.print"))).on_hover_text(t0("tool.print.title")).clicked()
+                    && let Err(e) = self.print_start(false)
+                {
+                    self.tools.message = e;
+                }
+                if ui.add(crate::shell::Btn::new(t0("tool.close"))).on_hover_text(t0("tool.close.title")).clicked() {
+                    self.close_start();
                 }
             })
         });

@@ -62,6 +62,14 @@ pub enum FDialog {
     BmBuild { n: usize },
     /// editColumns: the columns being edited, each choice column's typed choices, the check's message
     Columns { cols: Vec<Column>, choices: Vec<String>, error: String },
+    /// slipSheet's review: its text, the pairs, which are ticked, Leave closed markups, Stamp the old sheets
+    Slip { text: String, rows: Vec<crate::markupslip::SlipRow>, checked: Vec<bool>, skip: bool, stamp: bool },
+    /// saveFlat: how many markups the file has and are selected, the selected ones chosen
+    Flatten { all: usize, sel: usize, use_sel: bool },
+    /// printSheets: what to print, the page list, the check's message
+    Print { which: &'static str, pages: String, error: String },
+    /// closeSet with unsaved markups
+    Unsaved,
 }
 
 /// The Find panel's state, the text read from each sheet, and the panels' open / closed state.
@@ -726,6 +734,10 @@ impl PdfView {
         let Some(d) = self.fdlg.clone() else { return };
         let mut close = false;
         match d {
+            d @ (FDialog::Slip { .. } | FDialog::Flatten { .. } | FDialog::Print { .. } | FDialog::Unsaved) => {
+                self.slip_dialogs(ctx, tok, d);
+                return;
+            }
             FDialog::Notice { title, text } => {
                 crate::shell::Dialog::new(title).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(&text);

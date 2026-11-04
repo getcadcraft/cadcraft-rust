@@ -1090,6 +1090,13 @@ impl PdfView {
     pub fn pages_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button(t0("pages.menu"), |ui| {
             let mut act: Option<&'static str> = None;
+            // ui.inc's File › Pages: Print…, Save a flattened copy…, Slip-sheet a revised set…, then the page tools
+            for (k, label) in [("print-pages", "pages.print_pages"), ("save-flat", "pages.save_flat"), ("slip-sheet", "pages.slip_sheet")] {
+                if ui.add(crate::shell::Btn::new(t0(label))).clicked() {
+                    act = Some(k);
+                }
+            }
+            ui.separator();
             for (k, label) in [
                 ("rotate-cw", "pages.page_rotate_cw"),
                 ("rotate-ccw", "pages.page_rotate_ccw"),
@@ -1122,6 +1129,13 @@ impl PdfView {
                         self.dlg = Some(Dialog::Pages { kind: a, text: (self.page + 1).to_string(), error: String::new() })
                     }
                     "insert-pdf" => self.want_pick = Some("insert-pdf"),
+                    "slip-sheet" => self.want_pick = Some("slip"),
+                    "save-flat" => self.flat_start(),
+                    "print-pages" => {
+                        if let Err(e) = self.print_start(true) {
+                            self.tools.message = e;
+                        }
+                    }
                     k => {
                         if let Err(e) = self.pages_op(k, "", None) {
                             self.tools.message = e;

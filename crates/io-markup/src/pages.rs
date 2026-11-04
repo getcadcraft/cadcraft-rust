@@ -631,6 +631,24 @@ pub fn extract_pages(bytes: &[u8], indices: &[f64], now: f64) -> Result<Vec<u8>,
     Ok(doc.save())
 }
 
+/// printSheets' PDF (`PDFDocument.create()`, `copyPages` of each part in order, `setTitle`, saved without object
+/// streams) at time `now` → (bytes, pages copied).
+pub fn print_pdf(parts: &[(&[u8], Vec<usize>)], title: &str, now: f64) -> Result<(Vec<u8>, usize), String> {
+    let mut doc = create(now);
+    let mut n = 0usize;
+    for (bytes, idx) in parts {
+        let src = load(bytes)?;
+        for p in copy_pages(&mut doc, &src, idx) {
+            insert_page(&mut doc, n, p)?;
+            n = n.saturating_add(1);
+        }
+    }
+    if let Some(info) = info_mut(&mut doc) {
+        info.set("Title", Obj::hex_text(title));
+    }
+    Ok((doc.save(), n))
+}
+
 /// `blankPdf(lib, raw, {title})` at time `now`.
 pub fn blank_pdf(raw: Option<&Value>, title: &str, now: f64) -> Vec<u8> {
     let spec: BlankSpec = clean_blank(raw);

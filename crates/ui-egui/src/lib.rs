@@ -87,6 +87,7 @@ pub mod markupedit;
 pub mod markupfind;
 pub mod markupplus;
 pub mod markupprops;
+pub mod markupslip;
 pub mod markuptools;
 pub mod mcact;
 pub mod mcedit;
@@ -2332,6 +2333,10 @@ impl UiApp {
                                 pdf.import_bcf(&f.name, &f.bytes);
                                 Ok(())
                             }
+                            "slip" => {
+                                pdf.slip_open(&[(f.name.clone(), f.bytes.clone())]);
+                                Ok(())
+                            }
                             _ => Ok(()),
                         };
                         if let Err(e) = r {
@@ -2454,6 +2459,10 @@ impl UiApp {
             egui::CentralPanel::no_frame().show(ui, |ui| dwg3d::show(self, ui));
         } else {
             egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+        }
+        // what the sheet view asked of the host this frame (Print, Close the set)
+        if let Err(e) = pdfcmd::host(self) {
+            self.error = Some(e);
         }
         if self.bench.is_some() && self.doc.is_some() {
             self.bench_step(&ctx);

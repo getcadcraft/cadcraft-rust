@@ -56,6 +56,10 @@
 //!   extract:PAGES (saved) | insert-pdf:PATH (PAGES as "1-3, 5").
 //! - `markup.filter` name = `key=value` (sheet: "" | current | a sheet key; author, status, type, layer, space, field,
 //!   sort); `markup.jump` name = a row of the list (0-based) or a markup id; `markup.export` name = csv | xlsx | pdf.
+//! - `markup.slip` name = open:PATH[|PATH] (the revised set joins; the review opens) | skip:on|off | stamp:on|off |
+//!   ok | ok:I,J… | cancel; `markup.flatten` (the window) | all | sel | cancel; `markup.print` (this sheet, or the window
+//!   with several sheets) | pages (the window) | sheet | file | set | pages:LIST | cancel; `markup.close` (the unsaved
+//!   question when there are changes) | discard | save | cancel.
 //! - `markup.prop` name = `field:<column key>=value`: the selected markup's value in a custom column.
 //! - `markup.find` name = go=TEXT (Find) | scope=all|sheet | case=on|off | word=on|off | show=I (the hit's sheet,
 //!   zoomed) | cloud (Cloud all); `markup.autolink` (look for sheet callouts: the review opens) | ok | ok:I,J… (only
@@ -116,6 +120,20 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         return Ok(());
     }
+    if id == "markup.slip"
+        && let Some(paths) = name.strip_prefix("open:")
+    {
+        // the revised set, read through the host (several files: PATH|PATH)
+        let read = app.services.read_path.as_mut().ok_or("markup.slip: reading files is not available here")?;
+        let mut list = Vec::new();
+        for path in paths.split('|').filter(|p| !p.is_empty()) {
+            let f = read(path)?;
+            list.push((f.name, f.bytes));
+        }
+        let p = app.pdf.as_mut().ok_or("markup.slip: open a PDF first")?;
+        p.slip_open(&list);
+        return Ok(());
+    }
     if id == "markup.pages"
         && let Some(path) = name.strip_prefix("insert-pdf:")
     {
@@ -127,6 +145,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         return Ok(());
     }
     let r = run_pdf(app, id, params, &name);
+    host(app)?;
     if let Some(p) = app.pdf.as_mut() {
         p.sync_takeoff();
         // the 3D view follows every change, as 0.5's model listener rebuilds it
@@ -151,6 +170,39 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
     }
     r
+}
+
+/// What the sheet view asked of the host: a PDF to print (`Services::open_pdf`, else saved), or the set closed (the
+/// files with changes saved first when asked; the set stays open if they could not be).
+pub fn host(app: &mut UiApp) -> Result<(), String> {
+    let Some(act) = app.pdf.as_mut().and_then(|p| p.host_act.take()) else { return Ok(()) };
+    match act {
+        crate::markupslip::HostAct::Print(name, bytes) => {
+            if let Some(open) = app.services.open_pdf.as_mut() {
+                open(&name, &bytes)?;
+            } else if let Some(save) = app.services.save.as_mut() {
+                save(&name, bytes)?;
+            } else {
+                return Err("markup.print: printing is not available here".into());
+            }
+        }
+        crate::markupslip::HostAct::Close { save } => {
+            if save {
+                let now = app.pdf.as_ref().map_or(0.0, |p| p.now());
+                let outs = app.pdf.as_mut().map(|p| p.save_files(now)).transpose()?.unwrap_or_default();
+                let saver = app.services.save.as_mut().ok_or("markup.close: saving is not available here")?;
+                for (file, bytes) in outs {
+                    saver(&file, bytes)?;
+                }
+                if app.pdf.as_ref().is_some_and(|p| !p.store.dirty_sheets.is_empty()) {
+                    return Ok(());
+                }
+            }
+            app.pdf = None;
+            app.message = cc_markup::i18n::t0("close.done");
+        }
+    }
+    Ok(())
 }
 
 fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(), String> {
@@ -373,6 +425,7 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
             }
         }
         "markup.find" | "markup.autolink" | "markup.bookmarks" | "markup.columns" => crate::markupfind::run(p, id, &name),
+        "markup.slip" | "markup.flatten" | "markup.print" | "markup.close" => p.slip_run(id, &name),
         "markup.cal" => {
             // the calibrate line's real distance (in the sheet's unit, else feet-and-inches), then Set scale
             let key = p.sheet_key();
