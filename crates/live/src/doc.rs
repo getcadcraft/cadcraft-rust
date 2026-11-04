@@ -50,15 +50,47 @@ pub trait Adapter {
 #[derive(Debug, Clone, PartialEq)]
 pub enum DocEvent {
     Status(String),
-    Welcome { c: u64, role: String },
-    Refused { label: String, reason: String, by: Option<u64>, by_name: String, undo: bool },
-    UndoSkipped { label: String, by_name: String },
-    Join { c: u64, name: String },
-    Code { code: String },
-    Peer { c: u64 },
-    Applied { commits: usize },
-    Saved { q: u64 },
-    Ended { reason: String },
+    Welcome {
+        c: u64,
+        role: String,
+    },
+    Refused {
+        label: String,
+        reason: String,
+        by: Option<u64>,
+        by_name: String,
+        undo: bool,
+    },
+    UndoSkipped {
+        label: String,
+        by_name: String,
+    },
+    /// a joiner asks in (the host's approve card): `assertion` / `picture` = a signed-in name, `aud` = that connection's
+    /// audience to check it with (assertion.rs)
+    Join {
+        c: u64,
+        name: String,
+        device: String,
+        via: String,
+        assertion: String,
+        picture: Vec<u8>,
+        aud: String,
+    },
+    Code {
+        code: String,
+    },
+    Peer {
+        c: u64,
+    },
+    Applied {
+        commits: usize,
+    },
+    Saved {
+        q: u64,
+    },
+    Ended {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -301,7 +333,18 @@ impl LiveDoc {
                 self.saved = (b.get("q").and_then(Value::as_u64).unwrap_or(0), s_of(b.get("hash")));
                 self.events.push(DocEvent::Saved { q: self.saved.0 });
             }
-            "join" => self.events.push(DocEvent::Join { c: b.get("c").and_then(Value::as_u64).unwrap_or(0), name: s_of(b.get("name")) }),
+            "join" => self.events.push(DocEvent::Join {
+                c: b.get("c").and_then(Value::as_u64).unwrap_or(0),
+                name: s_of(b.get("name")),
+                device: s_of(b.get("device")),
+                via: s_of(b.get("via")),
+                assertion: s_of(b.get("assertion")),
+                picture: match b.get("picture") {
+                    Some(Value::Bin(p)) if p.len() <= 16384 => p.clone(),
+                    _ => vec![],
+                },
+                aud: s_of(b.get("aud")),
+            }),
             "code" => self.events.push(DocEvent::Code { code: s_of(b.get("code")) }),
             "validate" => {
                 let ops = b.get("ops").cloned().unwrap_or(Value::Nil);

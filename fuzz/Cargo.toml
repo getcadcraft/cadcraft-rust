@@ -451,3 +451,17 @@ path = "fuzz_targets/civil_cad.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "live_assertion"
+path = "fuzz_targets/live_assertion.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live_mdns"
+path = "fuzz_targets/live_mdns.rs"
+test = false
+doc = false
+bench = false

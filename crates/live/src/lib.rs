@@ -8,10 +8,13 @@
 //!   key versions learned, refusals, rejoin (`hello {resume}`).
 //! - [`doc`]: a client's document side (live-client.js without its socket): pending edits rebased over commits, refusals
 //!   taken back, per-person undo / redo, snapshots loaded and made.
+//! - [`assertion`]: signed-in names, checked offline against getcadcraft.com's pinned keys (live-crypto.js
+//!   `verifyAssertion`, noble's strict Ed25519 rules).
 //! - [`crypto`]: the PAKE handshake and sealed frames (LIVE-CRYPTO.md), byte for byte 0.5's crypto.rs and live-crypto.js.
 //! - [`server`] (desktop): the session server's whole core as 0.5 Studio's `live/session.rs` — joining with codes and
 //!   tickets, approval, catch-up from the log or a snapshot, holds, locks, presence, pings, the replica, assistants,
 //!   the host handoff's state.
+//! - [`mdns`] (desktop): LAN discovery, `_ccstudio._tcp` with only the session's tag (hand-written DNS on std UDP).
 //! - [`ws`], [`net`] (desktop): a small RFC 6455 WebSocket on std::net, the server's transport on threads and a
 //!   joiner's connection. LAN `ws://` only: the relay (wss://) is the web edition's.
 //!
@@ -30,10 +33,13 @@
 )]
 #![deny(clippy::arithmetic_side_effects, clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
 
+pub mod assertion;
 pub mod client;
 pub mod crypto;
 pub mod doc;
 pub mod envelope;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod mdns;
 pub mod msgpack;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod net;

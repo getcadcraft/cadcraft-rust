@@ -727,6 +727,7 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "chacha20poly1305",
+ "curve25519-dalek",
  "getrandom 0.3.4",
  "hkdf",
  "hmac",
