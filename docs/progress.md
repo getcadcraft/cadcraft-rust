@@ -2,6 +2,50 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.17 Studio Live's last 0.5 pieces: host handoff, one-time codes, CadCraft's in-drawing extras, the same-file join (agent, work/livextras)
+
+- Host handoff in the Live window (every app, the shared core): the host's people list has Hand over… for each editor
+  (Studio's `window.live.handover*` words, a confirm, "Handing the session over to …"); the window handed the session
+  starts a session server from the state in-process (`net::start_from`), says `moved` with its addresses, and comes back
+  on it with its resume token (no role claim); everyone else follows `moved` with the rejoin ticket of their first sealed
+  connection (the old host with the one in its `moved`), three rounds of every address, else the session is lost for
+  them with Studio's "moved … can't be reached" line; nothing from the old connection counts after `moved`; the old
+  server stops 3 s later. `handover-off` says why (unknown, gone, start). Roles in the people list follow the move.
+  Commands: `<p>.live.handover=<client | name>`, `<p>.live.pump=… moved | host`, `<p>.live.info` (headless checks).
+- Rejoin after a drop: the same path (the rejoin ticket, `hello.resume`), any app.
+- One-time codes: the One-time code box, New code (the code on show stops quietly, as Studio's), Stop inviting, the
+  countdown ("Expires in 9:57"), "One-time: it works for one person.", and the code notes (used, expired, stopped, 3 wrong
+  tries, carried from the previous host). `<p>.live.invite=onetime`.
+- CadCraft in the drawing (0.5 live.js `attachUi`): others' cursors (near the view, with name and command), their
+  selections dashed in their colour, the host's padlocks (dashed, "Locked by the host" with a drawn padlock), objects
+  others hold ("Ana is editing"), held areas as dashed frames, held layers listed top left; what you select is held (and
+  "… is editing that object" / "Some of that is locked…" when you pick it); presence `{sp, cur, box, sel, cmd}` at most
+  every 33 ms when it changes; LIVEHOLD (Layer / Area / Release), LIVELOCK / LIVEUNLOCK (host only; selection or a layer)
+  as drawing commands (engine `cmd/livecmd.rs`, reading `Doc::live_info`, asking through `Doc::live_reqs`); a step's
+  objects in someone's held area carry `{o:'area'}` guarded reads; refusals in CadCraft's own words
+  (`live.refused.<reason>`). Holds refresh every 20 s.
+- The same-file join: CadCraft keeps the sha256 of the bytes a drawing was opened from while it is unchanged; the host
+  announces it (`save {q: 0, hash}`), a joiner sends it (`hello.hash`) and gets the log only, no snapshot.
+- Found and fixed: a joiner window's sends waited for the reader thread's 20 ms socket wait (they share the connection);
+  now 1 ms. An edit's round trip from a Rust joiner (livebench, median of 30, the fork's server): 20.0 / 21.8 ms before,
+  4.6 / 5.2 ms after (the 0.5 page: 2.9 ms).
+- The browser edition's joiner: 0.5 serves its canvas-2D page from the host's session port over plain http and joins
+  `ws://<page host>/live` with the code (no relay). The fork's web build needs WebGPU, which Chromium gives only to secure
+  contexts: on `http://<LAN address>` `navigator.gpu` is absent (measured: isSecureContext false, gpu false; on
+  127.0.0.1 both true). Not built; an owner decision (https on the LAN, or the relay).
+- Parity (forks/tools/live-livextras, copies of the studiofin harnesses): cdlive-livextras 16/16 — handoff Rust→0.5 page,
+  0.5 page→Rust (a third person follows, an edit made during the handover commits once), Rust→Rust (a 0.5 page follows),
+  a new host out of reach; one-time codes both ways; holds / padlocks / presence Rust host + 0.5 page, 0.5 host + Rust,
+  Rust–Rust (refusals held, locked, held as 0.5's; the drawings identical, a delete taken back drawn last on the page
+  that made it, as 0.5's help says); the same-file join 0.5 host / Rust host / Rust–Rust, no snapshot.
+  dclive-livextras 3/3 (DetailCraft's own session path: handoff both ways and Rust–Rust). The 8 apps' interop harnesses
+  re-run on this build: 72/72 (cdlive also 15/15 over 5 rounds).
+- Found and fixed by that re-run: others' commits applied while a CadCraft command was still running landed before the
+  command's own (unsent) objects, so the joiner's draw order could differ from the host's; commits now wait in the
+  inbox until the command's steps are pending (`LiveView::holding_steps`), as 0.5's live.js sends each step at once.
+- Timing: handover → the old host and a third person live on the new host, median of 5: the Rust window as the new
+  host 27 ms, a 0.5 page (its server a process) 37 ms.
+
 ## 2026-11-04 — M16.13–M16.16 Studio Live in every app, LAN discovery, the join QR, signed-in names (agent, work/studiofin)
 
 - Shared core (`live.rs`, `livestate.rs`, `liveapps.rs`): one session per window, the `<app>.live.*` commands (host

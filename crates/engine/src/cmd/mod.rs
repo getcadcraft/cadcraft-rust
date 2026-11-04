@@ -15,6 +15,7 @@ pub mod inquiry;
 pub mod layers;
 pub mod layout;
 pub mod libplace;
+pub mod livecmd;
 pub mod modify;
 pub mod param;
 pub mod pictures;
@@ -263,6 +264,10 @@ pub static COMMANDS: &[CmdDef] = &[
     CmdDef { no_repeat: true, keep_selection: true, ..def("ZOOM", &["Z"], |c| Box::pin(view::zoom(c))) },
     CmdDef { no_repeat: true, ..def("UNDO", &["U"], |c| Box::pin(view::undo(c))) },
     CmdDef { no_repeat: true, ..def("REDO", &[], |c| Box::pin(view::redo(c))) },
+    // Studio Live (live.js attachUi, LV.9): holds of layers and areas, the host's padlocks
+    CmdDef { keep_selection: true, ..def("LIVEHOLD", &[], |c| Box::pin(livecmd::livehold(c))) },
+    CmdDef { keep_selection: true, ..def("LIVELOCK", &[], |c| Box::pin(livecmd::livelock(c, true))) },
+    CmdDef { keep_selection: true, ..def("LIVEUNLOCK", &[], |c| Box::pin(livecmd::livelock(c, false))) },
     // a point cloud under the drawing (cloud-cad.js, 0.5 SG.1)
     quiet(def("POINTCLOUDATTACH", &["PCATTACH", "POINTCLOUDATT"], |c| Box::pin(cloud::pointcloudattach(c)))),
     quiet(def("POINTCLOUD", &["PC"], |c| Box::pin(cloud::pointcloud(c)))),

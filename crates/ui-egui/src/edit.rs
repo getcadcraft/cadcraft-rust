@@ -618,6 +618,9 @@ pub struct Editor {
     saved: Option<u64>,
     /// each object's display, kept between edits (only what an edit changed is walked again)
     pub display: cc_cad_geom::display::DisplayCache,
+    /// the hash of the bytes this drawing was opened from and the drawing's version then (live.js `stampFileHash`):
+    /// a Studio Live join with the same file skips the snapshot while the drawing is unchanged
+    pub file_hash: Option<(String, u64)>,
 }
 
 impl Editor {
@@ -635,6 +638,7 @@ impl Editor {
             polar: false,
             snap: None,
             pending_box: None,
+            file_hash: None,
             lasso: None,
             seen: None,
             seen_space: None,

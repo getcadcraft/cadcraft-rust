@@ -73,6 +73,8 @@ fn id_u64(v: Option<&J>) -> Option<u64> {
 pub struct Lids {
     pub by_space: Vec<(SpaceId, String)>,
     pub counter: u64,
+    /// the areas other people hold now (LV.9), for the next step's guarded reads
+    pub areas: Vec<Area>,
 }
 
 impl Lids {
@@ -131,7 +133,7 @@ fn par_json(p: &(std::sync::Arc<Vec<cc_cad::constraint::Con>>, J)) -> J {
 }
 
 /// live.js `stepOps(step, reverse)`: a command's records folded per key (first before, last after) as wire ops.
-pub fn step_ops(doc: &Doc, lids: &mut Lids, prefix: &str, g: &str, steps: &[Vec<Op>], reverse: bool) -> Vec<J> {
+pub fn step_ops(doc: &Doc, lids: &mut Lids, prefix: &str, g: &str, steps: &[Vec<Op>], reverse: bool, areas: &[Area]) -> Vec<J> {
     let mut f = Fold::default();
     for op in steps.iter().flatten() {
         match op {
@@ -177,6 +179,11 @@ pub fn step_ops(doc: &Doc, lids: &mut Lids, prefix: &str, g: &str, steps: &[Vec<
     }
     let flip = |b: Option<Entity>, a: Option<Entity>| if reverse { (a, b) } else { (b, a) };
     let (mut head, mut mid, mut tail): (Vec<J>, Vec<J>, Vec<J>) = (vec![json!({"o": "g", "g": g})], vec![], vec![]);
+    // LV.9: the areas others hold that the step's objects are in (before or after): guarded reads
+    let hit = area_guards(doc, lids, prefix, &f.ents, areas);
+    if !hit.is_empty() {
+        head.push(json!({"o": "area", "k": hit}));
+    }
     let mut whole: Vec<SpaceId> = vec![];
     if let Some((b, a)) = &f.los {
         let (b, a) = if reverse { (a, b) } else { (b, a) };
@@ -357,7 +364,64 @@ pub fn step_ops(doc: &Doc, lids: &mut Lids, prefix: &str, g: &str, steps: &[Vec<
     let mut out = head;
     out.extend(mid);
     out.extend(tail);
-    if out.iter().all(|o| op_s(o, "o") == "g") { vec![] } else { out }
+    if out.iter().all(|o| matches!(op_s(o, "o"), "g" | "area")) { vec![] } else { out }
+}
+
+/// A held area (live.js `parseArea`): `area:x0,y0,x1,y1@<sheet lid>` ('' after @ = the model).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Area {
+    pub key: String,
+    pub x0: f64,
+    pub y0: f64,
+    pub x1: f64,
+    pub y1: f64,
+    pub sp: String,
+}
+
+/// live.js `parseArea`: anything malformed is no area.
+pub fn parse_area(key: &str) -> Option<Area> {
+    let rest = key.strip_prefix("area:")?;
+    let (nums, sp) = rest.split_once('@')?;
+    if sp.len() > 40 || !sp.chars().all(|ch| ch.is_ascii_alphanumeric() || ":_-".contains(ch)) {
+        return None;
+    }
+    let mut v = [0.0f64; 4];
+    let mut it = nums.split(',');
+    for x in &mut v {
+        let t = it.next()?;
+        if t.is_empty() || !t.chars().all(|ch| ch.is_ascii_digit() || ".e+-".contains(ch)) {
+            return None;
+        }
+        *x = cc_cad::js::str_to_number(t);
+    }
+    if it.next().is_some() {
+        return None;
+    }
+    let [x0, y0, x1, y1] = v;
+    (v.iter().all(|x| x.is_finite()) && x0 <= x1 && y0 <= y1).then(|| Area { key: key.into(), x0, y0, x1, y1, sp: sp.into() })
+}
+
+/// live.js `areaGuards`: the held areas any object of the step is in, before or after it.
+fn area_guards(doc: &Doc, lids: &mut Lids, prefix: &str, ents: &EntFold, areas: &[Area]) -> Vec<String> {
+    let mut hit: Vec<String> = vec![];
+    if areas.is_empty() {
+        return hit;
+    }
+    for (_, space, before, after) in ents {
+        let sp = lids.of(*space, prefix);
+        for e in [before.as_ref(), after.as_ref().and_then(Option::as_ref)].into_iter().flatten() {
+            let b = cc_cad_geom::pick::entity_bounds(e, Some(&doc.blocks));
+            if ![b.min_x, b.min_y, b.max_x, b.max_y].iter().all(|x| x.is_finite()) || b.min_x > b.max_x || b.min_y > b.max_y {
+                continue;
+            }
+            for a in areas {
+                if a.sp == sp && b.min_x <= a.x1 && b.max_x >= a.x0 && b.min_y <= a.y1 && b.max_y >= a.y0 && !hit.contains(&a.key) {
+                    hit.push(a.key.clone());
+                }
+            }
+        }
+    }
+    hit
 }
 
 /// Run `f` as one change of the drawing that leaves no step of its own (others' edits are not this window's to undo).
@@ -787,6 +851,11 @@ pub fn touched(ops: &[J]) -> Vec<TouchReq> {
             "sty" => add(format!("style:{}/{}", op_s(op, "t"), op_s(op, "name")), 'p', Some("v".into()), Cond::Auto, false, &mut out),
             "par" => add("meta:parametric".into(), 's', None, Cond::Auto, false, &mut out),
             "m3d" => add("meta:m3d".into(), 's', None, Cond::Auto, false, &mut out),
+            "area" => {
+                for k in op.get("k").and_then(J::as_array).map(Vec::as_slice).unwrap_or(&[]).iter().filter_map(J::as_str) {
+                    add(k.to_string(), 'r', None, Cond::Auto, true, &mut out);
+                }
+            }
             _ => {}
         }
     }
@@ -1169,6 +1238,249 @@ impl CadLive<'_> {
     }
 }
 
+const HOLD_MAX: usize = 500;
+const SEL_MAX: usize = 200;
+
+/// Colours for people (live.js `PEOPLE`, the site's eight layer colours).
+pub const PEOPLE: [egui::Color32; 8] = [
+    egui::Color32::from_rgb(0xc8, 0x10, 0x2e),
+    egui::Color32::from_rgb(0x1f, 0x6f, 0xd1),
+    egui::Color32::from_rgb(0xd9, 0x64, 0x0a),
+    egui::Color32::from_rgb(0xb5, 0x17, 0x9e),
+    egui::Color32::from_rgb(0x9a, 0x7b, 0x00),
+    egui::Color32::from_rgb(0x1d, 0x8a, 0x4b),
+    egui::Color32::from_rgb(0x6a, 0x3f, 0xd6),
+    egui::Color32::from_rgb(0x00, 0x8c, 0x9e),
+];
+/// live.js `personColour(c)`.
+pub fn person_colour(c: u64) -> egui::Color32 {
+    let i = usize::try_from(c.max(1).saturating_sub(1) % 8).unwrap_or(0);
+    PEOPLE.get(i).copied().unwrap_or(PEOPLE[0])
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl CadLive<'_> {
+    /// After every poll (live.js `attachUi`): what is selected is held (and others are told), the drawing's commands see
+    /// the session (`Doc::live_info`), and what LIVEHOLD / LIVELOCK asked for goes out.
+    pub fn extras(&mut self) {
+        let prefix = self.prefix();
+        let Some(s) = self.0.live.as_mut() else { return };
+        let Some(ed) = self.0.editor.as_ref() else { return };
+        // holds: what you have selected (and so are editing)
+        let sel: Vec<u64> = ed.hs.borrow().selection.iter().take(HOLD_MAX).copied().collect();
+        if s.doc.is_live() && sel != s.sel_seen {
+            let want: Vec<String> = sel.iter().map(|id| format!("e:{id}")).collect();
+            let gone: Vec<String> = s.doc.my_holds().iter().filter(|k| k.starts_with("e:") && !want.contains(k)).cloned().collect();
+            if !gone.is_empty() {
+                s.doc.release(Some(&gone));
+            }
+            s.doc.hold(&want);
+            let fresh: Vec<&String> = want.iter().filter(|k| !s.sel_seen.iter().any(|id| format!("e:{id}") == **k)).collect();
+            if let Some(by) = fresh.iter().map(|k| s.doc.held_by(k)).find(|c| *c != 0) {
+                let name = s.doc.name_of(by);
+                let name = if name.is_empty() { ed.eng.t("live.someone") } else { name };
+                ed.eng.print(&ed.eng.tv("live.held_by", &[("name", name)]));
+            }
+            if fresh.iter().any(|k| s.doc.is_locked(k)) {
+                ed.eng.print(&ed.eng.t("live.locked_note"));
+            }
+            s.sel_seen = sel;
+        }
+        // the session as the drawing's commands see it
+        let mut d = ed.eng.doc_mut();
+        let lid = if d.in_model() { String::new() } else { self.0.live_cad_lids.of(d.space, &prefix) };
+        let mut names: std::collections::BTreeMap<u64, String> = s.doc.peers.values().map(|p| (p.c, p.name.clone())).collect();
+        names.insert(s.doc.c, s.me.clone());
+        let info = cc_cad::doc::LiveInfo {
+            c: s.doc.c,
+            role: s.doc.role.clone(),
+            holds: s.doc.holds.iter().map(|(k, c)| (k.clone(), *c)).collect(),
+            locks: s.doc.locks.iter().cloned().collect(),
+            mine: s.doc.my_holds().iter().cloned().collect(),
+            names,
+            space_lid: lid,
+        };
+        if d.live_info != info {
+            d.live_info = info;
+        }
+        let reqs = std::mem::take(&mut d.live_reqs);
+        drop(d);
+        for r in reqs {
+            let keys = |ks: Vec<String>| Mp::map(vec![("keys", Mp::Arr(ks.into_iter().map(Mp::Str).collect()))]);
+            match r {
+                cc_cad::doc::LiveReq::Hold(ks) => s.doc.hold(&ks),
+                cc_cad::doc::LiveReq::Release(ks) => s.doc.release(Some(&ks)),
+                cc_cad::doc::LiveReq::Lock(ks) => s.send(&cc_live::envelope::Envelope::new("lock").body(keys(ks))),
+                cc_cad::doc::LiveReq::Unlock(ks) => s.send(&cc_live::envelope::Envelope::new("unlock").body(keys(ks))),
+            }
+        }
+        s.flush_out();
+    }
+}
+
+/// Others on the drawing (live.js `drawOthers`): the host's padlocks and others' holds as outlines with a badge, held
+/// areas as dashed frames, held layers listed top left, others' selections dashed in their colour, their cursors (near
+/// what is on screen) with their name and command.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn draw_others(app: &crate::UiApp, painter: &egui::Painter, rect: egui::Rect, to_pos: &dyn Fn(f64, f64) -> egui::Pos2) {
+    let (Some(s), Some(ed)) = (app.live.as_ref(), app.editor.as_ref()) else { return };
+    if s.app != "cadcraft" {
+        return;
+    }
+    let t = app.tokens;
+    let d = ed.eng.doc();
+    let here = d.live_info.space_lid.clone();
+    let space = d.space;
+    let tr = |k: &str, v: &[(&str, String)]| ed.eng.tv(k, v);
+    let name_of = |c: u64| {
+        let n = s.doc.name_of(c);
+        if n.is_empty() { ed.eng.t("live.someone") } else { n }
+    };
+    let trace = |e: &Entity| -> Vec<Vec<egui::Pos2>> {
+        let mut out = vec![];
+        for b in cc_cad_geom::display::walk_batches(&d, &[e]) {
+            for l in &b.lines {
+                let pts: Vec<egui::Pos2> = l.as_chunks::<2>().0.iter().map(|&[x, y]| to_pos(x, y)).collect();
+                if pts.len() >= 2 {
+                    out.push(pts);
+                }
+            }
+        }
+        out
+    };
+    let stroke_all = |paths: &[Vec<egui::Pos2>], st: egui::Stroke, dashed: Option<(f32, f32)>| {
+        for p in paths {
+            match dashed {
+                Some((a, g)) => {
+                    painter.extend(egui::Shape::dashed_line(p, st, a, g));
+                }
+                None => {
+                    painter.add(egui::Shape::line(p.clone(), st));
+                }
+            }
+        }
+    };
+    // a label: white on the person's colour (dark on a light fill: the ink of a dark model space), kept inside the
+    // view; `lock` puts a padlock before the text (drawn: the UI font has no emoji)
+    let label_lock = |x: f32, y: f32, text: &str, colour: egui::Color32, lock: bool| {
+        let lum = 0.2126 * f32::from(colour.r()) + 0.7152 * f32::from(colour.g()) + 0.0722 * f32::from(colour.b());
+        let fg = if lum > 150.0 { egui::Color32::from_rgb(0x1a, 0x1a, 0x1a) } else { egui::Color32::WHITE };
+        let font = egui::FontId::proportional(12.0);
+        let g = painter.layout_no_wrap(text.to_string(), font, fg);
+        let pad = if lock { 13.0 } else { 0.0 };
+        let w = g.size().x + 8.0 + pad;
+        let x = x.clamp(rect.min.x + 2.0, (rect.max.x - w - 2.0).max(rect.min.x + 2.0));
+        let y = y.clamp(rect.min.y + 15.0, (rect.max.y - 4.0).max(rect.min.y + 15.0));
+        painter.rect_filled(egui::Rect::from_min_size(egui::pos2(x, y - 13.0), egui::vec2(w, 17.0)), 0.0, colour.gamma_multiply(0.92));
+        if lock {
+            let body = egui::Rect::from_min_size(egui::pos2(x + 4.0, y - 6.5), egui::vec2(9.0, 7.0));
+            painter.rect_filled(body, 1.0, fg);
+            let c = egui::pos2(body.center().x, body.min.y);
+            let arc: Vec<egui::Pos2> = (0..=8)
+                .map(|i| {
+                    let a = std::f32::consts::PI * (i as f32) / 8.0;
+                    c + egui::vec2(-3.0 * a.cos(), -3.5 * a.sin())
+                })
+                .collect();
+            painter.add(egui::Shape::line(arc, egui::Stroke::new(1.5, fg)));
+        }
+        painter.galley(egui::pos2(x + 4.0 + pad, y - 12.0), g, fg);
+    };
+    let label = |x: f32, y: f32, text: &str, colour: egui::Color32| label_lock(x, y, text, colour, false);
+    let here_ent = |id: u64| d.space_entities(space).find(|e| e.id == Some(id)).cloned();
+    // a locked object (dashed, a padlock) or someone's held one
+    let badge = |e: &Entity, text: &str, colour: egui::Color32, locked: bool| {
+        stroke_all(&trace(e), egui::Stroke::new(2.0, colour), locked.then_some((2.0, 3.0)));
+        let b = cc_cad_geom::pick::entity_bounds(e, Some(&d.blocks));
+        if [b.max_x, b.max_y].iter().all(|v| v.is_finite()) {
+            let p = to_pos(b.max_x, b.max_y);
+            label_lock(p.x + 4.0, p.y - 4.0, text, colour, locked);
+        }
+    };
+    // the host's padlocks and others' holds
+    let mut locks: Vec<&String> = s.doc.locks.iter().collect();
+    locks.sort();
+    for k in locks {
+        if let Some(e) = k.strip_prefix("e:").and_then(|x| x.parse::<u64>().ok()).and_then(here_ent) {
+            badge(&e, &ed.eng.t("live.locked"), t.ink, true);
+        }
+    }
+    let mut holds: Vec<(&String, &u64)> = s.doc.holds.iter().collect();
+    holds.sort();
+    for (k, c) in &holds {
+        if **c == s.doc.c {
+            continue;
+        }
+        if let Some(e) = k.strip_prefix("e:").and_then(|x| x.parse::<u64>().ok()).and_then(here_ent) {
+            badge(&e, &tr("live.held_badge", &[("name", name_of(**c))]), person_colour(**c), false);
+        }
+    }
+    // held areas, held layers
+    let mut layers_held: Vec<(String, u64)> = vec![];
+    for (k, c) in &holds {
+        if let Some(l) = k.strip_prefix("layer:") {
+            if **c != s.doc.c {
+                layers_held.push((l.to_string(), **c));
+            }
+            continue;
+        }
+        let Some(a) = parse_area(k) else { continue };
+        if a.sp != here {
+            continue;
+        }
+        let (p0, p1) = (to_pos(a.x0, a.y1), to_pos(a.x1, a.y0));
+        let mine = **c == s.doc.c;
+        let colour = if mine { t.ink } else { person_colour(**c) };
+        let r = egui::Rect::from_two_pos(p0, p1);
+        let ring = vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
+        painter.extend(egui::Shape::dashed_line(&ring, egui::Stroke::new(1.5, colour), 8.0, 5.0));
+        let text = if mine { ed.eng.t("live.hold.area_mine") } else { tr("live.hold.area_badge", &[("name", name_of(**c))]) };
+        label(r.min.x + 4.0, r.min.y + 18.0, &text, colour);
+    }
+    for (i, (l, c)) in layers_held.iter().take(6).enumerate() {
+        let y = rect.min.y + 22.0 + 20.0 * i as f32;
+        label(rect.min.x + 8.0, y, &tr("live.hold.layer_badge", &[("name", name_of(*c)), ("layer", l.clone())]), person_colour(*c));
+    }
+    // others: their selections and cursors
+    let mine_box = ed.hs.borrow().view_box;
+    let near = |x: f64, y: f64| {
+        let Some(b) = mine_box else { return false };
+        let (w, h) = (b.max_x - b.min_x, b.max_y - b.min_y);
+        x >= b.min_x - w * 0.25 && x <= b.max_x + w * 0.25 && y >= b.min_y - h * 0.25 && y <= b.max_y + h * 0.25
+    };
+    let num = |v: &Mp| match v {
+        Mp::Int(i) => Some(*i as f64),
+        Mp::F64(f) => Some(*f),
+        _ => None,
+    };
+    for (c, p) in &s.doc.presence {
+        if *c == s.doc.c || p.get("sp").and_then(Mp::as_str).unwrap_or("") != here {
+            continue;
+        }
+        let colour = person_colour(*c);
+        let sel = p.get("sel").map(Mp::as_arr).unwrap_or(&[]);
+        for id in sel.iter().take(SEL_MAX).filter_map(Mp::as_u64) {
+            if s.doc.holds.contains_key(&format!("e:{id}")) {
+                continue;
+            }
+            if let Some(e) = here_ent(id) {
+                stroke_all(&trace(&e), egui::Stroke::new(1.5, colour.gamma_multiply(0.7)), Some((5.0, 4.0)));
+            }
+        }
+        let cur = p.get("cur").map(Mp::as_arr).unwrap_or(&[]);
+        if let (Some(x), Some(y)) = (cur.first().and_then(num), cur.get(1).and_then(num))
+            && near(x, y)
+        {
+            let q = to_pos(x, y);
+            let arrow = vec![q, q + egui::vec2(3.0, 14.0), q + egui::vec2(6.5, 9.0), q + egui::vec2(12.0, 9.0)];
+            painter.add(egui::Shape::convex_polygon(arrow, colour, egui::Stroke::new(2.0, colour)));
+            let cmd = p.get("cmd").and_then(Mp::as_str).unwrap_or("");
+            let text = if cmd.is_empty() { name_of(*c) } else { format!("{} — {cmd}", name_of(*c)) };
+            label(q.x + 12.0, q.y + 22.0, &text, colour);
+        }
+    }
+}
+
 impl crate::live::LiveView for CadLive<'_> {
     const APP: &'static str = "cadcraft";
     const PREFIX: &'static str = "cad";
@@ -1229,6 +1541,55 @@ impl crate::live::LiveView for CadLive<'_> {
         }
         self.0.message = msg;
     }
+    fn holding_steps(&self) -> bool {
+        self.0.editor.as_ref().is_some_and(|ed| ed.eng.busy() && !ed.eng.doc().undo_stack.is_empty())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    fn before_steps(&mut self, doc: &cc_live::doc::LiveDoc) {
+        let mut areas: Vec<Area> = doc.holds.iter().filter(|(_, c)| **c != doc.c).filter_map(|(k, _)| parse_area(k)).collect();
+        areas.sort_by(|a, b| a.key.cmp(&b.key));
+        self.0.live_cad_lids.areas = areas;
+    }
+    fn presence(&mut self) -> Option<Mp> {
+        let prefix = self.prefix();
+        let ed = self.0.editor.as_ref()?;
+        let d = ed.eng.doc();
+        let sp = if d.in_model() { String::new() } else { self.0.live_cad_lids.of(d.space, &prefix) };
+        drop(d);
+        let hs = ed.hs.borrow();
+        let r = |v: f64| cc_cad::js::round(v * 1000.0) / 1000.0;
+        let num = |v: f64| if v.fract() == 0.0 && v.abs() < 9.0e15 { Mp::Int(v as i128) } else { Mp::F64(v) };
+        let cur = hs.cursor.map_or(Mp::Nil, |c| Mp::Arr(vec![num(r(c.x)), num(r(c.y))]));
+        let bx = hs.view_box.map_or(Mp::Nil, |b| Mp::Arr([b.min_x, b.min_y, b.max_x, b.max_y].into_iter().map(|v| num(r(v))).collect()));
+        let sel = Mp::Arr(hs.selection.iter().take(SEL_MAX).map(|id| Mp::from(*id)).collect());
+        let cmd = ed.eng.running().unwrap_or("");
+        Some(Mp::map(vec![("sp", Mp::from(sp.as_str())), ("cur", cur), ("box", bx), ("sel", sel), ("cmd", Mp::from(cmd))]))
+    }
+    fn file_hash(&mut self) -> String {
+        let Some(ed) = self.0.editor.as_ref() else { return String::new() };
+        match &ed.file_hash {
+            Some((h, v)) if *v == ed.eng.doc().version => h.clone(),
+            _ => String::new(),
+        }
+    }
+    fn refused_key(&self, reason: &str) -> String {
+        const REASONS: [&str; 13] = [
+            "held",
+            "deleted",
+            "changed",
+            "locked",
+            "role",
+            "exists",
+            "no-block",
+            "block-in-use",
+            "layer-in-use",
+            "layer-zero",
+            "hatch",
+            "constraint",
+            "invalid",
+        ];
+        if REASONS.contains(&reason) { format!("live.refused.{reason}") } else { "live.refused.other".into() }
+    }
     fn live_state(&mut self) -> Option<J> {
         let prefix = self.prefix();
         let ed = self.0.editor.as_ref()?;
@@ -1250,12 +1611,34 @@ impl crate::live::LiveView for CadLive<'_> {
         let label = steps.last().map(|s| s.label.clone()).unwrap_or_default();
         let ops: Vec<Vec<Op>> = steps.into_iter().map(|s| s.ops).collect();
         let mark = g();
-        let fwd = step_ops(&d, &mut self.0.live_cad_lids, &prefix, &mark, &ops, false);
+        // the areas other people hold (LV.9): an edit there is refused `held` by the session
+        let areas = self.0.live_cad_lids.areas.clone();
+        let fwd = step_ops(&d, &mut self.0.live_cad_lids, &prefix, &mark, &ops, false, &areas);
         if fwd.is_empty() {
             return vec![];
         }
-        let inv = step_ops(&d, &mut self.0.live_cad_lids, &prefix, &mark, &ops, true);
+        let inv = step_ops(&d, &mut self.0.live_cad_lids, &prefix, &mark, &ops, true, &areas);
         let pack = |v: &[J]| Mp::Arr(v.iter().map(to_mp).collect());
         vec![(label, pack(&fwd), pack(&inv))]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_object_in_an_area_someone_holds_reads_it_guarded() {
+        let doc = Doc::new();
+        let mut lids = Lids::default();
+        let e =
+            Entity::from_value(&json!({"type": "line", "id": 1000000001u64, "layer": "0", "x1": 0, "y1": 1000, "x2": 1050, "y2": 1000}));
+        let op = Op::Ent { space: MODEL, id: 1000000001, before: None, after: Some(Box::new(e)) };
+        let areas = vec![parse_area("area:900,900,1200,1200@").unwrap(), parse_area("area:0,0,10,10@").unwrap()];
+        let ops = step_ops(&doc, &mut lids, "1:", "s1", &[vec![op]], false, &areas);
+        assert_eq!(ops.get(1), Some(&json!({"o": "area", "k": ["area:900,900,1200,1200@"]})));
+        let t = touched(&ops);
+        assert!(t.iter().any(|x| x.k == "area:900,900,1200,1200@" && x.m == 'r' && x.g));
+        assert!(parse_area("area:1,2,3@").is_none() && parse_area("area:3,0,1,1@").is_none() && parse_area("area:0,0,1,1@x y").is_none());
     }
 }

@@ -36,6 +36,21 @@ pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> 
     {
         return Some(Err(format!("{id}: this window is in a {} live session", s.app)));
     }
+    #[cfg(not(target_arch = "wasm32"))]
+    if id.ends_with(".live.info") {
+        let Some(s) = app.live.as_ref() else { return Some(Err(format!("{id}: not in a live session"))) };
+        let mut info = crate::live::info(s);
+        // CadCraft: the command line's last lines too (LIVEHOLD / LIVELOCK answer there)
+        if which == "cadcraft"
+            && let (Some(ed), Some(o)) = (app.editor.as_ref(), info.as_object_mut())
+        {
+            let log: Vec<String> = ed.hs.borrow().log.iter().rev().take(60).rev().cloned().collect();
+            o.insert("log".into(), serde_json::json!(log));
+        }
+        let text = info.to_string();
+        let Some(save) = app.services.save.as_mut() else { return Some(Err(format!("{id}: saving is not available here"))) };
+        return Some(save(&format!("{which}.live-info.json"), text.into_bytes()).map(|_| ()));
+    }
     if id.ends_with(".live.state") {
         // headless checks: the shared document (live.js `hash()`) saved as <app>.live.json
         let st = match which {
@@ -118,6 +133,7 @@ pub fn pump(app: &mut UiApp) {
                 let mut v = crate::cadlive::CadLive(app);
                 crate::live::poll(&mut v);
                 v.reverse_asked();
+                v.extras();
             }
             _ => {}
         }

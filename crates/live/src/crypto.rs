@@ -25,7 +25,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use rand_core::{CryptoRng, RngCore};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 use spake2::{Ed25519Group, Identity, Password, Spake2};
 
 /// Version byte of every frame header, and the label in every derived key.
@@ -516,6 +516,17 @@ pub fn b64url(b: &[u8]) -> String {
         }
     }
     s
+}
+
+/// sha256 of bytes as lower-case hex (cadcraft live.js `fileHashOf`: the same-file join's hash, LIVE-PROTOCOL § 7).
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let d = Sha256::digest(bytes);
+    let mut out = String::with_capacity(64);
+    for b in d {
+        out.push(char::from(b"0123456789abcdef".get(usize::from(b >> 4)).copied().unwrap_or(b'0')));
+        out.push(char::from(b"0123456789abcdef".get(usize::from(b & 15)).copied().unwrap_or(b'0')));
+    }
+    out
 }
 
 #[cfg(test)]

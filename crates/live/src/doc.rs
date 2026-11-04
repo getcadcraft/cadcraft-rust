@@ -76,9 +76,44 @@ pub enum DocEvent {
         picture: Vec<u8>,
         aud: String,
     },
+    /// a new short code to show (`code`): `one_time`, `carried` (came with the session from the previous host), `reason`
+    /// (`wrong-tries`: 3 wrong tries replaced the last one), `expires` = its lifetime in ms from now
     Code {
         code: String,
+        tag: String,
+        one_time: bool,
+        carried: bool,
+        reason: String,
+        expires: u64,
     },
+    /// a code or link stopped working (`code-gone`): `expired`, `used`, `wrong-tries`, `stopped`
+    CodeGone {
+        kid: String,
+        reason: String,
+    },
+    /// this window is handed the session (all `handover` chunks in): the MessagePack session state
+    Handover {
+        from: u64,
+        state: Vec<u8>,
+        relay: bool,
+    },
+    /// the host's handover did not happen (`unknown`, `gone`, `start`)
+    HandoverOff {
+        to: u64,
+        reason: String,
+    },
+    /// the session moved to client `host`'s machine: rejoin at one of `addrs`:`port` with the rejoin ticket (`ticket`
+    /// when this connection had no handshake)
+    Moved {
+        host: u64,
+        addrs: Vec<String>,
+        port: u16,
+        ticket: Vec<u8>,
+    },
+    /// others' presence changed (cursors, views, selections, commands)
+    Presence,
+    /// the holds or locks table changed
+    Holds,
     Peer {
         c: u64,
     },
@@ -121,6 +156,9 @@ enum In {
     End { reason: String },
 }
 
+/// A host handoff's state being received: its chunks, who handed it over, whether someone came through the relay.
+type HoParts = (Vec<Option<Vec<u8>>>, u64, bool);
+
 /// A snapshot being received: its chunks, how many, its seq and encoding.
 type Snap = (Vec<Option<Vec<u8>>>, usize, u64, String);
 
@@ -158,6 +196,18 @@ pub struct LiveDoc {
     pub saved: (u64, String),
     welcomed: bool,
     ever_welcomed: bool,
+    /// others' presence (the adapter's `presence()` values), by client
+    pub presence: BTreeMap<u64, Value>,
+    /// the hash of the file this window has (`hello.hash`, LIVE-PROTOCOL § 7): set before the first hello
+    pub hash: String,
+    /// moved to a new host (no role claim in hello any more)
+    pub relocated: bool,
+    /// `handover` chunks being received: (parts, from, relay)
+    ho_parts: Option<HoParts>,
+    /// when holds were last refreshed (ms, the caller's clock)
+    last_hold: f64,
+    /// snapshots loaded (a same-file join loads none)
+    pub snapshots: u32,
     snap: Option<Snap>,
     loading: bool,
     /// envelopes to send, in order
@@ -240,6 +290,9 @@ impl LiveDoc {
                 b.push(("token", Value::from(tok)));
             }
         }
+        if !self.ever_welcomed && !self.hash.is_empty() {
+            b.push(("hash", Value::from(self.hash.as_str())));
+        }
         if self.ever_welcomed && self.c != 0 {
             let holds: Vec<Value> = self.my_holds.iter().map(|k| Value::Str(k.clone())).collect();
             b.push((
@@ -308,6 +361,46 @@ impl LiveDoc {
                 self.outbox.push(e);
             }
             "peer" => self.peer(b),
+            "presence" => {
+                if let Some(Value::Map(ps)) = b.get("peers") {
+                    for (c, p) in ps.iter().take(1000) {
+                        if let Ok(c) = c.parse::<u64>()
+                            && c != self.c
+                        {
+                            self.presence.insert(c, p.clone());
+                        }
+                    }
+                    self.events.push(DocEvent::Presence);
+                }
+            }
+            "handover" => self.handover_chunk(b),
+            "handover-off" => self
+                .events
+                .push(DocEvent::HandoverOff { to: b.get("to").and_then(Value::as_u64).unwrap_or(0), reason: s_of(b.get("reason")) }),
+            "moved" => {
+                let addrs: Vec<String> = b
+                    .get("addrs")
+                    .map(Value::as_arr)
+                    .unwrap_or(&[])
+                    .iter()
+                    .take(16)
+                    .filter_map(Value::as_str)
+                    .filter(|a| !a.is_empty() && a.len() <= 64 && a.chars().all(|ch| ch.is_ascii_alphanumeric() || ".:-".contains(ch)))
+                    .map(str::to_string)
+                    .collect();
+                let port = b.get("port").and_then(Value::as_u64).and_then(|p| u16::try_from(p).ok()).unwrap_or(0);
+                let ticket = match b.get("ticket") {
+                    Some(Value::Bin(t)) if t.len() == 32 => t.clone(),
+                    _ => vec![],
+                };
+                if !addrs.is_empty() && port > 0 {
+                    let host = b.get("host").and_then(Value::as_u64).unwrap_or(0);
+                    self.moved();
+                    self.host_is(host);
+                    self.events.push(DocEvent::Moved { host, addrs, port, ticket });
+                }
+            }
+            "code-gone" => self.events.push(DocEvent::CodeGone { kid: s_of(b.get("kid")), reason: s_of(b.get("reason")) }),
             "holds" => {
                 if let Some(Value::Map(set)) = b.get("set") {
                     for (k, c) in set {
@@ -320,6 +413,7 @@ impl LiveDoc {
                     self.holds.remove(k);
                     self.my_holds.remove(k);
                 }
+                self.events.push(DocEvent::Holds);
             }
             "locks" => {
                 for k in b.get("add").map(Value::as_arr).unwrap_or(&[]).iter().filter_map(Value::as_str) {
@@ -328,6 +422,7 @@ impl LiveDoc {
                 for k in b.get("del").map(Value::as_arr).unwrap_or(&[]).iter().filter_map(Value::as_str) {
                     self.locks.remove(k);
                 }
+                self.events.push(DocEvent::Holds);
             }
             "saved" => {
                 self.saved = (b.get("q").and_then(Value::as_u64).unwrap_or(0), s_of(b.get("hash")));
@@ -345,7 +440,14 @@ impl LiveDoc {
                 },
                 aud: s_of(b.get("aud")),
             }),
-            "code" => self.events.push(DocEvent::Code { code: s_of(b.get("code")) }),
+            "code" => self.events.push(DocEvent::Code {
+                code: s_of(b.get("code")),
+                tag: s_of(b.get("tag")),
+                one_time: b.get("one_time").is_some_and(|v| matches!(v, Value::Bool(true))),
+                carried: b.get("carried").is_some_and(|v| matches!(v, Value::Bool(true))),
+                reason: s_of(b.get("reason")),
+                expires: b.get("expires").and_then(Value::as_u64).unwrap_or(0),
+            }),
             "validate" => {
                 let ops = b.get("ops").cloned().unwrap_or(Value::Nil);
                 let mut reason = a.validate(&ops);
@@ -438,6 +540,9 @@ impl LiveDoc {
         if c == self.c && st == "role" {
             self.role = s_of(b.get("role"));
         }
+        if st == "gone" || st == "removed" {
+            self.presence.remove(&c);
+        }
         self.events.push(DocEvent::Peer { c });
     }
 
@@ -477,6 +582,7 @@ impl LiveDoc {
             self.set_status("failed");
             return;
         }
+        self.snapshots = self.snapshots.saturating_add(1);
         self.q = q;
         self.reapply_pending(a);
         self.loading = false;
@@ -732,13 +838,131 @@ impl LiveDoc {
         true
     }
 
-    /// Hold keys (select, grips, command start), as `hold`.
+    /// Hold keys (select, grips, command start), as `hold` (live-client.js `hold`: only the keys not held yet go out, once
+    /// welcomed; a welcome sends them all again).
     pub fn hold(&mut self, keys: &[String]) {
+        let fresh: Vec<Value> = keys.iter().filter(|k| !self.my_holds.contains(*k)).map(|k| Value::Str(k.clone())).collect();
         for k in keys {
             self.my_holds.insert(k.clone());
         }
-        let ks: Vec<Value> = keys.iter().map(|k| Value::Str(k.clone())).collect();
-        self.outbox.push(Envelope::new("hold").body(Value::map(vec![("keys", Value::Arr(ks))])));
+        if !fresh.is_empty() && self.welcomed {
+            self.outbox.push(Envelope::new("hold").body(Value::map(vec![("keys", Value::Arr(fresh))])));
+        }
+    }
+
+    /// Let keys go (`None`: everything this client holds), as `release`.
+    pub fn release(&mut self, keys: Option<&[String]>) {
+        let list: Vec<String> = match keys {
+            Some(ks) => ks.iter().filter(|k| self.my_holds.contains(*k)).cloned().collect(),
+            None => self.my_holds.iter().cloned().collect(),
+        };
+        for k in &list {
+            self.my_holds.remove(k);
+        }
+        if !self.welcomed || list.is_empty() {
+            return;
+        }
+        let b = match keys {
+            Some(_) => Value::map(vec![("keys", Value::Arr(list.into_iter().map(Value::Str).collect()))]),
+            None => Value::map(vec![("all", Value::Bool(true))]),
+        };
+        self.outbox.push(Envelope::new("release").body(b));
+    }
+
+    /// The keys this client holds.
+    pub fn my_holds(&self) -> &HashSet<String> {
+        &self.my_holds
+    }
+
+    /// Who holds a key (a client id), if someone else does (0: nobody, or this client).
+    pub fn held_by(&self, key: &str) -> u64 {
+        match self.holds.get(key) {
+            Some(c) if *c != self.c => *c,
+            _ => 0,
+        }
+    }
+
+    pub fn is_locked(&self, key: &str) -> bool {
+        self.locks.contains(key)
+    }
+
+    /// This client's presence (cursor, view, selection, command), as `presence`; the caller sends it at most every 33 ms
+    /// and only when it changed.
+    pub fn set_presence(&mut self, p: Value) {
+        if self.welcomed {
+            self.outbox.push(Envelope::new("presence").body(p));
+        }
+    }
+
+    /// Once in a while (the caller's clock in ms): holds are refreshed every 20 s, as live-client.js `liveness`.
+    pub fn tick(&mut self, now_ms: f64) {
+        if !self.welcomed || self.my_holds.is_empty() {
+            return;
+        }
+        if self.last_hold == 0.0 || now_ms - self.last_hold >= 20_000.0 {
+            self.last_hold = now_ms;
+            let ks: Vec<Value> = self.my_holds.iter().map(|k| Value::Str(k.clone())).collect();
+            self.outbox.push(Envelope::new("hold").body(Value::map(vec![("keys", Value::Arr(ks))])));
+        }
+    }
+
+    /// The name of client `c` as this client knows it ('' when unknown).
+    pub fn name_of(&self, c: u64) -> String {
+        self.peers.get(&c).map(|p| p.name.clone()).unwrap_or_default()
+    }
+
+    /// The host's name ('' when unknown).
+    pub fn host_name(&self) -> String {
+        self.peers.values().find(|p| p.role == "host").map(|p| p.name.clone()).unwrap_or_default()
+    }
+
+    /// No way back in (a move nobody can reach, a rejoin refused): the session is over for this client.
+    pub fn lose(&mut self) {
+        self.set_status("lost");
+    }
+
+    /// Client `c` hosts the session now (a handoff): the old host is an editor (the server tells nobody, LIVE-PROTOCOL
+    /// § 4.7; the people list and "copy of … from <host>" read the roles).
+    pub fn host_is(&mut self, c: u64) {
+        for p in self.peers.values_mut() {
+            if p.role == "host" {
+                p.role = "editor".into();
+            }
+        }
+        if let Some(p) = self.peers.get_mut(&c) {
+            p.role = "host".into();
+        }
+    }
+
+    /// Following the session to a new host (`moved`, or this window took it over): nothing goes out until the next
+    /// `welcome`, then the pending edits again; hello claims no role from here on.
+    pub fn moved(&mut self) {
+        self.welcomed = false;
+        self.relocated = true;
+        if !self.final_() {
+            self.set_status("reconnecting");
+        }
+    }
+
+    fn handover_chunk(&mut self, b: &Value) {
+        let i = usize::try_from(b.get("i").and_then(Value::as_u64).unwrap_or(0)).unwrap_or(0);
+        // at most 4096 chunks of 256 KB (1 GB)
+        let of = usize::try_from(b.get("of").and_then(Value::as_u64).unwrap_or(0)).unwrap_or(0).min(4096);
+        if i == 0 || self.ho_parts.is_none() {
+            let from = b.get("from").and_then(Value::as_u64).unwrap_or(0);
+            let relay = matches!(b.get("relay"), Some(Value::Bool(true)));
+            self.ho_parts = Some((vec![None; of], from, relay));
+        }
+        let Some(h) = self.ho_parts.as_mut() else { return };
+        if let (Some(slot), Some(Value::Bin(d))) = (h.0.get_mut(i), b.get("data")) {
+            *slot = Some(d.clone());
+        }
+        if h.0.is_empty() || h.0.iter().any(Option::is_none) {
+            return;
+        }
+        let Some((parts, from, relay)) = self.ho_parts.take() else { return };
+        let state: Vec<u8> = parts.into_iter().flatten().flatten().collect();
+        self.events.push(DocEvent::Handover { from, state, relay });
     }
 
     /// Is a pending edit still waiting?
@@ -879,5 +1103,92 @@ mod tests {
         assert_eq!(m.0.get("a"), None);
         assert_eq!(d.outbox.len(), 1);
         assert_eq!(d.outbox[0].b.get("label").and_then(Value::as_str), Some("Undo x"), "the label is the commit's (live-client.js record)");
+    }
+
+    fn welcomed(c: u64) -> (Toy, LiveDoc) {
+        let mut m = Toy::default();
+        let mut d = LiveDoc::new();
+        let w = Envelope::new("welcome").body(Value::map(vec![
+            ("c", Value::from(c)),
+            ("role", Value::from("editor")),
+            ("session", Value::from("ab12")),
+            ("catchup", Value::from("log")),
+        ]));
+        d.message(&mut m, &w);
+        d.outbox.clear();
+        (m, d)
+    }
+
+    #[test]
+    fn a_handover_in_chunks_is_one_state_and_moved_waits_for_the_next_welcome() {
+        let (mut m, mut d) = welcomed(4);
+        let chunk = |i: u64, data: &[u8]| {
+            let mut b =
+                vec![("from", Value::from(1u64)), ("i", Value::from(i)), ("of", Value::from(2u64)), ("data", Value::Bin(data.to_vec()))];
+            if i == 0 {
+                b.push(("bytes", Value::from(5u64)));
+                b.push(("relay", Value::Bool(false)));
+            }
+            Envelope::new("handover").body(Value::map(b))
+        };
+        // the second chunk first: nothing until both are in
+        d.message(&mut m, &chunk(0, b"abc"));
+        assert!(!d.events.iter().any(|e| matches!(e, DocEvent::Handover { .. })));
+        d.message(&mut m, &chunk(1, b"de"));
+        assert!(d.events.iter().any(|e| matches!(e, DocEvent::Handover { from: 1, state, relay: false } if state == b"abcde")));
+        // moved: addresses checked, the ticket kept, nothing sent until a welcome
+        let mv = Envelope::new("moved").body(Value::map(vec![
+            ("addrs", Value::Arr(vec![Value::from("10.0.0.5"), Value::from("bad addr!"), Value::from("fe80::1")])),
+            ("port", Value::from(4545u64)),
+            ("host", Value::from(4u64)),
+            ("ticket", Value::Bin(vec![7; 32])),
+        ]));
+        d.message(&mut m, &mv);
+        assert!(
+            d.events
+                .iter()
+                .any(|e| matches!(e, DocEvent::Moved { host: 4, addrs, port: 4545, ticket } if addrs.len() == 2 && ticket.len() == 32))
+        );
+        assert!(d.relocated && d.status == "reconnecting");
+        d.hold(&["e:1".into()]);
+        assert!(d.outbox.is_empty(), "nothing goes out before the welcome");
+        let h = d.hello("cadcraft", 1, "Ana", None);
+        assert!(h.b.get("role").is_none() && h.b.get("resume").is_some_and(|r| r.get("c").and_then(Value::as_u64) == Some(4)));
+    }
+
+    #[test]
+    fn holds_go_out_once_presence_is_kept_per_peer_and_a_gone_peer_loses_it() {
+        let (mut m, mut d) = welcomed(2);
+        d.hold(&["e:1".into(), "e:2".into()]);
+        d.hold(&["e:2".into(), "e:3".into()]);
+        let sent: Vec<usize> = d.outbox.iter().map(|e| e.b.get("keys").map_or(0, |k| k.as_arr().len())).collect();
+        assert_eq!(sent, vec![2, 1], "only keys not held yet");
+        d.outbox.clear();
+        d.release(Some(&["e:1".into(), "e:9".into()]));
+        assert_eq!(d.outbox.first().and_then(|e| e.b.get("keys")).map(|k| k.as_arr().len()), Some(1));
+        d.release(None);
+        assert!(d.my_holds().is_empty());
+        assert_eq!(d.outbox.last().and_then(|e| e.b.get("all")), Some(&Value::Bool(true)));
+        let p = Envelope::new("presence").body(Value::map(vec![(
+            "peers",
+            Value::Map(vec![
+                ("5".into(), Value::map(vec![("cur", Value::Arr(vec![Value::from(1u64), Value::from(2u64)]))])),
+                ("2".into(), Value::Nil),
+            ]),
+        )]));
+        d.message(&mut m, &p);
+        assert!(d.presence.contains_key(&5) && !d.presence.contains_key(&2), "never our own");
+        d.message(&mut m, &Envelope::new("peer").body(Value::map(vec![("c", Value::from(5u64)), ("state", Value::from("gone"))])));
+        assert!(d.presence.is_empty());
+        // a hold is refreshed every 20 s
+        d.hold(&["layer:A".into()]);
+        d.outbox.clear();
+        d.tick(1000.0);
+        d.tick(5000.0);
+        d.tick(21_500.0);
+        assert_eq!(d.outbox.len(), 2);
+        d.holds.insert("e:7".into(), 9);
+        d.holds.insert("e:8".into(), 2);
+        assert_eq!((d.held_by("e:7"), d.held_by("e:8"), d.held_by("e:0")), (9, 0, 0));
     }
 }

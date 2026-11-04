@@ -1329,6 +1329,11 @@ impl UiApp {
         self.editor = Some(edit::Editor::new(doc, &stem));
         self.doc = None;
         self.sync_editor();
+        // Studio Live's same-file join (live.js stampFileHash): the hash of the bytes opened, while unchanged since
+        if let Some(ed) = self.editor.as_mut() {
+            let v = ed.eng.doc().version;
+            ed.file_hash = Some((cc_live::crypto::sha256_hex(&f.bytes), v));
+        }
         let t3 = web_time::Instant::now();
         let n = self.doc.as_ref().map_or(0, |d| d.drawing.spaces.len());
         self.views = vec![None; n];
@@ -3771,6 +3776,9 @@ impl UiApp {
             return;
         }
         parpanel::draw(self, &painter, &to_pos, view.zoom / ppp);
+        // Studio Live: others' cursors, selections, holds and the host's padlocks (live.js drawOthers)
+        #[cfg(not(target_arch = "wasm32"))]
+        cadlive::draw_others(self, &painter, rect, &to_pos);
         if let Some(s) = &ed.snap {
             let c = to_pos(s.x, s.y);
             let st = egui::Stroke::new(1.5, egui::Color32::from_rgb(0x3c, 0xd0, 0x70));

@@ -452,6 +452,38 @@ impl DocEvent {
     }
 }
 
+/// A Studio Live session as the drawing's commands see it (ui-egui cadlive.rs fills it every frame): this person's
+/// client id and role, who holds what, the host's locks, people's names, the live id of the space on screen.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LiveInfo {
+    pub c: u64,
+    pub role: String,
+    pub holds: std::collections::BTreeMap<String, u64>,
+    pub locks: std::collections::BTreeSet<String>,
+    pub mine: std::collections::BTreeSet<String>,
+    pub names: std::collections::BTreeMap<u64, String>,
+    pub space_lid: String,
+}
+
+impl LiveInfo {
+    /// Who holds a key, if someone else does (0: nobody, or this person).
+    pub fn held_by(&self, key: &str) -> u64 {
+        match self.holds.get(key) {
+            Some(c) if *c != self.c => *c,
+            _ => 0,
+        }
+    }
+}
+
+/// What LIVEHOLD / LIVELOCK / LIVEUNLOCK ask the session for (the window sends it).
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiveReq {
+    Hold(Vec<String>),
+    Release(Vec<String>),
+    Lock(Vec<String>),
+    Unlock(Vec<String>),
+}
+
 /// The drawing. See the module doc.
 #[derive(Clone, Debug)]
 pub struct Doc {
@@ -478,6 +510,9 @@ pub struct Doc {
     /// ask: true = undo) instead of taking back this drawing's own steps
     pub live: bool,
     pub live_asks: Vec<bool>,
+    /// the session as the window last saw it (LIVEHOLD / LIVELOCK read it) and what those commands ask of it
+    pub live_info: LiveInfo,
+    pub live_reqs: Vec<LiveReq>,
     pub saved_version: u64,
     pending: Option<Step>,
     layers_moved: bool,
@@ -575,6 +610,8 @@ impl Doc {
             version: 0,
             live: false,
             live_asks: Vec::new(),
+            live_info: LiveInfo::default(),
+            live_reqs: Vec::new(),
             saved_version: 0,
             pending: None,
             layers_moved: false,
