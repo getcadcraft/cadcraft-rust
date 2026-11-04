@@ -29,6 +29,13 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - Parity unchanged: kdiff 5250/5250 (en and es-MX), mkuidiff 17 checks 0 different, cvuidiff all identical, dcuidiff 58
   identical, pcuidiff identical, tkopsdiff 61 checks 0 different (status lines 262/262), mcuidiff 1243/1243 files,
   bmuidiff 2568/2568 steps, 418/418 IFC. Shots: forks/lead/shots/look07/{before,after,ref}.
+- M17.2: ModelCraft's tool palette as 0.7's toolbar (ui.inc's Draw, Modify, Organize with the Solids menu, Edit with
+  Undo / Redo / Copy / Paste / More, Camera; the tool in use pressed), its right panel under the grip "Entity info, style
+  and scenes"; the viewer's Print view / Find / Drawing as app-bar toggles; the viewer's extra tabs in 0.7's tab look.
+  MarkupCraft / TakeoffCraft (same commit: one PDF view): the Markup | Takeoff switch as tabs, MarkupCraft's tools as
+  0.7's toolbar across the window (Select, Draw, Revise, Annotate, Measure, Edit with More; icons from ui.inc) with the
+  colours, scale, Pages and Save on the row under it, the Sheets / Markup panels / Takeoff docks under grips.
+  mcuidiff 1243/1243 files, mkuidiff 17 checks 0 different, tkopsdiff 61 checks 0 different (262/262 status lines).
 - Next: the other apps' own bars and panels onto `shell::toolbar` / `shell::grip` (gaps item 12).
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

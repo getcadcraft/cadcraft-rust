@@ -895,33 +895,103 @@ impl UiApp {
         self.apply_hidden3();
     }
 
+    /// ModelCraft's tools as 0.7's toolbar (ui.inc `$__tools`: Draw, Modify, Organize, Edit, Camera; the File group's
+    /// actions are the app bar's): the tool in use pressed, the Solids and Edit › More menus under their buttons.
     fn tool_palette(&mut self, ui: &mut egui::Ui) {
+        use shell::{Tool, ToolGroup};
         let t = self.tokens;
         let cur = self.mc.as_ref().map(|m| m.tools.name.clone()).unwrap_or_default();
         let mut pick: Option<&str> = None;
         let mut undo = false;
         let mut redo = false;
         let mut edit: Option<String> = None;
-        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-        egui::Panel::left("mc_tools").exact_size(136.0).frame(frame).show(ui, |ui| {
-            ui.label(RichText::new(lang::cad("ui.tools")).strong().color(t.text_strong));
-            ui.separator();
-            for (name, _) in modelcraft::PALETTE {
-                let on = cur == *name;
-                let label = modelcraft::mt(&format!("ui.tool.{name}"), &[]);
-                let tip = modelcraft::mt(&format!("ui.tool.{name}.title"), &[]);
-                if ui.add_sized([124.0, 22.0], egui::Button::new(label).selected(on)).on_hover_text(tip).clicked() {
-                    pick = Some(name);
+        let mut fit = false;
+        let mt = |k: &str| modelcraft::mt(k, &[]);
+        let tool = |name: &'static str, icon: &'static str| {
+            Tool::new(name, icon, mt(&format!("ui.tool.{name}"))).tip(mt(&format!("ui.tool.{name}.title"))).on(cur == name)
+        };
+        let act = |id: &'static str, icon: &'static str, key: &str| Tool::new(id, icon, mt(key)).tip(mt(&format!("{key}.title")));
+        let groups = vec![
+            ToolGroup {
+                label: mt("ui.tb.group.draw"),
+                tools: vec![
+                    tool("line", "slash-lg"),
+                    tool("rect", "square"),
+                    tool("circle", "circle"),
+                    tool("polygon", "hexagon"),
+                    tool("arc", "bezier2"),
+                    act("act:text3d", "type", "ui.tool.text3d"),
+                ],
+            },
+            ToolGroup {
+                label: mt("ui.tb.group.modify"),
+                tools: vec![
+                    tool("select", "cursor"),
+                    tool("push", "box-arrow-up"),
+                    tool("follow", "arrow-90deg-up"),
+                    tool("paint", "brush"),
+                    tool("offset", "bounding-box"),
+                    tool("move", "arrows-move"),
+                    tool("rotate", "arrow-repeat"),
+                    tool("scale", "arrows-angle-expand"),
+                    tool("erase", "eraser"),
+                    tool("tape", "rulers"),
+                    tool("protractor", "compass"),
+                    tool("dim", "arrow-left-right"),
+                ],
+            },
+            ToolGroup {
+                label: mt("ui.tb.group.organize"),
+                tools: vec![
+                    act("act:make-component", "box", "ui.tool.component"),
+                    act("act:make-group", "collection", "ui.tool.group"),
+                    act("act:explode", "grid-3x3-gap", "ui.tool.explode"),
+                    Tool::new("menu:solids", "union", mt("ui.solids")).tip(mt("ui.solids.title")),
+                ],
+            },
+            ToolGroup {
+                label: mt("ui.tb.group.edit"),
+                tools: vec![
+                    act("undo", "arrow-counterclockwise", "ui.tool.undo"),
+                    act("redo", "arrow-clockwise", "ui.tool.redo"),
+                    act("act:copy", "copy", "ui.tool.copy"),
+                    act("act:paste", "clipboard-plus", "ui.tool.paste"),
+                    Tool::new("menu:edit", "three-dots", mt("ui.editmenu")).tip(mt("ui.editmenu.title")),
+                ],
+            },
+            ToolGroup {
+                label: mt("ui.tb.group.camera"),
+                tools: vec![
+                    act("fit", "arrows-fullscreen", "ui.tool.extents"),
+                    tool("section", "scissors"),
+                    Tool::new("act:storeys", "layers", mt("ui.export.storeys")),
+                    Tool::new("act:render", "camera", mt("ui.export.render")),
+                ],
+            },
+        ];
+        let h = shell::toolbar_height(ui, &groups, ui.available_width());
+        egui::Panel::top("mc_tools").exact_size(h).frame(egui::Frame::new().fill(t.app_bar)).show(ui, |ui| {
+            let app_c = t.app("modelcraft");
+            for (id, resp) in shell::toolbar(ui, &t, app_c, "mc-tb", &groups) {
+                match id.as_str() {
+                    "menu:solids" => {
+                        egui::Popup::menu(&resp).show(|ui| mcedit::solids_menu_items(ui, &mut edit));
+                    }
+                    "menu:edit" => {
+                        egui::Popup::menu(&resp).show(|ui| mcedit::edit_menu_items(ui, &mut edit));
+                    }
+                    _ if !resp.clicked() => {}
+                    "undo" => undo = true,
+                    "redo" => redo = true,
+                    "fit" => fit = true,
+                    a if a.starts_with("act:") => edit = Some(a.trim_start_matches("act:").to_string()),
+                    name => pick = modelcraft::PALETTE.iter().map(|(n, _)| *n).find(|n| *n == name),
                 }
             }
-            ui.separator();
-            ui.horizontal_wrapped(|ui| {
-                undo = ui.button(lang::mc("ui.tool.undo")).on_hover_text(lang::mc("ui.tool.undo.title")).clicked();
-                redo = ui.button(lang::mc("ui.tool.redo")).on_hover_text(lang::mc("ui.tool.redo.title")).clicked();
-            });
-            ui.separator();
-            edit = mcedit::palette_menus(ui);
         });
+        if fit {
+            self.run_ui("view.fit", &Params::default());
+        }
         if let Some(mc) = self.mc.as_mut() {
             if let Some(a) = edit
                 && let Err(e) = mc.act(&a)
@@ -2060,26 +2130,30 @@ impl UiApp {
             detailview::ui(self, ui);
         } else if let Some(pdf) = self.pdf.as_mut() {
             let t = self.tokens;
-            let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-            egui::Panel::left("pdf_sheets").default_size(180.0).size_range(120.0..=320.0).resizable(true).frame(frame).show(ui, |ui| {
-                ui.label(RichText::new(cc_markup::i18n::t0("sheets.h")).strong().color(t.text_strong));
-                ui.separator();
-                pdf.sheets_and_spaces(ui, &t);
+            let app_c = t.app(if pdf.mode == "takeoff" { "takeoffcraft" } else { "markupcraft" });
+            // 0.7: the toolbar across the window, then the docks under their grips
+            let mut save = false;
+            egui::Panel::top("pdf_tools").frame(egui::Frame::new().fill(t.app_bar)).show(ui, |ui| {
+                save = pdf.tool_bar(ui, &t);
+            });
+            let frame = shell::panel_frame(&t);
+            let inset = egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 });
+            egui::Panel::left("pdf_sheets").default_size(224.0).size_range(120.0..=360.0).resizable(true).frame(frame).show(ui, |ui| {
+                shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("sheets.h"), false, false);
+                inset.show(ui, |ui| pdf.sheets_and_spaces(ui, &t));
             });
             if pdf.mode != "takeoff" {
-                egui::Panel::right("mc_props").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-                    pdf.right_panel(ui, &t);
+                egui::Panel::right("mc_props").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
+                    shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("panels.label"), false, false);
+                    inset.show(ui, |ui| pdf.right_panel(ui, &t));
                 });
             }
             if pdf.mode == "takeoff" {
-                egui::Panel::right("tk_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-                    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t));
+                egui::Panel::right("tk_side").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
+                    shell::grip(ui, &t, app_c, &cc_takeoff::i18n::t("group.takeoff"), false, false);
+                    inset.show(ui, |ui| egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t)));
                 });
             }
-            let mut save = false;
-            egui::Panel::top("pdf_tools").frame(egui::Frame::new().fill(t.panel).inner_margin(4)).show(ui, |ui| {
-                save = pdf.tool_bar(ui, &t);
-            });
             egui::CentralPanel::no_frame().show(ui, |ui| {
                 let rect = ui.max_rect();
                 pdf.show(ui, rect, &t);
@@ -2169,10 +2243,18 @@ impl UiApp {
             self.tool_palette(ui);
             let t = self.tokens;
             if let Some(mc) = self.mc.as_mut() {
-                let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-                egui::Panel::right("mc_side").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-                    mc.side_panel(ui, &t);
-                });
+                // 0.7's right dock: the grip, then the panel inset 16 px
+                egui::Panel::right("mc_side")
+                    .default_size(300.0)
+                    .size_range(200.0..=440.0)
+                    .resizable(true)
+                    .frame(shell::panel_frame(&t))
+                    .show(ui, |ui| {
+                        shell::grip(ui, &t, t.app("modelcraft"), &lang::mc("ui.right.aria"), false, false);
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin { left: 16, right: 12, top: 8, bottom: 4 })
+                            .show(ui, |ui| mc.side_panel(ui, &t));
+                    });
                 if let Err(e) = self.flush_model_save() {
                     self.error = Some(e);
                 }
@@ -2444,13 +2526,14 @@ impl UiApp {
     fn app_bar_more(&mut self, ui: &mut egui::Ui) {
         let mut act: Option<(&str, Params)> = None;
         if viewer::active(self) {
-            ui.separator();
-            if ui.selectable_label(self.viewer.print, lang::bim("dwg.tab.print")).on_hover_text(lang::bim("dwg.tab.print.title")).clicked()
+            let t = self.tokens;
+            if shell::bar_toggle(ui, &t, &lang::bim("dwg.tab.print"), self.viewer.print)
+                .on_hover_text(lang::bim("dwg.tab.print.title"))
+                .clicked()
             {
                 act = Some(("viewer.print", Params::default()));
             }
-            if ui
-                .selectable_label(self.viewer.find.is_some(), lang::cad("dlg.find.what"))
+            if shell::bar_toggle(ui, &t, &lang::cad("dlg.find.what"), self.viewer.find.is_some())
                 .on_hover_text(format!("{} (Ctrl+F)", lang::cad("dlg.find.title")))
                 .clicked()
             {
@@ -2460,7 +2543,7 @@ impl UiApp {
                     ("viewer.find", Params::default())
                 });
             }
-            if ui.selectable_label(self.viewer.info, lang::bim("info.h.drawing")).clicked() {
+            if shell::bar_toggle(ui, &t, &lang::bim("info.h.drawing"), self.viewer.info).clicked() {
                 act = Some(("viewer.info", Params::default()));
             }
         }
@@ -2674,7 +2757,7 @@ impl UiApp {
         egui::Panel::left("layers").default_size(248.0).size_range(180.0..=420.0).resizable(true).frame(shell::panel_frame(&t)).show(
             ui,
             |ui| {
-                if shell::grip(ui, &t, app_c, &lang::cad("ui.layers_drawing"), false) == shell::GripAct::Close {
+                if shell::grip(ui, &t, app_c, &lang::cad("ui.layers_drawing"), false, true) == shell::GripAct::Close {
                     act = Some(("layers.close", Params::default()));
                 }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

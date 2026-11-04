@@ -403,12 +403,6 @@ impl ModelView {
 /// Export › IFC storeys): → the action picked.
 pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
     let mut act: Option<String> = None;
-    let item = |ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>| {
-        if ui.button(mt(key, &[])).clicked() {
-            *act = Some(a.to_string());
-            ui.close();
-        }
-    };
     ui.horizontal_wrapped(|ui| {
         if ui.button(mt("ui.tool.copy", &[])).on_hover_text(mt("ui.tool.copy.title", &[])).clicked() {
             act = Some("copy".into());
@@ -417,48 +411,8 @@ pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
             act = Some("paste".into());
         }
     });
-    ui.menu_button(mt("ui.editmenu", &[]), |ui| {
-        for (k, a) in [
-            ("ui.editmenu.cut", "cut"),
-            ("ui.editmenu.copy", "copy"),
-            ("ui.editmenu.paste", "paste"),
-            ("ui.editmenu.paste_in_place", "paste-in-place"),
-            ("ui.editmenu.duplicate", "duplicate"),
-            ("ui.editmenu.delete", "delete"),
-        ] {
-            item(ui, k, a, &mut act);
-        }
-        ui.separator();
-        for (k, a) in [("ui.editmenu.hide", "hide"), ("ui.editmenu.isolate", "isolate"), ("ui.editmenu.unhide_all", "unhide-all")] {
-            item(ui, k, a, &mut act);
-        }
-        ui.separator();
-        for ax in ["x", "y", "z"] {
-            item(ui, &format!("ui.editmenu.flip_{ax}"), &format!("flip-{ax}"), &mut act);
-        }
-        for ax in ["x", "y", "z"] {
-            item(ui, &format!("ui.editmenu.flipcopy_{ax}"), &format!("flipcopy-{ax}"), &mut act);
-        }
-        ui.separator();
-        item(ui, "ui.editmenu.intersect_model", "intersect-model", &mut act);
-        item(ui, "ui.editmenu.intersect_sel", "intersect-sel", &mut act);
-        ui.separator();
-        item(ui, "ui.editmenu.axes_place", "axes-place", &mut act);
-        item(ui, "ui.editmenu.axes_face", "axes-face", &mut act);
-        item(ui, "ui.editmenu.axes_reset", "axes-reset", &mut act);
-        ui.separator();
-        item(ui, "ui.editmenu.select_all", "select-all", &mut act);
-        item(ui, "ui.editmenu.select_none", "select-none", &mut act);
-    })
-    .response
-    .on_hover_text(mt("ui.editmenu.title", &[]));
-    ui.menu_button(mt("ui.solids", &[]), |ui| {
-        item(ui, "ui.solids.union", "solid-union", &mut act);
-        item(ui, "ui.solids.subtract", "solid-subtract", &mut act);
-        item(ui, "ui.solids.intersect", "solid-intersect", &mut act);
-    })
-    .response
-    .on_hover_text(mt("ui.solids.title", &[]));
+    ui.menu_button(mt("ui.editmenu", &[]), |ui| edit_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.editmenu.title", &[]));
+    ui.menu_button(mt("ui.solids", &[]), |ui| solids_menu_items(ui, &mut act)).response.on_hover_text(mt("ui.solids.title", &[]));
     if ui.button(mt("ui.tool.text3d", &[])).on_hover_text(mt("ui.tool.text3d.title", &[])).clicked() {
         act = Some("text3d".into());
     }
@@ -469,6 +423,55 @@ pub fn palette_menus(ui: &mut egui::Ui) -> Option<String> {
         act = Some("render".into());
     }
     act
+}
+
+fn menu_item(ui: &mut egui::Ui, key: &str, a: &str, act: &mut Option<String>) {
+    if ui.button(mt(key, &[])).clicked() {
+        *act = Some(a.to_string());
+        ui.close();
+    }
+}
+
+/// The Edit group's "More" menu (ui.inc `data-edit-menu`): cut … select none.
+pub fn edit_menu_items(ui: &mut egui::Ui, act: &mut Option<String>) {
+    for (k, a) in [
+        ("ui.editmenu.cut", "cut"),
+        ("ui.editmenu.copy", "copy"),
+        ("ui.editmenu.paste", "paste"),
+        ("ui.editmenu.paste_in_place", "paste-in-place"),
+        ("ui.editmenu.duplicate", "duplicate"),
+        ("ui.editmenu.delete", "delete"),
+    ] {
+        menu_item(ui, k, a, act);
+    }
+    ui.separator();
+    for (k, a) in [("ui.editmenu.hide", "hide"), ("ui.editmenu.isolate", "isolate"), ("ui.editmenu.unhide_all", "unhide-all")] {
+        menu_item(ui, k, a, act);
+    }
+    ui.separator();
+    for ax in ["x", "y", "z"] {
+        menu_item(ui, &format!("ui.editmenu.flip_{ax}"), &format!("flip-{ax}"), act);
+    }
+    for ax in ["x", "y", "z"] {
+        menu_item(ui, &format!("ui.editmenu.flipcopy_{ax}"), &format!("flipcopy-{ax}"), act);
+    }
+    ui.separator();
+    menu_item(ui, "ui.editmenu.intersect_model", "intersect-model", act);
+    menu_item(ui, "ui.editmenu.intersect_sel", "intersect-sel", act);
+    ui.separator();
+    menu_item(ui, "ui.editmenu.axes_place", "axes-place", act);
+    menu_item(ui, "ui.editmenu.axes_face", "axes-face", act);
+    menu_item(ui, "ui.editmenu.axes_reset", "axes-reset", act);
+    ui.separator();
+    menu_item(ui, "ui.editmenu.select_all", "select-all", act);
+    menu_item(ui, "ui.editmenu.select_none", "select-none", act);
+}
+
+/// The Organize group's Solids menu (ui.inc `data-solid-menu`).
+pub fn solids_menu_items(ui: &mut egui::Ui, act: &mut Option<String>) {
+    menu_item(ui, "ui.solids.union", "solid-union", act);
+    menu_item(ui, "ui.solids.subtract", "solid-subtract", act);
+    menu_item(ui, "ui.solids.intersect", "solid-intersect", act);
 }
 
 #[cfg(test)]

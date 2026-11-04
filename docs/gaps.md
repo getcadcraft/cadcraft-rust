@@ -166,7 +166,7 @@ the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG im
     and its toggles, CadCraft's whole window (0.7 toolbar groups that wrap, "Layers and drawing" with blocks / sheet
     set / drawing, the Properties grip, tabs, the command area, the grid and axis icon, the Start drawing card) and
     the start screen laid out as the website's /apps page are in (docs/ui-notes.md). Still the old look: the other
-    apps' own bars and panels (ModelCraft's tool palette, MarkupCraft / TakeoffCraft's sheet tools, CivilCraft,
+    apps' own bars and panels (ModelCraft's and MarkupCraft's toolbars are in since M17.2; TakeoffCraft's own tool rows, CivilCraft,
     DetailCraft, PartCraft and BimCraft's panels) — they get the shell (app bar, status bar, theme, fonts, widgets)
     but not yet 0.7's toolbar groups and dock grips (`shell::toolbar`, `shell::grip` are ready for them). Not in
     CadCraft's window yet: the layer row's freeze / lock / plot flags, "New layer" and "Tools", clicking a layer name

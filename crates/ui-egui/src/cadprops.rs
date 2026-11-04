@@ -1171,7 +1171,7 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
 fn grip_and_body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
     let t = app.tokens;
     let app_c = t.app(app.active_app());
-    match crate::shell::grip(ui, &t, app_c, &lang().s("props.title"), true) {
+    match crate::shell::grip(ui, &t, app_c, &lang().s("props.title"), true, true) {
         crate::shell::GripAct::Close => asks.close = true,
         crate::shell::GripAct::Pin => asks.run.push(("props.autohide".into(), String::new())),
         _ => {}

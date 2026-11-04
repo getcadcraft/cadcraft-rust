@@ -162,8 +162,8 @@ pub enum GripAct {
 }
 
 /// A dock panel's grip (0.7 `.shell-grip`): the drag handle in the app's colour, the panel's name (12 px semibold,
-/// ink-2), and ⋯ / pin / ✕ at the right; a 1 px line under it. `pin` = the panel's pin button is shown.
-pub fn grip(ui: &mut egui::Ui, t: &Tokens, app: Color32, name: &str, pin: bool) -> GripAct {
+/// ink-2), and ⋯ / pin / ✕ at the right; a 1 px line under it. `pin` / `close` = those buttons are shown.
+pub fn grip(ui: &mut egui::Ui, t: &Tokens, app: Color32, name: &str, pin: bool, close: bool) -> GripAct {
     let w = ui.available_width();
     let (r, _) = ui.allocate_exact_size(Vec2::new(w, GRIP_H), Sense::hover());
     let p = ui.painter();
@@ -186,7 +186,7 @@ pub fn grip(ui: &mut egui::Ui, t: &Tokens, app: Color32, name: &str, pin: bool) 
     let mut act = GripAct::None;
     let mut x = r.right() - 4.0;
     for (icon, a) in [("x-lg", GripAct::Close), ("pin-angle", GripAct::Pin), ("three-dots", GripAct::Menu)] {
-        if a == GripAct::Pin && !pin {
+        if (a == GripAct::Pin && !pin) || (a == GripAct::Close && !close) {
             continue;
         }
         let br = Rect::from_min_size(Pos2::new(x - 26.0, r.top() + 3.0), Vec2::new(26.0, 22.0));
@@ -499,16 +499,17 @@ pub fn toolbar_height(ui: &egui::Ui, groups: &[ToolGroup], width: f32) -> f32 {
 }
 
 /// A 0.7 toolbar inside the current panel (fill it with `t.app_bar`, no margin): the groups with their labels and
-/// right-hand rules, wrapping onto rows, a 1.5 px ink rule under all. Returns the id of the button clicked.
-pub fn toolbar(ui: &mut egui::Ui, t: &Tokens, app: Color32, salt: &str, groups: &[ToolGroup]) -> Option<String> {
-    let base = ui.max_rect().min;
-    let full = ui.max_rect();
-    let (at, _) = toolbar_layout(ui, groups, full.width());
+/// right-hand rules, wrapping onto rows, a 1.5 px ink rule under all. Returns every button's id and response (the
+/// caller reads `clicked()`, or opens a menu under one with `egui::Popup::menu`).
+pub fn toolbar(ui: &mut egui::Ui, t: &Tokens, app: Color32, salt: &str, groups: &[ToolGroup]) -> Vec<(String, Response)> {
+    let (at, h) = toolbar_layout(ui, groups, ui.available_width());
+    let (full, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), h), Sense::hover());
+    let base = full.min;
     ui.painter().line_segment(
         [Pos2::new(full.left(), full.bottom() - 0.75), Pos2::new(full.right(), full.bottom() - 0.75)],
         Stroke::new(1.5, t.rule),
     );
-    let mut clicked = None;
+    let mut out = Vec::new();
     for (gi, (g, (pos, w))) in groups.iter().zip(at).enumerate() {
         let gr = Rect::from_min_size(base + pos.to_vec2(), Vec2::new(w, TB_GROUP_H));
         let p = ui.painter();
@@ -524,10 +525,23 @@ pub fn toolbar(ui: &mut egui::Ui, t: &Tokens, app: Color32, salt: &str, groups: 
             if !tool.tip.is_empty() {
                 resp = resp.on_hover_text(&tool.tip);
             }
-            if resp.clicked() {
-                clicked = Some(tool.id.clone());
-            }
+            out.push((tool.id.clone(), resp));
         }
     }
-    clicked
+    out
+}
+
+/// A word in the app bar that stays pressed while its panel or view is on (the action colour and a 2 px rule).
+pub fn bar_toggle(ui: &mut egui::Ui, t: &Tokens, label: &str, on: bool) -> Response {
+    let c = if on { t.accent } else { t.text_dim };
+    let g = galley(ui, label, semi(15.0), c);
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 4.0, 28.0), Sense::click());
+    let gw = g.size().x;
+    let base = r.center().y + g.size().y / 2.0 - 1.0;
+    ui.painter().galley(Pos2::new(r.left() + 2.0, r.center().y - g.size().y / 2.0), g, c);
+    if on || resp.hovered() {
+        let w = if on { 2.0 } else { 1.0 };
+        ui.painter().line_segment([Pos2::new(r.left() + 2.0, base + 2.0), Pos2::new(r.left() + 2.0 + gw, base + 2.0)], Stroke::new(w, c));
+    }
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }

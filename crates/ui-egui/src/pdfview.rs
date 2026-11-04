@@ -1211,83 +1211,151 @@ impl PdfView {
     /// The markup tool bar (above the sheet): tools, colour, the text a Text markup gets, undo / redo, delete.
     pub fn tool_bar(&mut self, ui: &mut egui::Ui, t: &Tokens) -> bool {
         let mut save = false;
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
             for (m, label) in [("markup", t0("input.m.markup")), ("takeoff", cc_takeoff::i18n::t("group.takeoff"))] {
-                if ui.selectable_label(self.mode == m, egui::RichText::new(label).strong()).clicked() {
+                if crate::shell::tab(ui, t, &label, self.mode == m).clicked() {
                     self.mode = m;
                     self.takeoff.pts.clear();
                 }
             }
-            ui.separator();
             if self.mode == "takeoff" {
+                ui.add_space(12.0);
                 ui.label(egui::RichText::new(cc_takeoff::i18n::t("stage.canvas")).color(t.text_dim));
-                return;
             }
+        });
+        if self.mode == "takeoff" {
+            return save;
+        }
+        {
             let key = self.sheet_key();
-            for id in crate::markuptools::TOOLS {
-                if ui
-                    .selectable_label(self.tools.tool == *id, crate::markuptools::tool_label(id))
-                    .on_hover_text(t0(&format!("tool.{id}.title")))
-                    .clicked()
-                {
-                    self.tools.set_tool(&mut self.store, &key, id);
-                }
-            }
-            ui.separator();
-            // quick colours: the Properties panel's colour for the selection, or for the tool's next markups
-            for c in crate::markuptools::COLORS {
-                let col = hex_color(c, 1.0).unwrap_or(Color32::RED);
-                let (r, resp) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
-                ui.painter().rect_filled(r, 2.0, col);
-                if resp.on_hover_text(t0("props.color")).clicked() {
-                    let _ = self.tools.style_edit(&mut self.store, "color", c);
-                }
-            }
-            ui.separator();
-            self.scale_row(ui);
-            if ui.add_enabled(!self.store.undo_stack.is_empty(), egui::Button::new(t0("tool.undo"))).clicked() {
-                self.history(false);
-            }
-            if ui.add_enabled(!self.store.redo_stack.is_empty(), egui::Button::new(t0("tool.redo"))).clicked() {
-                self.history(true);
-            }
-            if ui.add_enabled(!self.tools.sel.is_empty(), egui::Button::new(t0("menu.copy"))).clicked() {
-                self.copy("copy");
-            }
-            if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste"))).clicked() {
-                self.paste("offset", None);
-            }
-            ui.menu_button(t0("menu.more"), |ui| {
-                let sel = !self.tools.sel.is_empty();
-                if ui.add_enabled(sel, egui::Button::new(t0("menu.cut"))).clicked() {
-                    self.cut();
-                    ui.close();
-                }
-                if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste_in_place"))).clicked() {
-                    self.paste("place", None);
-                    ui.close();
-                }
-                if ui.add_enabled(sel, egui::Button::new(t0("menu.duplicate"))).clicked() {
-                    self.duplicate();
-                    ui.close();
-                }
-                if ui.add_enabled(sel, egui::Button::new(t0("menu.delete"))).clicked() {
-                    self.tools.delete_selected(&mut self.store);
-                    ui.close();
-                }
-                if ui.button(t0("menu.select_all")).clicked() {
-                    self.select_all();
-                    ui.close();
-                }
-                if ui.add_enabled(sel, egui::Button::new(t0("menu.select_none"))).clicked() {
-                    self.tools.sel.clear();
-                    ui.close();
+            // 0.7's toolbar (ui.inc `$__tools`): Select, Draw, Revise, Annotate, Measure, Edit; then the colours, the
+            // scale, the pages and Save on the row under it
+            use crate::shell::{Tool, ToolGroup};
+            const GROUPS: &[(&str, &[(&str, &str)])] = &[
+                ("group.select", &[("select", "cursor"), ("pan", "hand-index-thumb")]),
+                (
+                    "group.draw",
+                    &[
+                        ("pen", "pencil"),
+                        ("highlight", "highlighter"),
+                        ("line", "slash-lg"),
+                        ("arrow", "arrow-up-right"),
+                        ("arc", "bezier2"),
+                        ("rect", "square"),
+                        ("ellipse", "circle"),
+                        ("polyline", "activity"),
+                        ("polygon", "pentagon"),
+                    ],
+                ),
+                ("group.revise", &[("cloudrect", "cloud"), ("cloud", "cloud-haze2")]),
+                ("group.annotate", &[("callout", "chat-left-text"), ("text", "type"), ("note", "sticky"), ("stamp", "patch-check")]),
+                (
+                    "group.measure",
+                    &[("calibrate", "rulers"), ("measure", "arrows"), ("angle", "triangle"), ("area", "bounding-box"), ("count", "hash")],
+                ),
+            ];
+            let mut groups: Vec<ToolGroup> = GROUPS
+                .iter()
+                .map(|(g, tools)| ToolGroup {
+                    label: t0(g),
+                    tools: tools
+                        .iter()
+                        .filter(|(id, _)| crate::markuptools::TOOLS.contains(id))
+                        .map(|(id, icon)| {
+                            Tool::new(*id, icon, crate::markuptools::tool_label(id))
+                                .tip(t0(&format!("tool.{id}.title")))
+                                .on(self.tools.tool == *id)
+                        })
+                        .collect(),
+                })
+                .collect();
+            groups.push(ToolGroup {
+                label: t0("group.edit"),
+                tools: vec![
+                    Tool::new("act:undo", "arrow-counterclockwise", t0("tool.undo")).enabled(!self.store.undo_stack.is_empty()),
+                    Tool::new("act:redo", "arrow-clockwise", t0("tool.redo")).enabled(!self.store.redo_stack.is_empty()),
+                    Tool::new("act:copy", "copy", t0("menu.copy")).enabled(!self.tools.sel.is_empty()),
+                    Tool::new("act:paste", "clipboard-plus", t0("menu.paste")).enabled(self.clip.is_some()),
+                    Tool::new("menu:more", "three-dots", t0("menu.more")),
+                ],
+            });
+            let app_c = t.app("markupcraft");
+            let mut act: Option<String> = None;
+            let mut more: Option<egui::Response> = None;
+            ui.vertical(|ui| {
+                for (id, resp) in crate::shell::toolbar(ui, t, app_c, "mk-tb", &groups) {
+                    if id == "menu:more" {
+                        more = Some(resp);
+                    } else if resp.clicked() {
+                        act = Some(id);
+                    }
                 }
             });
-            self.pages_menu(ui);
-            if ui.button(t0("tool.save")).on_hover_text(t0("tool.save.title")).clicked() {
-                save = true;
+            if let Some(resp) = more {
+                egui::Popup::menu(&resp).show(|ui| {
+                    let sel = !self.tools.sel.is_empty();
+                    if ui.add_enabled(sel, egui::Button::new(t0("menu.cut"))).clicked() {
+                        self.cut();
+                        ui.close();
+                    }
+                    if ui.add_enabled(self.clip.is_some(), egui::Button::new(t0("menu.paste_in_place"))).clicked() {
+                        self.paste("place", None);
+                        ui.close();
+                    }
+                    if ui.add_enabled(sel, egui::Button::new(t0("menu.duplicate"))).clicked() {
+                        self.duplicate();
+                        ui.close();
+                    }
+                    if ui.add_enabled(sel, egui::Button::new(t0("menu.delete"))).clicked() {
+                        self.tools.delete_selected(&mut self.store);
+                        ui.close();
+                    }
+                    if ui.button(t0("menu.select_all")).clicked() {
+                        self.select_all();
+                        ui.close();
+                    }
+                    if ui.add_enabled(sel, egui::Button::new(t0("menu.select_none"))).clicked() {
+                        self.tools.sel.clear();
+                        ui.close();
+                    }
+                });
             }
+            match act.as_deref() {
+                Some("act:undo") => self.history(false),
+                Some("act:redo") => self.history(true),
+                Some("act:copy") => {
+                    let _ = self.copy("copy");
+                }
+                Some("act:paste") => {
+                    self.paste("offset", None);
+                }
+                Some(id) => {
+                    if let Some(tid) = crate::markuptools::TOOLS.iter().find(|x| **x == id) {
+                        self.tools.set_tool(&mut self.store, &key, tid);
+                    }
+                }
+                None => {}
+            }
+        }
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                // quick colours: the Properties panel's colour for the selection, or for the tool's next markups
+                for c in crate::markuptools::COLORS {
+                    let col = hex_color(c, 1.0).unwrap_or(Color32::RED);
+                    let (r, resp) = ui.allocate_exact_size(Vec2::splat(18.0), Sense::click());
+                    ui.painter().rect_filled(r, 2.0, col);
+                    if resp.on_hover_text(t0("props.color")).clicked() {
+                        let _ = self.tools.style_edit(&mut self.store, "color", c);
+                    }
+                }
+                ui.separator();
+                self.scale_row(ui);
+                self.pages_menu(ui);
+                if ui.button(t0("tool.save")).on_hover_text(t0("tool.save.title")).clicked() {
+                    save = true;
+                }
+            })
         });
         save
     }
