@@ -520,12 +520,7 @@ fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
         },
         ToolGroup {
             label: bt("input.m.output", &[]),
-            tools: vec![
-                Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app)),
-                Tool::new("bim.live.window=open", "globe", "Live")
-                    .tip("Work on this model together (Studio Live)")
-                    .on(app.live.as_ref().is_some_and(|s| s.app == "bimcraft")),
-            ],
+            tools: vec![Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app))],
         },
     ];
     // the Draw group only while drawing

@@ -2,6 +2,36 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.13–M16.16 Studio Live in every app, LAN discovery, the join QR, signed-in names (agent, work/studiofin)
+
+- Shared core (`live.rs`, `livestate.rs`, `liveapps.rs`): one session per window, the `<app>.live.*` commands (host
+  `[bind] [| name]`, join `<address> <code> | <code> | <join link> [| name]`, approve / deny, role, remove, invite,
+  stop, leave, window, pump `[wait] [approve] [live] [time]`, state), each app's steps sent after every command and
+  every frame, per-person undo / redo routed to the session, others' edits waking the window at once (no repaint wait),
+  the Live window and the app bar's Live button in Studio's words (`window.live.*`, `live.join.*`, en + es-MX).
+  livestate.rs is 0.5's `stateCore` (lists, atomic groups, personal fields, depth, reads); DetailCraft uses it now.
+- Adapters, 0.5 live.js ported: TakeoffCraft (`takeofflive.rs`: per-object ops, the PDFs from the snapshot), MarkupCraft
+  (`markuplive.rs`: the Store's records, the host's files under their ids), PartCraft (`partlive.rs`: the feature tree,
+  drags sent when they stop), CivilCraft (`civillive.rs`: state + points, the TIN never sent), ModelCraft
+  (`modellive.rs`: groups' geometry atomic, the preview base kept), BimCraft (`bimlive.rs`: IFC lines through the file's
+  write watch, cc-io-ifc `IfcFile::watch`), CadCraft (`cadlive.rs`: the Doc's records folded per command, sheets' live
+  ids, the engine's UNDO / REDO asking the session while live).
+- Discovery: `cc_live::mdns`, hand-written DNS (fuzz target `live_mdns`): the host advertises only the code's tag
+  (`_ccstudio._tcp`, TXT app, a random host name) on a socket sharing 5353 (socket2, approved); a code alone is found on
+  the network. Checked against mdns-sd (0.5 Studio's library) both ways. The QR (`qr.rs`, drawn in code, byte mode, level
+  M) holds 0.5's join link `http://<host>:<port>/apps/<slug>/#live=<code>`: 20/20 codes read back by jsQR.
+- Signed-in names: `cc_live::assertion`, live-crypto.js `verifyAssertion` / `pictureMatches` on Ed25519 with noble's
+  strict rules (curve25519-dalek, approved): 85/85 cases answer as 0.5 does (good, expired, wrong audience / key,
+  flipped bits, S ≥ L, non-canonical R), RFC 8032 vectors; fuzz target `live_assertion`. The approve card shows the tick.
+- Parity (forks/tools/live-studiofin, each modelled on dclive-interop.mjs: both sides editing at once, final documents
+  identical by live.js's hash, every side's edits present, an undo in each run): dclive, tklive, mklive, pclive, cvlive,
+  mclive, bmlive, cdlive 9/9 each (72/72: the 0.5 page hosts, two Rust windows, the Rust window hosts); the 0.5 page
+  hosting on 0.5's own server: 24/24. 0.5's live-test suites against the fork's server and 0.5's: scenarios 11/11,
+  client 13/13, frames 8/8, converge ok, assistant 7/7, handoff 4/5 (the relay case), vectors 123/124 on both (the
+  generator script the copy lacks).
+- Round trip (an edit sent → its commit back, loopback, livebench.mjs, median of 30): the 0.5 page 2.4 ms on the fork's
+  server, 2.7 ms on 0.5's.
+
 ## 2026-11-04 — M16.12 the Live window in 0.5 Studio's words (agent, work/detailfin)
 
 - 0.5 Studio's Live window has its words in Studio's catalog (`window.live.*`, the shell's `lang/`, already in

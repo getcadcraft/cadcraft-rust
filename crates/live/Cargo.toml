@@ -34,6 +34,8 @@ miniz_oxide = "0.8"
 # the LAN WebSocket's accept key (ws.rs) and the OS's randomness (keys, tokens, codes)
 sha1 = { version = "=0.10.6", default-features = false }
 getrandom = "0.3"
+# mDNS (mdns.rs): SO_REUSEADDR / SO_REUSEPORT so the advertisement shares port 5353 with the OS's own responder
+socket2 = { version = "=0.5.9", features = ["all"] }
 
 [dev-dependencies]
 rand_core = { version = "=0.6.4", default-features = false }

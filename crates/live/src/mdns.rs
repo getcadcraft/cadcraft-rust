@@ -6,9 +6,10 @@
 //! Hand-written DNS on std::net UDP (RFC 1035 messages, RFC 6762 multicast DNS, RFC 6763 service records): every
 //! name, record and count read is bounded and a malformed packet is dropped, never a panic (fuzz target `live_mdns`).
 //! Browsing asks from an ephemeral port (a "legacy unicast" one-shot query, RFC 6762 § 6.7): responders answer it
-//! directly, so it works beside any other mDNS responder on the machine. Advertising has to receive queries on port
-//! 5353; std can't share that port (no SO_REUSEADDR), so where another responder holds it the advertisement is
-//! unavailable and joiners use the QR or the address (the Live window says so).
+//! directly, so it works beside any other mDNS responder on the machine. Advertising receives queries on port 5353,
+//! shared with the OS's own responder (socket2: SO_REUSEADDR / SO_REUSEPORT); where the port still can't be had the
+//! advertisement is unavailable and joiners use the QR or the address (the Live window says so). The socket opens only
+//! while a session is hosted or someone browses.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
@@ -431,7 +432,7 @@ pub fn advertise(tag: &str, app: &str, port: u16, addrs: &[String]) -> Result<Ad
     }
     let service =
         Service { tag, app: app.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect(), port, host: host_name(), addrs: ips };
-    let sock = UdpSocket::bind(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).map_err(|e| format!("mdns: port 5353 is taken ({e})"))?;
+    let sock = shared_socket().map_err(|e| format!("mdns: port 5353 ({e})"))?;
     for ip in &service.addrs {
         let _ = sock.join_multicast_v4(&GROUP, ip);
     }
@@ -442,6 +443,18 @@ pub fn advertise(tag: &str, app: &str, port: u16, addrs: &[String]) -> Result<Ad
     let (st, svc) = (stop.clone(), service.clone());
     std::thread::Builder::new().name("cc-live-mdns".into()).spawn(move || responder(&sock, &svc, &st)).map_err(|e| e.to_string())?;
     Ok(Advert { stop, service })
+}
+
+/// Port 5353 shared with the machine's other mDNS responders (macOS mDNSResponder, Windows' DNS client, avahi):
+/// SO_REUSEADDR (and SO_REUSEPORT on Unix) through socket2, then a std socket.
+fn shared_socket() -> std::io::Result<UdpSocket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let s = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+    s.set_reuse_address(true)?;
+    #[cfg(all(unix, not(any(target_os = "solaris", target_os = "illumos"))))]
+    s.set_reuse_port(true)?;
+    s.bind(&SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, PORT)).into())?;
+    Ok(s.into())
 }
 
 fn responder(sock: &UdpSocket, svc: &Service, stop: &AtomicBool) {

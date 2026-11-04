@@ -1498,13 +1498,6 @@ impl PdfView {
                 if ui.add(crate::shell::Btn::new(t0("tool.close"))).on_hover_text(t0("tool.close.title")).clicked() {
                     self.close_start();
                 }
-                if ui
-                    .add(crate::shell::Btn::new(if self.live_on { "Live ●" } else { "Live" }))
-                    .on_hover_text("Work on this plan set together (Studio Live)")
-                    .clicked()
-                {
-                    self.want_live = true;
-                }
             })
         });
         save

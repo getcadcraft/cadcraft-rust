@@ -29,6 +29,7 @@ pub mod bimres;
 pub mod bimsheets;
 pub mod bimtools;
 pub mod cad3dtab;
+pub mod cadlive;
 pub mod cadprops;
 pub mod cadset;
 pub mod inputdlg;
@@ -392,6 +393,8 @@ pub struct UiApp {
     /// what others' lines changed
     pub live_bim_max: f64,
     pub live_bim_ver: u64,
+    /// CadCraft live (cadlive.rs): the sheets' live ids
+    pub live_cad_lids: cadlive::Lids,
     /// the zone local-time fields are written in (0.5 writes zip dates, LandXML date / time, the KISS header … with
     /// `getHours()`): the machine's, or a fixed offset (`app.tz`: scripts and tests)
     pub zone: cc_clock::Zone,
@@ -531,6 +534,7 @@ impl Default for UiApp {
             live_hold_mk: None,
             live_bim_max: 0.0,
             live_bim_ver: 0,
+            live_cad_lids: cadlive::Lids::default(),
             zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
             cv_prefs: serde_json::Value::Null,
@@ -1018,7 +1022,6 @@ impl UiApp {
         let mut live = false;
         let mut edit: Option<String> = None;
         let mut fit = false;
-        let live_on = self.live.as_ref().is_some_and(|s| s.app == "modelcraft");
         let mt = |k: &str| modelcraft::mt(k, &[]);
         let tool = |name: &'static str, icon: &'static str| {
             Tool::new(name, icon, mt(&format!("ui.tool.{name}"))).tip(modelcraft::tool_title(name, blender)).on(cur == name)
@@ -1070,7 +1073,6 @@ impl UiApp {
                     act("act:copy", "copy", "ui.tool.copy"),
                     act("act:paste", "clipboard-plus", "ui.tool.paste"),
                     Tool::new("menu:edit", "three-dots", mt("ui.editmenu")).tip(mt("ui.editmenu.title")),
-                    Tool::new("live", "globe", "Live").tip("Work on this model together (Studio Live)").on(live_on),
                 ],
             },
             ToolGroup {
@@ -2817,6 +2819,16 @@ impl UiApp {
             .clicked()
         {
             act = Some(("settings.open", Params::default()));
+        }
+        // Studio Live (0.5 help "Work together live": "Choose Live in the app's bar"): the app's Live window
+        if let Some(prefix) = liveapps::prefix_of(self.active_app()) {
+            let on = self.live.is_some() || self.detail.as_ref().is_some_and(|d| d.live.is_some());
+            if shell::bar_button(ui, &t, "globe", &live::sw("window.live.button", &[]), on)
+                .on_hover_text(live::sw("window.live.button.title", &[]))
+                .clicked()
+            {
+                act = Some((prefix, Params { name: Some("open".into()), ..Default::default() }));
+            }
         }
         if shell::bar_button(ui, &t, "question-circle", &lang::cad("input.cmd.app.help"), self.help.open)
             .on_hover_text(lang::shell("shell.bar.help.title", &[("key", "F1".into())]))

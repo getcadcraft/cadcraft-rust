@@ -393,8 +393,8 @@ pub fn encode(data: &[u8]) -> Option<Qr> {
 
 /// Draws the code `side` points wide (with its four-module quiet zone) in the theme's paper colours: dark modules on
 /// white, as scanners expect, in light and dark themes alike.
-pub fn paint(ui: &mut egui::Ui, q: &Qr, side: f32, _tk: &crate::theme::Tokens) {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
+pub fn paint(ui: &mut egui::Ui, q: &Qr, side: f32, _tk: &crate::theme::Tokens) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, egui::Color32::WHITE);
     let n = q.size as f32 + 8.0;
@@ -410,6 +410,7 @@ pub fn paint(ui: &mut egui::Ui, q: &Qr, side: f32, _tk: &crate::theme::Tokens) {
             }
         }
     }
+    resp
 }
 
 /// The code as a PBM-like text grid ('#' dark, '.' light), for checks outside the app.

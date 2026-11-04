@@ -276,7 +276,6 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             Tool::new("new", "file-earmark-plus", tr("ui.tb.file.new")).tip(tr("ui.tb.file.new.title")),
             Tool::new("save", "download", tr("ui.tb.file.save")).tip(tr("ui.tb.file.save.title")),
             Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
-            Tool::new("live", "globe", "Live".to_string()).tip("Work on this part together (Studio Live)".to_string()).on(pv.live_on),
         ],
     }];
     if !in_dr && !in_asm {

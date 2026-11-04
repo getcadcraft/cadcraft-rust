@@ -904,6 +904,17 @@ impl Engine {
     pub fn busy(&self) -> bool {
         self.running().is_some()
     }
+    /// A line on the command line's history (Studio Live's messages, the window's own words).
+    pub fn print(&self, s: &str) {
+        self.sh.print(s);
+    }
+    /// The engine's catalog in the language now.
+    pub fn t(&self, key: &str) -> String {
+        self.sh.t(key)
+    }
+    pub fn tv(&self, key: &str, vars: &[(&str, String)]) -> String {
+        self.sh.tv(key, vars)
+    }
     /// What the waiting question wants.
     pub fn expects(&self) -> Option<Kind> {
         self.sh.st.borrow().waiting.as_ref().map(|w| w.kind.clone())

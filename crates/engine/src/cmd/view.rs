@@ -94,6 +94,11 @@ pub async fn zoom(c: Ctx) -> R {
 }
 
 pub async fn undo(c: Ctx) -> R {
+    // Studio Live: the session undoes this person's own last step (the window carries it out and says what)
+    if c.sh().doc.borrow().live {
+        c.sh().doc.borrow_mut().live_asks.push(true);
+        return Ok(());
+    }
     let l = c.sh().doc.borrow_mut().undo();
     let msg = match l {
         Some(l) if !l.is_empty() => format!("Undid {l}"),
@@ -104,6 +109,10 @@ pub async fn undo(c: Ctx) -> R {
 }
 
 pub async fn redo(c: Ctx) -> R {
+    if c.sh().doc.borrow().live {
+        c.sh().doc.borrow_mut().live_asks.push(false);
+        return Ok(());
+    }
     let l = c.sh().doc.borrow_mut().redo();
     let msg = match l {
         Some(l) if !l.is_empty() => format!("Redid {l}"),

@@ -1733,6 +1733,10 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         crate::detaildwg::shop_window(dv, ui.ctx(), &tok, &mut acts);
         #[cfg(not(target_arch = "wasm32"))]
         crate::detaillive::window(dv, ui.ctx(), &tok, &mut acts);
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(s) = dv.live.as_ref() {
+            s.set_waker(ui.ctx());
+        }
         dv.live_poll();
         if dv.live.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));

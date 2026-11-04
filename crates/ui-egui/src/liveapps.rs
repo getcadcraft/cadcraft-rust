@@ -18,6 +18,7 @@ pub fn app_of(id: &str) -> Option<&'static str> {
         "civil" => "civilcraft",
         "model" => "modelcraft",
         "bim" => "bimcraft",
+        "cad" => "cadcraft",
         _ => return None,
     })
 }
@@ -44,6 +45,7 @@ pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> 
             "civilcraft" => crate::live::LiveView::live_state(&mut crate::civillive::CvLive(app)),
             "modelcraft" => crate::live::LiveView::live_state(&mut crate::modellive::McLive(app)),
             "bimcraft" => crate::live::LiveView::live_state(&mut crate::bimlive::BimLive(app)),
+            "cadcraft" => crate::live::LiveView::live_state(&mut crate::cadlive::CadLive(app)),
             _ => None,
         };
         let Some(st) = st else { return Some(Err(format!("{id}: nothing open"))) };
@@ -58,6 +60,7 @@ pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> 
         "civilcraft" => crate::live::run(&mut crate::civillive::CvLive(app), id, name),
         "modelcraft" => crate::live::run(&mut crate::modellive::McLive(app), id, name),
         "bimcraft" => crate::live::run(&mut crate::bimlive::BimLive(app), id, name),
+        "cadcraft" => crate::live::run(&mut crate::cadlive::CadLive(app), id, name),
         _ => Err(format!("unknown command {id}")),
     })
 }
@@ -111,6 +114,11 @@ pub fn pump(app: &mut UiApp) {
                 v.reverse_asked();
             }
             "bimcraft" => crate::live::poll(&mut crate::bimlive::BimLive(app)),
+            "cadcraft" => {
+                let mut v = crate::cadlive::CadLive(app);
+                crate::live::poll(&mut v);
+                v.reverse_asked();
+            }
             _ => {}
         }
     }
@@ -120,6 +128,10 @@ pub fn pump(app: &mut UiApp) {
 
 /// The Live window of the app on screen, and a repaint while a session runs.
 pub fn frame(app: &mut UiApp, ctx: &egui::Context) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(s) = app.live.as_ref() {
+        s.set_waker(ctx);
+    }
     #[cfg(target_arch = "wasm32")]
     let _ = ctx;
     if let Some(p) = app.pdf.as_mut()
@@ -140,6 +152,7 @@ pub fn frame(app: &mut UiApp, ctx: &egui::Context) {
             Some("civilcraft") => crate::live::window(&mut crate::civillive::CvLive(app), ctx, &tk, &mut acts),
             Some("modelcraft") => crate::live::window(&mut crate::modellive::McLive(app), ctx, &tk, &mut acts),
             Some("bimcraft") => crate::live::window(&mut crate::bimlive::BimLive(app), ctx, &tk, &mut acts),
+            Some("cadcraft") => crate::live::window(&mut crate::cadlive::CadLive(app), ctx, &tk, &mut acts),
             _ => {}
         }
         for (id, n) in acts {
@@ -151,6 +164,21 @@ pub fn frame(app: &mut UiApp, ctx: &egui::Context) {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }
     }
+}
+
+/// The `<prefix>.live.window` command of an app.
+pub fn prefix_of(app: &str) -> Option<&'static str> {
+    Some(match app {
+        "cadcraft" => "cad.live.window",
+        "partcraft" => "part.live.window",
+        "detailcraft" => "detail.live.window",
+        "civilcraft" => "civil.live.window",
+        "takeoffcraft" => "takeoff.live.window",
+        "markupcraft" => "markup.live.window",
+        "modelcraft" => "model.live.window",
+        "bimcraft" => "bim.live.window",
+        _ => return None,
+    })
 }
 
 /// The app the window shows now (for the Live window before a session starts).

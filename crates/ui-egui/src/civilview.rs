@@ -2889,13 +2889,7 @@ fn civil_tool_groups(cv: &CivilView) -> Vec<crate::shell::ToolGroup> {
         }
     }
     vec![
-        ToolGroup {
-            label: t0("ui.tb.group.file"),
-            tools: vec![
-                act("civil.save", "download", "ui.tb.save"),
-                Tool::new("civil.live.window", "globe", "Live").tip("Work on this project together (Studio Live)").on(cv.live_on),
-            ],
-        },
+        ToolGroup { label: t0("ui.tb.group.file"), tools: vec![act("civil.save", "download", "ui.tb.save")] },
         ToolGroup {
             label: t0("ui.tb.group.surface"),
             tools: vec![tool(T::Breakline, "activity"), tool(T::Boundary, "bounding-box"), tool(T::Feature, "vector-pen")],

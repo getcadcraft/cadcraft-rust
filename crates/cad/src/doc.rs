@@ -474,6 +474,10 @@ pub struct Doc {
     pub redo_stack: Vec<Step>,
     /// bumps on every change (renderers cache on it)
     pub version: u64,
+    /// in a Studio Live session (ui-egui cadlive.rs; doc.js `liveHook`): the UNDO / REDO commands ask the session (each
+    /// ask: true = undo) instead of taking back this drawing's own steps
+    pub live: bool,
+    pub live_asks: Vec<bool>,
     pub saved_version: u64,
     pending: Option<Step>,
     layers_moved: bool,
@@ -569,6 +573,8 @@ impl Doc {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             version: 0,
+            live: false,
+            live_asks: Vec::new(),
             saved_version: 0,
             pending: None,
             layers_moved: false,

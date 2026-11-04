@@ -56,10 +56,6 @@ pub trait LiveView {
     fn live_state(&mut self) -> Option<serde_json::Value> {
         None
     }
-    /// The hosting UI's own words (Studio's, not in the 0.5 app catalogs): plain English, listed in docs/gaps.md.
-    fn label_live_window(&self) -> String {
-        "Live session".into()
-    }
 }
 
 /// A joiner asking in, on the host's approve card.
@@ -82,6 +78,16 @@ pub struct Knock {
 pub struct LiveSession {
     pub doc: cc_live::doc::LiveDoc,
     pub app: &'static str,
+}
+
+/// The window a session's threads wake when a message arrives.
+pub type Waker = std::sync::Arc<std::sync::Mutex<Option<egui::Context>>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+fn wake(w: &Waker) {
+    if let Some(c) = w.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
+        c.request_repaint();
+    }
 }
 
 /// How this window talks to the session.
@@ -108,6 +114,12 @@ pub struct LiveSession {
     /// the mDNS advertisement of the session's tag (hosts)
     pub advert: Option<cc_live::mdns::Advert>,
     pub app: &'static str,
+    /// the name this window gave the session
+    pub me: String,
+    /// when this window last sent a step of its own (headless round-trip timings)
+    pub sent_at: Option<web_time::Instant>,
+    /// the window to wake when a message arrives (set each frame): others' edits show at once, not at the next repaint
+    pub waker: Waker,
     g: u64,
     closed: bool,
 }
@@ -143,6 +155,13 @@ impl LiveSession {
             self.send(e);
         }
     }
+    /// The window to wake when a message arrives.
+    pub fn set_waker(&self, ctx: &egui::Context) {
+        let mut w = self.waker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if w.is_none() {
+            *w = Some(ctx.clone());
+        }
+    }
     pub fn is_host(&self) -> bool {
         self.server.is_some()
     }
@@ -162,19 +181,46 @@ impl LiveSession {
     }
 }
 
-/// The status line while live (plain English: Studio's own words, not in the 0.5 app catalogs).
+/// A word of 0.5 Studio's Live window and Join box (`window.live.*`, `live.join.*` in Studio's catalog, en + es-MX).
+pub fn sw(key: &str, vars: &[(&str, String)]) -> String {
+    crate::lang::t(&crate::lang::STUDIO, key, vars)
+}
+
+/// The people in the session, this window counted once.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn people_in(s: &LiveSession) -> usize {
+    let mut n = s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed").count();
+    if !s.doc.peers.contains_key(&s.doc.c) {
+        n = n.saturating_add(1);
+    }
+    n
+}
+
+/// The address joiners type: this machine's on the LAN for a session open to it (not 0.0.0.0).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn shown_addr(s: &LiveSession) -> String {
+    match (s.addr.strip_prefix("0.0.0.0:"), s.lan.first()) {
+        (Some(port), Some(ip)) => format!("{ip}:{port}"),
+        _ => s.addr.clone(),
+    }
+}
+
+/// The session's line, in 0.5 Studio's words: "Live, 3 people" (or "Viewing live"), and for the host the code and the
+/// address ("The code: K7-Q4M2X · Address 192.168.1.20:4545").
 #[cfg(not(target_arch = "wasm32"))]
 pub fn hosting_line(s: &LiveSession) -> String {
-    let people = s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed").count();
+    let n = people_in(s).to_string();
+    let key = if s.doc.role == "viewer" { "window.live.status.viewing" } else { "window.live.status.live" };
+    let status = sw(key, &[("n", n)]);
     if s.server.is_some() {
-        // a session open to the LAN is reached at this machine's address, not 0.0.0.0
-        let addr = match (s.addr.strip_prefix("0.0.0.0:"), s.lan.first()) {
-            (Some(port), Some(ip)) => format!("{ip}:{port}"),
-            _ => s.addr.clone(),
-        };
-        format!("Live: hosting at {addr} · code {} · {people} in", if s.code.is_empty() { "…" } else { &s.code })
+        let code = if s.code.is_empty() { "…".to_string() } else { s.code.clone() };
+        format!(
+            "{status} · {} · {}",
+            sw("window.live.code.label", &[("code", code)]),
+            sw("window.live.code.address", &[("address", shown_addr(s))])
+        )
     } else {
-        format!("Live: joined {} · {} others in", s.addr, people)
+        status
     }
 }
 
@@ -227,6 +273,9 @@ pub fn poll<V: LiveView>(v: &mut V) {
     }
     // the window's own steps first: they were made on the model as it was before what arrived now
     let steps = v.local_steps(&mut || s.next_group());
+    if !steps.is_empty() {
+        s.sent_at = Some(web_time::Instant::now());
+    }
     let v0 = v.model_version();
     let c = s.doc.c;
     v.with_adapter(c, &mut |a| {
@@ -304,6 +353,7 @@ pub fn poll<V: LiveView>(v: &mut V) {
 pub fn local_change<V: LiveView>(v: &mut V, label: &str, ops: Mp, inverse: Mp) {
     let Some(mut s) = v.live_slot().take() else { return };
     let c = s.doc.c;
+    s.sent_at = Some(web_time::Instant::now());
     v.with_adapter(c, &mut |a| {
         s.doc.local_change(a, label, ops.clone(), inverse.clone());
     });
@@ -367,15 +417,34 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
             if v.live_slot().is_some() {
                 return Err("live.host: this window is in a live session already".into());
             }
-            let bind = if name.trim().is_empty() { "0.0.0.0:0" } else { name.trim() };
+            // `[bind address] [| the name others see]`
+            let (bind, who) = name.split_once('|').map_or((name.trim(), ""), |(a, b)| (a.trim(), b.trim()));
+            let bind = if bind.is_empty() { "0.0.0.0:0" } else { bind };
             let bind: std::net::SocketAddr = bind.parse().map_err(|_| format!("live.host: an address host:port, not {bind}"))?;
             let cfg = cc_live::server::Config { app: V::APP.into(), schema: 1, ..Default::default() };
             let h = cc_live::net::start(cfg, bind).map_err(|e| format!("live.host: {e}"))?;
-            let local = h.attach_local();
+            let mut local = h.attach_local();
+            // what the session sends the host's window comes through a thread that wakes the window
+            let waker: Waker = std::sync::Arc::default();
+            let (ftx, frx) = channel();
+            let from = std::mem::replace(&mut local.rx, frx);
+            let w2 = waker.clone();
+            std::thread::Builder::new()
+                .name("cc-live-host".into())
+                .spawn(move || {
+                    for m in from {
+                        if ftx.send(m).is_err() {
+                            break;
+                        }
+                        wake(&w2);
+                    }
+                })
+                .map_err(|e| e.to_string())?;
             let addr = h.addr.to_string();
             let mut s = LiveSession {
                 doc: LiveDoc::new(),
                 link: Link::Local(local),
+                waker,
                 server: Some(h),
                 addr,
                 code: String::new(),
@@ -383,10 +452,14 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                 lan: cc_live::mdns::lan_addrs(),
                 advert: None,
                 app: V::APP,
+                me: String::new(),
+                sent_at: None,
                 g: 0,
                 closed: false,
             };
-            let hello = s.doc.hello(V::APP, 1, "Host", Some(("host", "")));
+            let me = if who.is_empty() { v.tr("live.guest", &[]) } else { who.chars().take(60).collect() };
+            s.me = me.clone();
+            let hello = s.doc.hello(V::APP, 1, &me, Some(("host", "")));
             s.send(&hello);
             s.send(&Envelope::new("invite"));
             *v.live_slot() = Some(s);
@@ -401,28 +474,28 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
             if v.live_slot().is_some() {
                 return Err("live.join: this window is in a live session already".into());
             }
-            let t = name.trim();
+            // the name others see, after a "|" (0.5 Studio's join box asks for it)
+            let (t, who) = name.split_once('|').map_or((name.trim(), ""), |(a, b)| (a.trim(), b.trim()));
             let (addr, code) = match parse_join(t) {
                 Some(x) => x,
                 None => {
                     // a code alone: the session is found on the LAN by its tag (mDNS)
-                    let (tag, _) = cc_live::crypto::parse_code(t).ok_or("live.join: <host:port> <code>, a join link, or a code")?;
+                    let (tag, _) = cc_live::crypto::parse_code(t).ok_or_else(|| sw("live.join.bad.unknown", &[]))?;
                     let found = cc_live::mdns::browse(&tag, Duration::from_millis(1500))?;
-                    let f = found
-                        .into_iter()
-                        .find(|f| f.app.is_empty() || f.app == V::APP)
-                        .ok_or("live.join: no session with that code on this network; type its address")?;
+                    let f = found.into_iter().find(|f| f.app.is_empty() || f.app == V::APP).ok_or_else(|| sw("live.join.notfound", &[]))?;
                     (format!("{}:{}", f.addr, f.port), t.to_string())
                 }
             };
             let secret = if code == "plain" { cc_live::net::Secret::Plain } else { cc_live::net::Secret::Code(code.clone()) };
             let mut j = cc_live::net::Joiner::connect(&addr, &secret)?;
             let doc = LiveDoc::new();
-            let guest = v.tr("live.guest", &[]);
+            let guest = if who.is_empty() { v.tr("live.guest", &[]) } else { who.chars().take(60).collect() };
             j.send(&doc.hello(V::APP, 1, &guest, None))?;
             let tx = std::sync::Arc::new(std::sync::Mutex::new(j));
             let (etx, rx) = channel();
             let reader = tx.clone();
+            let waker: Waker = std::sync::Arc::default();
+            let w2 = waker.clone();
             std::thread::Builder::new()
                 .name("cc-live-join".into())
                 .spawn(move || {
@@ -433,6 +506,7 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                                 if etx.send(Ok(e)).is_err() {
                                     break;
                                 }
+                                wake(&w2);
                             }
                             Ok(None) => std::thread::sleep(Duration::from_millis(2)),
                             Err(e) => {
@@ -444,8 +518,10 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                 })
                 .map_err(|e| e.to_string())?;
             *v.live_slot() = Some(LiveSession {
+                me: guest.clone(),
                 doc,
                 link: Link::Remote { tx, rx },
+                waker,
                 server: None,
                 addr,
                 code: String::new(),
@@ -453,6 +529,7 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                 lan: vec![],
                 advert: None,
                 app: V::APP,
+                sent_at: None,
                 g: 0,
                 closed: false,
             });
@@ -476,6 +553,30 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
             s.knocks.retain(|k| k.c != c);
         }
         "window" => *v.live_window_open() = name.trim() != "close",
+        "remove" | "role" => {
+            let s = v.live_slot().as_mut().ok_or("live: not in a live session")?;
+            let mut it = name.split_whitespace();
+            let c: u64 = it.next().and_then(|x| x.parse().ok()).ok_or("live.remove: <client>")?;
+            let b = if what == "role" {
+                let role = it.next().unwrap_or("editor");
+                if role != "editor" && role != "viewer" {
+                    return Err("live.role: the role is editor or viewer".into());
+                }
+                Mp::map(vec![("c", Mp::from(c)), ("role", Mp::from(role))])
+            } else {
+                Mp::map(vec![("c", Mp::from(c))])
+            };
+            s.send(&Envelope::new(what).body(b));
+        }
+        "stop" => {
+            // Stop inviting: the code closes (people already in stay)
+            let s = v.live_slot().as_mut().ok_or("live: not in a live session")?;
+            s.send(&Envelope::new("uninvite"));
+            s.code.clear();
+            if let Some(a) = s.advert.take() {
+                a.stop();
+            }
+        }
         "invite" => {
             let s = v.live_slot().as_mut().ok_or("live: not in a live session")?;
             s.send(&Envelope::new("invite"));
@@ -498,6 +599,8 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
             let flags: Vec<&str> = it.collect();
             // `live`: until this window is in the session (let in, the snapshot loaded)
             let (wait, approve, live) = (flags.contains(&"wait"), flags.contains(&"approve"), flags.contains(&"live"));
+            // `time`: the status line says how long it took (headless timings)
+            let time = flags.contains(&"time");
             let t0 = web_time::Instant::now();
             loop {
                 poll(v);
@@ -511,10 +614,15 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                 if done || t0.elapsed() > Duration::from_millis(ms) {
                     break;
                 }
-                std::thread::sleep(Duration::from_millis(3));
+                std::thread::sleep(if time { Duration::from_micros(100) } else { Duration::from_millis(3) });
             }
             if let Some(s) = v.live_slot().as_ref() {
-                let line = hosting_line(s);
+                let mut line = hosting_line(s);
+                if time {
+                    // from this window's last step sent (else from the pump's start) to everything it sent decided
+                    let from = s.sent_at.unwrap_or(t0);
+                    line.push_str(&format!(" · settled in {:.2} ms", from.elapsed().as_secs_f64() * 1000.0));
+                }
                 v.say(line);
             }
         }
@@ -546,23 +654,52 @@ pub fn pump<V: LiveView>(v: &mut V, ms: u64, done: impl Fn(&LiveSession) -> bool
 pub fn command_rows(prefix: &'static str) -> Vec<(String, &'static str, &'static str, &'static str)> {
     [
         ("host", "Host a live session", "{name: \"[bind address]\"} (default the LAN on a free port)"),
-        ("join", "Join a live session", "{name: \"<host:port> <code> | <join link> | <code>\"}"),
+        ("join", "Join a live session", "{name: \"<host:port> <code> | <join link> | <code> [| your name]\"}"),
         ("approve", "Let a joiner in", "{name: \"<client> [editor|viewer]\"}"),
         ("deny", "Turn a joiner away", "{name: \"<client>\"}"),
-        ("invite", "A new session code", "{}"),
+        ("invite", "New code", "{}"),
+        ("stop", "Stop inviting", "{} (people already in stay)"),
+        ("remove", "Remove from the session", "{name: \"<client>\"}"),
+        ("role", "Change a person's role", "{name: \"<client> editor|viewer\"}"),
         ("window", "Live window", "{name: open | close}"),
         ("leave", "Leave the live session", "{} (the host ends it)"),
-        ("pump", "Carry live messages", "{name: \"<ms> [wait] [approve] [live]\"} headless runs"),
+        ("pump", "Carry live messages", "{name: \"<ms> [wait] [approve] [live] [time]\"} headless runs"),
     ]
     .into_iter()
     .map(|(k, l, p)| (format!("{prefix}.live.{k}"), l, "", p))
     .collect()
 }
 
-/// The Live window (Studio's hosting and joining dialogs, in plain English: their words are Studio's, not in the 0.5
-/// app catalogs): host on the LAN and show the code, the join QR and link, let joiners in (a tick for a signed-in name
-/// that checked out), or join with a code (found on the LAN), an address and a code, or a join link; leave. Buttons push
-/// command ids with their params into `acts`.
+/// The join field (0.5 Studio's "Join" box: the code alone, found on this network, or the address shown under the
+/// host's code followed by the code, or a join link) → `<p>.live.join`'s argument, or the Studio key saying what is wrong.
+pub fn join_words(text: &str) -> Result<String, &'static str> {
+    let t = text.trim();
+    if t.is_empty() {
+        return Err("live.join.bad.empty");
+    }
+    if t.starts_with("http://") {
+        return parse_join(t).map(|(a, c)| format!("{a} {c}")).ok_or("live.join.bad.address");
+    }
+    let mut it = t.split_whitespace();
+    let (Some(a), b, None) = (it.next(), it.next(), it.next()) else { return Err("live.join.bad.unknown") };
+    let is_addr = |x: &str| x.rsplit_once(':').is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok());
+    let is_code = |x: &str| cc_live::crypto::parse_code(x).is_some();
+    match b {
+        Some(code) if is_addr(a) && is_code(code) => Ok(format!("{a} {code}")),
+        Some(_) if is_addr(a) => Err("live.join.bad.code"),
+        None if is_addr(a) => Err("live.join.needcode"),
+        None if is_code(a) => Ok(a.to_string()),
+        None if a.contains(':') => Err("live.join.bad.address"),
+        None => Err("live.join.bad.code"),
+        Some(_) => Err("live.join.bad.unknown"),
+    }
+}
+
+/// The Live window, as 0.5 Studio's (`window.live.*` in Studio's catalog): Share live; the code with its picture to
+/// scan and the address, New code, Stop inviting; the knocks (a tick for a signed-in name that checked out) with Edit /
+/// View only / Deny; the people in the session with their roles (the host changes a role or removes someone); End the
+/// session / Leave; with no session, the Join box (the code, or the address and the code, and the name others see).
+/// Buttons push command ids with their params into `acts`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::Tokens, acts: &mut Vec<(String, String)>) {
     use egui::RichText;
@@ -572,101 +709,249 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
     }
     let p = V::PREFIX;
     let cmd = |k: &str| format!("{p}.live.{k}");
-    let title = v.label_live_window();
-    crate::shell::Dialog::new(RichText::new(title).strong())
+    let ask_id = egui::Id::unique(("cc_live_remove", p));
+    let mut ask: Option<u64> = ctx.data(|d| d.get_temp(ask_id));
+    crate::shell::Dialog::new(RichText::new(sw("window.live.title", &[])).strong())
         .modeless()
-        .default_width(400.0)
+        .default_width(420.0)
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
         .open(&mut open)
         .show(ctx, |ui| match v.live_slot().as_ref() {
             Some(s) => {
                 ui.label(hosting_line(s));
-                if s.server.is_some() {
-                    if let Some(link) = s.join_link() {
-                        ui.horizontal(|ui| {
-                            if let Some(q) = crate::qr::encode(link.as_bytes()) {
-                                crate::qr::paint(ui, &q, 132.0, tk);
-                            }
-                            ui.vertical(|ui| {
-                                ui.label(RichText::new(format!("Code {}", s.code)).strong().size(16.0));
-                                ui.label(RichText::new("Joiners type the code in their Join box (the network finds this session), scan the QR, or open the link:").color(tk.text_dim));
-                                ui.label(RichText::new(&link).monospace().color(tk.text_dim));
-                                ui.label(
-                                    RichText::new(if s.advert.is_some() {
-                                        "Others on this network find the session by its code."
-                                    } else {
-                                        "This network can't announce the session: joiners scan the QR or type the address."
-                                    })
-                                    .color(tk.text_dim),
-                                );
-                                if ui.add(crate::shell::Btn::new("New code")).clicked() {
-                                    acts.push((cmd("invite"), String::new()));
+                let host = s.server.is_some();
+                if host {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(sw("window.live.code.title", &[])).strong());
+                    match s.join_link() {
+                        Some(link) => {
+                            ui.horizontal(|ui| {
+                                if let Some(q) = crate::qr::encode(link.as_bytes()) {
+                                    crate::qr::paint(ui, &q, 132.0, tk).on_hover_text(sw("window.live.qr.label", &[]));
                                 }
+                                ui.vertical(|ui| {
+                                    ui.label(RichText::new(sw("window.live.code.label", &[("code", s.code.clone())])).strong().size(16.0));
+                                    ui.label(sw("window.live.code.address", &[("address", shown_addr(s))]));
+                                    ui.label(RichText::new(sw("window.live.code.how", &[])).color(tk.text_dim));
+                                    ui.horizontal(|ui| {
+                                        if ui.add(crate::shell::Btn::new(sw("window.live.code.new", &[]))).clicked() {
+                                            acts.push((cmd("invite"), String::new()));
+                                        }
+                                        if ui.add(crate::shell::Btn::new(sw("window.live.code.stop", &[]))).clicked() {
+                                            acts.push((cmd("stop"), String::new()));
+                                        }
+                                    });
+                                });
                             });
-                        });
+                        }
+                        None => {
+                            ui.label(RichText::new(sw("window.live.code.none", &[])).color(tk.text_dim));
+                            if ui.add(crate::shell::Btn::new(sw("window.live.code.new", &[]))).clicked() {
+                                acts.push((cmd("invite"), String::new()));
+                            }
+                        }
+                    }
+                    if !s.knocks.is_empty() {
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(sw("window.live.waiting.title", &[])).strong());
                     }
                     for k in &s.knocks {
+                        let name = match &k.signed {
+                            Some(sg) => format!("{} ✔", sg.name),
+                            None if k.name.is_empty() => sw("window.live.noname", &[]),
+                            None => k.name.clone(),
+                        };
+                        let device = if k.device.is_empty() { sw("window.live.nodevice", &[]) } else { k.device.clone() };
+                        let via = sw(if k.via == "relay" { "window.live.via.relay.short" } else { "window.live.via.lan.short" }, &[]);
+                        ui.label(format!("{} · {via}", sw("window.live.knock.card", &[("name", name), ("device", device)])));
                         ui.horizontal(|ui| {
-                            let who = match &k.signed {
-                                Some(sg) => format!("{} ✔ (signed in{})", sg.name, if sg.verified { "" } else { ", email not verified" }),
-                                None => k.name.clone(),
-                            };
-                            let dev = if k.device.is_empty() { String::new() } else { format!(" ({})", k.device) };
-                            ui.label(format!("{who}{dev} wants to join"));
-                            if let Some(r) = k.refused {
-                                ui.label(RichText::new(format!("name not checked: {r}")).color(tk.text_dim));
-                            }
-                            if ui.add(crate::shell::Btn::new("Edit")).clicked() {
+                            if ui.add(crate::shell::Btn::primary(sw("window.live.approve.edit", &[]))).clicked() {
                                 acts.push((cmd("approve"), format!("{} editor", k.c)));
                             }
-                            if ui.add(crate::shell::Btn::new("View only")).clicked() {
+                            if ui.add(crate::shell::Btn::new(sw("window.live.approve.view", &[]))).clicked() {
                                 acts.push((cmd("approve"), format!("{} viewer", k.c)));
                             }
-                            if ui.add(crate::shell::Btn::new("Deny")).clicked() {
+                            if ui.add(crate::shell::Btn::new(sw("window.live.approve.deny", &[]))).clicked() {
                                 acts.push((cmd("deny"), k.c.to_string()));
                             }
                         });
                     }
                 }
-                for p in s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed") {
-                    ui.label(RichText::new(format!("{} ({})", p.name, p.role)).color(tk.text_dim));
+                ui.add_space(4.0);
+                ui.label(RichText::new(sw("window.live.people.title", &[("n", people_in(s).to_string())])).strong());
+                if !s.doc.peers.contains_key(&s.doc.c) {
+                    let role = match s.doc.role.as_str() {
+                        "host" => sw("window.live.role.host", &[]),
+                        "viewer" => sw("window.live.role.viewer", &[]),
+                        _ => sw("window.live.role.editor", &[]),
+                    };
+                    let name = if s.me.is_empty() { sw("window.live.noname", &[]) } else { s.me.clone() };
+                    ui.label(RichText::new(format!("{name} {} · {role}", sw("window.live.people.you", &[]))).color(tk.text_dim));
                 }
-                if ui.add(crate::shell::Btn::new(if s.server.is_some() { "End the session" } else { "Leave" })).clicked() {
+                for pr in s.doc.peers.values().filter(|p| p.state != "gone" && p.state != "removed") {
+                    let role = match pr.role.as_str() {
+                        "host" => sw("window.live.role.host", &[]),
+                        "viewer" => sw("window.live.role.viewer", &[]),
+                        "assistant" => sw("window.live.role.assistant", &[]),
+                        _ => sw("window.live.role.editor", &[]),
+                    };
+                    let name = if pr.name.is_empty() { sw("window.live.noname", &[]) } else { pr.name.clone() };
+                    let you = if pr.c == s.doc.c { format!(" {}", sw("window.live.people.you", &[])) } else { String::new() };
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new(format!("{name}{you} · {role}")).color(tk.text_dim));
+                        if host && pr.c != s.doc.c && matches!(pr.role.as_str(), "editor" | "viewer") {
+                            let (to, key) = if pr.role == "viewer" {
+                                ("editor", "window.live.role.editor")
+                            } else {
+                                ("viewer", "window.live.role.viewer")
+                            };
+                            if ui
+                                .add(crate::shell::Btn::new(sw(key, &[])))
+                                .on_hover_text(sw("window.live.people.role", &[("name", name.clone())]))
+                                .clicked()
+                            {
+                                acts.push((cmd("role"), format!("{} {to}", pr.c)));
+                            }
+                            if ui.add(crate::shell::Btn::new(sw("window.live.people.remove", &[]))).clicked() {
+                                ask = Some(pr.c);
+                            }
+                        }
+                    });
+                    if ask == Some(pr.c) {
+                        ui.label(sw("window.live.people.remove.ask", &[("name", name.clone())]));
+                        ui.horizontal(|ui| {
+                            if ui.add(crate::shell::Btn::primary(sw("window.live.people.remove", &[]))).clicked() {
+                                acts.push((cmd("remove"), pr.c.to_string()));
+                                ask = None;
+                            }
+                            if ui.add(crate::shell::Btn::new(sw("window.live.cancel", &[]))).clicked() {
+                                ask = None;
+                            }
+                        });
+                    }
+                }
+                ui.add_space(4.0);
+                let (end, hint) =
+                    if host { ("window.live.end", "window.live.end.hint") } else { ("window.live.leave", "window.live.leave.hint") };
+                if ui.add(crate::shell::Btn::new(sw(end, &[]))).on_hover_text(sw(hint, &[])).clicked() {
                     acts.push((cmd("leave"), String::new()));
                 }
             }
             None => {
-                ui.label(RichText::new("Work on this together with others on your network.").color(tk.text_dim));
-                if ui.add(crate::shell::Btn::primary("Share live")).clicked() {
-                    acts.push((cmd("host"), String::new()));
+                ui.label(RichText::new(sw("window.live.share.pitch", &[])).color(tk.text_dim));
+                ui.label(RichText::new(sw("window.live.share.free", &[])).color(tk.text_dim));
+                // the name others see (0.5: "type the name others should see, then choose Share live"), for both
+                let fid = egui::Id::unique(("cc_live_join", p));
+                let mut f: (String, String, String) = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
+                let l = ui.label(sw("window.live.name", &[]));
+                ui.add(crate::shell::field(&mut f.2).desired_width(200.0)).labelled_by(l.id);
+                ui.label(RichText::new(sw("window.live.name.hint", &[])).color(tk.text_dim));
+                if ui.add(crate::shell::Btn::primary(sw("window.live.share", &[]))).clicked() {
+                    let who = f.2.trim();
+                    acts.push((cmd("host"), if who.is_empty() { String::new() } else { format!("| {who}") }));
                 }
                 ui.separator();
-                let fid = egui::Id::unique(("cc_live_join", p));
-                let mut f: (String, String) = ctx.data(|d| d.get_temp(fid)).unwrap_or_default();
-                ui.horizontal(|ui| {
-                    let l = ui.label("Code");
-                    ui.add(crate::shell::field(&mut f.1).desired_width(100.0).hint_text("K7-Q4M2X")).labelled_by(l.id);
-                });
-                ui.horizontal(|ui| {
-                    let l = ui.label("Address (if the network doesn't find it)");
-                    ui.add(crate::shell::field(&mut f.0).desired_width(180.0).hint_text("192.168.1.20:47620")).labelled_by(l.id);
-                });
-                let code = f.1.trim().to_string();
-                let addr = f.0.trim().to_string();
-                if ui.add_enabled(!code.is_empty() || addr.starts_with("http://"), crate::shell::Btn::new("Join")).clicked() {
-                    let arg = if addr.starts_with("http://") { addr.clone() } else if addr.is_empty() { code.clone() } else { format!("{addr} {code}") };
-                    acts.push((cmd("join"), arg));
+                ui.label(RichText::new(sw("live.join.title", &[])).strong());
+                ui.label(RichText::new(sw("live.join.hint", &[])).color(tk.text_dim));
+                let l = ui.label(sw("live.join.label", &[]));
+                ui.add(crate::shell::field(&mut f.0).desired_width(260.0).hint_text("K7-Q4M2X")).labelled_by(l.id);
+                if !f.1.is_empty() {
+                    ui.label(RichText::new(&f.1).color(tk.accent));
+                }
+                if ui.add_enabled(!f.0.trim().is_empty(), crate::shell::Btn::new(sw("live.join.go", &[]))).clicked() {
+                    match join_words(&f.0) {
+                        Ok(spec) => {
+                            f.1.clear();
+                            let who = f.2.trim();
+                            acts.push((cmd("join"), if who.is_empty() { spec } else { format!("{spec} | {who}") }));
+                        }
+                        Err(key) => f.1 = sw(key, &[]),
+                    }
                 }
                 ctx.data_mut(|d| d.insert_temp(fid, f));
             }
         });
+    ctx.data_mut(|d| match ask {
+        Some(c) => {
+            d.insert_temp(ask_id, c);
+        }
+        None => d.remove::<u64>(ask_id),
+    });
     *v.live_window_open() = open;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_word_of_the_window_is_in_studios_catalog() {
+        for k in [
+            "window.live.title",
+            "window.live.share",
+            "window.live.share.pitch",
+            "window.live.share.free",
+            "window.live.code.title",
+            "window.live.code.label",
+            "window.live.code.address",
+            "window.live.code.how",
+            "window.live.code.none",
+            "window.live.code.new",
+            "window.live.code.stop",
+            "window.live.qr.label",
+            "window.live.knock.card",
+            "window.live.nodevice",
+            "window.live.via.lan.short",
+            "window.live.via.relay.short",
+            "window.live.approve.edit",
+            "window.live.approve.view",
+            "window.live.approve.deny",
+            "window.live.waiting.title",
+            "window.live.people.title",
+            "window.live.people.you",
+            "window.live.people.role",
+            "window.live.people.remove",
+            "window.live.people.remove.ask",
+            "window.live.cancel",
+            "window.live.role.host",
+            "window.live.role.editor",
+            "window.live.role.viewer",
+            "window.live.role.assistant",
+            "window.live.noname",
+            "window.live.end",
+            "window.live.end.hint",
+            "window.live.leave",
+            "window.live.leave.hint",
+            "window.live.status.live",
+            "window.live.status.viewing",
+            "window.live.button",
+            "window.live.button.title",
+            "live.join.title",
+            "live.join.hint",
+            "live.join.label",
+            "live.join.yourname",
+            "live.join.name.guest",
+            "live.join.go",
+            "live.join.notfound",
+            "live.join.needcode",
+            "live.join.bad.empty",
+            "live.join.bad.code",
+            "live.join.bad.address",
+            "live.join.bad.unknown",
+        ] {
+            for l in [cc_lang::Locale::En, cc_lang::Locale::EsMx] {
+                assert!(crate::lang::STUDIO.get_in(l, k).is_some(), "{k} {l:?}");
+            }
+        }
+        assert_eq!(join_words(" 192.168.1.20:4545  K7-Q4M2X "), Ok("192.168.1.20:4545 K7-Q4M2X".into()));
+        assert_eq!(join_words("k7-q4m2x"), Ok("k7-q4m2x".into()));
+        assert_eq!(join_words("192.168.1.20:4545"), Err("live.join.needcode"));
+        assert_eq!(join_words("192.168.1.20:4545 nope"), Err("live.join.bad.code"));
+        assert_eq!(join_words(""), Err("live.join.bad.empty"));
+        assert_eq!(join_words("a b c"), Err("live.join.bad.unknown"));
+        assert_eq!(join_words("http://10.0.0.2:4000/apps/cadcraft/#live=K7-Q4M2X"), Ok("10.0.0.2:4000 K7-Q4M2X".into()));
+    }
+
     #[test]
     fn join_text_forms() {
         assert_eq!(parse_join("192.168.1.2:4000 K7-Q4M2X"), Some(("192.168.1.2:4000".into(), "K7-Q4M2X".into())));

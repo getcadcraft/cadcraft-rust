@@ -670,14 +670,6 @@ impl TakeoffMode {
         vec![
             ToolGroup { label: tr("group.export"), tools: export },
             ToolGroup {
-                label: String::new(),
-                tools: vec![
-                    Tool::new("live", "globe", "Live".to_string())
-                        .tip("Work on this takeoff together (Studio Live)".to_string())
-                        .on(self.live_on),
-                ],
-            },
-            ToolGroup {
                 label: tr("group.takeoff"),
                 tools: vec![
                     Tool::new("tool:select", "cursor", tr("tool.select")).on(self.tool == "select"),
