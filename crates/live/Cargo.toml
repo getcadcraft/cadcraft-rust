@@ -17,6 +17,19 @@ workspace = true
 
 [dependencies]
 cc-cad.workspace = true
+# the handshake and frame encryption, as 0.5's crypto.rs and live-crypto.js (LIVE-CRYPTO.md; exact pins, THIRD_PARTY.md)
+spake2 = { version = "=0.4.0", default-features = false }
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
+hkdf = "=0.12.4"
+hmac = "=0.12.1"
+sha2 = "0.10"
+rand_core = { version = "=0.6.4", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# the LAN WebSocket's accept key (ws.rs) and the OS's randomness (keys, tokens, codes)
+sha1 = { version = "=0.10.6", default-features = false }
+getrandom = "0.3"
 
 [dev-dependencies]
 serde_json.workspace = true
+rand_core = { version = "=0.6.4", default-features = false }

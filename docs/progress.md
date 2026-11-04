@@ -2,6 +2,28 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.9 Studio Live's network side: the session server, handshake and sealed frames on the LAN (agent, work/detailfin)
+
+- `crates/live`: `crypto.rs` (the SPAKE2 handshake on Ed25519, ChaCha20-Poly1305 frames, rekeys, exporters, short codes
+  and link secrets: 0.5's desktop crypto.rs; the shared crypto vectors of the 0.5 site pass byte for byte, so a 0.5
+  joiner or host and a fork one interoperate), `server.rs` (the whole session server core of Studio 0.5's
+  `live/session.rs` v0.5.0 ported to our MessagePack: codes, wrong-try rotation, rejoin tickets, approval, catch-up from
+  the log or a snapshot with `revs`, holds, locks, presence, pings and drops, flood control, the replica, assistants'
+  keys, the host handoff's state), `ws.rs` (our own RFC 6455 on std::net: upgrade, frames, ping / pong / close, every
+  read capped) and `net.rs` (the server's transport on threads, in-process clients for the host's window, a joiner's
+  connection with the handshake). LAN `ws://` only; the relay's wss:// stays web only (no desktop HTTP / TLS client).
+  New dependencies approved by the lead: spake2, chacha20poly1305, hkdf, hmac, sha1 (THIRD_PARTY.md); cargo deny ok.
+- `cadcraft-cli live-server` takes 0.5 `live-server`'s flags, so 0.5's own test suites run against it.
+- End to end (forks/tools/live-detailfin: copies of 0.5's tools/live-test with the server from LIVE_SERVER): the 0.5 JS
+  client (live-client.js, live-crypto.js on noble) against the fork's server — test-scenarios 11/11, test-client 13/13,
+  test-frames 8/8 (replay, reorder, tamper both ways, unapproved joiner, wrong codes), test-converge 4/4 (10 editors ×
+  150 random steps, 13 models identical), test-assistant 7/7, test-handoff 4/5 (the fifth needs the relay, out); the
+  same suites against 0.5's own server (built from desktop-shell v0.5.0) as the baseline: all pass. Rust joiners
+  (`net::Joiner` + the client core) run every shared scenario plain and sealed against the fork's server and against
+  0.5's server: 22/22 each. Fuzz targets `live_ws`, `live_server`.
+- Speed (loopback): 10 editors × 150 steps converge in 0.6–0.7 s on both servers; a joiner on a 44 MB snapshot (446,429
+  objects) is working after 3.5 s on the fork's server, 4.5 s on 0.5's (budget 10 s), first edit round trip 8 ms vs 28 ms.
+
 ## 2026-11-04 — M14.4 DetailCraft's rest: drag to move, the view cube, exact plan / elevation cuts, the Drawings dialog (agent, work/detailfin)
 
 - `detaildrag.rs`: dragging selected parts (0.5 D2, view3d.js `dragParts`): a press on a selected part and a drag moves

@@ -59,6 +59,7 @@ mod hull;
 mod ifc;
 mod iocad;
 mod lisp;
+mod livecli;
 mod m3d;
 mod m3dio;
 mod m3dtools;
@@ -108,6 +109,7 @@ fn main() -> ExitCode {
         "cmds" => cmds::cmds(&rest),
         "lisp" => lisp::lisp(&rest),
         "cloudbench" => cloudcli::bench(&rest),
+        "live-server" => livecli::run(&rest),
         "mcp" => mcp::run(&rest.iter().map(|s| s.to_string()).collect::<Vec<_>>()),
         "import" => iocad::import(&rest),
         "dxf-out" => iocad::dxf_out(&rest),

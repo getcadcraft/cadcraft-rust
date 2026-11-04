@@ -1,0 +1,262 @@
+{
+  "cases": [
+    {
+      "a": "41ab8cd5a63b0a867a84466f5af90ccfa38e1b8cde4d670697aeb2ba35d3c41d12",
+      "b": "429a927f08f98d8cc2d458eb9e362e6e6e875399045c5a7fefa25ccae1b7cce4f0",
+      "context": "lan:K7",
+      "exporter_ticket": "ec805f982d07ce5ff3e9cd337ba227f7fc6a39bc67d0050eb28e120029940832",
+      "frames": [
+        {
+          "body": "68656c6c6f",
+          "frame": "010000000000000000000098d7eb7021f7fffad64592b2cba5278edb38d8b1cb",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "01000000000000000000001d53394dbe2ada5d8f1eb155223c3095",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d",
+          "frame": "010000000000000000000113f6b600ab64838a977a4243a309b524478d962306f64c706f48eed86510c93ac12d458c9774cfdbce94c62e3f19254d1ec17d129a899a4048c867940d4c34ac1f7b86a6eec2627833a313159257f80634dcf77cee836be4b09ee06abab4e0418d25b54baa532bdb6c9e40d3e8c102b42724829c485d03ab748ffaebd4ad0f129cf29a2aa028f853f87adbfadac7adc3185ee35febe2381ed38954f03e53ca344b9d654fd9b6c80e29628e953f53c174b22be74ed0a002534dfbc93f7425fd3916ed2846cdfb1b47919fe9f0c8a84bc418aa7a60cda42b13d5099ca570669df696812ee7c8fb2fc8ead858a3564b6f2b8c875c12547b12194ffa02c02e605b3c91868267b22d60f471e43b5e1934418d3ba62c8cc7eb7d7aa723943dded4e52cdc3d389a68d8ab92e0f324c4c95bcd47f1ddefd5c3fcf4bd0255280c",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "696e20666c69676874",
+          "frame": "01000000000000000000014fa441203a9665a43b4858c57ffd855f6f2f3a92548bca7d3f",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "01010000000000000000023d05bf87237f3f0b78c94be9f6d06ca6",
+          "from": "host",
+          "kind": "rekey"
+        },
+        {
+          "body": "6166746572",
+          "frame": "01000100000000000000000137c1d5aeeb0aa6b77d291a91692b39518c133875",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "6f6b",
+          "frame": "0100010000000000000000b39fa0549da3ee8963eed19568bf6f5c5cfa",
+          "from": "host",
+          "kind": "data"
+        }
+      ],
+      "host_confirm": "a435a03462386c7263e7c11dad5d821db024fb22432caf25533772ee9bd53de5",
+      "host_rng": "658aafd4f91e43688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80",
+      "host_secret": "51344d3258",
+      "joiner_confirm": "f800411bfde20ae1898cedf5ccc437c7f2cb0d34654c3934a7d56958bddb3892",
+      "joiner_rng": "01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c",
+      "joiner_secret": "51344d3258",
+      "name": "lan code"
+    },
+    {
+      "a": "417cef1fac9af2a2874eb2e4c2b0deae54257c53ded154f15e651698a77d1af77f",
+      "b": "42e9ec3365a0f6398b49fbfcb61a79fef1d682d04ca97ea490221479aab0809717",
+      "context": "relay:K7QX9M2B",
+      "exporter_ticket": "b49c5f750cf1008eccad00622e696c7857dcae6301a9d4742b0b43a052222dfe",
+      "frames": [
+        {
+          "body": "68656c6c6f",
+          "frame": "0100000000000000000000150aa28c3a5ccaede4c14ff3cc9498b392b3131aa4",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "01000000000000000000004188cab4c50a900093a056a6da3e4c8b",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d",
+          "frame": "01000000000000000000012d0ea68b126b3388d6d56406980e9c9d7b1d29003539716e18ff21323c428f4f7cfa591f45334919553a5c297ffd96e329654b2250e2d4f6e71b07cd763e383898d31b974225f25967585af196835579f868902c74e13dec117e11f9f9ab80dc68c725ebc3d26f93407e26e85c6254d6211ff173f8164236cdd2363418112c05da226566ec05ef95da096c357c92fbbbac9ea66e7259c4adf57e646b0554e17a7ad21606caad0086f086c76efb373796f3e1b717037ba2e902ee57095d7b40322b7d69bce61cdfe34c3c4064ba26a15265f20858ab1f4882b633b481619a82ac198c38e68a4352757439f50fc585dd2e9a06a51ceda1db8e035ef1c6e19c9a569e64a81533f3083dbbd883c1b3880db2784cff49ed1047cc2a97a0de121a2f4ae22a29c8e4ae3eea496138d59d74d18eb6d76f779ebcaa112422d0e3",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "696e20666c69676874",
+          "frame": "0100000000000000000001b79a8ec35a3a4a44731034f89e3631c6a5fa270fd371bc3634",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "01010000000000000000027c47c4b8eff69db327bd5a9c2eac8b90",
+          "from": "host",
+          "kind": "rekey"
+        },
+        {
+          "body": "6166746572",
+          "frame": "01000100000000000000006221660a9ed4f625a127c174c5bc0c3310a529d85f",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "6f6b",
+          "frame": "0100010000000000000000e2854889c954e68b4951a3ce077406a7626d",
+          "from": "host",
+          "kind": "data"
+        }
+      ],
+      "host_confirm": "01bfa62950267d065b1a0137b8d2838064859d92b712219dbdaa4529b7ec7be2",
+      "host_rng": "668bb0d5fa1f44698eb3d8fd22476c91b6db00254a6f94b9de03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81",
+      "host_secret": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+      "joiner_confirm": "99abdfd41773f1320f58a6fa3d499971627a389393ed8a023501e56f17623421",
+      "joiner_rng": "02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83a8cdf2173c6186abd0f51a3f6489aed3f81d",
+      "joiner_secret": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5",
+      "name": "invite link"
+    },
+    {
+      "a": "4112be1f6c46321f7d906973ad5641540800f0eeff14090a5ee0ac425d868fd5cb",
+      "b": "423baf82ed0d842011984ef4f19eaed41a11d95deb93a6802fdad81f1df1528506",
+      "context": "",
+      "exporter_ticket": "1312a241e93fd52f0fe9172b0c0ada0748274e03d808fee2701cf7f55d777fa3",
+      "frames": [
+        {
+          "body": "68656c6c6f",
+          "frame": "0100000000000000000000e8dab1fccb00f1ce827b24cb0e305e3a6509e7ee88",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "010000000000000000000003a4fdf6f592e6781e7c37331acf1057",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "00070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dce3eaf1f8ff060d141b222930373e454c535a61686f767d848b9299a0a7aeb5bcc3cad1d8dfe6edf4fb020910171e252c333a41484f565d646b727980878e959ca3aab1b8bfc6cdd4dbe2e9f0f7fe050c131a21282f363d444b525960676e757c838a91989fa6adb4bbc2c9d0d7dee5ecf3fa01080f161d242b323940474e555c636a71787f868d949ba2a9b0b7bec5ccd3dae1e8eff6fd040b121920272e353c434a51585f666d747b828990979ea5acb3bac1c8cfd6dde4ebf2f900070e151c232a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d",
+          "frame": "01000000000000000000013d4128167a4aeba06031c00ec9ece95341118b8e5f808f7f683eb26afd8a9708ac5c21ea4f73d094b660c74b14ea9439ffd1b079edc89db55ce5097418696621472060a135246093eefdefd0aacec1bcdfde6938f9dc76b37e2d34524d8881b654eab8ad5822c4240f602f0d1c1146ab5097919191a144553b6f00c54976917039116fd82ef36269f3d843d8f7f459345fd687edc0514e52387a8b83436983ac8021b9148124a6a8aee865bde3c67912bf120d0bdc76836109d380ae7a22c17ad873ad2acc9718c9c39767f07129e16596531b06efa008b23d954aa74878210697fe05032e1d82571bb8ebc5ae4376a714add540549187ca15d9f6a64bf12819f46eda9cf32ecff6fadfc245f6f3630fa3c90912e3a225aa48ea459b80f346e36832e3126ac48ce71105b0b8c0d4d0f46a09ba3a28e8a9b8e7ab477d",
+          "from": "host",
+          "kind": "data"
+        },
+        {
+          "body": "696e20666c69676874",
+          "frame": "0100000000000000000001c48450ebc2f6713b718ac3bcdb993fb1751268d3550552e8ae",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "",
+          "frame": "0101000000000000000002170f87720012a3c7b9828de0a3a7a633",
+          "from": "host",
+          "kind": "rekey"
+        },
+        {
+          "body": "6166746572",
+          "frame": "0100010000000000000000f6331e06bc4925efb8c84f75e23ba2945367305dde",
+          "from": "joiner",
+          "kind": "data"
+        },
+        {
+          "body": "6f6b",
+          "frame": "01000100000000000000003cbe5de72e7e33292107a54f34d9e5e818f3",
+          "from": "host",
+          "kind": "data"
+        }
+      ],
+      "host_confirm": "3319a5d24c30e6c86fd600b9241cc78f893fe1e690e9e1e80b5e3dd3ca07df15",
+      "host_rng": "678cb1d6fb20456a8fb4d9fe23486d92b7dc01264b7095badf04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82",
+      "host_secret": "30",
+      "joiner_confirm": "4b576a86f789ba880c53cd7255992fe7482a7352ffd861dff8ac1eb75d24bf2b",
+      "joiner_rng": "03284d7297bce1062b50759abfe4092e53789dc2e70c31567ba0c5ea0f34597ea3c8ed12375c81a6cbf0153a5f84a9cef3183d6287acd1f61b40658aafd4f91e",
+      "joiner_secret": "30",
+      "name": "empty context"
+    },
+    {
+      "a": "4141f47895a968e4cdb711aa784ac014605e6ffe60a2674d70b52d2bbc33264a6f",
+      "b": "42ad233e77db530341158822ba4bc0366d4db344e3f1b9536f523a797e65e1a49d",
+      "context": "lan:K7",
+      "host_result": "wrong_code",
+      "host_rng": "688db2d7fc21466b90b5daff24496e93b8dd02274c7196bbe0052a4f7499bee3082d52779cc1e60b30557a9fc4e90e33587da2c7ec11365b80a5caef14395e83",
+      "host_secret": "51344d3259",
+      "joiner_confirm": "c6b1f06af60127b63962000aedcca652ed84ee9497117b8ae539d6ddea1df3e8",
+      "joiner_rng": "04294e7398bde2072c51769bc0e50a2f54799ec3e80d32577ca1c6eb10355a7fa4c9ee13385d82a7ccf1163b6085aacff4193e6388add2f71c41668bb0d5fa1f",
+      "joiner_secret": "51344d3258",
+      "name": "wrong code"
+    }
+  ],
+  "codes": [
+    {
+      "code": "K7-Q4M2X",
+      "secret": "51344d3258",
+      "tag": "K7"
+    },
+    {
+      "code": "k7q4m2x",
+      "secret": "51344d3258",
+      "tag": "K7"
+    },
+    {
+      "code": " K7 - QOMIL ",
+      "secret": "51304d3131",
+      "tag": "K7"
+    },
+    {
+      "code": "K7-Q4M2U",
+      "secret": null,
+      "tag": null
+    },
+    {
+      "code": "K7-Q4M2",
+      "secret": null,
+      "tag": null
+    },
+    {
+      "code": "K7-Q4M2XX",
+      "secret": null,
+      "tag": null
+    }
+  ],
+  "format": "cadcraft-live-crypto-vectors",
+  "links": [
+    {
+      "fragment": "paWlpaWlpaWlpaWlpaWlpQ",
+      "secret": "a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5"
+    },
+    {
+      "fragment": "#AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+      "secret": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    },
+    {
+      "fragment": "paWlpaWlpaWlpaWlpaWlpR",
+      "secret": null
+    },
+    {
+      "fragment": "paWl",
+      "secret": null
+    },
+    {
+      "fragment": "paWlpaWlpaWlpaWlpaWlpQ==",
+      "secret": null
+    },
+    {
+      "fragment": "paWl paWlpaWlpaWlpaWlpQ",
+      "secret": null
+    }
+  ],
+  "note": "Written by /var/www/CADCRAFT/relay/crypto-check (cargo run -- vectors). Frames are listed in the order they are sent; each side opens the other's in that order.",
+  "room_tags": [
+    {
+      "room": "K7QX9M2B",
+      "tag": "TW519YJR"
+    },
+    {
+      "room": "00000000",
+      "tag": "HXFSV82N"
+    },
+    {
+      "room": "ZZZZZZZZ",
+      "tag": "MZG3V2F8"
+    }
+  ],
+  "version": 1
+}
