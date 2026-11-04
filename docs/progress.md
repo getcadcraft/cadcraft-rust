@@ -69,6 +69,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M17.14: ModelCraft's 3D view on the page's sheet colour as 0.7 (tokens.css --sheet: #F3F6F8 paper, #1D232B model;
   the screen only, exports keep the style's own); the other 3D views were on it already. Full sweep 0 differences.
 - M17 done: what still differs is in gaps item 12.
+- Owner decisions written into docs/gaps.md (2026-11-03): the add-ons (Electrical, HVAC, Piping, Apparel) and the
+  Add-ons tab's add-on buttons are out of scope for the fork's 0.5 (item 1; Apparel's AAMA date left out of item 11);
+  map tiles, WMS / WMTS / ArcGIS and grid-shift downloads are web only: the desktop app has no HTTP client by decision
+  (item 4).
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 
