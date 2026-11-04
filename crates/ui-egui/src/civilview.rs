@@ -2852,6 +2852,54 @@ fn site_exag_ok(f: f64) -> bool {
 
 /// The CivilCraft frame: tool bar, left and right panels, the plan or the 3D scene (lib.rs calls this when a project
 /// is open).
+/// CivilCraft's 0.7 toolbar groups: File, Surface, Design, Edit, View (the tools pressed, Plan | 3D, the 3D turns).
+fn civil_tool_groups(cv: &CivilView) -> Vec<crate::shell::ToolGroup> {
+    use crate::civiltools::Tool as T;
+    use crate::shell::{Tool, ToolGroup};
+    let tool = |tl: T, icon: &'static str| {
+        let (label, title) = tl.label_keys();
+        Tool::new(format!("tool:{}", tl.id()), icon, t0(label)).tip(t0(title)).on(cv.tools.tool == tl && !cv.show3d).enabled(!cv.show3d)
+    };
+    let act = |id: &str, icon: &'static str, key: &str| Tool::new(id, icon, t0(key)).tip(t0(&format!("{key}.title")));
+    let mut view = vec![
+        tool(T::Select, "cursor"),
+        act("fit", "arrows-fullscreen", "ui.tb.fit"),
+        Tool::new("view:plan", "map", t0("plot.title")).tip(t0("ui.plan.canvas")).on(!cv.show3d),
+        act("view:3d", "box", "ui.tb.view3d").on(cv.show3d),
+    ];
+    if cv.show3d {
+        for (v, icon) in [("iso", "box"), ("top", "square"), ("front", "layout-sidebar"), ("right", "layout-sidebar-inset")] {
+            view.push(Tool::new(format!("cam:{v}"), icon, v));
+        }
+    }
+    vec![
+        ToolGroup { label: t0("ui.tb.group.file"), tools: vec![act("civil.save", "download", "ui.tb.save")] },
+        ToolGroup {
+            label: t0("ui.tb.group.surface"),
+            tools: vec![tool(T::Breakline, "activity"), tool(T::Boundary, "bounding-box"), tool(T::Feature, "vector-pen")],
+        },
+        ToolGroup {
+            label: t0("ui.tb.group.design"),
+            tools: vec![
+                tool(T::Alignment, "arrow-90deg-up"),
+                tool(T::Pad, "square"),
+                tool(T::Pipe, "grid-dots"),
+                tool(T::Parcel, "pentagon"),
+            ],
+        },
+        ToolGroup {
+            label: t0("ui.tb.group.edit"),
+            tools: vec![
+                act("civil.undo", "arrow-counterclockwise", "ui.tb.undo").enabled(!cv.project.undo_stack.is_empty()),
+                act("civil.redo", "arrow-clockwise", "ui.tb.redo").enabled(!cv.project.redo_stack.is_empty()),
+                act("civil.copy", "copy", "ui.tb.copy"),
+                act("civil.paste", "clipboard-plus", "ui.tb.paste"),
+            ],
+        },
+        ToolGroup { label: t0("ui.tb.group.view"), tools: view },
+    ]
+}
+
 pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let dark = app.preset.is_dark();
@@ -2861,71 +2909,46 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let frame_started = web_time::Instant::now();
     crate::civilcrs::poll_host(app);
     if let Some(cv) = app.civil.as_mut() {
-        egui::Panel::top("civil_bar")
-            .exact_size(30.0)
-            .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
-            .show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
+        // 0.7's toolbar (CivilCraft ui.inc: File, Surface, Design, Edit, View), then a row for GIS, Settings and the
+        // 3D view's own choices
+        let groups = civil_tool_groups(cv);
+        egui::Panel::top("civil_bar").frame(egui::Frame::new().fill(t.app_bar)).show(ui, |ui| {
+            for (id, resp) in crate::shell::toolbar(ui, &t, t.app("civilcraft"), "cv-tb", &groups) {
+                if !resp.clicked() {
+                    continue;
+                }
+                match id.as_str() {
+                    "fit" => cv.fit(),
+                    x => {
+                        if let Some(tool) = x.strip_prefix("tool:") {
+                            cmd.push(("civil.tool", Params { name: Some(tool.into()), ..Default::default() }));
+                        } else if let Some(v) = x.strip_prefix("cam:") {
+                            cmd.push(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
+                        } else if let Some(v) = x.strip_prefix("view:") {
+                            cmd.push(("civil.view", Params { name: Some(v.into()), ..Default::default() }));
+                        } else if let Some(c) =
+                            ["civil.save", "civil.undo", "civil.redo", "civil.copy", "civil.paste"].iter().find(|c| **c == x)
+                        {
+                            cmd.push((c, Params::default()));
+                        }
+                    }
+                }
+            }
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                ui.horizontal(|ui| {
                     let site = cv.project.state.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-                    ui.label(RichText::new(site).strong().color(t.text_strong));
+                    ui.label(RichText::new(site).font(crate::theme::semi(14.0)).color(t.text_strong));
                     ui.separator();
-                    if ui.selectable_label(!cv.show3d, t0("plot.title")).on_hover_text(t0("ui.plan.canvas")).clicked() {
-                        cmd.push(("civil.view", Params { name: Some("plan".into()), ..Default::default() }));
-                    }
-                    if ui.selectable_label(cv.show3d, t0("ui.tb.view3d")).on_hover_text(t0("ui.tb.view3d.title")).clicked() {
-                        cmd.push(("civil.view", Params { name: Some("3d".into()), ..Default::default() }));
-                    }
-                    ui.separator();
-                    if ui.button(t0("ui.tb.fit")).on_hover_text(t0("ui.tb.fit.title")).clicked() {
-                        cv.fit();
-                    }
-                    if ui
-                        .add_enabled(!cv.project.undo_stack.is_empty(), egui::Button::new(t0("ui.tb.undo")))
-                        .on_hover_text(t0("ui.tb.undo.title"))
-                        .clicked()
-                    {
-                        cmd.push(("civil.undo", Params::default()));
-                    }
-                    if ui
-                        .add_enabled(!cv.project.redo_stack.is_empty(), egui::Button::new(t0("ui.tb.redo")))
-                        .on_hover_text(t0("ui.tb.redo.title"))
-                        .clicked()
-                    {
-                        cmd.push(("civil.redo", Params::default()));
-                    }
-                    if ui.button(t0("ui.tb.save")).on_hover_text(t0("ui.tb.save.title")).clicked() {
-                        cmd.push(("civil.save", Params::default()));
-                    }
-                    if ui.button(t0("ui.tb.copy")).on_hover_text(t0("ui.tb.copy.title")).clicked() {
-                        cmd.push(("civil.copy", Params::default()));
-                    }
-                    if ui.button(t0("ui.tb.paste")).on_hover_text(t0("ui.tb.paste.title")).clicked() {
-                        cmd.push(("civil.paste", Params::default()));
-                    }
-                    if ui.button(t0("input.cmd.app.settings")).clicked() {
-                        cmd.push(("civil.settings.open", Params::default()));
-                    }
                     let mut gacts = Vec::new();
                     crate::civilgis::gis_menu(ui, &mut gacts);
                     for (id, k) in gacts {
                         cmd.push((id, Params { name: Some(k), ..Default::default() }));
                     }
-                    if !cv.show3d {
-                        ui.separator();
-                        for tl in crate::civiltools::TOOLS {
-                            let (label, title) = tl.label_keys();
-                            if ui.selectable_label(cv.tools.tool == tl, t0(label)).on_hover_text(t0(title)).clicked() {
-                                cmd.push(("civil.tool", Params { name: Some(tl.id().into()), ..Default::default() }));
-                            }
-                        }
+                    if ui.button(t0("input.cmd.app.settings")).clicked() {
+                        cmd.push(("civil.settings.open", Params::default()));
                     }
                     if cv.show3d {
                         ui.separator();
-                        for v in ["iso", "top", "front", "right"] {
-                            if ui.small_button(v).clicked() {
-                                cmd.push(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
-                            }
-                        }
                         // site-view3d.js: the surface colour (elevation bands, one colour, the map layers draped)
                         let col = if cv.gis3.color3d.is_empty() { "bands".to_string() } else { cv.gis3.color3d.clone() };
                         egui::ComboBox::new("civil_color3d", "")
@@ -2957,14 +2980,24 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                     }
                 });
             });
+        });
         let mut acts = Vec::new();
         cv.refresh_facts();
-        let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
+        // 0.7's docks: a grip over each side panel, the body inset
+        let frame = crate::shell::panel_frame(&t);
+        let inset = egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 4 });
+        let app_c = t.app("civilcraft");
         egui::Panel::left("civil_left").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::civilpanel::left(cv, ui, &t, &mut acts));
+            crate::shell::grip(ui, &t, app_c, &t0("ui.left"), false, false);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::left(cv, ui, &t, &mut acts)));
         });
         egui::Panel::right("civil_right").default_size(320.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::civilpanel::right(cv, ui, &t, &mut acts));
+            crate::shell::grip(ui, &t, app_c, &t0("ui.props"), false, false);
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::right(cv, ui, &t, &mut acts)));
         });
         for a in acts {
             let r = match a {
