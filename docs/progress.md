@@ -46,8 +46,11 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M17.8: TakeoffCraft's tools as 0.7's toolbar over the sheet (Export: XLSX, CSV, Marked PDF, Save takeoff; Takeoff:
   Select, the item's measure, Circle, Arc and Deduct on / off, the Notes menu, 3D; Edit: Undo, Redo, Copy, Paste,
   More), taken out of the Takeoff panel. tkopsdiff 61 checks 0 different (262/262 status lines), mkuidiff 0.
-- Next (gaps item 12): PartCraft's sketch bar and BimCraft's draw bars, fields and tabs in every panel, dialogs,
-  CadCraft's layer flags, 3D backgrounds.
+- M17.9: PartCraft's sketch bar as 0.7's toolbar (Sketch: Exit, Construction; Tools: Line … Centerline; Modify:
+  Fillet, Trim, Dimension, More), the sketch's name and solve state on a row under it; BimCraft's plan tools (Select,
+  Wall, Door, Window, Floor, Ceiling, Roof) as the toolbar's Draw group while drawing, the tool options row under it.
+  pcuidiff identical, bmuidiff 2568/2568.
+- Next (gaps item 12): fields and tabs in every panel, dialogs, CadCraft's layer flags, 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

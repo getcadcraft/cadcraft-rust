@@ -90,48 +90,84 @@ fn glyph(ty: &str) -> &'static str {
 }
 
 /// The sketch tool bar (shown in place of the feature tools while a sketch is open).
-pub fn sketch_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
-    if ui
-        .add(egui::Button::new(RichText::new(tr("ui.tb.sketch.exit_sketch")).strong()))
-        .on_hover_text(tr("ui.tb.sketch.exit_sketch.title"))
-        .clicked()
-    {
-        *act = cmd("part.sketch.exit", "");
-    }
-    ui.separator();
-    for (tool, key) in SK::TOOLS.iter().take(11).skip(1) {
-        let on = pv.sk.tool == *tool;
+/// The sketch's tools as 0.7's toolbar groups: Sketch (Exit, Construction), the drawing tools, the editing tools
+/// with More (the rest of `SK::TOOLS`).
+pub fn sketch_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
+    use crate::shell::{Tool, ToolGroup};
+    let icon = |tool: &str| match tool {
+        "line" => "slash-lg",
+        "rect" => "square",
+        "circle" => "circle",
+        "arc" => "bezier2",
+        "point" => "dot",
+        "centerline" => "dash-lg",
+        "fillet" => "bezier",
+        "spline" => "vector-pen",
+        "trim" => "scissors",
+        "dimension" => "arrow-left-right",
+        _ => "square",
+    };
+    let tool = |(id, key): &(&str, &str)| {
         let title = format!("{key}.title");
         let tip = tr(&title);
-        let b = egui::Button::selectable(on, tr(key));
-        if ui.add(b).on_hover_text(if tip == title { tr(key) } else { tip }).clicked() {
-            *act = cmd("part.sk.tool", *tool);
-        }
-    }
-    ui.menu_button(tr("ui.tb.more"), |ui| {
-        for (tool, key) in SK::TOOLS.iter().skip(11) {
-            if ui.add(egui::Button::selectable(pv.sk.tool == *tool, tr(key))).clicked() {
-                *act = cmd("part.sk.tool", *tool);
-                ui.close();
+        Tool::new(format!("tool:{id}"), icon(id), tr(key)).tip(if tip == title { tr(key) } else { tip }).on(pv.sk.tool == *id)
+    };
+    let draw: Vec<Tool> = SK::TOOLS.iter().take(8).skip(1).filter(|(id, _)| *id != "fillet").map(tool).collect();
+    let mut modify: Vec<Tool> =
+        SK::TOOLS.iter().take(11).skip(1).filter(|(id, _)| matches!(*id, "fillet" | "trim" | "dimension")).map(tool).collect();
+    let more_on = SK::TOOLS.iter().skip(11).any(|(id, _)| pv.sk.tool == *id);
+    modify.push(Tool::new("menu:more", "three-dots", tr("ui.tb.more")).tip(tr("ui.tb.sketch.more.title")).on(more_on));
+    vec![
+        ToolGroup {
+            label: tr("ui.tb.group.sketch"),
+            tools: vec![
+                Tool::new("exit", "check2-circle", tr("ui.tb.sketch.exit_sketch")).tip(tr("ui.tb.sketch.exit_sketch.title")),
+                Tool::new("construction", "slash-circle", tr("ui.tb.sketch.construction")).tip(tr("ui.tb.sketch.construction.title")),
+            ],
+        },
+        ToolGroup { label: tr("ui.tb.aria"), tools: draw },
+        ToolGroup { label: tr("form.tb.modify"), tools: modify },
+    ]
+}
+
+/// The sketch bar as 0.7's toolbar (from [`sketch_groups`]), the sketch's name and solve state on a row under it.
+pub fn sketch_toolbar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
+    for (id, resp) in crate::shell::toolbar(ui, t, t.app("partcraft"), "pc-sk", groups) {
+        match id.as_str() {
+            "menu:more" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    for (tool, key) in SK::TOOLS.iter().skip(11) {
+                        if ui.add(egui::Button::selectable(pv.sk.tool == *tool, tr(key))).clicked() {
+                            *act = cmd("part.sk.tool", *tool);
+                            ui.close();
+                        }
+                    }
+                });
+            }
+            _ if !resp.clicked() => {}
+            "exit" => *act = cmd("part.sketch.exit", ""),
+            "construction" => *act = cmd("part.sk.construction", ""),
+            x => {
+                if let Some((tool, _)) = SK::TOOLS.iter().find(|(id, _)| Some(*id) == x.strip_prefix("tool:")) {
+                    *act = cmd("part.sk.tool", *tool);
+                }
             }
         }
-    })
-    .response
-    .on_hover_text(tr("ui.tb.sketch.more.title"));
-    if ui.button(tr("ui.tb.sketch.construction")).on_hover_text(tr("ui.tb.sketch.construction.title")).clicked() {
-        *act = cmd("part.sk.construction", "");
     }
-    ui.separator();
-    ui.label(RichText::new(pv.sketch_title()).color(t.text_strong));
-    if let Some(s) = &pv.last_solve {
-        let words = match s.status {
-            "empty" => tr("app.sketch.state_empty"),
-            "under" => trv("app.sketch.state_under", &[("n", s.dof.to_string())]),
-            "full" => tr("app.sketch.state_full"),
-            _ => tr("app.sketch.state_over"),
-        };
-        ui.label(RichText::new(words).small().color(t.text_dim));
-    }
+    egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(pv.sketch_title()).font(crate::theme::semi(14.0)).color(t.text_strong));
+            if let Some(s) = &pv.last_solve {
+                let words = match s.status {
+                    "empty" => tr("app.sketch.state_empty"),
+                    "under" => trv("app.sketch.state_under", &[("n", s.dof.to_string())]),
+                    "full" => tr("app.sketch.state_full"),
+                    _ => tr("app.sketch.state_over"),
+                };
+                ui.label(RichText::new(words).size(13.0).color(t.text_dim));
+            }
+        });
+    });
 }
 
 fn entity_name(sk: &Value, id: &str) -> String {

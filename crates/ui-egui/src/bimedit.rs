@@ -427,7 +427,7 @@ fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
                 .tip("Pick a library item file (.item.json) to place on the plan"),
         );
     }
-    vec![
+    let mut groups = vec![
         ToolGroup {
             label: bt("ui.toolbar.view", &[]),
             tools: vec![
@@ -448,10 +448,28 @@ fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
         },
         ToolGroup { label: bt("input.m.build", &[]), tools: build },
         ToolGroup {
+            label: bt("model.draw", &[]),
+            tools: if app.bimh.draw.on {
+                crate::bimplan::DRAW_TOOLS
+                    .iter()
+                    .map(|(k, key, icon)| {
+                        Tool::new(format!("bim.tool={k}"), icon, bt(key, &[]))
+                            .tip(bt(&format!("{key}.title"), &[]))
+                            .on(app.bimh.draw.tool == *k)
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            },
+        },
+        ToolGroup {
             label: bt("input.m.output", &[]),
             tools: vec![Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app))],
         },
-    ]
+    ];
+    // the Draw group only while drawing
+    groups.retain(|g| !g.tools.is_empty());
+    groups
 }
 
 /// The editable part of Properties for the picked element: its attributes and single property values.

@@ -2076,6 +2076,17 @@ pub fn plan_ui(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
 // ------------------------------------------------------------------------------------------------------- the bars
 
 /// The model bar over the plan: level, tools, the tool's options, typed length, views, Fit, units, dimensions, Print.
+/// The plan's drawing tools (model.js's tool buttons), for the toolbar's Draw group: (tool, label key, icon).
+pub const DRAW_TOOLS: [(&str, &str, &str); 7] = [
+    ("select", "model.tool.select", "cursor"),
+    ("wall", "model.tool.wall", "layout-split"),
+    ("door", "model.tool.door", "box-arrow-in-down"),
+    ("window", "model.tool.window", "window"),
+    ("floor", "model.tool.floor", "square"),
+    ("ceiling", "model.tool.ceiling", "layers"),
+    ("roof", "model.tool.roof", "house"),
+];
+
 pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let mut run: Vec<(&'static str, String)> = Vec::new();
@@ -2099,20 +2110,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                 }
             }
         });
-        ui.separator();
-        for (k, key) in [
-            ("select", "model.tool.select"),
-            ("wall", "model.tool.wall"),
-            ("door", "model.tool.door"),
-            ("window", "model.tool.window"),
-            ("floor", "model.tool.floor"),
-            ("ceiling", "model.tool.ceiling"),
-            ("roof", "model.tool.roof"),
-        ] {
-            if ui.add(egui::Button::new(bt(key, &[])).selected(dr.tool == k)).on_hover_text(bt(&format!("{key}.title"), &[])).clicked() {
-                run.push(("bim.tool", k.into()));
-            }
-        }
+        // the tools are the toolbar's Draw group (bimedit.rs `ifc_tool_groups`)
         ui.separator();
         match dr.tool.as_str() {
             "wall" => {

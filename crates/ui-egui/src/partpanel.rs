@@ -64,14 +64,11 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
     pv.view.style.back = if app.preset.is_dark() { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };
     if pv.mode == Mode::Sketch {
+        // the sketch's 0.7 toolbar, its name and solve state under it
+        let groups = crate::partsketchui::sketch_groups(pv);
         egui::Panel::top("part_bar")
-            .exact_size(30.0)
-            .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
-            .show(ui, |ui| {
-                egui::ScrollArea::horizontal().show(ui, |ui| {
-                    ui.horizontal_centered(|ui| crate::partsketchui::sketch_bar(ui, pv, &t, &mut act));
-                });
-            });
+            .frame(egui::Frame::new().fill(t.app_bar))
+            .show(ui, |ui| crate::partsketchui::sketch_toolbar(ui, pv, &t, &mut act, &groups));
     } else {
         // 0.7's toolbar (the sketch's own bar stays a row while a sketch is open)
         let groups = tool_groups(pv);
