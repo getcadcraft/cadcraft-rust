@@ -115,6 +115,25 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: \"[+]x1,y1:x2,y2\" (view points) | \"[+]plan:x1,y1:x2,y2\" (mm on the plan's level)} → to the right wholly inside, to the left touching",
     ),
     ("detail.lasso", "Selection lasso", "", "{name: \"[+]x,y;x,y;…\" (view points)}"),
+    (
+        "detail.drag",
+        "Drag selected parts",
+        "",
+        "{name: \"[ctrl:]<kind:id>:dx,dy,dz[:esc]\"} the held part's offset in the drag's plane (mm, before snapping); ctrl: up and down in 3D; :esc puts it back",
+    ),
+    (
+        "detail.cube",
+        "View cube",
+        "",
+        "{name: top|bottom|front|back|left|right|iso | step:up|down|left|right|cw|ccw | letter:n|e|s|w | home} (3D view)",
+    ),
+    (
+        "detail.drawings",
+        "Drawings",
+        "",
+        "{name: open | close | sheet:<i> | note:<text> | paper:<size> | issue:one[@ms] | issue:all[@ms]} the Drawings dialog and its issue log",
+    ),
+    ("detail.longpress", "Long press", "", "{name: \"<kind:id>\"} a finger held on a part: adds it to the selection or takes it out"),
     ("detail.settings", "Settings window", "", "{name: open | close}"),
 ];
 
@@ -202,6 +221,12 @@ pub struct DetailView {
     pub settings_open: bool,
     /// points to pixels of the last frame (commands with view points use it)
     pub ppp: f64,
+    /// selected parts being dragged (D2, detaildrag.rs)
+    pub drag: Option<crate::detaildrag::PartDrag>,
+    /// a finger held down that may become a long press
+    pub long: Option<crate::detaildrag::LongPress>,
+    /// the Drawings dialog (detaildwg.rs)
+    pub dwg: Option<crate::detaildwg::DwgDlg>,
 }
 
 /// The view's mode (detailcraft.js `viewMode`).
@@ -276,6 +301,9 @@ impl DetailView {
             forms: crate::detailprops::Forms::default(),
             settings_open: false,
             ppp: 1.0,
+            drag: None,
+            long: None,
+            dwg: None,
         };
         v.tools.cur_phase =
             cc_detail::js::arr(v.model.state.get("phases")).first().and_then(|p| p.get("n")).and_then(Value::as_f64).unwrap_or(1.0);
@@ -611,6 +639,13 @@ impl DetailView {
         }
     }
 
+    /// Kept settings taken (detailcraft.js `reloadSettings`: re-apply only what moved, nothing said).
+    pub fn settings_loaded(&mut self, before: &Settings) {
+        if self.settings.steel != before.steel {
+            self.tools.opts.apply_steel(&self.settings.steel);
+        }
+    }
+
     /// The export context (what `recompute` made).
     pub fn ctx(&self) -> detailexport::Ctx<'_> {
         detailexport::Ctx {
@@ -746,6 +781,11 @@ impl DetailView {
             ViewMode::Plan => self.plan_level().map(|(_, z)| ([0.0, 0.0, 1.0], (z + 1500.0) * 0.001)),
             ViewMode::Elevation => self.elev_grid().map(|(_, y)| ([0.0, -1.0, 0.0], -(y - 1000.0) * 0.001)),
         };
+        // an elevation keeps a band 1 m either side of its line: the second cut (view3d.js applyClipping's two planes)
+        self.view.style.section2 = match self.mode {
+            ViewMode::Elevation => self.elev_grid().map(|(_, y)| ([0.0, 1.0, 0.0], (y + 1000.0) * 0.001)),
+            _ => None,
+        };
         self.win = None;
         self.fit();
         self.fit_now();
@@ -821,30 +861,29 @@ impl DetailView {
     /// A click at (sx, sy) physical pixels of the view: the nearest part or footing (view3d.js `pickRef`); what a
     /// plan or an elevation leaves out is not picked.
     pub fn pick_at(&mut self, sx: f64, sy: f64) -> Option<Ref> {
+        self.pick_hit(sx, sy).map(|h| h.0)
+    }
+
+    /// view3d.js `pickRef(l)`: the part or footing under (sx, sy) physical pixels and where the ray met it (mm).
+    pub fn pick_hit(&self, sx: f64, sy: f64) -> Option<(Ref, [f64; 3])> {
         let s = self.scene.as_ref()?;
-        let hit = crate::view3d::pick(&s.scene, &self.view.cam, sx, sy);
+        // what the plan's or elevation's cut leaves drawn (view3d.js: hits on the kept side of every clip plane)
+        let planes = self.cut_planes();
+        let keep = move |p: [f64; 3]| {
+            let q = [p[0] / 0.001, p[1] / 0.001, p[2] / 0.001];
+            planes.iter().all(|pl| pl.n[0] * q[0] + pl.n[1] * q[1] + pl.n[2] * q[2] + pl.d >= 0.0)
+        };
+        let hit = crate::view3d::pick_where(&s.scene, &self.view.cam, sx, sy, &keep);
         let part = hit.and_then(|h| s.refs.get(h.instance).cloned().flatten().map(|r| (r, h.t)));
         let (o, d) = self.view.cam.ray(sx, sy);
-        let band = self.hide_band();
-        let foot_list: Vec<detail3d::FootBox> = s
-            .footings
-            .iter()
-            .filter(|f| match band {
-                Some((axis, a, b)) => {
-                    let (c, h) = (f.c.get(axis).copied().unwrap_or(0.0), f.half.get(axis).copied().unwrap_or(0.0));
-                    !(c + h < a || c - h > b)
-                }
-                None => true,
-            })
-            .cloned()
-            .collect();
-        let foot = detail3d::pick_footing(&foot_list, o, d);
-        match (part, foot) {
-            (Some(a), Some(b)) => Some(if a.1 <= b.1 { a.0 } else { b.0 }),
-            (Some(a), None) => Some(a.0),
-            (None, Some(b)) => Some(b.0),
-            (None, None) => None,
-        }
+        // solid steel before see-through concrete (view3d.js pickRef's sort)
+        let best = match part {
+            Some(p) => p,
+            None => detail3d::pick_footing_where(&s.footings, o, d, &keep)?,
+        };
+        let t = best.1;
+        let at = [(o[0] + d[0] * t) / 0.001, (o[1] + d[1] * t) / 0.001, (o[2] + d[2] * t) / 0.001];
+        Some((best.0, at))
     }
 
     /// The status line: the last message, then the counts (detailcraft.js `renderBar` counts).
@@ -970,9 +1009,22 @@ impl DetailView {
         let resp = crate::view3d::show(ui, rect, &scene3, &mut self.view);
         let placing = self.tools.tool != "select";
         let mods = ui.input(|i| i.modifiers);
+        // a press on the view cube is the cube's (it turns the view itself)
+        let cube_press = ui.input(|i| i.pointer.press_origin()).is_some_and(|p| self.on_cube(rect, p))
+            && ui.input(|i| i.pointer.any_down() || i.pointer.any_released());
+        if cube_press {
+            self.overlays(ui, rect, t, ppp);
+            self.corner_ui(ui, rect, t);
+            return;
+        }
         let hover = resp.hover_pos().map(|p| p - rect.min);
         self.tools.hover = if placing { hover.and_then(|p| self.nearest_node(p, ppp)) } else { None };
-        if resp.drag_started_by(egui::PointerButton::Primary) && !placing && (self.mode != ViewMode::D3 || mods.shift) {
+        self.press(ui, rect, mods);
+        if resp.drag_started_by(egui::PointerButton::Primary)
+            && !placing
+            && self.drag.is_none()
+            && (self.mode != ViewMode::D3 || mods.shift)
+        {
             let origin = ui.input(|i| i.pointer.press_origin()).map_or(egui::Vec2::ZERO, |p| p - rect.min);
             let start = origin.to_pos2();
             self.win = Some(Win {
@@ -989,7 +1041,9 @@ impl DetailView {
         if resp.dragged_by(egui::PointerButton::Primary) {
             let d = resp.drag_delta();
             let (dx, dy) = (f64::from(d.x) * ppp, f64::from(d.y) * ppp);
-            if let Some(w) = self.win.as_mut() {
+            if self.drag.is_some() {
+                // detaildrag.rs follows the pointer in press()
+            } else if let Some(w) = self.win.as_mut() {
                 if let Some(p) = hover {
                     let p = p.to_pos2();
                     w.cur = p;
@@ -1028,6 +1082,7 @@ impl DetailView {
             ui.ctx().request_repaint();
         }
         if resp.clicked_by(egui::PointerButton::Primary)
+            && self.drag.take().is_none_or(|d| !d.moved)
             && let Some(p) = resp.interact_pointer_pos()
         {
             let at = p - rect.min;
@@ -1042,6 +1097,65 @@ impl DetailView {
             ui.ctx().request_repaint();
         }
         self.overlays(ui, rect, t, ppp);
+        self.corner_ui(ui, rect, t);
+    }
+
+    /// view3d.js pointerdown / pointermove / pointerup for the D2 drag and the touch long press: a press on a selected
+    /// part starts a drag (detaildrag.rs), a finger held 0.55 s is Shift+click.
+    fn press(&mut self, ui: &egui::Ui, rect: Rect, mods: egui::Modifiers) {
+        let ppp = self.ppp;
+        let (pressed, released, down, origin, latest, now, touch) = ui.input(|i| {
+            (
+                i.pointer.primary_pressed(),
+                i.pointer.primary_released(),
+                i.pointer.primary_down(),
+                i.pointer.press_origin(),
+                i.pointer.latest_pos(),
+                i.time,
+                i.any_touches(),
+            )
+        });
+        let select = self.tools.tool == "select";
+        if pressed
+            && select
+            && let Some(p) = origin.filter(|p| rect.contains(*p))
+        {
+            let at = (p - rect.min).to_pos2();
+            let hit = self.pick_hit(f64::from(at.x) * ppp, f64::from(at.y) * ppp);
+            self.long = touch.then(|| crate::detaildrag::LongPress { at, since: now, r: hit.as_ref().map(|h| h.0.clone()) });
+            self.drag = None;
+            if !mods.shift
+                && !mods.alt
+                && let Some((r, grab)) = hit
+            {
+                self.drag_start(r, grab, at, mods.command, touch);
+            }
+        }
+        if let Some(p) = latest.map(|p| (p - rect.min).to_pos2()) {
+            if self.long.as_ref().is_some_and(|l| (p - l.at).length() > crate::detaildrag::TAP_TOUCH) {
+                self.long = None;
+            }
+            if down && self.drag.is_some() {
+                self.drag_to(p);
+                ui.ctx().request_repaint();
+            }
+        }
+        if !down {
+            self.long = None;
+        }
+        if let Some(l) = self.long.clone() {
+            if (now - l.since) * 1000.0 >= crate::detaildrag::LONG_MS {
+                self.long = None;
+                self.win = None;
+                self.long_press(l.r);
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            }
+        }
+        if released && self.drag.as_ref().is_some_and(|d| d.moved) {
+            self.drag_end(mods.shift || mods.command);
+            ui.ctx().request_repaint();
+        }
     }
 
     /// Grid bubbles and level names, the placing marker, rubber band and ghost, the selection window.
@@ -1120,6 +1234,18 @@ impl DetailView {
                 );
             }
         }
+        if let Some(d) = self.drag.as_ref().filter(|d| d.moved) {
+            let o = d.offset;
+            for [a, b] in d.ghost.iter().take(4000) {
+                let (pa, pb) = ([a[0] + o[0], a[1] + o[1], a[2] + o[2]], [b[0] + o[0], b[1] + o[1], b[2] + o[2]]);
+                if let (Some(a), Some(b)) = (at_pt(pa), at_pt(pb)) {
+                    painter.extend(egui::Shape::dashed_line(&[a, b], egui::Stroke::new(1.2, pick), 6.0, 4.0));
+                }
+            }
+            if let Some(p) = d.node.and_then(at_pt) {
+                painter.circle(p, 6.0, pick.gamma_multiply(0.35), stroke);
+            }
+        }
         if let Some(w) = &self.win
             && w.moved
         {
@@ -1191,6 +1317,11 @@ pub fn install(app: &mut UiApp, dv: DetailView) {
     app.part = None;
     app.error = None;
     app.message = dv.message.clone();
+    let mut dv = dv;
+    // Settings › DetailCraft as kept (detailcraft.js `readSettings()` at page load)
+    let before = dv.settings.clone();
+    dv.settings = crate::detailexport::Settings::load(&app.dc_prefs);
+    dv.settings_loaded(&before);
     app.detail = Some(dv);
 }
 
@@ -1331,6 +1462,13 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             dv.window_cmd(&name, true, ppp)?;
         }
         "detail.settings" => dv.settings_open = name != "close",
+        "detail.drag" => dv.drag_cmd(&name)?,
+        "detail.cube" => dv.cube_act(&name)?,
+        "detail.drawings" => dv.drawings_cmd(&name, now_ms())?,
+        "detail.longpress" => {
+            let r = Ref::parse(&name).ok_or_else(|| format!("detail.longpress: kind:id expected, not {name}"))?;
+            dv.long_press(dv.exists(&r).then_some(r));
+        }
 
         "detail.set" => {
             if let Err(e) = dv.set(&name) {
@@ -1350,6 +1488,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 return Err(e);
             }
             dv.setting_changed(&before);
+            app.dc_prefs = dv.settings.json();
         }
         "detail.clash" => {
             if let Some(f) = params.factor {
@@ -1521,6 +1660,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
             dv.show(ui, rect, &tok, dark);
         });
         crate::detailprops::settings_window(dv, ui.ctx(), &tok, &mut acts);
+        crate::detaildwg::window(dv, ui.ctx(), &tok, &mut acts);
         if let Some(text) = dv.tools.clip_out.take() {
             ui.ctx().copy_text(text);
         }
@@ -1572,7 +1712,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                 if let Some(dv) = app.detail.as_mut() {
                     if dv.win.take().is_some() {
                         dv.message = t0("sel.window.cancel");
-                    } else {
+                    } else if !dv.drag_cancel() {
                         dv.escape();
                     }
                 }

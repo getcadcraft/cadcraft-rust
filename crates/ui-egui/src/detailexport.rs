@@ -35,6 +35,8 @@ pub struct Settings {
     pub conns: bool,
     /// "rect" | "lasso": what a drag to select draws
     pub drag_sel: String,
+    /// the 3D view's corner indicator: "cube" | "axes" | "none"
+    pub corner: String,
 }
 
 impl Default for Settings {
@@ -53,11 +55,89 @@ impl Default for Settings {
             offset: [6000.0, 0.0, 0.0],
             conns: true,
             drag_sel: "rect".into(),
+            corner: "cube".into(),
         }
     }
 }
 
 impl Settings {
+    /// What is kept between runs (detailcraft.js `persistSettings`: `JSON.stringify(settings)`, key order as there).
+    pub fn json(&self) -> Value {
+        serde_json::json!({
+            "steel": self.steel,
+            "offset": self.offset,
+            "conns": self.conns,
+            "bolts": self.bolts,
+            "corner": self.corner,
+            "paper": self.paper,
+            "kiss": self.kiss,
+            "barNames": self.bar_names,
+            "shapeCodes": self.shape_codes,
+            "dragSel": self.drag_sel,
+            "nest": { "stock": self.nest_stock, "kerf": self.nest_kerf, "trim": self.nest_trim, "keep": self.nest_keep },
+        })
+    }
+
+    /// detailcraft.js `readSettings()`: the defaults, then every kept value that reads (a damaged or foreign one keeps
+    /// its default; kept values are untrusted).
+    pub fn load(v: &Value) -> Settings {
+        let mut out = Settings::default();
+        if !v.is_object() {
+            return out;
+        }
+        let s = |k: &str| v.get(k).and_then(Value::as_str);
+        if let Some(x) = s("steel").filter(|x| ["us", "eu"].contains(x)) {
+            out.steel = x.into();
+        }
+        if let Some(o) = v.get("offset").and_then(Value::as_array).filter(|o| o.len() == 3)
+            && let [Some(x), Some(y), Some(z)] =
+                [0, 1, 2].map(|i| o.get(i).and_then(Value::as_f64).filter(|n| n.is_finite() && n.abs() <= 1e6))
+        {
+            out.offset = [x, y, z];
+        }
+        if let Some(b) = v.get("conns").and_then(Value::as_bool) {
+            out.conns = b;
+        }
+        if let Some(b) = v.get("bolts").and_then(Value::as_bool) {
+            out.bolts = b;
+        }
+        if let Some(x) = s("corner").filter(|x| ["cube", "axes", "none"].contains(x)) {
+            out.corner = x.into();
+        }
+        if let Some(x) = s("paper").filter(|x| cc_detail::paper::PAPER_KEYS.contains(x)) {
+            out.paper = x.into();
+        }
+        if let Some(x) = s("kiss").filter(|x| ["auto", "imperial", "metric"].contains(x)) {
+            out.kiss = x.into();
+        }
+        if let Some(x) = s("dragSel").filter(|x| ["rect", "lasso"].contains(x)) {
+            out.drag_sel = x.into();
+        }
+        if let Some(n) = v.get("nest").filter(|n| n.is_object()) {
+            let num = |x: Option<&Value>| x.map_or(f64::NAN, |x| cc_detail::js::num(Some(x)));
+            let st: Vec<f64> = n
+                .get("stock")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().take(64).map(|x| num(Some(x))).filter(|x| (100.0..=30000.0).contains(x)).take(8).collect())
+                .unwrap_or_default();
+            let nb = |x: Option<&Value>, lo: f64, hi: f64, d: f64| {
+                let x = num(x);
+                if x.is_finite() && x >= lo && x <= hi { x } else { d }
+            };
+            out.nest_stock = if st.is_empty() { vec![6000.0, 12000.0] } else { st };
+            out.nest_kerf = nb(n.get("kerf"), 0.0, 20.0, 3.0);
+            out.nest_trim = nb(n.get("trim"), 0.0, 500.0, 0.0);
+            out.nest_keep = nb(n.get("keep"), 0.0, 30000.0, 500.0);
+        }
+        if let Some(x) = s("barNames").filter(|x| ["imperial", "metric"].contains(x)) {
+            out.bar_names = x.into();
+        }
+        if let Some(x) = s("shapeCodes").filter(|x| ["dc", "aci", "bs8666"].contains(x)) {
+            out.shape_codes = x.into();
+        }
+        out
+    }
+
     /// One setting from "key=value" (detailcraft.js `readSettings` ranges); a bad value is refused.
     pub fn set(&mut self, spec: &str) -> Result<(), String> {
         let (k, v) = spec.split_once('=').ok_or("detail.setting: name = \"key=value\"")?;
@@ -77,6 +157,7 @@ impl Settings {
             "conns" if ["true", "false"].contains(&v) => self.conns = v == "true",
             "steel" if ["us", "eu"].contains(&v) => self.steel = v.into(),
             "dragSel" if ["rect", "lasso"].contains(&v) => self.drag_sel = v.into(),
+            "corner" if ["cube", "axes", "none"].contains(&v) => self.corner = v.into(),
             "offset" => {
                 let o: Vec<f64> = v.split(',').map(|x| cc_detail::js::str_to_number(x.trim())).collect();
                 match o.as_slice() {

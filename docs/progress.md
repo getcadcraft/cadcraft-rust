@@ -2,6 +2,34 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M14.4 DetailCraft's rest: drag to move, the view cube, exact plan / elevation cuts, the Drawings dialog (agent, work/detailfin)
+
+- `detaildrag.rs`: dragging selected parts (0.5 D2, view3d.js `dragParts`): a press on a selected part and a drag moves
+  the selection (connections ride along) across the level in 3D and Plan, up and down with Ctrl in 3D, in the
+  elevation's plane in Elevation; the held part's points snap onto grid intersections within 18 points
+  (`snapOffset`), else 10 mm steps; a dashed ghost follows and the status line says `drag.free` / `drag.snap`; letting
+  go is one Move step (`runXf`), Esc or a drag back to nothing says `drag.cancel`, a press without a move is a click.
+  Touch: a finger held 0.55 s within 12 points is Shift+click (view3d.js `onLongPress`). Commands `detail.drag`
+  (`[ctrl:]kind:id:dx,dy,dz[:esc]`), `detail.longpress`.
+- `detailcorner.rs`: the corner indicator of Settings › DetailCraft (view cube / axis icon / none, 3D only), the 3D
+  tab's cube and icon made reusable (`cad3dtab::cube_widget`, `axis_widget`) and turned onto DetailCraft's camera
+  (faces, face-on steps, compass letters, Home = the standard corner, drag to orbit); `detail.cube`.
+- Plan and elevation cut exactly as view3d.js `applyClipping`: the renderer takes a second section plane
+  (`Style3::section2`, `Frame.clip2`), so an elevation keeps the 2 m band and parts crossing either side are cut; picks
+  take the nearest hit on the kept side of every plane, and steel before see-through concrete (pickRef's sort).
+- `detaildwg.rs`: the Drawings dialog (detailcraft.js `openDrawings` … `issueSheets`): the sheet list with revision
+  tags, sheet size, a preview of the sheet (drawList: white sheet, black ink), the issue log (status, description,
+  Issue this sheet, Issue the n changed: one undo step "Issue drawings") and the downloads in every format; the bar's
+  Drawings button opens it. `detail.drawings` = open | close | sheet:i | note:text | paper:size | issue:one|all[@ms].
+- Settings kept between runs: `Settings::json` / `Settings::load` (readSettings' checks, untrusted values keep their
+  defaults) in the app's settings file under `detailcraft` (desktop) and the browser's storage (web); the corner
+  indicator is a setting now.
+- Parity (forks/tools/dcuidiff-detailfin.mjs + dcdiff/page-detailfin.mjs, which replay view3d.js's drag at 50 mm a
+  pixel with offsets on a node or far from every node, and issueSheets; new steps dcdiff/steps/drag.txt,
+  drag-es.txt, drawings.txt): drag 97/97 (en and es-MX), drawings + issue log 78/78 (en and es-MX); the old sweep
+  unchanged: sample 58/58 (en, es-MX), place 100/100, +conn 135/135, +edit 179/179, +setup 144/144. 1,124 comparisons,
+  0 differences.
+
 ## 2026-11-04 — M6.34–M6.35 ModelCraft finished on main: work/model2 rebased, two m3d_tools fuzz finds, Settings › ModelCraft, view cube, touch, axes in the scene (agent, work/modelfin)
 
 - Rebased work/model2's M6.27–M6.33 (entry below, 2026-10-21) onto main b00a86c, keeping both sides: CivilCraft's

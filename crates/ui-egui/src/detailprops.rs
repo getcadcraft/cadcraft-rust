@@ -1460,6 +1460,8 @@ pub fn settings_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, ac
         .collapsible(false)
         .resizable(true)
         .default_width(420.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
         .open(&mut open)
         .show(ctx, |ui| {
             egui::ScrollArea::vertical().max_height(520.0).show(ui, |ui| {
@@ -1505,6 +1507,15 @@ pub fn settings_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, ac
                 sub(ui, tk, &t0("set.drag.legend"));
                 radio(ui, acts, "dragSel", &s.drag_sel, &[("rect", t0("set.drag.rect")), ("lasso", t0("set.drag.lasso"))]);
                 note(ui, tk, &t0("set.drag.hint"));
+                sub(ui, tk, &t0("settings.corner.legend"));
+                radio(
+                    ui,
+                    acts,
+                    "corner",
+                    &s.corner,
+                    &[("cube", t0("settings.corner.cube")), ("axes", t0("settings.corner.axes")), ("none", t0("settings.corner.none"))],
+                );
+                note(ui, tk, &t0("settings.corner.hint"));
                 sub(ui, tk, &t0("set.paper.legend"));
                 let papers: Vec<(String, String)> =
                     cc_detail::paper::PAPER_KEYS.iter().map(|k| (k.to_string(), cc_detail::paper::paper_label(k))).collect();

@@ -24,6 +24,8 @@ struct Frame {
     sh: vec4<f32>,
     // x = 1: material textures shown
     opts: vec4<f32>,
+    // a second section cut, as `clip` (both are kept)
+    clip2: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> fr: Frame;
 @group(1) @binding(0) var smap: texture_depth_2d;
@@ -70,7 +72,8 @@ struct FaceOut {
 };
 
 fn cut(rel: vec3<f32>) -> bool {
-    return dot(fr.clip.xyz, fr.clip.xyz) > 0.0 && dot(fr.clip.xyz, rel) > fr.clip.w;
+    return (dot(fr.clip.xyz, fr.clip.xyz) > 0.0 && dot(fr.clip.xyz, rel) > fr.clip.w)
+        || (dot(fr.clip2.xyz, fr.clip2.xyz) > 0.0 && dot(fr.clip2.xyz, rel) > fr.clip2.w);
 }
 
 @vertex

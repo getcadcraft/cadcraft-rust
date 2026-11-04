@@ -60,6 +60,9 @@ pub mod civiltools;
 pub mod civilview;
 pub mod cloudview;
 pub mod detail3d;
+pub mod detailcorner;
+pub mod detaildrag;
+pub mod detaildwg;
 pub mod detailexport;
 pub mod detailpanel;
 pub mod detailprops;
@@ -360,6 +363,8 @@ pub struct UiApp {
     pub mc_prefs: serde_json::Value,
     /// what CivilCraft keeps between runs (Settings › CivilCraft, the mass haul factor; 0.5: localStorage)
     pub cv_prefs: serde_json::Value,
+    /// Settings › DetailCraft kept between runs (detailcraft.js `detailcraft.settings`; in the app's settings file)
+    pub dc_prefs: serde_json::Value,
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -484,6 +489,7 @@ impl Default for UiApp {
             zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
             cv_prefs: serde_json::Value::Null,
+            dc_prefs: serde_json::Value::Null,
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),

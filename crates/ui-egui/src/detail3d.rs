@@ -586,6 +586,12 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
 
 /// The nearest footing box a ray (metres) passes through: (ref, distance).
 pub fn pick_footing(list: &[FootBox], o: [f64; 3], d: [f64; 3]) -> Option<(Ref, f64)> {
+    pick_footing_where(list, o, d, &|_| true)
+}
+
+/// [`pick_footing`] keeping only hits at world points (metres) that pass `keep`: where the ray enters the box, else
+/// where it leaves it (a footing's faces are seen from both sides).
+pub fn pick_footing_where(list: &[FootBox], o: [f64; 3], d: [f64; 3], keep: &dyn Fn([f64; 3]) -> bool) -> Option<(Ref, f64)> {
     let mut best: Option<(Ref, f64)> = None;
     for f in list {
         // into the box's frame
@@ -607,8 +613,13 @@ pub fn pick_footing(list: &[FootBox], o: [f64; 3], d: [f64; 3]) -> Option<(Ref, 
             t0 = t0.max(a.min(b));
             t1 = t1.min(a.max(b));
         }
-        if hit && t0 <= t1 && best.as_ref().is_none_or(|(_, bt)| t0 < *bt) {
-            best = Some((f.r.clone(), t0));
+        if !hit || t0 > t1 {
+            continue;
+        }
+        let at = |t: f64| [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
+        let Some(t) = [t0, t1].into_iter().find(|t| keep(at(*t))) else { continue };
+        if best.as_ref().is_none_or(|(_, bt)| t < *bt) {
+            best = Some((f.r.clone(), t));
         }
     }
     best

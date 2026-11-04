@@ -107,7 +107,7 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
             label: t0("page.group.output"),
             tools: vec![
                 Tool::new("menu:export", "box-arrow-up-right", t0("input.m.export")),
-                Tool::new("menu:drawings", "files", t0("page.tool.drawings")).tip(t0("page.tool.drawings.title")),
+                Tool::new("drawings", "files", t0("page.tool.drawings")).tip(t0("page.tool.drawings.title")),
                 Tool::new("shop", "file-earmark-arrow-down", t0("page.tool.shop"))
                     .tip(why_shop.clone().unwrap_or_else(|| t0("page.tool.shop.title")))
                     .enabled(why_shop.is_none()),
@@ -207,45 +207,12 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
                     }
                 });
             }
-            "menu:drawings" => {
-                egui::Popup::menu(&resp).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
-                    ui.label(RichText::new(t0("dwg.format.label")).color(tk.text_dim));
-                    for f in ["pdf", "dwg-AC1032", "dwg-AC1027", "dwg-AC1024", "dwg-AC1021", "dwg-AC1018", "dwg-AC1015", "dxf"] {
-                        let label = crate::detailexport::format_name(f).unwrap_or_default();
-                        ui.radio_value(&mut dv.dwg_format, f.to_string(), label);
-                    }
-                    ui.separator();
-                    let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
-                    let mut paper = dv.settings.paper.clone();
-                    egui::ComboBox::new("detail_paper", "")
-                        .selected_text(cc_detail::paper::paper_label(&paper))
-                        .show_ui(ui, |ui| {
-                            for k in cc_detail::paper::PAPER_KEYS {
-                                ui.selectable_value(&mut paper, k.to_string(), cc_detail::paper::paper_label(k));
-                            }
-                        })
-                        .response
-                        .labelled_by(pl.id);
-                    if paper != dv.settings.paper {
-                        run(acts, "detail.setting", format!("paper={paper}"));
-                    }
-                    ui.separator();
-                    let fname = crate::detailexport::format_name(&dv.dwg_format).unwrap_or_default();
-                    if ui
-                        .add(crate::shell::Btn::new(t("dwg.all", &[("format", F::S(fname))])))
-                        .on_hover_text(t0("page.tool.drawings.title"))
-                        .clicked()
-                    {
-                        run(acts, "detail.export", format!("drawings:{}", dv.dwg_format));
-                        ui.close();
-                    }
-                });
-            }
             _ if !resp.clicked() => {}
             "save" => run(acts, "detail.save", String::new()),
             "undo" => run(acts, "detail.undo", String::new()),
             "redo" => run(acts, "detail.redo", String::new()),
             "shop" => run(acts, "detail.export", "shop".into()),
+            "drawings" => run(acts, "detail.drawings", "open".into()),
             "bolts" => run(acts, "detail.setting", format!("bolts={}", !dv.settings.bolts)),
             "settings" => run(acts, "detail.settings", "open".into()),
             x => {

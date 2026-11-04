@@ -133,14 +133,12 @@ Last updated 2026-11-04 · Change: ModelCraft finished on main (M6.27–M6.35: f
    face, measure / mass / section, design-table CSV import, the exact kernel's features (they say "not built", as 0.5's
    mesh build does), Spanish words.
    **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; LISP scripts are in (M4.40; `drawing_plot` since M4.12, plot.js ported). The window's live tools are in (M16.3, drawing_plot M4.12) except view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
-   **DetailCraft** (M14.1, M14.3): view, properties, reports, clash, every 0.5 export, and the modelling tools (placing on
-   grid intersections with snapping and Add by grid, connections and their parameters with Apply to similar, copy / cut /
-   paste / duplicate, move / rotate / mirror, Change on all of them, window / crossing / lasso selection, grids, levels,
-   phases, holes, copes, custom profiles, Settings, plan and elevation views) at parity with the frozen JS doing the same.
-   Missing: dragging selected parts to move them (D2), the view cube and axis icon, a plan / elevation that clips parts
-   crossing its band exactly (one section plane; parts wholly outside are hidden), the drawings dialog's preview and issue
-   log, the clipboard between windows only through the system clipboard (no localStorage), settings kept between runs,
-   touch long-press, es-MX labels; the bar's view buttons (Iso, Top, Front, Right) are plain English.
+   **DetailCraft** (M14.1, M14.3, M14.4): view, properties, reports, clash, every 0.5 export, the modelling tools,
+   dragging selected parts (D2), the view cube / axis icon, plan / elevation cut exactly, the Drawings dialog with its
+   preview and issue log, settings kept between runs, the touch long press, es-MX at parity with the frozen JS doing
+   the same. Missing: the clipboard between windows only through the system clipboard (no localStorage); the shop
+   drawing opens no preview dialog (it downloads, as the dialog's PDF button does); a bolt picked in 3D selects
+   nothing (0.5 selects its connection).
 9. **Words** (M3.6–M3.7): every app speaks en or es-MX (0.5's catalogs unchanged; Settings or the start screen
    switches; the desktop keeps it, the web keeps it in the browser or follows `?lang=` / the browser's language). es-MX
    parity: kdiff 4426/4426, mkuidiff 17/17, cvuidiff all, cvtooldiff 76/76 + 2084/2084, dcuidiff 58/58, pcuidiff all,

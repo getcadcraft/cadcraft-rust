@@ -110,6 +110,11 @@ pub fn invert(m: &[f64; 16]) -> Option<[f64; 16]> {
 /// The nearest hit (ray parameter t ≥ 0) of a ray with a mesh's triangles, in the mesh's own frame (positions relative
 /// to its origin): Möller–Trumbore in f64, both sides.
 pub fn ray_mesh(m: &MeshData, o: [f64; 3], d: [f64; 3]) -> Option<f64> {
+    ray_mesh_where(m, o, d, &|_| true)
+}
+
+/// [`ray_mesh`] keeping only hits whose t passes `keep` (a section cut: the nearest hit on the side that is drawn).
+pub fn ray_mesh_where(m: &MeshData, o: [f64; 3], d: [f64; 3], keep: &dyn Fn(f64) -> bool) -> Option<f64> {
     let p = |i: u32| m.positions.get(i as usize).map(|v| [f64::from(v[0]), f64::from(v[1]), f64::from(v[2])]);
     let mut best: Option<f64> = None;
     for t in m.indices.as_chunks::<3>().0 {
@@ -133,7 +138,7 @@ pub fn ray_mesh(m: &MeshData, o: [f64; 3], d: [f64; 3]) -> Option<f64> {
             continue;
         }
         let tt = f * (e2[0] * q[0] + e2[1] * q[1] + e2[2] * q[2]);
-        if tt >= 0.0 && best.is_none_or(|b| tt < b) {
+        if tt >= 0.0 && best.is_none_or(|b| tt < b) && keep(tt) {
             best = Some(tt);
         }
     }
@@ -335,7 +340,7 @@ impl MeshData {
 
 const VSTRIDE: u64 = 40; // pos 12 + normal 12 + colour 4 + texture u, v, layer 12
 const ISTRIDE: u64 = 128; // m 64 + normal matrix 48 + tint 16
-const FRAME: u64 = 272;
+const FRAME: u64 = 288;
 
 /// A mesh on the GPU.
 #[derive(Debug)]
@@ -419,6 +424,8 @@ pub struct Style3 {
     pub back: [f32; 3],
     /// a section cut (world): normal and offset; what lies where n · p > d is not drawn
     pub section: Option<([f64; 3], f64)>,
+    /// a second cut kept at the same time (DetailCraft's elevation: a band either side of its grid line)
+    pub section2: Option<([f64; 3], f64)>,
     /// sun shadows (view3d.js with `style.shadows`): the sun lights the faces and casts shadows on them and on a
     /// ground under the model; None = the fixed light, no shadows
     pub sun: Option<Sun3>,
@@ -457,6 +464,7 @@ impl Default for Style3 {
             edge: [0.08, 0.09, 0.1, 1.0],
             back: [0.62, 0.66, 0.74],
             section: None,
+            section2: None,
             sun: None,
             textures: true,
             back_own: false,
@@ -961,14 +969,15 @@ impl Renderer3 {
         fb.extend_from_slice(&style.edge);
         fb.extend_from_slice(&[shade[0], shade[1], shade[2], nudge]);
         // the cut in the scene-origin frame: n · (p_rel + origin) > d  ⇔  n · p_rel > d − n · origin
-        match style.section {
+        let cut = |fb: &mut Vec<f32>, sec: Option<([f64; 3], f64)>| match sec {
             Some((n, d)) => {
                 let o = set.origin;
                 let w = d - (n[0] * o[0] + n[1] * o[1] + n[2] * o[2]);
                 fb.extend_from_slice(&[n[0] as f32, n[1] as f32, n[2] as f32, w as f32]);
             }
             None => fb.extend_from_slice(&[0.0; 4]),
-        }
+        };
+        cut(&mut fb, style.section);
         // hidden line: every face filled with the background colour, so only the edges in front show
         if style.hidden_line {
             fb.extend_from_slice(&[style.background[0], style.background[1], style.background[2], 1.0]);
@@ -987,6 +996,7 @@ impl Renderer3 {
         fb.extend_from_slice(&[-0.0004, 0.02, 1.0 / SHADOW_SIZE as f32, 0.28]);
         // x = 1: faces show their material textures
         fb.extend_from_slice(&[if style.textures && !style.hidden_line { 1.0 } else { 0.0 }, 0.0, 0.0, 0.0]);
+        cut(&mut fb, style.section2);
         let bytes: Vec<u8> = fb.iter().flat_map(|v| v.to_le_bytes()).collect();
         queue.write_buffer(&self.frame, 0, &bytes);
         let (inst_buf, ranges) = (&set.buf, &set.ranges);

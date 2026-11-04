@@ -138,6 +138,11 @@ impl Picker {
 
 /// The nearest instance under pixel (sx, sy) of the camera's drawing area.
 pub fn pick(scene: &Scene3D, cam: &Cam3, sx: f64, sy: f64) -> Option<Hit> {
+    pick_where(scene, cam, sx, sy, &|_| true)
+}
+
+/// [`pick`] keeping only hits at world points (metres) that pass `keep` (what a section cut leaves drawn).
+pub fn pick_where(scene: &Scene3D, cam: &Cam3, sx: f64, sy: f64, keep: &dyn Fn([f64; 3]) -> bool) -> Option<Hit> {
     let picker = scene.picker.get_or_init(|| Picker::new(scene));
     let (o, d) = cam.ray(sx, sy);
     let tmax = std::cell::Cell::new(f64::INFINITY);
@@ -157,7 +162,8 @@ pub fn pick(scene: &Scene3D, cam: &Cam3, sx: f64, sy: f64) -> Option<Hit> {
             inv[1] * d[0] + inv[5] * d[1] + inv[9] * d[2],
             inv[2] * d[0] + inv[6] * d[1] + inv[10] * d[2],
         ];
-        if let Some(t) = cc_render::mesh3d::ray_mesh(mesh, lo, ld)
+        let at = |t: f64| [o[0] + d[0] * t, o[1] + d[1] * t, o[2] + d[2] * t];
+        if let Some(t) = cc_render::mesh3d::ray_mesh_where(mesh, lo, ld, &|t| keep(at(t)))
             && t < tmax.get()
         {
             tmax.set(t);

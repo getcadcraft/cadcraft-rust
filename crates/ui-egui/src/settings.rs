@@ -107,6 +107,7 @@ impl UiApp {
             "cadcraftInput": self.ribbon.prefs(),
             "helpCtx": self.help.saved,
             "cadcraftMyTools": crate::mytoolsdlg::prefs(self),
+            "detailcraft": self.detail.as_ref().map_or_else(|| self.dc_prefs.clone(), |d| d.settings.json()),
         })
     }
 
@@ -141,6 +142,14 @@ impl UiApp {
         self.help.load_ctx(v.get("helpCtx").unwrap_or(&Value::Null));
         if let Some(p) = v.get("cadcraftMyTools") {
             crate::mytoolsdlg::load_prefs(self, p);
+        }
+        if let Some(p) = v.get("detailcraft").filter(|p| p.is_object()) {
+            self.dc_prefs = p.clone();
+            if let Some(d) = self.detail.as_mut() {
+                let before = d.settings.clone();
+                d.settings = crate::detailexport::Settings::load(p);
+                d.settings_loaded(&before);
+            }
         }
     }
 
