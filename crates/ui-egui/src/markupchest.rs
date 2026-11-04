@@ -306,7 +306,7 @@ impl PdfView {
     pub fn signature_dialog(&mut self, ctx: &egui::Context, tok: &Tokens) {
         let Some(crate::markupedit::Dialog::Signature { mut strokes, mut error }) = self.dlg.clone() else { return };
         let (mut close, mut ok) = (false, false);
-        egui::Window::new(t0("image.signature.title")).collapsible(false).resizable(false).show(ctx, |ui| {
+        crate::shell::Dialog::new(t0("image.signature.title")).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.label(t0("image.signature.text"));
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(520.0, 180.0), egui::Sense::drag());
             ui.painter().rect_filled(rect, 2.0, egui::Color32::WHITE);
@@ -341,7 +341,7 @@ impl PdfView {
                     strokes.clear();
                 }
                 close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                ok = ui.add(crate::shell::Btn::new(t0("image.signature.ok"))).clicked();
+                ok = ui.add(crate::shell::Btn::primary(t0("image.signature.ok"))).clicked();
             });
         });
         if ok {

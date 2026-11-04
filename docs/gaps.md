@@ -168,6 +168,6 @@ the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG im
     the start screen laid out as the website's /apps page are in (docs/ui-notes.md). The other
     apps' toolbars and docks are 0.7's since M17.2–M17.6 (ModelCraft, MarkupCraft, DetailCraft, PartCraft, BimCraft's
     IFC view, CivilCraft, TakeoffCraft); still the old look: the panels' section heads (themed egui widgets; fields, tabs and buttons are 0.7's since
-    M17.10–M17.11), the dialogs' layouts (egui windows: centred titles, no backdrop, no filled primary button). Not in
+    M17.10–M17.11), the dialogs' inner layouts (their titles, backdrop and primary buttons are 0.7's since M17.12). Not in
     CadCraft's window yet: the layer row's freeze / lock / plot flags, "New layer" and "Tools", clicking a layer name
     to make it current, the snap-kinds menu after QP, the command history's first lines ("CadCraft is ready…").

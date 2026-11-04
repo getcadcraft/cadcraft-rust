@@ -1138,7 +1138,7 @@ impl PdfView {
             Dialog::ChestName { mut name, mut error } => {
                 let mut save = false;
                 let kind = self.tools.selected().and_then(|id| self.store.get(id)).map(|m| m.kind.clone()).unwrap_or_default();
-                egui::Window::new(t0("chest.save.one")).collapsible(false).resizable(false).show(ctx, |ui| {
+                crate::shell::Dialog::new(t0("chest.save.one")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0(if kind == "stamp" { "chest.dlg.text.stamp" } else { "chest.dlg.text" }));
                     let l = ui.label(t0("chest.dlg.name"));
                     ui.add(crate::shell::field(&mut name)).labelled_by(l.id);
@@ -1162,7 +1162,7 @@ impl PdfView {
             }
             Dialog::SpaceName { pts, mut name, mut error } => {
                 let mut add = false;
-                egui::Window::new(t0("space.name.title")).collapsible(false).resizable(false).show(ctx, |ui| {
+                crate::shell::Dialog::new(t0("space.name.title")).collapsible(false).resizable(false).show(ctx, |ui| {
                     let l = ui.label(t0("space.name"));
                     ui.add(crate::shell::field(&mut name)).labelled_by(l.id);
                     if !error.is_empty() {
@@ -1186,11 +1186,11 @@ impl PdfView {
             Dialog::RemoveTool { index } => {
                 let name = self.tools.chest.get(index).map(|t| crate::markupchest::tstr(t, "name")).unwrap_or_default();
                 let mut ok = false;
-                egui::Window::new(t0("chest.remove.h")).collapsible(false).resizable(false).show(ctx, |ui| {
+                crate::shell::Dialog::new(t0("chest.remove.h")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t("chest.remove.text", &[("tool", Fill::S(name))]));
                     ui.horizontal(|ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                        ok = ui.add(crate::shell::Btn::new(t0("chest.remove.ok"))).clicked();
+                        ok = ui.add(crate::shell::Btn::primary(t0("chest.remove.ok"))).clicked();
                     });
                 });
                 if ok {
@@ -1200,7 +1200,7 @@ impl PdfView {
             }
             Dialog::Rename { mut number, mut title } => {
                 let mut save = false;
-                egui::Window::new(t0("props.rename")).collapsible(false).resizable(false).show(ctx, |ui| {
+                crate::shell::Dialog::new(t0("props.rename")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0("rename.text"));
                     let l = ui.label(t0("props.sheet_number"));
                     ui.add(crate::shell::field(&mut number)).labelled_by(l.id);
@@ -1226,7 +1226,7 @@ impl PdfView {
                     ("pages.extract.title", "pages.extract.text", "pages.extract.ok")
                 };
                 let mut go = false;
-                egui::Window::new(t0(h)).collapsible(false).resizable(false).show(ctx, |ui| {
+                crate::shell::Dialog::new(t0(h)).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0(body));
                     let l = ui.label(t("pages.ask.label", &[("n", Fill::N(n as f64))]));
                     ui.add(crate::shell::field(&mut text)).labelled_by(l.id);

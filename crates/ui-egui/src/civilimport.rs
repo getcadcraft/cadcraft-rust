@@ -252,7 +252,7 @@ impl CivilView {
 pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec<(&'static str, String)>) {
     let Some(d) = cv.import.clone() else { return };
     let mut open = true;
-    egui::Window::new(t0("ui.imp.h"))
+    crate::shell::Dialog::new(t0("ui.imp.h"))
         .id(egui::Id::unique("civil_import_dialog"))
         .open(&mut open)
         .collapsible(false)
@@ -311,7 +311,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 if ui.add(crate::shell::Btn::new(t0("ui.cancel"))).clicked() {
                     acts.push(("civil.import", "cancel".into()));
                 }
-                if ui.add_enabled(!d.res.points.is_empty(), crate::shell::Btn::new(t0("ui.imp.ok"))).clicked() {
+                if ui.add_enabled(!d.res.points.is_empty(), crate::shell::Btn::primary(t0("ui.imp.ok"))).clicked() {
                     acts.push(("civil.import", "ok".into()));
                 }
             });

@@ -642,7 +642,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let label = |id: &str| tx(&d.p.label_key(id));
     let conflicts = ip::conflicts(&d.p, reg);
     let unplaced = ip::unplaced(&d.p, reg);
-    egui::Window::new(shell("shell.input.dlg.title", &[("style", name_of(&d.p))]))
+    crate::shell::Dialog::new(shell("shell.input.dlg.title", &[("style", name_of(&d.p))]))
         .id(egui::Id::unique("input_customize"))
         .open(&mut open)
         .collapsible(false)

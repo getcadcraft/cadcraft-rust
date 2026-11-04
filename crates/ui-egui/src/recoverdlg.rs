@@ -23,7 +23,7 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
         .collect();
     let mut act: Option<(&'static str, usize)> = None;
     let mut open = true;
-    egui::Window::new(RichText::new(title).strong().color(tok.text_strong))
+    crate::shell::Dialog::new(RichText::new(title).strong().color(tok.text_strong))
         .id(egui::Id::unique("recover_dlg"))
         .open(&mut open)
         .collapsible(false)

@@ -428,7 +428,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
         let mut open = true;
         let mut add: Option<&str> = None;
         let mut cancel = false;
-        egui::Window::new(t("tv.title", &[]))
+        crate::shell::Dialog::new(t("tv.title", &[]))
             .open(&mut open)
             .collapsible(false)
             .resizable([true, false])
@@ -570,7 +570,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
         let mut open = true;
         let mut go = false;
         let mut cancel = false;
-        egui::Window::new(t("pc.dlg.title", &[]))
+        crate::shell::Dialog::new(t("pc.dlg.title", &[]))
             .open(&mut open)
             .collapsible(false)
             .resizable([true, false])

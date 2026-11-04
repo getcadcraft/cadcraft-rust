@@ -179,7 +179,7 @@ pub fn settings_window(cv: &mut CivilView, ctx: &egui::Context, tk: &crate::them
     }
     let mut open = true;
     let dim = |s: String| egui::RichText::new(s).small().color(tk.text_dim);
-    egui::Window::new(format!("{} › CivilCraft", t("input.cmd.app.settings", &[])))
+    crate::shell::Dialog::new(format!("{} › CivilCraft", t("input.cmd.app.settings", &[])))
         .id(egui::Id::unique("cv_settings"))
         .open(&mut open)
         .collapsible(false)

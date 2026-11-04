@@ -56,7 +56,11 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - M17.11: buttons in every panel and dialog as 0.7's `.btn-line` (`shell::Btn`: the action colour's text and 2 px
   border, 30 px; plain items inside menus), 0.7's 17 px bold heading for window titles; the theme's tokens kept in the
   context for widgets that get none. Full sweep 0 differences.
-- Next (gaps item 12): CadCraft's layer flags, 3D backgrounds.
+- M17.12: every window is a `shell::Dialog` (0.7's dialog: its own title row, the 17 px bold title at the left, ✕ at
+  the right, a 1 px rule under it; the page dimmed behind a modal one; the Library, Sheet set, Parameters and Quick
+  Properties panels stay modeless) and the dialogs' main action is 0.7's filled button (`Btn::primary`: Download PDF,
+  OK, Apply; 21 places). Full sweep 0 differences.
+- Next (gaps item 12): CadCraft's layer flags and snap kinds, 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

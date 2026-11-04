@@ -357,7 +357,7 @@ impl ModelView {
     pub fn dialogs(&mut self, ctx: &egui::Context) {
         let mut act: Option<String> = None;
         if let Some(Text3dDlg { mut text, mut height, mut depth, err }) = self.text_dlg.clone() {
-            egui::Window::new(mt("app.text3d.h", &[]))
+            crate::shell::Dialog::new(mt("app.text3d.h", &[]))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

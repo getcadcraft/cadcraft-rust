@@ -345,7 +345,7 @@ fn keys_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut open = true;
     let mut acts: Vec<(&str, String)> = Vec::new();
     let w = &mut app.winset;
-    egui::Window::new(t("keys.title"))
+    crate::shell::Dialog::new(t("keys.title"))
         .id(egui::Id::unique("cad_keys"))
         .open(&mut open)
         .collapsible(false)
@@ -421,7 +421,7 @@ fn cmp_window(app: &mut UiApp, ctx: &egui::Context) {
     let diff = rows.iter().filter(|r| !r.same).count();
     let mut open = true;
     let mut acts: Vec<(&str, String)> = Vec::new();
-    egui::Window::new(t("cmp.title"))
+    crate::shell::Dialog::new(t("cmp.title"))
         .id(egui::Id::unique("cad_cmp"))
         .open(&mut open)
         .collapsible(false)

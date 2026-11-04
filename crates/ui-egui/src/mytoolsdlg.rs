@@ -703,7 +703,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let icon = icon_texture(app, ctx, e.icon.as_deref());
     let mut acts: Vec<(&'static str, Option<String>)> = Vec::new();
     let mut open = true;
-    egui::Window::new(t(if e.id.is_some() { "mytools.dlg.edit" } else { "mytools.dlg.add" }))
+    crate::shell::Dialog::new(t(if e.id.is_some() { "mytools.dlg.edit" } else { "mytools.dlg.add" }))
         .id(egui::Id::unique("cad_mytools_edit"))
         .open(&mut open)
         .collapsible(false)

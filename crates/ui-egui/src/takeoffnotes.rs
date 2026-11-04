@@ -286,7 +286,7 @@ impl TakeoffMode {
         let Some(ask) = self.note_ask.as_mut() else { return };
         let title = t(&format!("note.new.{}", ask.kind));
         let mut done: Option<Option<String>> = None;
-        egui::Window::new(title).collapsible(false).resizable(false).show(ctx, |ui| {
+        crate::shell::Dialog::new(title).collapsible(false).resizable(false).show(ctx, |ui| {
             let l = ui.label(t("note.f.text"));
             ui.add(egui::TextEdit::multiline(&mut ask.text).desired_rows(4).char_limit(2000)).labelled_by(l.id);
             ui.horizontal(|ui| {
@@ -687,7 +687,7 @@ impl TakeoffMode {
         let mut act: Option<bool> = None;
         #[allow(clippy::cast_precision_loss)]
         let text = tn("group.dlg.text", ask.ids.len() as f64);
-        egui::Window::new(t("group.dlg")).collapsible(false).resizable(false).show(ctx, |ui| {
+        crate::shell::Dialog::new(t("group.dlg")).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.label(text);
             let l = ui.label(t("group.f.name"));
             ui.add(crate::shell::field(&mut ask.name).char_limit(200)).labelled_by(l.id);
@@ -700,7 +700,7 @@ impl TakeoffMode {
                 if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                     act = Some(false);
                 }
-                if ui.add(crate::shell::Btn::new(t("group.dlg.ok"))).clicked() {
+                if ui.add(crate::shell::Btn::primary(t("group.dlg.ok"))).clicked() {
                     act = Some(true);
                 }
             });

@@ -572,7 +572,7 @@ impl TakeoffMode {
         if let Some(mut name) = self.area_dialog.take() {
             let mut open = true;
             let mut done = None;
-            egui::Window::new(t("area.new.title")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
+            crate::shell::Dialog::new(t("area.new.title")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
                 ui.label(t("area.new.text"));
                 let l = ui.label(t("area.name"));
                 let r = ui.add(crate::shell::field(&mut name).hint_text(t("area.name.placeholder"))).labelled_by(l.id);
@@ -601,7 +601,7 @@ impl TakeoffMode {
             let mut open = true;
             let mut act: Option<String> = None;
             let areas: Vec<Value> = self.tk.state.get("areas").and_then(Value::as_array).cloned().unwrap_or_default();
-            egui::Window::new(t("area.manage.title")).collapsible(false).open(&mut open).show(ctx, |ui| {
+            crate::shell::Dialog::new(t("area.manage.title")).collapsible(false).open(&mut open).show(ctx, |ui| {
                 ui.label(t("area.manage.text"));
                 if areas.is_empty() {
                     ui.label(t("area.manage.none"));

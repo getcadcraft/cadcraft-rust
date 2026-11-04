@@ -588,3 +588,148 @@ impl egui::Widget for Btn {
         if on { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
     }
 }
+
+impl Btn {
+    /// The filled primary button (0.7 `.btn-cc`: the action fill, on-action text), for a dialog's main action
+    /// (Download PDF, OK / Apply, Open).
+    pub fn primary(text: impl Into<egui::WidgetText>) -> Primary {
+        Primary { text: text.into() }
+    }
+}
+
+/// See [`Btn::primary`].
+pub struct Primary {
+    text: egui::WidgetText,
+}
+
+impl egui::Widget for Primary {
+    fn ui(self, ui: &mut egui::Ui) -> Response {
+        let t = tokens_of(ui.ctx());
+        let on = ui.is_enabled();
+        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, semi(14.0));
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 30.0), Sense::click());
+        let fill = if !on {
+            crate::theme::mix(t.accent, t.panel, 0.45)
+        } else if resp.hovered() {
+            crate::theme::mix(t.accent, t.rule, 0.85)
+        } else {
+            t.accent
+        };
+        ui.painter().rect(r, 2.0, fill, Stroke::new(2.0, fill), egui::StrokeKind::Inside);
+        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, t.on_accent);
+        if on { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
+    }
+}
+
+/// A dialog as 0.7 shows them: a window with its own title row (the 17 px bold title at the left, ✕ at the right, a
+/// 1 px rule under it) and, for a modal one, the page dimmed behind it. It takes egui::Window's builder calls.
+pub struct Dialog<'a> {
+    win: egui::Window<'a>,
+    title: egui::WidgetText,
+    open: Option<&'a mut bool>,
+    titled: bool,
+    modal: bool,
+}
+
+impl<'a> Dialog<'a> {
+    pub fn new(title: impl Into<egui::WidgetText>) -> Dialog<'a> {
+        let title: egui::WidgetText = title.into();
+        Dialog { win: egui::Window::new(title.clone()).title_bar(false), title, open: None, titled: true, modal: true }
+    }
+    /// A panel-like window: no dimmed page behind it.
+    pub fn modeless(mut self) -> Self {
+        self.modal = false;
+        self
+    }
+    pub fn open(mut self, open: &'a mut bool) -> Self {
+        self.open = Some(open);
+        self
+    }
+    /// `false`: no title row at all (the window draws its own).
+    pub fn title_bar(mut self, on: bool) -> Self {
+        self.titled = on;
+        self
+    }
+    /// Kept for egui::Window's call shape: a dialog never folds.
+    pub fn collapsible(self, _on: bool) -> Self {
+        self
+    }
+    pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {
+        let Dialog { win, title, open, titled, modal } = self;
+        if open.as_deref() == Some(&false) {
+            return None;
+        }
+        let t = tokens_of(ctx);
+        if modal {
+            // 0.7's ::backdrop: the page dimmed, on a background layer above the panels, under the windows
+            let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("cc-dialog-backdrop")));
+            let a = if t.text.r() > 128 { 0.55 } else { 0.32 };
+            p.rect_filled(ctx.content_rect(), 0.0, Color32::BLACK.gamma_multiply(a));
+        }
+        let mut close = false;
+        let r = win.show(ctx, |ui| {
+            if titled {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(title.text()).font(bold(17.0)).color(t.text_strong));
+                    if open.is_some() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let (br, resp) = ui.allocate_exact_size(Vec2::new(30.0, 30.0), Sense::click());
+                            let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+                            if resp.hovered() {
+                                ui.painter().rect(br, 2.0, t.hover, Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
+                            }
+                            crate::ribbon::paint_icon(ui.painter(), Rect::from_center_size(br.center(), Vec2::splat(14.0)), "x-lg", t.text);
+                            close = resp.clicked();
+                        });
+                    }
+                });
+                let full = ui.max_rect();
+                let (rr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 9.0), Sense::hover());
+                ui.painter().line_segment(
+                    [Pos2::new(full.left() - 16.0, rr.center().y), Pos2::new(full.right() + 16.0, rr.center().y)],
+                    Stroke::new(1.0, t.divider),
+                );
+            }
+            add(ui)
+        });
+        if close && let Some(o) = open {
+            *o = false;
+        }
+        r
+    }
+}
+
+macro_rules! forward {
+    ($($name:ident($($arg:ident: $ty:ty),*)),* $(,)?) => {
+        impl<'a> Dialog<'a> {
+            $(pub fn $name(mut self, $($arg: $ty),*) -> Self {
+                self.win = self.win.$name($($arg),*);
+                self
+            })*
+        }
+    };
+}
+
+forward!(
+    id(id: egui::Id),
+    resizable(on: impl Into<egui::Vec2b>),
+    default_pos(p: impl Into<Pos2>),
+    current_pos(p: impl Into<Pos2>),
+    fixed_pos(p: impl Into<Pos2>),
+    default_width(w: f32),
+    default_height(h: f32),
+    default_size(s: impl Into<Vec2>),
+    default_rect(r: Rect),
+    min_width(w: f32),
+    min_height(h: f32),
+    max_width(w: f32),
+    max_height(h: f32),
+    pivot(a: egui::Align2),
+    anchor(a: egui::Align2, o: impl Into<Vec2>),
+    constrain(on: bool),
+    vscroll(on: bool),
+    hscroll(on: bool),
+    order(o: egui::Order),
+    auto_sized(),
+    frame(f: egui::Frame),
+);

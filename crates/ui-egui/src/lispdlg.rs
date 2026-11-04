@@ -464,8 +464,8 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     dcl_window(app, ctx);
 }
 
-fn dialog<'a>(title: String, id: &str, ctx: &egui::Context) -> egui::Window<'a> {
-    egui::Window::new(title)
+fn dialog<'a>(title: String, id: &str, ctx: &egui::Context) -> crate::shell::Dialog<'a> {
+    crate::shell::Dialog::new(title)
         .id(egui::Id::unique(id))
         .collapsible(false)
         .resizable(true)
@@ -624,7 +624,7 @@ fn blocks_window(app: &mut UiApp, ctx: &egui::Context) {
             if ui.add(crate::shell::Btn::new(t("aliases.cancel"))).clicked() {
                 answer = Some(String::new());
             }
-            if ui.add(crate::shell::Btn::new(t("delblocks.dialog.ok"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if ui.add(crate::shell::Btn::primary(t("delblocks.dialog.ok"))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 answer = Some(picked.join(","));
             }
         });
@@ -645,7 +645,7 @@ fn dcl_window(app: &mut UiApp, ctx: &egui::Context) {
     let title = sattr(&view.tree, "label").unwrap_or_default();
     let mut used: Option<(String, Option<String>)> = None;
     let mut v = view;
-    egui::Window::new(if title.is_empty() { " ".to_string() } else { title })
+    crate::shell::Dialog::new(if title.is_empty() { " ".to_string() } else { title })
         .id(egui::Id::unique("cad_dcl"))
         .collapsible(false)
         .resizable(false)

@@ -985,7 +985,8 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let mut open = true;
     let p = &app.sheetset;
     let fname = folder_name(app);
-    egui::Window::new(t("sheetset.h"))
+    crate::shell::Dialog::new(t("sheetset.h"))
+        .modeless()
         .id(egui::Id::unique("cad_sheetset"))
         .open(&mut open)
         .default_pos(egui::pos2(240.0, 80.0))
@@ -1298,7 +1299,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
     let folder = app.sheetset.folder.clone().unwrap_or_default();
     let fname = folder_name(app);
     let mut picked_folder = false;
-    egui::Window::new(title)
+    crate::shell::Dialog::new(title)
         .id(egui::Id::unique("cad_sheetset_form"))
         .collapsible(false)
         .resizable(false)
@@ -1312,7 +1313,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.f.name"), name, false);
                     field(ui, &t("sheetset.f.projectname"), pname, false);
                     field(ui, &t("sheetset.f.projectnumber"), pnumber, false);
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() && !name.trim().is_empty() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() && !name.trim().is_empty() {
                         picked_folder = true;
                     }
                 }
@@ -1339,7 +1340,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     for (l, on) in layouts.iter_mut() {
                         ui.checkbox(on, l.as_str());
                     }
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         let chosen: Vec<String> = layouts.iter().filter(|x| x.1).map(|x| x.0.clone()).collect();
                         ok = Some(("ss.add", format!("{file}|{}", chosen.join(","))));
                     }
@@ -1357,20 +1358,20 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         let (tf, tl) = template.split_once('|').unwrap_or((template.as_str(), ""));
                         ok = Some(("ss.newsheet", format!("{}|{}|{tf}|{tl}", number.trim(), title.trim())));
                     }
                 }
                 Form::Subset { name } => {
                     field(ui, &t("sheetset.f.name"), name, false);
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.subset", name.clone()));
                     }
                 }
                 Form::RenameSubset { name, .. } => {
                     field(ui, &t("sheetset.f.name"), name, false);
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.rename", name.clone()));
                     }
                 }
@@ -1381,7 +1382,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.f.description"), description, true);
                     field(ui, &t("sheetset.f.sheetfields"), fields, true);
                     ui.label(RichText::new(t("sheetset.f.custom.hint")).small());
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.rename", json!({ "number": number, "title": title, "description": description, "fields": fields }).to_string()));
                     }
                 }
@@ -1395,7 +1396,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.renumber.start"), start, false);
                     field(ui, &t("sheetset.renumber.step"), step, false);
                     field(ui, &t("sheetset.renumber.digits"), digits, false);
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.renumber", format!("{which}|{prefix}|{start}|{step}|{digits}")));
                     }
                 }
@@ -1405,7 +1406,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(RichText::new(t("sheetset.rule.hint")).small());
                     field(ui, &t("sheetset.rule.start"), start, false);
                     ui.checkbox(auto, t("sheetset.rule.auto.yes"));
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.numbering", format!("{rule}|{start}|{}", if *auto { "yes" } else { "no" })));
                     }
                 }
@@ -1426,7 +1427,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    if ui.add(crate::shell::Btn::new(t("sheetset.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.ok"))).clicked() {
                         ok = Some(("ss.props", json!({ "name": name, "PROJECTNAME": pname, "PROJECTNUMBER": pnumber, "custom": custom, "layoutNames": layout_names }).to_string()));
                     }
                 }
@@ -1449,7 +1450,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                 }
                 Form::Update { n } => {
                     ui.label(tv("sheetset.update.text", &[("n", n.to_string())]));
-                    if ui.add(crate::shell::Btn::new(t("sheetset.update.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("sheetset.update.ok"))).clicked() {
                         ok = Some(("ss.update", String::new()));
                     }
                 }

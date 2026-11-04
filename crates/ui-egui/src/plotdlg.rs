@@ -310,7 +310,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let mut close = false;
     let mut pick = false;
     let mut open = true;
-    egui::Window::new(t("ui.plot_pdf"))
+    crate::shell::Dialog::new(t("ui.plot_pdf"))
         .open(&mut open)
         .resizable(false)
         .pivot(egui::Align2::CENTER_CENTER)
@@ -453,7 +453,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         {
                             publish = true;
                         }
-                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.download_pdf"))).clicked() {
+                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::primary(t("ui.download_pdf"))).clicked() {
                             do_save = true;
                         }
                         if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.open_print"))).clicked() {

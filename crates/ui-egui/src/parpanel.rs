@@ -320,7 +320,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let buf = |p: &mut ParPanel, name: &str, field: &'static str, init: &str| -> String {
         p.bufs.iter().find(|(k, _)| k.0 == name && k.1 == field).map_or_else(|| init.to_string(), |(_, v)| v.clone())
     };
-    egui::Window::new(t("ui.parameters")).open(&mut open).resizable(true).default_width(520.0).show(ctx, |ui| {
+    crate::shell::Dialog::new(t("ui.parameters")).modeless().open(&mut open).resizable(true).default_width(520.0).show(ctx, |ui| {
         ui.label(RichText::new(&status).color(tok.text_dim));
         if rows.is_empty() {
             ui.label(RichText::new(t("params.panel.empty")).color(tok.text_dim));
@@ -491,7 +491,7 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
         ),
         None => (screen.center(), egui::Align2::CENTER_CENTER),
     };
-    egui::Window::new(title)
+    crate::shell::Dialog::new(title)
         .id(egui::Id::unique("dc_edit_window").with(&cid))
         .collapsible(false)
         .resizable(false)
@@ -511,7 +511,7 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
                 if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
                     cancel = true;
                 }
-                if ui.add(crate::shell::Btn::new(crate::lang::t0(&cc_civil::i18n::CATALOG, "crs.d.apply"))).clicked() {
+                if ui.add(crate::shell::Btn::primary(crate::lang::t0(&cc_civil::i18n::CATALOG, "crs.d.apply"))).clicked() {
                     apply = true;
                 }
             });

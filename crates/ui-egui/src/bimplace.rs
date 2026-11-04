@@ -560,7 +560,7 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
     let Some(mut a) = app.bimh.draw.ask.clone() else { return };
     let name = app.bimh.draw.placing.as_ref().map(|p| p.entry.name.clone()).unwrap_or_default();
     let mut act: Option<&'static str> = None;
-    egui::Window::new(bt("place.dlg.title", &[("name", &name)]))
+    crate::shell::Dialog::new(bt("place.dlg.title", &[("name", &name)]))
         .min_width(440.0)
         .collapsible(false)
         .resizable(false)
@@ -577,7 +577,7 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
                 field(ui, "place.dlg.height", h, "bim_place_h");
             }
             ui.horizontal(|ui| {
-                if ui.add(crate::shell::Btn::new(bt("place.dlg.ok", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                if ui.add(crate::shell::Btn::primary(bt("place.dlg.ok", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     act = Some("bim.place.ok");
                 }
                 if ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {

@@ -582,7 +582,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
     let kinds = cv.gis_export_kinds();
     let crs = cv.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
     let mut open = true;
-    egui::Window::new(t0("vec.x.title")).id(egui::Id::unique("cv_gis_export")).open(&mut open).collapsible(false).show(ctx, |ui| {
+    crate::shell::Dialog::new(t0("vec.x.title")).id(egui::Id::unique("cv_gis_export")).open(&mut open).collapsible(false).show(ctx, |ui| {
         ui.label(egui::RichText::new(t0("vec.x.what")).strong().color(tk.text_strong));
         for k in &kinds {
             let mut on = d.keys.contains(&k.key);

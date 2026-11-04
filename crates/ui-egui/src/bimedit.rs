@@ -572,7 +572,7 @@ pub fn new_dialog(app: &mut UiApp, ctx: &egui::Context) {
     let Some(mut dlg) = app.bimh.new_dlg.clone() else { return };
     let mut go = false;
     let mut cancel = false;
-    egui::Window::new(RichText::new(bt("new.title", &[])).strong()).collapsible(false).resizable(false).show(ctx, |ui| {
+    crate::shell::Dialog::new(RichText::new(bt("new.title", &[])).strong()).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.label(bt("new.lede", &[]));
         let l = ui.label(bt("new.name", &[]));
         ui.add(crate::shell::field(&mut dlg.name).id_salt("bim_new_name")).labelled_by(l.id);

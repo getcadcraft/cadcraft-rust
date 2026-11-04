@@ -524,7 +524,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
         ui.add(egui::Label::new(RichText::new(s).small().color(tk.text_dim)).wrap());
     };
     let pu = if cv.project.units() == "m" { "m" } else { "ft" };
-    egui::Window::new(tr!("cad.ui.title", file = d.file.as_str()))
+    crate::shell::Dialog::new(tr!("cad.ui.title", file = d.file.as_str()))
         .id(egui::Id::unique("cv_cad"))
         .pivot(egui::Align2::CENTER_TOP)
         .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))

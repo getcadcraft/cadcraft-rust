@@ -837,17 +837,20 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
 /// The question Delete asks when other features use the one being deleted.
 fn confirm_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     let Some((_, title, text)) = pv.confirm.clone() else { return };
-    egui::Window::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ui.ctx(), |ui| {
-        ui.label(RichText::new(text).color(t.text));
-        ui.horizontal(|ui| {
-            if ui.add(crate::shell::Btn::new(tr("app.btn.cancel"))).clicked() {
-                pv.confirm = None;
-            }
-            if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.delete_all")).strong())).clicked() {
-                *act = cmd("part.delete", "yes");
-            }
-        });
-    });
+    crate::shell::Dialog::new(title).collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(
+        ui.ctx(),
+        |ui| {
+            ui.label(RichText::new(text).color(t.text));
+            ui.horizontal(|ui| {
+                if ui.add(crate::shell::Btn::new(tr("app.btn.cancel"))).clicked() {
+                    pv.confirm = None;
+                }
+                if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.delete_all")).strong())).clicked() {
+                    *act = cmd("part.delete", "yes");
+                }
+            });
+        },
+    );
 }
 
 fn facts(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {

@@ -205,7 +205,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let zoom_now = app.settings.zoom;
     // CadCraft's sections make it long: it scrolls within the window
     let max_h = (ctx.content_rect().height() - 60.0).max(200.0);
-    egui::Window::new(title(app))
+    crate::shell::Dialog::new(title(app))
         .open(&mut open)
         .collapsible(false)
         .resizable(false)

@@ -1249,9 +1249,12 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
     let Some(mut d) = cv.maps.dlg.clone() else { return };
     let list = cv.maps_list();
     let mut open = true;
-    egui::Window::new(t0("mapl.title")).id(egui::Id::unique("cv_maps")).open(&mut open).collapsible(false).default_width(520.0).show(
-        ctx,
-        |ui| {
+    crate::shell::Dialog::new(t0("mapl.title"))
+        .id(egui::Id::unique("cv_maps"))
+        .open(&mut open)
+        .collapsible(false)
+        .default_width(520.0)
+        .show(ctx, |ui| {
             if !cv.internet_on() {
                 ui.label(RichText::new(format!("{} {}", t0("mapl.off.head"), t0("mapl.off.body"))).small().color(tk.text));
                 if ui.add(crate::shell::Btn::new(t0("mapl.open_settings"))).clicked() {
@@ -1372,8 +1375,7 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                 ui.label(RichText::new(&d.status).small().color(tk.text));
             }
             ui.label(RichText::new(t0("mapl.screen_only")).small().color(tk.text_dim));
-        },
-    );
+        });
     if !open {
         cv.maps.dlg = None;
     }

@@ -1308,7 +1308,7 @@ pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
     let name = app.cadprops.custom_name.clone();
     let mut run: Vec<(&str, Option<String>)> = Vec::new();
     let mut open = true;
-    egui::Window::new(l.t("props.custom.title", &[("type", name)]))
+    crate::shell::Dialog::new(l.t("props.custom.title", &[("type", name)]))
         .id(egui::Id::unique("props_custom"))
         .pivot(egui::Align2::CENTER_CENTER)
         .default_pos(ctx.content_rect().center())
@@ -1354,7 +1354,7 @@ pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
                     run.push(("props.custom.reset", None));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(crate::shell::Btn::new(l.s("props.custom.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(l.s("props.custom.ok"))).clicked() {
                         run.push(("props.custom.ok", None));
                     }
                     if ui.add(crate::shell::Btn::new(l.s("props.custom.cancel"))).clicked() {
@@ -1824,7 +1824,8 @@ fn quick(app: &mut UiApp, ctx: &egui::Context, asks: &mut Asks) {
     let name = if ents.len() == 1 { ents.first().map(|e| type_name(e, &l)).unwrap_or_default() } else { group_label(g, &l) };
     let mut close = false;
     let edits = &mut app.cadprops.edits;
-    egui::Window::new(name)
+    crate::shell::Dialog::new(name)
+        .modeless()
         .id(egui::Id::unique("cad_quick_props"))
         .title_bar(true)
         .collapsible(false)

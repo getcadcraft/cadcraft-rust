@@ -311,7 +311,7 @@ fn qs_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut ok = false;
     let mut cancel = false;
     let mut open = true;
-    egui::Window::new(t("dlg.qs.title"))
+    crate::shell::Dialog::new(t("dlg.qs.title"))
         .open(&mut open)
         .resizable(false)
         .pivot(egui::Align2::CENTER_CENTER)
@@ -408,7 +408,7 @@ fn qs_window(app: &mut UiApp, ctx: &egui::Context) {
                 let total = if q.apply == "sel" { q.current.len() } else { total };
                 ui.label(RichText::new(tv("dlg.qs.count", &[("n", found.to_string()), ("total", total.to_string())])).color(tok.text_dim));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(crate::shell::Btn::new(RichText::new(t("dlg.qs.ok")).strong())).clicked() {
+                    if ui.add(crate::shell::Btn::primary(RichText::new(t("dlg.qs.ok")).strong())).clicked() {
                         ok = true;
                     }
                     if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
@@ -440,7 +440,7 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut set: Vec<String> = Vec::new();
     let mut act: Option<&str> = None;
     let mut open = true;
-    egui::Window::new(t("dlg.find.title"))
+    crate::shell::Dialog::new(t("dlg.find.title"))
         .open(&mut open)
         .resizable(true)
         .default_size([420.0, 360.0])

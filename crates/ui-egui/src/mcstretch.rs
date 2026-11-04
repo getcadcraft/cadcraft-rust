@@ -171,7 +171,7 @@ impl ModelView {
     pub fn stretch_dialogs(&mut self, ctx: &egui::Context, act: &mut Option<String>) {
         if let Some(StretchDlg { iid, name, mut size, err }) = self.stretch_dlg.clone() {
             let mut a: Option<String> = None;
-            egui::Window::new(mt("app.dyn.h", &[("name", &name)]))
+            crate::shell::Dialog::new(mt("app.dyn.h", &[("name", &name)]))
                 .collapsible(false)
                 .resizable(false)
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

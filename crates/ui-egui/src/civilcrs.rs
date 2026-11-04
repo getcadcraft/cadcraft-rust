@@ -1529,7 +1529,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
     let mut open = true;
     let title = if d.pick { t0("crs.d.title.pick") } else { t0("vec.import.crs") };
     let problem = egui::Color32::from_rgb(0xd0, 0x4a, 0x5a);
-    egui::Window::new(title)
+    crate::shell::Dialog::new(title)
         .id(egui::Id::unique("cv_crs"))
         .pivot(egui::Align2::CENTER_TOP)
         .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
@@ -1740,7 +1740,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
 /// A question (0.5's host.ask) as a small window.
 pub fn ask_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec<(&'static str, String)>) {
     let Some(a) = &cv.gis3.ask else { return };
-    egui::Window::new(&a.title)
+    crate::shell::Dialog::new(&a.title)
         .id(egui::Id::unique("cv_ask"))
         .pivot(egui::Align2::CENTER_TOP)
         .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))

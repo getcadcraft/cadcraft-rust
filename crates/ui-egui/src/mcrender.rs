@@ -555,7 +555,7 @@ impl ModelView {
             }
         }
         let mut open = true;
-        egui::Window::new(mt("render.title", &[]))
+        crate::shell::Dialog::new(mt("render.title", &[]))
             .id(egui::Id::unique("mc-render-dialog"))
             .collapsible(false)
             .resizable(false)

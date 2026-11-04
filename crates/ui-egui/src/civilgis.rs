@@ -904,7 +904,7 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
     let notes = cv.gis_import_notes();
     let crs_lines = cv.gis_import_crs_lines();
     let what = cv.gis_import_what();
-    egui::Window::new(t0("layers.undo.import"))
+    crate::shell::Dialog::new(t0("layers.undo.import"))
         .id(egui::Id::unique("cv_gis_import"))
         .open(&mut open)
         .collapsible(false)

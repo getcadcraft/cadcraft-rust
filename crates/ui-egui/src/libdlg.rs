@@ -361,7 +361,7 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut open = true;
     match &dlg.req {
         ChooseReq::Block { file, names } => {
-            egui::Window::new(tv("app.insertf.title", &[("file", file.clone())]))
+            crate::shell::Dialog::new(tv("app.insertf.title", &[("file", file.clone())]))
                 .id(egui::Id::unique("cad_insertf"))
                 .open(&mut open)
                 .collapsible(false)
@@ -422,7 +422,7 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
             }
         }
         ChooseReq::Ask { title, text, buttons } => {
-            egui::Window::new(title.clone())
+            crate::shell::Dialog::new(title.clone())
                 .id(egui::Id::unique("cad_ask"))
                 .open(&mut open)
                 .collapsible(false)
@@ -469,7 +469,8 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
     let mut copy: Option<String> = None;
     let lib = app.lib.clone();
     let uses = app.editor.as_ref().map(|e| library_uses(&e.eng.doc())).unwrap_or_default();
-    egui::Window::new(t("lib.panel.library"))
+    crate::shell::Dialog::new(t("lib.panel.library"))
+        .modeless()
         .id(egui::Id::unique("cad_library"))
         .open(&mut open)
         .collapsible(false)

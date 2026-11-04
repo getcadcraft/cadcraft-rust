@@ -285,7 +285,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
         let info = cv.xs_info().unwrap_or_default();
         let mut open = true;
         let mut close = false;
-        egui::Window::new(tr!("xs.ui.title", name = name.as_str()))
+        crate::shell::Dialog::new(tr!("xs.ui.title", name = name.as_str()))
             .id(egui::Id::unique("civil_xs_dialog"))
             .open(&mut open)
             .collapsible(false)
@@ -361,7 +361,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
         let name = find_al(&cv.project.state, &m.al).map(|a| string_of(a.get("name"))).unwrap_or_default();
         let mut open = true;
         let mut close = false;
-        egui::Window::new(tr!("mh.title", name = name.as_str()))
+        crate::shell::Dialog::new(tr!("mh.title", name = name.as_str()))
             .id(egui::Id::unique("civil_mh_dialog"))
             .open(&mut open)
             .collapsible(false)

@@ -1526,7 +1526,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         if !dv.report.is_empty() {
             let mut open = true;
-            egui::Window::new(RichText::new(t("app.ifc.rep.title", &[("file", F::S(dv.name.clone()))])).strong())
+            crate::shell::Dialog::new(RichText::new(t("app.ifc.rep.title", &[("file", F::S(dv.name.clone()))])).strong())
                 .collapsible(false)
                 .resizable(true)
                 .default_width(420.0)
@@ -1538,7 +1538,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         }
                         ui.label(RichText::new(t0("app.ifc.rep.note")).color(tok.text_dim));
                     });
-                    if ui.add(crate::shell::Btn::new(t0("app.ok"))).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t0("app.ok"))).clicked() {
                         acts.push(crate::detailpanel::Act::CloseReport);
                     }
                 });

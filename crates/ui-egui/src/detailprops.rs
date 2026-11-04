@@ -1456,7 +1456,7 @@ pub fn settings_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, ac
     let mut open = true;
     let s = dv.settings.clone();
     let set = |acts: &mut Vec<Act>, kv: String| run(acts, "detail.setting", kv);
-    egui::Window::new(RichText::new(t0("input.cmd.app.settings")).strong())
+    crate::shell::Dialog::new(RichText::new(t0("input.cmd.app.settings")).strong())
         .collapsible(false)
         .resizable(true)
         .default_width(420.0)

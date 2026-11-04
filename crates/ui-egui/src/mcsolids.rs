@@ -342,7 +342,7 @@ impl ModelView {
     pub fn more_dialogs(&mut self, ctx: &egui::Context, act: &mut Option<String>) {
         if let Some(StoreysDlg { mut rows, err }) = self.storeys_dlg.clone() {
             let mut a: Option<String> = None;
-            egui::Window::new(mt("app.storeys.h", &[]))
+            crate::shell::Dialog::new(mt("app.storeys.h", &[]))
                 .min_width(380.0)
                 .collapsible(false)
                 .resizable(false)

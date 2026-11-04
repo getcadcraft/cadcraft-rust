@@ -1146,7 +1146,7 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
     let dim = |ui: &mut egui::Ui, s: &str| {
         ui.add(egui::Label::new(RichText::new(s).small().color(tk.text_dim)).wrap());
     };
-    egui::Window::new(t0(if lidar { "tui.title.lidar" } else { "tui.title.grid" }))
+    crate::shell::Dialog::new(t0(if lidar { "tui.title.lidar" } else { "tui.title.grid" }))
         .id(egui::Id::unique("cv_terrain"))
         .pivot(egui::Align2::CENTER_TOP)
         .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
@@ -1533,7 +1533,7 @@ pub fn geotiff_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
         return;
     }
     let mut open = true;
-    egui::Window::new(t0("tui.gt.title"))
+    crate::shell::Dialog::new(t0("tui.gt.title"))
         .id(egui::Id::unique("cv_geotiff"))
         .pivot(egui::Align2::CENTER_TOP)
         .default_pos(egui::pos2(ctx.content_rect().center().x, ctx.content_rect().min.y + 70.0))
