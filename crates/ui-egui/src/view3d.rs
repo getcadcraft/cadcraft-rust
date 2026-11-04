@@ -28,6 +28,37 @@ pub struct Scene3D {
     pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
     /// lines in the scene, depth-tested with it (ModelCraft's drawing axes and guide lines)
     pub lines: Option<Arc<cc_render::lines3::Lines3>>,
+    /// a picture of the view asked for (TakeoffCraft's PNG): drawn again offscreen and read back into it
+    pub snapshot: Option<Arc<std::sync::Mutex<Snapshot>>>,
+}
+
+/// A picture read back: width, height, RGBA rows.
+pub type Picture = (u32, u32, Vec<u8>);
+
+/// A picture of the view (viewimage.js `viewPng`): the view drawn again offscreen at `scale` times its size in physical
+/// pixels (at most 8192 a side) and read back without waiting on the GPU — the pixels land in a later frame, on the web
+/// too — as (width, height, RGBA rows) in `out`.
+#[derive(Debug, Default)]
+pub struct Snapshot {
+    pub scale: f64,
+    pub out: Option<Result<Picture, String>>,
+    started: bool,
+}
+
+impl Snapshot {
+    pub fn new(scale: f64) -> Arc<std::sync::Mutex<Snapshot>> {
+        Arc::new(std::sync::Mutex::new(Snapshot { scale, out: None, started: false }))
+    }
+}
+
+/// A read back under way: the buffer, the picture's size, its padded row, whether the map finished, where it goes.
+struct Pending {
+    buf: egui_wgpu::wgpu::Buffer,
+    w: u32,
+    h: u32,
+    padded: u32,
+    done: Arc<std::sync::Mutex<Option<Result<(), String>>>>,
+    slot: Arc<std::sync::Mutex<Snapshot>>,
 }
 
 /// A point cloud in a 3D scene: its points and colours (shared, not copied) and how they are drawn.
@@ -58,6 +89,7 @@ impl Scene3D {
             textures: Arc::default(),
             images: Vec::new(),
             lines: None,
+            snapshot: None,
         }
     }
     /// Hide some instances (a storey, a class): not drawn, not picked.
@@ -201,6 +233,8 @@ pub struct Gpu3 {
     line_pass: cc_render::lines3::LinePass,
     lines: Option<(Arc<cc_render::lines3::Lines3>, cc_render::lines3::GpuLines)>,
     shown_lines: Option<Arc<cc_render::lines3::Lines3>>,
+    /// pictures being read back (Snapshot)
+    pending: Vec<Pending>,
 }
 
 /// Install the 3D renderer next to the 2D one (hosts call [`crate::canvas::install_gpu`], which calls this).
@@ -224,6 +258,7 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         line_pass: cc_render::lines3::LinePass::new(&rs.device),
         lines: None,
         shown_lines: None,
+        pending: Vec::new(),
     };
     rs.renderer.write().callback_resources.insert(g);
 }
@@ -372,6 +407,78 @@ impl egui_wgpu::CallbackTrait for Callback {
         }
         if let Some(cap) = &self.capture {
             capture(device, queue, g, cap);
+        }
+        // a picture asked for: drawn again offscreen at its size, copied to a buffer that is mapped without waiting
+        if let Some(slot) = &self.scene.snapshot {
+            let start = slot.lock().map(|mut c| !std::mem::replace(&mut c.started, true)).unwrap_or(false);
+            if start && let Some(set) = &g.instances {
+                let k = slot.lock().map(|c| c.scale).unwrap_or(1.0);
+                let k = if k.is_finite() && k > 0.0 { k } else { 1.0 };
+                let (pw, ph) = (f64::from(self.px.0) * k, f64::from(self.px.1) * k);
+                let fit = (8192.0 / pw.max(ph).max(1.0)).min(1.0);
+                let (w, h) = (((pw * fit).round() as u32).max(1), ((ph * fit).round() as u32).max(1));
+                let t = Target3::new(device, w, h);
+                let cam = Cam3 { width: f64::from(w), height: f64::from(h), ..self.cam };
+                g.renderer.render(
+                    device,
+                    queue,
+                    &t,
+                    Scene3 { meshes: &g.meshes, instances: set, bounds: Some((self.scene.min, self.scene.max)) },
+                    &cam,
+                    &self.style,
+                );
+                let padded = (w * 4).div_ceil(256) * 256;
+                let buf = device.create_buffer(&egui_wgpu::wgpu::BufferDescriptor {
+                    label: Some("cc3 picture"),
+                    size: u64::from(padded) * u64::from(h),
+                    usage: egui_wgpu::wgpu::BufferUsages::COPY_DST | egui_wgpu::wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut enc = device.create_command_encoder(&egui_wgpu::wgpu::CommandEncoderDescriptor { label: Some("cc3 picture") });
+                enc.copy_texture_to_buffer(
+                    egui_wgpu::wgpu::TexelCopyTextureInfo {
+                        texture: &t.color,
+                        mip_level: 0,
+                        origin: egui_wgpu::wgpu::Origin3d::ZERO,
+                        aspect: egui_wgpu::wgpu::TextureAspect::All,
+                    },
+                    egui_wgpu::wgpu::TexelCopyBufferInfo {
+                        buffer: &buf,
+                        layout: egui_wgpu::wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(padded), rows_per_image: Some(h) },
+                    },
+                    egui_wgpu::wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+                );
+                queue.submit([enc.finish()]);
+                let done: Arc<std::sync::Mutex<Option<Result<(), String>>>> = Arc::default();
+                let d2 = done.clone();
+                buf.slice(..).map_async(egui_wgpu::wgpu::MapMode::Read, move |r| {
+                    if let Ok(mut d) = d2.lock() {
+                        *d = Some(r.map_err(|e| e.to_string()));
+                    }
+                });
+                g.pending.push(Pending { buf, w, h, padded, done, slot: slot.clone() });
+            }
+        }
+        if !g.pending.is_empty() {
+            let _ = device.poll(egui_wgpu::wgpu::PollType::Poll);
+            g.pending.retain(|p| {
+                let Some(r) = p.done.lock().ok().and_then(|mut d| d.take()) else { return true };
+                let out = r.and_then(|()| {
+                    let data = p.buf.slice(..).get_mapped_range().map_err(|e| e.to_string())?;
+                    let row = (p.w * 4) as usize;
+                    let mut px = Vec::with_capacity(row * p.h as usize);
+                    for y in 0..p.h as usize {
+                        let a = y * p.padded as usize;
+                        px.extend_from_slice(data.get(a..a + row).ok_or("short read back")?);
+                    }
+                    Ok((p.w, p.h, px))
+                });
+                p.buf.unmap();
+                if let Ok(mut c) = p.slot.lock() {
+                    c.out = Some(out);
+                }
+                false
+            });
         }
         Vec::new()
     }
