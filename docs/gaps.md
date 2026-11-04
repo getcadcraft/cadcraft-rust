@@ -126,7 +126,7 @@ Last updated 2026-11-04 · Change: ModelCraft finished on main (M6.27–M6.35: f
    PDF (M13.9); draft / zebra / curvature analysis (M13.10); assemblies: copies, inserts, joints, limits, motion and
    interference checks, edit in place, Edit menu, save / open (M13.11); part properties, BOM, exploded views, typed
    moves and the assembly's exports (M13.12); es-MX at parity in every scenario. Missing: the drag gizmo (moving a part
-   or an explode step by dragging in the view), base planes drawn in the view; the exact kernel's features (sweep, loft, surfaces, bodies, sheet metal, rib) say
+   or an explode step by dragging in the view); base planes in the view are in (M13.13); the exact kernel's features (sweep, loft, surfaces, bodies, sheet metal, rib) say
    "not built", as 0.5's mesh build does.
    **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; LISP scripts are in (M4.40; `drawing_plot` since M4.12, plot.js ported). The window's live tools are in (M16.3, drawing_plot M4.12) except view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
    **DetailCraft** (M14.1, M14.3): view, properties, reports, clash, every 0.5 export, and the modelling tools (placing on

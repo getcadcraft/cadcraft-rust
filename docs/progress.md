@@ -2,6 +2,13 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M13.13 PartCraft base planes in the view (agent, work/partfin)
+
+- view3d.js `buildPlanes` / `pickAt`: the front, top and right planes drawn over the view (translucent quads at 0.6 of
+  the model's size, outlines, the origin triad) while there is no solid, Sketch waits for a plane, or a plane is
+  selected; hover and selection tinted (layer cyan / orange); a click on one selects it (`part.plane`), and with Sketch
+  waiting starts the sketch there. The part's faces and edges are picked first, as in 0.5.
+
 ## 2026-11-04 — M13.12 PartCraft assembly tools: part properties, BOM, exploded views, exports (agent, work/partfin)
 
 - `crates/ui-egui/src/partasmui.rs`: asm-ui.js — a part's number, description, material (bom.js presets, custom,

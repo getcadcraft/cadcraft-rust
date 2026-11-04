@@ -1363,7 +1363,11 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
                 (None, Some((Some(f), p, _))) => {
                     pv.face(f).map(|r| ("part.face", format!("{}|{},{},{}", jv::s(r, "name"), p[0], p[1], p[2])))
                 }
-                _ => Some(("part.face", String::new())),
+                // nothing of the part under the pointer: a base plane, when they are shown (view3d.js pickAt)
+                _ => match px.and_then(|(x, y)| plane_at(pv, x, y)) {
+                    Some(name) => Some(("part.plane", name.to_string())),
+                    None => Some(("part.face", String::new())),
+                },
             }
         };
         if let Some((id, n)) = name {
@@ -1420,6 +1424,7 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
             }
         }
     }
+    draw_base_planes(ui, rect, pv, t, ppp, px);
     crate::partdesign::draw_refs(ui, rect, pv, t, ppp);
     crate::partmeasure::overlay(ui, rect, pv, t, ppp);
     crate::partmeasure::cards(ui, rect, pv, t, act);
@@ -1432,6 +1437,107 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
         let r = Rect::from_min_size(at, galley.size()).expand(4.0);
         ui.painter().rect_filled(r, f32::from(t.radius), t.panel_darker);
         ui.painter().galley(at, galley, t.text_strong);
+    }
+}
+
+/// view3d.js `buildPlanes`: are the base planes shown? (no solid yet, Sketch waiting for a plane, a plane selected)
+fn planes_shown(pv: &PartView) -> bool {
+    pv.mode == Mode::Model
+        && !pv.in_asm()
+        && pv.drawing.is_none()
+        && (pv.regen.mesh.is_none() || pv.pending_sketch || pv.sel_plane.is_some())
+}
+
+/// The base planes' corners in the part's frame (vec.js `BASE_PLANES`, ±0.6 of the view's size).
+fn plane_corners(pv: &PartView) -> Vec<(&'static str, [[f64; 3]; 4])> {
+    let size = pv
+        .regen
+        .stats
+        .as_ref()
+        .and_then(|s| s.get("bbox"))
+        .map(|b| {
+            let (lo, hi) =
+                (crate::partview::p3(b.get("min").unwrap_or(&Value::Null)), crate::partview::p3(b.get("max").unwrap_or(&Value::Null)));
+            let d = ((hi[0] - lo[0]).powi(2) + (hi[1] - lo[1]).powi(2) + (hi[2] - lo[2]).powi(2)).sqrt();
+            (d / 1.4).max(10.0)
+        })
+        .unwrap_or(100.0);
+    let s = size * 0.6;
+    let frames: [(&str, [f64; 3], [f64; 3]); 3] = [
+        ("front", [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]),
+        ("top", [1.0, 0.0, 0.0], [0.0, 0.0, -1.0]),
+        ("right", [0.0, 0.0, -1.0], [0.0, 1.0, 0.0]),
+    ];
+    frames
+        .iter()
+        .map(|(n, x, y)| {
+            let at = |u: f64, v: f64| [x[0] * u + y[0] * v, x[1] * u + y[1] * v, x[2] * u + y[2] * v];
+            (*n, [at(-s, -s), at(s, -s), at(s, s), at(-s, s)])
+        })
+        .collect()
+}
+
+/// The base plane under a view pixel (physical px), nearest first.
+fn plane_at(pv: &PartView, x: f64, y: f64) -> Option<&'static str> {
+    if !planes_shown(pv) {
+        return None;
+    }
+    let (o, d) = pv.view.cam.ray(x, y);
+    let (o, d) = ([o[0], o[2], -o[1]], [d[0], d[2], -d[1]]);
+    let mut best: Option<(f64, &'static str)> = None;
+    for (n, c) in plane_corners(pv) {
+        for (a, b, cc) in [(c[0], c[1], c[2]), (c[0], c[2], c[3])] {
+            if let Some(h) = crate::partview::ray_tri(o, d, a, b, cc)
+                && best.is_none_or(|(bt, _)| h < bt)
+            {
+                best = Some((h, n));
+            }
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
+/// The base planes over the view (translucent quads, outlines, the origin triad), the selected and hovered tinted.
+fn draw_base_planes(ui: &egui::Ui, rect: Rect, pv: &PartView, t: &Tokens, ppp: f64, px: Option<(f64, f64)>) {
+    if !planes_shown(pv) {
+        return;
+    }
+    let painter = ui.painter_at(rect);
+    let to = |p: [f64; 3]| pv.screen_of(p).map(|q| egui::pos2(rect.min.x + (q.0 / ppp) as f32, rect.min.y + (q.1 / ppp) as f32));
+    let hover = px.and_then(|(x, y)| plane_at(pv, x, y));
+    let layer = |i: usize| t.layers.get(i).copied().unwrap_or(t.accent);
+    for (n, c) in plane_corners(pv) {
+        let sel = pv.sel_plane.as_deref() == Some(n);
+        let col = if sel {
+            layer(6)
+        } else if hover == Some(n) {
+            layer(3)
+        } else {
+            layer(4)
+        };
+        let pts: Vec<egui::Pos2> = c.iter().filter_map(|p| to(*p)).collect();
+        if pts.len() < 4 {
+            continue;
+        }
+        let fill = col.gamma_multiply(if sel || hover == Some(n) { 0.22 } else { 0.07 });
+        let mut mesh = egui::Mesh::default();
+        for p in &pts {
+            mesh.colored_vertex(*p, fill);
+        }
+        mesh.add_triangle(0, 1, 2);
+        mesh.add_triangle(0, 2, 3);
+        painter.add(egui::Shape::mesh(mesh));
+        painter.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.0, col.gamma_multiply(0.6))));
+    }
+    let size = plane_corners(pv).first().map_or(60.0, |(_, c)| c[1][0]) / 0.6 * 0.15;
+    for (d, col) in [
+        ([1.0, 0.0, 0.0], egui::Color32::from_rgb(0xc0, 0x39, 0x2b)),
+        ([0.0, 1.0, 0.0], egui::Color32::from_rgb(0x2e, 0x9e, 0x5b)),
+        ([0.0, 0.0, 1.0], egui::Color32::from_rgb(0x2f, 0x6f, 0xd6)),
+    ] {
+        if let (Some(a), Some(b)) = (to([0.0; 3]), to([d[0] * size, d[1] * size, d[2] * size])) {
+            painter.line_segment([a, b], egui::Stroke::new(1.5, col));
+        }
     }
 }
 
