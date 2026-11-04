@@ -111,6 +111,8 @@ pub mod panes;
 pub mod paneview;
 pub mod parpanel;
 pub mod partanalysis;
+pub mod partasm;
+pub mod partasmui;
 pub mod partdesign;
 pub mod partdraw;
 pub mod partedit;

@@ -45,6 +45,9 @@ impl PartView {
         if self.mode == Mode::Pick {
             return Err(tr("app.edit.picking"));
         }
+        if self.in_asm() {
+            return self.asm_edit_state(cmd, clip);
+        }
         if let Some(st) = self.drawing.as_ref() {
             let s = st.sel.is_some();
             return match cmd {
@@ -135,6 +138,9 @@ impl PartView {
     pub fn edit_act(&mut self, cmd: &str, clip: Option<Value>) -> Result<Option<Value>, String> {
         if !EDIT_CMDS.contains(&cmd) {
             return Err(format!("part.edit: {} , not {cmd}", EDIT_CMDS.join(", ")));
+        }
+        if self.in_asm() {
+            return Ok(self.asm_edit_act(cmd, clip));
         }
         if let Err(why) = self.edit_state(cmd, clip.as_ref()) {
             self.note = why;

@@ -119,8 +119,8 @@ pub struct PartView {
     pub regen: kernel::Regen,
     /// how long the last rebuild took (ms)
     pub regen_ms: f64,
-    undo: Vec<(String, Value)>,
-    redo: Vec<(String, Value)>,
+    pub(crate) undo: Vec<(String, Value)>,
+    pub(crate) redo: Vec<(String, Value)>,
     pub dirty: bool,
     pub scene: Scene3D,
     pub view: View3,
@@ -192,6 +192,11 @@ pub struct PartView {
     pub clock_ms: Option<f64>,
     /// the surface analyses' card and colours (draft-ui.js)
     pub analysis: crate::partanalysis::Analysis,
+    /// the open assembly (partcraft.js mode 'assembly'), and the part of it being edited
+    pub asm: Option<crate::partasm::AsmSt>,
+    pub asm_edit: Option<crate::partasm::EditPartOf>,
+    /// the instance each scene instance draws, in the assembly
+    pub asm_inst_ids: Vec<String>,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -283,6 +288,9 @@ impl PartView {
             drawing: None,
             clock_ms: None,
             analysis: crate::partanalysis::Analysis::default(),
+            asm: None,
+            asm_edit: None,
+            asm_inst_ids: Vec::new(),
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -504,6 +512,13 @@ impl PartView {
     /// The named faces of the solid (meshfaces.js records), when the rebuild named them.
     pub fn faces(&self) -> &[Value] {
         jv::arr(self.regen.faces.as_ref())
+    }
+
+    /// A new scene of the assembly's meshes and copies.
+    pub(crate) fn asm_bump_scene(&mut self, meshes: Vec<MeshData>, instances: Vec<Instance3>, min: [f64; 3], max: [f64; 3]) {
+        self.scene_seq = self.scene_seq.wrapping_add(1);
+        self.scene = Scene3D::new(self.scene_seq, meshes, instances, min, max);
+        self.inst_face = Vec::new();
     }
 
     /// The scene from the part's mesh (and the analyses' colours) as it stands.
@@ -1612,7 +1627,7 @@ impl PartView {
 const ISO_DIR: [f64; 3] = [1.0, -1.15, 0.85];
 const IDENTITY: [f64; 16] = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
 /// The solid's colour (a light machined grey, the same in both themes, as PartCraft's).
-const BODY: [u8; 4] = [196, 202, 210, 255];
+pub(crate) const BODY: [u8; 4] = [196, 202, 210, 255];
 
 fn script_error(name: &str, e: &pcscript::ScriptError) -> String {
     let lines: Vec<String> = e
@@ -1879,6 +1894,18 @@ pub fn is_part_file(lower: &str, bytes: &[u8]) -> bool {
 
 /// Open a part file dropped, picked or given to the CLI.
 pub fn open_file(app: &mut UiApp, f: &ImportedFile) {
+    // an assembly opens into the part view there is (partcraft.js openText → openAssemblyText), or a new one
+    let head = String::from_utf8_lossy(f.bytes.get(..f.bytes.len().min(400)).unwrap_or(&[])).to_string();
+    if f.bytes.len() <= MAX_FILE_BYTES && head.contains("\"partcraft-assembly\"") {
+        if app.part.is_none() {
+            install(app, PartView::new_part());
+        }
+        if let Some(pv) = app.part.as_mut() {
+            pv.asm_open_text(&String::from_utf8_lossy(&f.bytes), &f.name);
+            app.message = pv.status();
+        }
+        return;
+    }
     match PartView::open(&f.name, &f.bytes) {
         Ok(pv) => install(app, pv),
         Err(e) => app.error = Some(e),
@@ -2202,7 +2229,65 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         return Ok(());
     }
     if id == "part.new" {
+        // partcraft.js newPart: an open assembly closes first (asking when it has changes)
+        if let Some(pv) = app.part.as_mut().filter(|p| p.asm.is_some()) {
+            match pv.asm_close(None) {
+                Ok(false) => {
+                    if let Some(st) = pv.asm.as_mut() {
+                        st.ask = Some("close-new");
+                    }
+                    return Ok(());
+                }
+                Ok(true) => {}
+                Err(saved) => {
+                    if let Some((file, bytes, words)) = saved {
+                        save_out(app, &file, bytes, words)?;
+                    }
+                }
+            }
+        }
         install(app, PartView::new_part());
+        return Ok(());
+    }
+    if id == "part.asm" {
+        let pv = app.part.as_mut().ok_or_else(|| format!("{id}: open a part first"))?;
+        let asked = pv.asm.as_ref().and_then(|s| s.ask);
+        // Insert: the platform's picker hands the part file over (the web's comes back through the inbox)
+        if name == "insert-file" || name == "open" {
+            let files = match app.services.pick_files.as_mut().map(|f| f("part", false)) {
+                Some(Some(files)) => files,
+                Some(None) => return Ok(()),
+                None => {
+                    if let Some(f) = app.services.open_async.as_mut() {
+                        f();
+                    }
+                    return Ok(());
+                }
+            };
+            if let (Some(f), Some(pv)) = (files.first(), app.part.as_mut()) {
+                if name == "open" {
+                    pv.asm_open_text(&String::from_utf8_lossy(&f.bytes), &f.name);
+                } else {
+                    pv.asm_insert_file(&f.name, &f.bytes);
+                }
+            }
+            return Ok(());
+        }
+        let out = pv.asm_cmd(&name)?;
+        if let Some((file, bytes, words)) = out {
+            let closed = app.part.as_ref().is_some_and(|p| p.asm.is_none());
+            if save_out(app, &file, bytes, words)?
+                && let Some(st) = app.part.as_mut().and_then(|p| p.asm.as_mut())
+            {
+                st.dirty = false;
+            }
+            if closed && let Some(pv) = app.part.as_mut() {
+                pv.note = tr("app.asm.closed");
+            }
+        }
+        if asked == Some("close-new") && app.part.as_ref().is_some_and(|p| p.asm.is_none()) && name.starts_with("answer:") {
+            install(app, PartView::new_part());
+        }
         return Ok(());
     }
     if id == "part.edit" {
@@ -2232,6 +2317,16 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         pv.measure_stop();
     }
     match id {
+        "part.save" if pv.in_asm() => {
+            if let Some((file, bytes, words)) = pv.asm_save_bytes()
+                && save_out(app, &file, bytes, words)?
+                && let Some(st) = app.part.as_mut().and_then(|p| p.asm.as_mut())
+            {
+                st.dirty = false;
+            }
+        }
+        "part.undo" | "part.redo" if pv.in_asm() => pv.asm_undo_redo(id == "part.undo"),
+        "part.asm.set" => pv.asm_set(&name)?,
         "part.save" => {
             let (file, bytes) = pv.save_bytes();
             let words = trv("app.file.saved", &[("file", file.clone())]);

@@ -123,7 +123,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let app_c = t.app("partcraft");
     egui::Panel::left("part_history").default_size(256.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
         crate::shell::grip(ui, &t, app_c, &tr("ui.left.aria"), false, false);
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| inset.show(ui, |ui| history(ui, pv, &t, &mut act)));
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            inset.show(ui, |ui| if pv.in_asm() { crate::partasmui::tree(ui, pv, &t, &mut act) } else { history(ui, pv, &t, &mut act) })
+        });
     });
     egui::Panel::right("part_side").default_size(296.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
         crate::shell::grip(ui, &t, app_c, &tr("ui.right.props"), false, false);
@@ -140,6 +142,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
     });
     confirm_dialog(ui, pv, &t, &mut act);
+    crate::partasmui::ask_dialog(ui, pv, &t, &mut act);
     app.message = pv.status();
     if let Some((id, p)) = act {
         app.run_ui(id, &p);
@@ -161,6 +164,8 @@ fn part_side(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
         if pv.tab == "params" {
             parameters(ui, pv, t, act);
+        } else if pv.in_asm() {
+            crate::partasmui::props(ui, pv, t, act);
         } else if pv.drawing.is_some() {
             crate::partdraw::drawing_panel(ui, pv, t, act);
         } else if pv.mode == Mode::Sketch {
@@ -239,6 +244,32 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
         ],
     };
     let in_dr = pv.drawing.is_some();
+    let in_asm = pv.in_asm();
+    // ui.inc's Assembly group: New assembly (Back while one of its parts is edited); in the assembly its tools
+    let asm_tools = if in_asm {
+        let st = pv.asm.as_ref();
+        let n = st.map_or(0, |s| jv::arr(s.asm.get("instances")).len());
+        let inst_sel = st.is_some_and(|s| s.sel.as_ref().is_some_and(|(k, _)| k == "inst"));
+        let a = |id: &str, ic: &'static str, key: &str| {
+            Tool::new(format!("asm:{id}"), ic, tr(&format!("ui.tb.assembly.{key}"))).tip(tr(&format!("ui.tb.assembly.{key}.title")))
+        };
+        vec![
+            a("insert-copy", "plus-square", "asm_insert_copy").enabled(n > 0),
+            a("insert-file", "box-arrow-in-down", "asm_insert_file"),
+            a("joint", "link-45deg", "asm_joint").enabled(n >= 2).on(st.is_some_and(|s| s.joint_pick.is_some())),
+            a("check", "x-octagon", "asm_check"),
+            a("edit", "pencil", "asm_edit").enabled(inst_sel),
+            a("close", "x-square", "asm_close"),
+        ]
+    } else if pv.asm_edit.is_some() {
+        vec![Tool::new("asm:back", "arrow-up-left", tr("ui.tb.assembly.asm_back")).tip(tr("ui.tb.assembly.asm_back.title"))]
+    } else {
+        vec![
+            Tool::new("asm:new", "layers", tr("ui.tb.assembly.asm_new"))
+                .tip(tr("ui.tb.assembly.asm_new.title"))
+                .enabled(pv.mode == Mode::Model && !in_dr && (pv.regen.mesh.is_some() || pv.asm.is_some())),
+        ]
+    };
     let mut groups = vec![ToolGroup {
         label: tr("ui.tb.group.file"),
         tools: vec![
@@ -247,19 +278,30 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
             Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
         ],
     }];
-    if !in_dr {
+    if !in_dr && !in_asm {
         groups.push(ToolGroup { label: tr("ui.tb.group.sketch"), tools: vec![sketch] });
         groups.push(ToolGroup { label: tr("ui.tb.group.features"), tools: features });
     }
-    if pv.mode != Mode::Pick {
+    if pv.mode != Mode::Pick && !in_asm {
         groups.push(ToolGroup { label: tr("ui.tb.group.drawing"), tools: drawing });
+    }
+    if pv.mode != Mode::Pick && !in_dr {
+        groups.push(ToolGroup { label: tr("ui.tb.group.assembly"), tools: asm_tools });
     }
     groups.extend([
         ToolGroup {
             label: tr("ui.tb.group.edit"),
             tools: vec![
-                Tool::new("undo", "arrow-counterclockwise", tr("ui.tb.edit.undo")).tip(tr("ui.tb.edit.undo.title")).enabled(pv.can_undo()),
-                Tool::new("redo", "arrow-clockwise", tr("ui.tb.edit.redo")).tip(tr("ui.tb.edit.redo.title")).enabled(pv.can_redo()),
+                Tool::new("undo", "arrow-counterclockwise", tr("ui.tb.edit.undo")).tip(tr("ui.tb.edit.undo.title")).enabled(if in_asm {
+                    pv.asm.as_ref().is_some_and(|s| !s.undo.is_empty())
+                } else {
+                    pv.can_undo()
+                }),
+                Tool::new("redo", "arrow-clockwise", tr("ui.tb.edit.redo")).tip(tr("ui.tb.edit.redo.title")).enabled(if in_asm {
+                    pv.asm.as_ref().is_some_and(|s| !s.redo.is_empty())
+                } else {
+                    pv.can_redo()
+                }),
                 Tool::new("menu:edit", "three-dots", tr("ui.tb.more")).tip(tr("ui.tb.edit.more.title")),
             ],
         },
@@ -322,6 +364,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
             "fit" => pv.fit(),
             "edges" => pv.view.style.edges = !pv.view.style.edges,
             "dr:enter" => *act = cmd("part.drawing", "enter"),
+            x if x.starts_with("asm:") => *act = cmd("part.asm", x.trim_start_matches("asm:")),
             "dr:pdf" => *act = cmd("part.drawing", "pdf"),
             "dr:back" => *act = cmd("part.drawing", "back"),
             x => {
@@ -1234,6 +1277,11 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
         pv.sk.size = (f64::from(rect.width()), f64::from(rect.height()));
     }
     let resp = view3d::show(ui, rect, &pv.scene, &mut pv.view);
+    if pv.in_asm() {
+        crate::partasmui::stage_input(ui, &resp, rect, pv, act);
+        crate::partmeasure::cards(ui, rect, pv, t, act);
+        return;
+    }
     let ppp = f64::from(ui.ctx().pixels_per_point());
     let pos = resp.hover_pos();
     let px = pos.map(|p| (f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp));

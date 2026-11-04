@@ -2,6 +2,24 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M13.11 PartCraft assemblies (agent, work/partfin)
+
+- `crates/ui-egui/src/partasm.rs`, `partasmui.rs`: partcraft.js assembly mode on the mesh kernel — New assembly (the
+  part grounded), the copies drawn at their placements (assembly.rs `place_all`, one mesh per part, Z-up instances),
+  Add copy, Insert a part file (part.js readPart on the file's text), Joint (a flat face on each of two parts, picked
+  in the view; two revolve faces make a revolute joint), a joint's type, values (number + slider), centres on axes,
+  limits, the motion check (kernel_asm.rs `motion_check`), Check interference (`interference`, touching faces) with
+  its filters (kinds, hidden pairs, one undo step each, results kept), rename, ground, remove (asking when joints hold
+  the part), Edit this part in place and Back, undo / redo of the assembly, the Edit menu's assembly states (copy /
+  cut / paste / paste in place / duplicate of part copies, between assemblies), the keys (J, Esc, Delete, F), Save /
+  Open `.partcraft-asm.json` (a dropped or picked assembly opens into the part view), Close and New asking when there
+  are changes. The tree, facts and properties as renderAsmTree / renderAsmFacts / renderAsmProps on the 0.7 widgets.
+  Commands `part.asm` / `part.asm.set`.
+- Parity: `pcuidiff-partfin.mjs --scenario assembly` (pchost-partfin.mjs: partcraft.js's assembly functions with the
+  real assembly.js, clipboard.js, kernel.js and manifold for interference): 104 steps + 6 files (the assembly JSON,
+  save, STL, 3MF, STEP, IFC) identical in en and es-MX; harness: "(N ms)" in words and the "Placed in" chip stripped.
+- Speed: the scenario's 106 commands take 397 ms in the app against 649 ms of JS ops.
+
 ## 2026-11-04 — M13.10 PartCraft surface analyses: draft, zebra, curvature (agent, work/partfin)
 
 - `crates/ui-egui/src/partanalysis.rs`: draft-ui.js — Views › Draft analysis / Zebra stripes / Curvature, one card over
