@@ -407,6 +407,53 @@ pub fn save_button(app: &mut UiApp, ui: &mut egui::Ui) {
     }
 }
 
+/// BimCraft's 0.7 toolbar groups for the IFC view: each button's id is the UI command it runs (`cmd=name`).
+fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
+    use crate::shell::{Tool, ToolGroup};
+    let n = app.bimh.ed.as_ref().map_or(0, |d| d.ed.changes.len());
+    let save = if n > 0 { bt("save.ifc.count", &[("n", &n.to_string())]) } else { bt("save.ifc", &[]) };
+    let undo_ok = app.bimh.ed.as_ref().is_some_and(|d| !d.ed.changes.is_empty());
+    let redo_ok = app.bimh.ed.as_ref().is_some_and(|d| d.ed.can_redo());
+    let edges = app.scene3.as_ref().is_some_and(|(_, v)| v.style.edges);
+    let view =
+        |name: &str, icon: &'static str, label: String, tip: String| Tool::new(format!("view.standard={name}"), icon, label).tip(tip);
+    let mut build = vec![
+        Tool::new("bim.draw", "pencil-square", bt("model.draw", &[])).tip(bt("model.draw.title", &[])).on(app.bimh.draw.on),
+        Tool::new("new", "file-earmark-plus", bt("new.button", &[])).tip(bt("new.title", &[])),
+    ];
+    if app.bimh.ed.is_some() {
+        build.push(
+            Tool::new("bim.place.pick", "box-arrow-in-down", bt("lib.place", &[]))
+                .tip("Pick a library item file (.item.json) to place on the plan"),
+        );
+    }
+    vec![
+        ToolGroup {
+            label: bt("ui.toolbar.view", &[]),
+            tools: vec![
+                Tool::new("view.fit", "arrows-fullscreen", bt("ui.view.fit", &[])).tip(bt("ui.view.fit.title", &[])),
+                view("iso", "box", crate::lang::mc("ui.views.iso"), crate::lang::mc("ui.views.title")),
+                view("top", "square", bt("viewcube.face.top", &[]), bt("ui.view.top.title", &[])),
+                view("front", "layout-sidebar", bt("viewcube.face.front", &[]), bt("ui.view.front.title", &[])),
+                view("right", "layout-sidebar-inset", bt("ui.view.side", &[]), bt("ui.view.side.title", &[])),
+                Tool::new("view.style=edges", "bounding-box", bt("ui.edges", &[])).tip(bt("ui.edges.title", &[])).on(edges),
+            ],
+        },
+        ToolGroup {
+            label: bt("input.m.edit", &[]),
+            tools: vec![
+                Tool::new("bim.undo", "arrow-counterclockwise", bt("ui.undo", &[])).enabled(undo_ok),
+                Tool::new("bim.redo", "arrow-clockwise", bt("ui.redo", &[])).tip(bt("ui.redo.title", &[])).enabled(redo_ok),
+            ],
+        },
+        ToolGroup { label: bt("input.m.build", &[]), tools: build },
+        ToolGroup {
+            label: bt("input.m.output", &[]),
+            tools: vec![Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app))],
+        },
+    ]
+}
+
 /// The editable part of Properties for the picked element: its attributes and single property values.
 pub fn props_edit(app: &mut UiApp, ui: &mut egui::Ui) {
     let Some(pid) = app.picked_product() else { return };
@@ -669,31 +716,33 @@ pub fn ifc_branch(app: &mut UiApp, ui: &mut egui::Ui) {
     }
     crate::bimplan::keys(app, &ctx);
     let frame = egui::Frame::new().fill(t.panel).inner_margin(4);
-    egui::Panel::top("bim_edit_bar").frame(frame).show(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            let on = app.bimh.draw.on;
-            if ui.add(egui::Button::new(bt("model.draw", &[])).selected(on)).on_hover_text(bt("model.draw.title", &[])).clicked() {
-                app.run_ui("bim.draw", &Params::default());
-            }
-            save_button(app, ui);
-            if ui.button(bt("new.button", &[])).on_hover_text(bt("new.title", &[])).clicked() {
-                app.bimh.new_dlg = Some(NewDlg::default());
-            }
-            if app.bimh.ed.is_some()
-                && ui.button(bt("lib.place", &[])).on_hover_text("Pick a library item file (.item.json) to place on the plan").clicked()
-            {
-                app.run_ui("bim.place.pick", &Params::default());
-            }
-        });
-        if app.bimh.draw.on {
-            ui.separator();
-            crate::bimplan::bar(app, ui);
-            if app.bimh.draw.placing.is_some() {
-                ui.separator();
-                crate::bimplace::bar(app, ui);
+    // 0.7's toolbar (BimCraft ui.inc: View, Edit, Build, Output); while drawing, the plan's own bars under it
+    let groups = ifc_tool_groups(app);
+    let mut picked: Option<String> = None;
+    egui::Panel::top("bim_edit_bar").frame(egui::Frame::new().fill(t.app_bar)).show(ui, |ui| {
+        for (id, resp) in crate::shell::toolbar(ui, &t, t.app("bimcraft"), "bm-tb", &groups) {
+            if resp.clicked() {
+                picked = Some(id);
             }
         }
+        if app.bimh.draw.on {
+            egui::Frame::new().inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                crate::bimplan::bar(app, ui);
+                if app.bimh.draw.placing.is_some() {
+                    ui.separator();
+                    crate::bimplace::bar(app, ui);
+                }
+            });
+        }
     });
+    match picked.as_deref() {
+        Some("new") => app.bimh.new_dlg = Some(NewDlg::default()),
+        Some(id) => {
+            let (cmd, name) = id.split_once('=').map_or((id, None), |(c, n)| (c, Some(n.to_string())));
+            app.run_ui(cmd, &Params { name, ..Default::default() });
+        }
+        None => {}
+    }
     if app.bimh.draw.on {
         egui::Panel::left("bim_side").default_size(240.0).size_range(180.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
             egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {

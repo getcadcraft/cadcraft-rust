@@ -1033,10 +1033,16 @@ impl UiApp {
         let mut bim_act: Option<bimtools::BimAct> = None;
         let bytes = self.ifc3.as_ref().map(|(b, _)| b.clone());
         let mut cut = self.cut3;
-        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-        egui::Panel::left("model3").default_size(230.0).size_range(160.0..=380.0).resizable(true).frame(frame).show(ui, |ui| {
+        // 0.7's dock: the grip, then the body inset
+        let app_c = t.app(self.active_app());
+        let frame = shell::panel_frame(&t);
+        egui::Panel::left("model3").default_size(256.0).size_range(160.0..=400.0).resizable(true).frame(frame).show(ui, |ui| {
+            shell::grip(ui, &t, app_c, &lang::cad("app.tab.model"), false, false);
+            ui.add_space(8.0);
+            let inner = ui.available_rect_before_wrap().shrink2(egui::vec2(12.0, 0.0));
+            let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(inner));
             ui.horizontal(|ui| {
-                ui.label(RichText::new(lang::cad("app.tab.model")).strong().color(t.text_strong));
+                ui.label(RichText::new(lang::cad("app.tab.model")).font(theme::bold(15.0)).color(t.text_strong));
                 if ui.small_button(lang::cad("opt.showall")).clicked() {
                     toggle = Some("*".into());
                 }
@@ -1128,36 +1134,41 @@ impl UiApp {
         // the panel never grows past half the window; values wrap anywhere (point lists have no spaces) and a huge one
         // (a terrain's survey points in one string) shows its start and its length
         let max_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
-        let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-        egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(frame).show(ui, |ui| {
-            ui.label(RichText::new(lang::cad("ui.properties")).strong().color(t.text_strong));
-            ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                bimedit::props_top(self, ui);
-                for g in &groups {
-                    egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
-                        // name above value (a grid needs a frame to settle its column widths)
-                        let col = ui.available_width().max(80.0);
-                        for (k, v) in &g.rows {
-                            ui.label(RichText::new(k).small().color(t.text_dim));
-                            let n = v.chars().count();
-                            let shown = if n > 160 {
-                                format!("{}… ({n} characters)", v.chars().take(160).collect::<String>())
-                            } else {
-                                v.clone()
-                            };
-                            let mut job = egui::text::LayoutJob::single_section(
-                                shown,
-                                egui::TextFormat::simple(egui::TextStyle::Body.resolve(ui.style()), t.text),
-                            );
-                            job.wrap = egui::text::TextWrapping { max_width: col, break_anywhere: true, ..Default::default() };
-                            ui.add(egui::Label::new(job));
-                            ui.add_space(3.0);
-                        }
-                    });
-                }
-            });
-        });
+        let app_c = t.app(self.active_app());
+        egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(shell::panel_frame(&t)).show(
+            ui,
+            |ui| {
+                shell::grip(ui, &t, app_c, &lang::cad("ui.properties"), false, false);
+                ui.add_space(8.0);
+                let inner = ui.available_rect_before_wrap().shrink2(egui::vec2(12.0, 0.0));
+                let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(inner));
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    bimedit::props_top(self, ui);
+                    for g in &groups {
+                        egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
+                            // name above value (a grid needs a frame to settle its column widths)
+                            let col = ui.available_width().max(80.0);
+                            for (k, v) in &g.rows {
+                                ui.label(RichText::new(k).small().color(t.text_dim));
+                                let n = v.chars().count();
+                                let shown = if n > 160 {
+                                    format!("{}… ({n} characters)", v.chars().take(160).collect::<String>())
+                                } else {
+                                    v.clone()
+                                };
+                                let mut job = egui::text::LayoutJob::single_section(
+                                    shown,
+                                    egui::TextFormat::simple(egui::TextStyle::Body.resolve(ui.style()), t.text),
+                                );
+                                job.wrap = egui::text::TextWrapping { max_width: col, break_anywhere: true, ..Default::default() };
+                                ui.add(egui::Label::new(job));
+                                ui.add_space(3.0);
+                            }
+                        });
+                    }
+                });
+            },
+        );
     }
 
     /// The 3D view's colours from the theme (view3d.js's paper / model colours).
@@ -2449,7 +2460,13 @@ impl UiApp {
                                 }
                                 if self.scene3.is_some() || self.mc.is_some() {
                                     ui.spacing_mut().item_spacing.x = 10.0;
-                                    for name in ["iso", "top", "front", "right", "back", "left"] {
+                                    // BimCraft's toolbar has the views (0.7's View group): the bar keeps Back and Left
+                                    let names: &[&str] = if self.ifc3.is_some() {
+                                        &["back", "left"]
+                                    } else {
+                                        &["iso", "top", "front", "right", "back", "left"]
+                                    };
+                                    for name in names.iter().copied() {
                                         if shell::bar_link(ui, &t, &lang::mc(&format!("ui.views.{name}")), true)
                                             .on_hover_text(lang::mc("ui.views.title"))
                                             .clicked()
