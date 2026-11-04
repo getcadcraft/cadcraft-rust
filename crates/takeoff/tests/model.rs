@@ -740,8 +740,22 @@ fn clipboard_copy_paste() {
         assert_eq!(jv::stringify(&a.clip), jv::stringify(&b.clip));
         assert_eq!(a.warnings, b.warnings);
     }
+    // fresh_read_is_the_full_read: a copy just made (and a tampered one, which falls back) reads as the full read does
+    for c in [&wire, &bad] {
+        let (a, b) = (clipboard::read_clip(c).unwrap(), clipboard::read_clip_fresh(c.clone()).unwrap());
+        assert_eq!(jv::stringify(&a.clip), jv::stringify(&b.clip));
+        assert_eq!(a.warnings, b.warnings);
+    }
+    // copy_read_is_copy_then_read: the one-pass copy gives what copy + read give
+    for sel in [dots.clone(), tc.marks().iter().filter_map(|m| m["id"].as_str().map(str::to_string)).collect::<Vec<_>>()] {
+        let a = clipboard::read_clip(&clipboard::copy_marks(&tc.state, &sel, &ctx).unwrap()).unwrap();
+        let b = clipboard::copy_read(&tc.state, &sel, &ctx).unwrap().unwrap();
+        assert_eq!(jv::stringify(&a.clip), jv::stringify(&b.clip));
+        assert_eq!(a.warnings, b.warnings);
+    }
     let mut odd = wire.clone();
     odd["marks"] = json!("not a list");
+    assert_eq!(clipboard::read_clip(&odd).map(|r| r.clip), clipboard::read_clip_fresh(odd.clone()).map(|r| r.clip));
     assert_eq!(clipboard::read_clip(&odd).map(|r| r.clip), clipboard::read_clip_owned(odd.clone()).map(|r| r.clip));
     assert_eq!(rb.warnings.len(), 1);
     assert!(rb.clip["marks"].as_array().unwrap().len() == 1 && rb.clip["marks"][0]["kind"] == "count");

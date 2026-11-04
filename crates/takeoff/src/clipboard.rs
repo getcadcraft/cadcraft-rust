@@ -7,7 +7,9 @@ use serde_json::{Value, json};
 
 use crate::i18n::{F, t, tf};
 use crate::jv::{self, Obj, n, s};
-use crate::model::{self, Ch, ExtrasCtx, MARK_EXTRAS, Res, Takeoff, arr_of, kinds_of, limits, mark_extras, normal_item, read_extras_by};
+use crate::model::{
+    self, Ch, ExtrasCtx, MARK_EXTRAS, Res, Takeoff, arr_of, kinds_of, limits, mark_extras, normal_item, read_extras, read_extras_by,
+};
 
 pub const CLIP_FORMAT: &str = "takeoffcraft-clip";
 pub const CLIP_VERSION: f64 = 1.0;
@@ -209,6 +211,205 @@ pub fn read_clip_owned(mut json: Value) -> Result<ReadClip, String> {
     clip_tail(j, raw_items, marks_in, any)
 }
 
+/// `readClip(copyMarks(state, ids, ctx))` in one pass (Copy, Cut, Duplicate): the takeoff's own marks go into the clip
+/// as they are — their points are already clean — instead of out to the clip's lists and back. Marks or points that are
+/// not in the shape the takeoff keeps them take the two steps, so the result is always theirs (test
+/// `copy_read_is_copy_then_read`). None when nothing is selected.
+pub fn copy_read(state: &Value, ids: &[String], ctx: &CopyCtx) -> Option<Result<ReadClip, String>> {
+    let slow = || copy_marks(state, ids, ctx).map(read_clip_fresh);
+    let want: HashSet<&str> = ids.iter().map(String::as_str).collect();
+    let all = jv::arr(state.get("marks")).map_or(&[][..], Vec::as_slice);
+    let marks: Vec<&Value> = all.iter().filter(|m| jv::str(m.get("id")).is_some_and(|i| want.contains(i))).collect();
+    let first = marks.first()?;
+    let sheet = first.get("sheet").cloned().unwrap_or(Value::Null);
+    let marks: Vec<&Value> = marks.into_iter().filter(|m| jv::strict_eq(m.get("sheet"), Some(&sheet))).collect();
+    if marks.len() > CLIP_MARKS {
+        return slow();
+    }
+    let mut item_ids: Vec<String> = Vec::new();
+    for m in &marks {
+        let i = jv::to_string(m.get("item"));
+        if !item_ids.contains(&i) {
+            item_ids.push(i);
+        }
+    }
+    let items_all = jv::arr(state.get("items")).map_or(&[][..], Vec::as_slice);
+    let items_raw: Vec<Value> =
+        item_ids.iter().filter_map(|id| items_all.iter().find(|i| jv::str(i.get("id")) == Some(id.as_str())).cloned()).collect();
+    if items_raw.len() > CLIP_ITEMS {
+        return slow();
+    }
+    let proj = json!({
+        "format": model::FORMAT, "version": 1, "name": "Clipboard",
+        "files": [{ "hash": zero_hash(), "name": "clipboard.pdf", "size": 0, "pages": 1 }],
+        "items": items_raw,
+    });
+    let Ok(r) = model::read_project(&proj) else { return slow() };
+    let items: Vec<Value> = jv::arr(r.state.get("items")).cloned().unwrap_or_default();
+    if items.is_empty() {
+        return slow();
+    }
+    // the takeoff's own shape: points {x, y} or {x, y, b} with b set, finite and within reach — and readProject's checks
+    let fin = |v: Option<&Value>| jv::finite(v).is_some_and(|x| x.abs() < 1e7);
+    let pt_ok = |p: &Value| -> bool {
+        let Value::Object(o) = p else { return false };
+        let b_ok = match o.get("b") {
+            None => o.len() == 2,
+            Some(b) => o.len() == 3 && jv::truthy(Some(b)) && jv::finite(Some(b)).is_some_and(|x| x.abs() <= 1000.0),
+        };
+        b_ok && fin(o.get("x")) && fin(o.get("y"))
+    };
+    let pts_ok = |a: Option<&Value>, min: usize| match a {
+        Some(Value::Array(l)) => l.len() >= min && l.len() <= limits::POINTS && l.iter().all(pt_ok),
+        _ => false,
+    };
+    let ring_ok = |r: Option<&Value>| pts_ok(r, 2) && jv::arr(r).is_some_and(|l| l.len() >= 3 || l.iter().any(|p| p.get("b").is_some()));
+    let kinds: Vec<(&str, Vec<String>)> = items.iter().filter_map(|i| Some((jv::str(i.get("id"))?, kinds_of(Some(i))))).collect();
+    for m in &marks {
+        let (Some(item), Some(kind)) = (jv::str(m.get("item")), jv::str(m.get("kind"))) else { return slow() };
+        let Some((_, ks)) = kinds.iter().find(|(id, _)| *id == item) else { return slow() };
+        if !ks.iter().any(|k| k == kind) {
+            return slow();
+        }
+        let min = if kind == "area" || kind == "linear" { 2 } else { 1 };
+        let pr = m.get("pts");
+        if !pts_ok(pr, min)
+            || (kind == "area" && !ring_ok(pr))
+            || (kind == "count" && jv::arr(pr).is_some_and(|l| l.iter().any(|p| p.get("b").is_some())))
+            || (kind == "area" && jv::arr(m.get("holes")).is_some_and(|h| h.iter().any(|r| !ring_ok(Some(r)))))
+        {
+            return slow();
+        }
+    }
+    let ctx0 = ExtrasCtx::default();
+    let mut used: HashSet<String> = HashSet::new();
+    let clip_marks: Vec<Value> = marks
+        .iter()
+        .map(|m| {
+            let kind = jv::str(m.get("kind")).unwrap_or("");
+            let item = jv::str(m.get("item")).unwrap_or("");
+            if !used.contains(item) {
+                used.insert(item.to_string());
+            }
+            let holes: Vec<Value> = if kind == "area" {
+                jv::arr(m.get("holes")).map(|hl| hl.iter().take(limits::HOLES).cloned().collect()).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let mut o = Obj::new();
+            o.insert("item".into(), s(item));
+            o.insert("kind".into(), s(kind));
+            o.insert("pts".into(), m.get("pts").cloned().unwrap_or(Value::Array(Vec::new())));
+            o.insert("holes".into(), Value::Array(holes));
+            // what the copy carries (mark_extras), read back as readProject reads it, then as the clip keeps it
+            let ex0 = mark_extras(m);
+            if !ex0.is_empty() {
+                let ex = read_extras_by(|k| ex0.get(k), &o, &ctx0);
+                let mut km = Obj::new();
+                km.insert("kind".into(), s(kind));
+                jv::assign(&mut km, &ex);
+                jv::assign(&mut o, &mark_extras(&Value::Object(km)));
+            }
+            Value::Object(o)
+        })
+        .collect();
+    let mut head = Obj::new();
+    head.insert("source".into(), s(ctx.source.clone()));
+    head.insert("copiedAt".into(), n(ctx.now));
+    head.insert("sheet".into(), sheet_info(state, &jv::to_string(Some(&sheet)), ctx));
+    head.insert("anchor".into(), anchor_of_refs(marks.iter().copied()));
+    Some(clip_assemble(&head, items, clip_marks, &used, r.warnings))
+}
+
+/// [`read_clip_owned`] of a clip [`copy_marks`] has just made from a takeoff's own marks (Copy, Cut): those marks are
+/// clean already, so after the same checks they are read straight into the clip instead of through a whole clip
+/// project; the items still go through `read_project`. A mark the checks would drop sends the clip down the full read,
+/// so the result is always `read_clip_owned`'s (test `fresh_read_is_the_full_read`).
+pub fn read_clip_fresh(json: Value) -> Result<ReadClip, String> {
+    let fast = (|| {
+        let j = clip_head(&json).ok()?;
+        let items_raw = jv::arr(j.get("items"))?;
+        let marks_raw = jv::arr(j.get("marks"))?;
+        if items_raw.len() > CLIP_ITEMS || marks_raw.len() > CLIP_MARKS {
+            return None;
+        }
+        // the items as the clip project reads them (with the file and no marks)
+        let proj = json!({
+            "format": model::FORMAT, "version": 1, "name": "Clipboard",
+            "files": [{ "hash": zero_hash(), "name": "clipboard.pdf", "size": 0, "pages": 1 }],
+            "items": items_raw,
+        });
+        let r = model::read_project(&proj).ok()?;
+        let items: Vec<Value> = jv::arr(r.state.get("items")).cloned().unwrap_or_default();
+        if items.is_empty() {
+            return None;
+        }
+        // readProject's checks of each mark: a known item and one of its kinds, finite points within reach
+        let finite = |v: Option<&Value>| jv::finite(v).filter(|x| x.abs() < 1e7);
+        let pt_ok = |p: &Value| -> bool {
+            let Value::Array(a) = p else { return false };
+            (a.len() == 2 || (a.len() == 3 && finite(a.get(2)).is_some_and(|b| b.abs() <= 1000.0)))
+                && finite(a.first()).is_some()
+                && finite(a.get(1)).is_some()
+        };
+        let pts_ok = |a: Option<&Value>, min: usize| match a {
+            Some(Value::Array(l)) => l.len() >= min && l.len() <= limits::POINTS && l.iter().all(pt_ok),
+            _ => false,
+        };
+        let ring_ok =
+            |r: Option<&Value>| pts_ok(r, 2) && jv::arr(r).is_some_and(|l| l.len() >= 3 || l.iter().any(|p| jv::truthy(p.get(2))));
+        for m in marks_raw {
+            let o = m.as_object()?;
+            let item = jv::str(o.get("item"))?;
+            let kind = jv::str(o.get("kind"))?;
+            let it = items.iter().find(|i| jv::str(i.get("id")) == Some(item))?;
+            if !kinds_of(Some(it)).iter().any(|k| k == kind) {
+                return None;
+            }
+            let min = if kind == "area" || kind == "linear" { 2 } else { 1 };
+            let pr = o.get("pts");
+            if !pts_ok(pr, min)
+                || (kind == "area" && !ring_ok(pr))
+                || (kind == "count" && jv::arr(pr).is_some_and(|l| l.iter().any(|p| jv::truthy(p.get(2)))))
+            {
+                return None;
+            }
+        }
+        let ctx = ExtrasCtx::default();
+        let sheet = s(clip_sheet());
+        let state_marks: Vec<Value> = marks_raw
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let kind = jv::str(m.get("kind")).unwrap_or("");
+                let ring = |r: Option<&Value>| Value::Array(jv::arr(r).map(|r| r.iter().map(model::pt).collect()).unwrap_or_default());
+                let holes: Vec<Value> = if kind == "area" {
+                    jv::arr(m.get("holes"))
+                        .map(|hl| hl.iter().take(limits::HOLES).filter(|h| ring_ok(Some(h))).map(|h| ring(Some(h))).collect())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let mut nm = Obj::new();
+                nm.insert("id".into(), s(format!("k{}", i.saturating_add(1))));
+                nm.insert("item".into(), s(jv::str(m.get("item")).unwrap_or("")));
+                nm.insert("sheet".into(), sheet.clone());
+                nm.insert("kind".into(), s(kind));
+                nm.insert("pts".into(), ring(m.get("pts")));
+                nm.insert("holes".into(), Value::Array(holes));
+                let ex = read_extras(Some(m), &nm, &ctx);
+                jv::assign(&mut nm, &ex);
+                Value::Object(nm)
+            })
+            .collect();
+        Some((items, state_marks, !marks_raw.is_empty(), r.warnings))
+    })();
+    match (fast, &json) {
+        (Some((items, marks, any, warnings)), Value::Object(j)) => clip_finish(j, items, marks, any, warnings),
+        _ => read_clip_owned(json),
+    }
+}
+
 /// The clip's format and version checks → its object.
 fn clip_head(json: &Value) -> Result<&Obj, String> {
     let Value::Object(j) = json else { return Err(t("clip.err.format")) };
@@ -268,10 +469,33 @@ fn clip_tail(j: &Obj, raw_items: Vec<Value>, marks_in: Vec<Value>, any_marks: bo
         Some(Value::Array(a)) => a,
         _ => Vec::new(),
     };
+    clip_finish(j, items, state_marks, any_marks, r.warnings)
+}
+
+/// The end of a clip's read: its marks as the clip project read them back, then the clip as a paste uses it.
+fn clip_finish(j: &Obj, items: Vec<Value>, state_marks: Vec<Value>, any_marks: bool, warnings: Vec<String>) -> Result<ReadClip, String> {
     let used: HashSet<String> = state_marks.iter().map(|m| jv::to_string(m.get("item"))).collect();
     if any_marks && state_marks.is_empty() {
         return Err(t("clip.err.damaged"));
     }
+    // the read project's marks are ours: their fields move into the clip
+    let marks: Vec<Value> = state_marks
+        .into_iter()
+        .map(|mut m| {
+            let ex = mark_extras(&m);
+            let mut o = Obj::new();
+            for k in ["item", "kind", "pts", "holes"] {
+                o.insert(k.into(), m.get_mut(k).map_or(Value::Null, Value::take));
+            }
+            jv::assign(&mut o, &ex);
+            Value::Object(o)
+        })
+        .collect();
+    clip_assemble(j, items, marks, &used, warnings)
+}
+
+/// The clip from its head (sheet, anchor, source, time), the items read back, its marks and the items they use.
+fn clip_assemble(j: &Obj, items: Vec<Value>, marks: Vec<Value>, used: &HashSet<String>, warnings: Vec<String>) -> Result<ReadClip, String> {
     let sheet = match j.get("sheet") {
         Some(sv @ (Value::Object(_) | Value::Array(_))) => {
             let g = |k: &str| match sv {
@@ -290,19 +514,6 @@ fn clip_tail(j: &Obj, raw_items: Vec<Value>, marks_in: Vec<Value>, any_marks: bo
         }
         _ => Value::Null,
     };
-    // the read project's marks are ours: their fields move into the clip
-    let marks: Vec<Value> = state_marks
-        .into_iter()
-        .map(|mut m| {
-            let ex = mark_extras(&m);
-            let mut o = Obj::new();
-            for k in ["item", "kind", "pts", "holes"] {
-                o.insert(k.into(), m.get_mut(k).map_or(Value::Null, Value::take));
-            }
-            jv::assign(&mut o, &ex);
-            Value::Object(o)
-        })
-        .collect();
     let anchor = match j.get("anchor") {
         Some(a) if jv::finite(a.get("x")).is_some_and(|x| x.abs() < 1e7) && jv::finite(a.get("y")).is_some_and(|y| y.abs() < 1e7) => {
             json!({ "x": a.get("x"), "y": a.get("y") })
@@ -313,7 +524,7 @@ fn clip_tail(j: &Obj, raw_items: Vec<Value>, marks_in: Vec<Value>, any_marks: bo
     let items_out: Vec<Value> =
         if marks.is_empty() { items } else { items.into_iter().filter(|i| used.contains(&jv::to_string(i.get("id")))).collect() };
     Ok(ReadClip {
-        warnings: r.warnings,
+        warnings,
         clip: {
             let mut c = json!({
                 "format": CLIP_FORMAT, "version": n(CLIP_VERSION), "source": model::clean_str(j.get("source"), 64), "copiedAt": n(copied_at),
@@ -531,13 +742,22 @@ pub fn paste_clip(model: &mut Takeoff, clip: &Value, o: &PasteOpts) -> Res<Optio
         let areas: HashSet<String> =
             jv::arr(s.get("areas")).map(|l| l.iter().map(|a| jv::to_string(a.get("id"))).collect()).unwrap_or_default();
         let ctx = ExtrasCtx { areas, groups: HashSet::new() };
+        // each clip item's target and its kinds, looked up once (the items do not change while the marks go in)
+        let targets: Vec<(String, String, Vec<String>)> = {
+            let st_items = jv::arr(s.get("items")).map_or(&[][..], Vec::as_slice);
+            map.iter()
+                .map(|(k, v)| {
+                    let it = st_items.iter().find(|i| jv::str(i.get("id")) == Some(v.as_str()));
+                    (k.clone(), v.clone(), if it.is_some() { kinds_of(it) } else { Vec::new() })
+                })
+                .collect()
+        };
         for m in marks {
             let mi = jv::to_string(jv::field(m, "item"));
-            let Some(item) = map.iter().find(|(k, _)| *k == mi).map(|(_, v)| v.clone()) else { continue };
-            let st_items = jv::arr(s.get("items")).map_or(&[][..], Vec::as_slice);
-            let it = st_items.iter().find(|i| jv::str(i.get("id")) == Some(item.as_str()));
+            let Some((_, item, kinds)) = targets.iter().find(|(k, _, _)| *k == mi) else { continue };
+            let item = item.clone();
             let mk = jv::to_string(jv::field(m, "kind"));
-            if it.is_none() || !kinds_of(it).contains(&mk) {
+            if !kinds.contains(&mk) {
                 continue;
             }
             let id = model::next_id(s, "m");

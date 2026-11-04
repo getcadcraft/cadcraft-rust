@@ -4,7 +4,7 @@
 //! paste in place, duplicate) on clipboard.js. Every edit is one `Takeoff` change with 0.5's undo label, and says what
 //! 0.5's status line says.
 
-use cc_takeoff::clipboard::{CopyCtx, PasteOpts, copy_marks, paste_clip, read_clip, read_clip_owned, scale_problem, size_problem};
+use cc_takeoff::clipboard::{CopyCtx, PasteOpts, copy_read, paste_clip, scale_problem, size_problem};
 use cc_takeoff::geom::{self as G, P};
 use cc_takeoff::i18n::{F, t, tf};
 use egui::{Color32, Pos2, RichText};
@@ -372,11 +372,18 @@ impl TakeoffMode {
             return false;
         };
         let ctx = self.copy_ctx(&s(first.get("sheet")));
-        let Some(wire) = copy_marks(&self.tk.state, &ids, &ctx) else { return false };
-        let n = wire.get("marks").and_then(Value::as_array).map_or(0, Vec::len);
-        let names = if quiet { String::new() } else { item_list(wire.get("items")) };
-        // storeClip: the clip as read back (what a paste uses, as clipMem.clip); the wire form is not kept
-        let clip = match read_clip_owned(wire) {
+        // the copy's marks: the selection's on the first one's sheet
+        let sheet = first.get("sheet").cloned();
+        let want: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        let n = self
+            .tk
+            .marks()
+            .iter()
+            .filter(|m| m.get("id").and_then(Value::as_str).is_some_and(|i| want.contains(i)) && m.get("sheet").cloned() == sheet)
+            .count();
+        // storeClip: the clip as read back (what a paste uses, as clipMem.clip), made in one pass (copy_read)
+        let Some(read) = copy_read(&self.tk.state, &ids, &ctx) else { return false };
+        let clip = match read {
             Ok(r) => r.clip,
             Err(e) => {
                 self.message = e;
@@ -384,6 +391,7 @@ impl TakeoffMode {
             }
         };
         if !quiet {
+            let names = item_list(clip.get("items"));
             #[allow(clippy::cast_precision_loss)]
             let fills = [("n", F::N(n as f64)), ("items", F::S(names)), ("mod", F::S(MOD.into()))];
             self.message = tf("copy.done", &fills);
@@ -484,7 +492,7 @@ impl TakeoffMode {
             return;
         }
         let ctx = self.copy_ctx(sheet);
-        let Some(clip) = copy_marks(&self.tk.state, &ids, &ctx).and_then(|w| read_clip(&w).ok()).map(|r| r.clip) else { return };
+        let Some(clip) = copy_read(&self.tk.state, &ids, &ctx).and_then(Result::ok).map(|r| r.clip) else { return };
         if self.tk.mark(ids.first().map_or("", String::as_str)).is_none_or(|m| s(m.get("sheet")) != sheet) {
             self.message = t("dup.sheet");
             return;
