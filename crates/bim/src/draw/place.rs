@@ -23,8 +23,10 @@ use crate::wapi::{Api, JV, P};
 
 mod elems;
 mod more;
+mod sched;
 pub use elems::{PasteOpts, Pasted, PlacementSet, Rels, Removed, Snap, SnapEl};
 pub use more::{Frame, FrameEl, PlacementRow, PropRow, PsetOn, StoreyInfo, Swapped, oriented_box};
+pub use sched::{SElec, SPlace, SRow, Sched};
 
 const D2R: f64 = std::f64::consts::PI / 180.0;
 /// The most vertices / triangles a placed mesh may have (a hostile item cannot ask for more).

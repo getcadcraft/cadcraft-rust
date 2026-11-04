@@ -54,6 +54,8 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
 /// The editing state of the app's IFC view (one field of `UiApp`).
 #[derive(Default)]
 pub struct Host {
+    /// the equipment schedule and library credits (bimequip.rs)
+    pub equip: crate::bimequip::EquipState,
     /// the open model's editor, made on the first change (opening a file never pays for it)
     pub ed: Option<BimDoc>,
     /// a fixed clock (ms since 1970) for scripts; None = the wall clock
@@ -465,6 +467,11 @@ fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
     }
     // ui.inc's library tools: Library (the Library panel)
     build.push(Tool::new("bim.lib", "collection", bt("ui.library", &[])).tip(bt("ui.lib.title", &[])).on(app.bimh.lib.open));
+    // and Equipment, Credits (bimequip.rs); Check for updates needs the library service (web only)
+    if app.bimh.ed.is_some() {
+        build.push(Tool::new("bim.equip", "list-check", bt("ui.equipment", &[])).tip(bt("ui.equip.title", &[])).on(app.bimh.equip.on));
+        build.push(Tool::new("bim.credits", "c-circle", bt("ui.credits", &[])).tip(bt("ui.credits.title", &[])));
+    }
     let mut groups = vec![
         ToolGroup {
             label: bt("ui.toolbar.view", &[]),

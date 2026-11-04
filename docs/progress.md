@@ -2,6 +2,29 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M7.20–M7.24 BimCraft finished: the Build menu, terrain, Sheets, Takeoff, equipment schedule, credits (agent, work/bimfin)
+
+- M7.20 (cc-bim `resops.rs`, ui `bimres.rs`): res-ui.js's Build tools in the plan's Draw group — roof plane, foundation,
+  countertop, stair (straight / L / U / winders), railing, framing (every wall, show / see through in 3D), section line,
+  electrical (16 devices with the Electrical symbols, tags, switch legs; link lights to a switch) — their option rows,
+  previews, plan symbols, picking, Properties, Delete and the Lumber / Devices / Circuits schedules, each change one
+  resops op (`bim.res`, `bim.set`, `bim.tool`).
+- M7.21 (`resground.rs`): Terrain from survey text (PNEZD … XYZ), DXF / DWG contours, LAS / LAZ (ground class, 1 m
+  thinning), GeoTIFF / ASCII grids, or spots clicked; building pad, paving, contours on the ground level, LandXML. Fuzz
+  target `bim_ground`.
+- M7.22 (`resviews.rs`, `ressheets.rs`, ui `bimsheets.rs`): elevations and sections with hidden lines (f32 depth
+  buffer as the JS), the drawing set (plans, elevations, sections, schedules, framing; title blocks, scales) and its
+  PDF; the Sheets dialog. Fuzz find: a sliver TIN asked cc-civil's locate grid for millions of cells (OOM): capped at
+  16 n a side (regression test `tin_sliver.rs`, corpus seed).
+- M7.23 (`restakeoff.rs`, trade packs JSON): Takeoff — the quantities marked on a plan of each level, the lumber cut
+  list, the takeoff embedded for TakeoffCraft (TakeoffCraft's own reader opens it in a test).
+- M7.24 (cc-bim `place/sched.rs`, ui `bimequip.rs`, cc-dwgview `equip_head_with`): the IFC equipment schedule
+  (storey choices, filter, CSV, jump to an item) and Library credits (copy, CSV) as Build-group buttons.
+- Parity: forks/tools/bmrestooldiff.mjs (new; resOp, lumber, ground, sheets, takeoff, equip steps): 304 / 304 steps,
+  74 / 74 saved IFC byte-identical, sheet sets and takeoff PDFs byte-identical, in en and es-MX.
+- Left: the library sign-in and Check for updates (web-limited, the library service); the Takeoff saves the PDF
+  rather than opening TakeoffCraft in a tab.
+
 ## 2026-11-04 — M13.13 PartCraft base planes in the view (agent, work/partfin)
 
 - view3d.js `buildPlanes` / `pickAt`: the front, top and right planes drawn over the view (translucent quads at 0.6 of

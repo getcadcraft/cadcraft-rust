@@ -18,6 +18,7 @@
 pub mod autocount;
 pub mod bimclip;
 pub mod bimedit;
+pub mod bimequip;
 pub mod bimgrips;
 pub mod bimlib;
 pub mod bimlibnet;
@@ -1935,6 +1936,7 @@ impl UiApp {
             id if id.starts_with("input.") => return ribbon::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
+            id if bimequip::COMMANDS.iter().any(|c| c.0 == id) => return bimequip::run(self, id, params),
             "bim.res" => return bimres::run(self, params.name.as_deref().unwrap_or("")),
             id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
             id if id.starts_with("recovery.") => return recover::run(self, id, params),
@@ -2298,6 +2300,7 @@ impl UiApp {
         bimres::sync(self);
         bimlib::window(self, &ctx);
         bimsheets::dialog(self, &ctx);
+        bimequip::windows(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
         help::panel(self, ui);

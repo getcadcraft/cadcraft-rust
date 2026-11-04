@@ -57,19 +57,28 @@ pub struct EquipHead {
     pub note: String,
 }
 
-/// `renderEquipment`'s head (sheet wording; drawings only).
+/// `renderEquipment`'s head (sheet wording; drawings).
 pub fn equip_head(list: &EquipList) -> EquipHead {
+    equip_head_with(list, false, None)
+}
+
+/// `renderEquipment(…, { sheetWord, intro })`: `storey` words it for an IFC model's storeys; an `intro` (BimCraft's
+/// placed items) takes the place of the drawing's and leaves out "Everything".
+pub fn equip_head_with(list: &EquipList, storey: bool, intro: Option<String>) -> EquipHead {
     let mut choices: Vec<(String, String, usize)> = Vec::new();
     if list.sheets.len() > 1 {
-        choices.push((ALL.into(), tr("equip.every.sheet", &[]), list.rows.iter().filter(|r| !r.sheets.is_empty()).count()));
+        let k = if storey { "equip.every.storey" } else { "equip.every.sheet" };
+        choices.push((ALL.into(), tr(k, &[]), list.rows.iter().filter(|r| !r.sheets.is_empty()).count()));
     }
     for s in &list.sheets {
         choices.push((s.key.clone(), s.name.clone(), s.count));
     }
     if list.off_sheet > 0 {
-        choices.push((OFF.into(), tr("equip.off.sheet", &[]), list.off_sheet));
+        choices.push((OFF.into(), tr(if storey { "equip.off.storey" } else { "equip.off.sheet" }, &[]), list.off_sheet));
     }
-    choices.push((EVERY.into(), tr("equip.everything", &[]), list.rows.len()));
+    if intro.is_none() {
+        choices.push((EVERY.into(), tr("equip.everything", &[]), list.rows.len()));
+    }
     let mut parts: Vec<String> = Vec::new();
     if list.off_sheet > 0 {
         parts.push(tr("equip.offsheet.note", &[("n", list.off_sheet.to_string()), ("count", num(list.off_sheet))]));
@@ -81,7 +90,7 @@ pub fn equip_head(list: &EquipList) -> EquipHead {
     EquipHead {
         kind: tr("ui.equipment", &[]),
         title: tr("equip.title", &[]),
-        intro: tr("equip.intro", &[("n", list.tags.to_string()), ("count", num(list.tags))]),
+        intro: intro.unwrap_or_else(|| tr("equip.intro", &[("n", list.tags.to_string()), ("count", num(list.tags))])),
         which: tr("equip.which", &[]),
         choices: choices
             .into_iter()

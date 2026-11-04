@@ -773,6 +773,21 @@ impl Run {
             }
             "sheets" => crate::draw::sheetjob::sheets_step(&J::Object(o.clone())),
             "takeoff" => crate::draw::sheetjob::takeoff_step(ed, &sn, &J::Object(o.clone())),
+            "equip" => match crate::draw::place::Placer::new(&mut ed.api).and_then(|mut p| p.schedule()) {
+                Ok(Some(l)) => json!({
+                    "tags": l.tags, "offSheet": l.off_sheet,
+                    "sheets": l.sheets.iter().map(|s| json!({ "key": s.0, "name": s.1, "count": s.2 })).collect::<Vec<_>>(),
+                    "rows": l.rows.iter().map(|r| json!({
+                        "no": r.no, "category": r.category, "mfr": r.mfr, "model": r.model, "remark": r.remark,
+                        "elec": r.elec.iter().map(|e| json!({ "volts": e.volts, "phase": e.phase, "amps": e.amps, "kw": e.kw, "hp": e.hp, "hz": e.hz, "conn": e.conn, "nema": e.nema })).collect::<Vec<_>>(),
+                        "plumb": J::Object(r.plumb.iter().map(|(k, v)| ((*k).to_string(), J::String(v.clone()))).collect()),
+                        "places": r.places.iter().map(|p| json!({ "x": jn(p.x), "y": jn(p.y), "qty": p.qty, "sheets": p.sheets, "id": jn(p.id) })).collect::<Vec<_>>(),
+                        "sheets": r.sheets, "qtys": r.qtys, "qty": r.qty, "plumbText": r.plumb_text, "clash": r.clash,
+                    })).collect::<Vec<_>>(),
+                }),
+                Ok(None) => J::Null,
+                Err(e) => err(&e.0),
+            },
             "landXml" | "contours" => match crate::draw::writer::W::new(&mut ed.api).and_then(|mut w| {
                 let Some(trn) = crate::draw::resterrain::read_terrain(&mut w)? else { return Ok(json!(null)) };
                 let ex = crate::draw::resterrain::existing_surface(&trn);
