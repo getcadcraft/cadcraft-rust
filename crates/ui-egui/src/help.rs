@@ -778,7 +778,7 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
                 }
             });
         });
-        let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(s("shell.help.search")).desired_width(f32::INFINITY));
+        let r = ui.add(crate::shell::field(&mut q).hint_text(s("shell.help.search")).desired_width(f32::INFINITY));
         if r.changed() {
             act = Some(("help.search", Params { name: Some(q.clone()), ..Default::default() }));
         }

@@ -849,8 +849,9 @@ impl PdfView {
     /// The right panel: Properties, Markups, Tools, Compare (tabs as markupcraft's).
     pub fn right_panel(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
             for k in ["props", "list", "punch", "chest", "compare"] {
-                if ui.selectable_label(self.tab == k, t0(&format!("tab.{k}"))).clicked() {
+                if crate::shell::tab(ui, tok, &t0(&format!("tab.{k}")), self.tab == k).clicked() {
                     self.tab = k;
                 }
             }
@@ -1137,7 +1138,7 @@ impl PdfView {
                 egui::Window::new(t0("chest.save.one")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0(if kind == "stamp" { "chest.dlg.text.stamp" } else { "chest.dlg.text" }));
                     let l = ui.label(t0("chest.dlg.name"));
-                    ui.text_edit_singleline(&mut name).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut name)).labelled_by(l.id);
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
@@ -1160,7 +1161,7 @@ impl PdfView {
                 let mut add = false;
                 egui::Window::new(t0("space.name.title")).collapsible(false).resizable(false).show(ctx, |ui| {
                     let l = ui.label(t0("space.name"));
-                    ui.text_edit_singleline(&mut name).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut name)).labelled_by(l.id);
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
@@ -1199,9 +1200,9 @@ impl PdfView {
                 egui::Window::new(t0("props.rename")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0("rename.text"));
                     let l = ui.label(t0("props.sheet_number"));
-                    ui.text_edit_singleline(&mut number).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut number)).labelled_by(l.id);
                     let l = ui.label(t0("rename.title"));
-                    ui.text_edit_singleline(&mut title).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut title)).labelled_by(l.id);
                     ui.horizontal(|ui| {
                         close = ui.button(t0("dlg.cancel")).clicked();
                         save = ui.button(t0("dlg.save")).clicked();
@@ -1225,7 +1226,7 @@ impl PdfView {
                 egui::Window::new(t0(h)).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0(body));
                     let l = ui.label(t("pages.ask.label", &[("n", Fill::N(n as f64))]));
-                    ui.text_edit_singleline(&mut text).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut text)).labelled_by(l.id);
                     ui.label(
                         RichText::new(t("pages.ask.hint", &[("name", Fill::S(self.cur.name.clone())), ("n", Fill::N(n as f64))])).small(),
                     );

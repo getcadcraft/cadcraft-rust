@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-03 M17.10: every panel's one-line fields and tab rows in 0.7's shapes (`shell::field`, `shell::tab`); full harness sweep 0 differences.
 - 2026-11-03 M17.9: PartCraft's sketch tools and BimCraft's plan tools as 0.7 toolbar groups; pcuidiff identical, bmuidiff 2568/2568.
 - 2026-11-03 M17.8: TakeoffCraft's Export, Takeoff and Edit tools as 0.7's toolbar over the sheet; tkopsdiff and mkuidiff 0 different.
 - 2026-11-03 M17.3–M17.7: DetailCraft, PartCraft, BimCraft (IFC view) and CivilCraft with 0.7's toolbars and docked grips; the start screen's grid as one tile; every harness at 0 differences.

@@ -247,7 +247,7 @@ impl BimTools {
                     }
                 });
                 if !matches!(r.op.as_str(), "has" | "hasnot") {
-                    ui.add(egui::TextEdit::singleline(&mut r.value).hint_text(bt("find.value", &[])).desired_width(170.0));
+                    ui.add(crate::shell::field(&mut r.value).hint_text(bt("find.value", &[])).desired_width(170.0));
                 }
             });
             ui.add_space(4.0);

@@ -164,7 +164,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
                 .response
                 .on_hover_text(&head.which);
             let mut q = query.clone();
-            let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(&head.filter_placeholder).desired_width(260.0));
+            let r = ui.add(crate::shell::field(&mut q).hint_text(&head.filter_placeholder).desired_width(260.0));
             let r = r.on_hover_text(&head.filter_label);
             if r.changed() {
                 act = Some(("viewer.equip.filter", Params { name: Some(q), ..Default::default() }));

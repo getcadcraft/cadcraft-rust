@@ -1320,20 +1320,20 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                 ui.label(RichText::new(t0(&format!("mapl.help.{}", d.kind))).small().color(tk.text_dim));
                 ui.horizontal(|ui| {
                     ui.label(t0("mapl.f.url"));
-                    if ui.add(egui::TextEdit::singleline(&mut d.url).desired_width(360.0)).changed() {
+                    if ui.add(crate::shell::field(&mut d.url).desired_width(360.0)).changed() {
                         cv.maps.dlg.get_or_insert_with(MapDlg::default).url = d.url.clone();
                     }
                 });
                 if d.kind == "xyz" {
                     ui.horizontal(|ui| {
                         ui.label(t0("mapl.f.name"));
-                        if ui.text_edit_singleline(&mut d.name).changed() {
+                        if ui.add(crate::shell::field(&mut d.name)).changed() {
                             cv.maps.dlg.get_or_insert_with(MapDlg::default).name = d.name.clone();
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label(t0("mapl.f.att"));
-                        if ui.text_edit_singleline(&mut d.att).changed() {
+                        if ui.add(crate::shell::field(&mut d.att)).changed() {
                             cv.maps.dlg.get_or_insert_with(MapDlg::default).att = d.att.clone();
                         }
                     });

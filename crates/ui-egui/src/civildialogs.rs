@@ -417,7 +417,7 @@ pub enum DlgAct {
 
 fn field(ui: &mut egui::Ui, label: &str, value: &mut String, width: f32) {
     let l = ui.label(label);
-    ui.add(egui::TextEdit::singleline(value).desired_width(width)).labelled_by(l.id);
+    ui.add(crate::shell::field(value).desired_width(width)).labelled_by(l.id);
 }
 
 /// The two dialogs as windows over the plan.
@@ -465,7 +465,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                             ui.selectable_value(&mut f.ends, "pt".to_string(), t("tv.ends.pt", &[]));
                         });
                     if f.ends == "pt" {
-                        ui.add(egui::TextEdit::singleline(&mut f.end).desired_width(70.0).hint_text(t("tv.ends.pt.num", &[])));
+                        ui.add(crate::shell::field(&mut f.end).desired_width(70.0).hint_text(t("tv.ends.pt.num", &[])));
                     }
                 });
                 let l = ui.label(t("tv.legs", &[]));
@@ -581,7 +581,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 let f = &mut cv.dialogs.calls;
                 ui.horizontal(|ui| {
                     let l = ui.label(t("pc.name", &[]));
-                    ui.add(egui::TextEdit::singleline(&mut f.name).hint_text(next).desired_width(200.0)).labelled_by(l.id);
+                    ui.add(crate::shell::field(&mut f.name).hint_text(next).desired_width(200.0)).labelled_by(l.id);
                 });
                 ui.horizontal(|ui| field(ui, &t("pc.dlg.pt", &[]), &mut f.start, 90.0));
                 ui.label(RichText::new(t("pc.dlg.or", &[])).small());

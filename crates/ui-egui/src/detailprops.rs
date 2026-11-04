@@ -74,7 +74,7 @@ fn combo(
 
 /// A plain text box bound to a form field (no command until a button).
 fn form_text(ui: &mut Ui, v: &mut String, width: f32, lid: egui::Id) {
-    ui.add(egui::TextEdit::singleline(v).desired_width(width)).labelled_by(lid);
+    ui.add(crate::shell::field(v).desired_width(width)).labelled_by(lid);
 }
 
 fn sub(ui: &mut Ui, tk: &Tokens, text: &str) {
@@ -1150,7 +1150,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
             {
                 row(ui, tk, &t0(label), |ui, lid| {
                     if let Some(v) = form.get_mut(i)
-                        && ui.add(egui::TextEdit::singleline(v).desired_width(130.0)).labelled_by(lid).changed()
+                        && ui.add(crate::shell::field(v).desired_width(130.0)).labelled_by(lid).changed()
                     {
                         touched = true;
                     }
@@ -1187,15 +1187,12 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
                 ui.horizontal(|ui| {
                     let l = ui.label(RichText::new((i + 1).to_string()).color(tk.text_dim)).on_hover_text(t0("app.levels.name"));
                     touched |= ui
-                        .add(egui::TextEdit::singleline(n).desired_width(104.0))
+                        .add(crate::shell::field(n).desired_width(104.0))
                         .labelled_by(l.id)
                         .on_hover_text(t0("app.levels.name"))
                         .changed();
-                    touched |= ui
-                        .add(egui::TextEdit::singleline(z).desired_width(64.0))
-                        .labelled_by(l.id)
-                        .on_hover_text(t0("app.levels.z"))
-                        .changed();
+                    touched |=
+                        ui.add(crate::shell::field(z).desired_width(64.0)).labelled_by(l.id).on_hover_text(t0("app.levels.z")).changed();
                     if ui.small_button("×").on_hover_text(t("app.levels.remove", &[("n", F::N((i + 1) as f64))])).clicked() {
                         remove = Some(i);
                     }

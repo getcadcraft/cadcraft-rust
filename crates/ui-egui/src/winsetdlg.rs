@@ -385,7 +385,7 @@ fn keys_window(app: &mut UiApp, ctx: &egui::Context) {
                 }
                 ui.end_row();
                 ui.label(t("keys.command"));
-                ui.add(egui::TextEdit::singleline(&mut w.command).hint_text(t("keys.command.placeholder")).desired_width(220.0));
+                ui.add(crate::shell::field(&mut w.command).hint_text(t("keys.command.placeholder")).desired_width(220.0));
                 ui.end_row();
             });
             ui.horizontal(|ui| {

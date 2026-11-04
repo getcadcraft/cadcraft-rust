@@ -336,7 +336,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     let selected = r.constraint.as_ref().is_some_and(|c| Some(&c.id) == app.par.selected.as_ref());
                     // name
                     let mut nm = buf(&mut app.par, &r.name, "name", &r.name);
-                    let re = ui.add_sized([84.0, 20.0], egui::TextEdit::singleline(&mut nm).font(egui::TextStyle::Monospace));
+                    let re = ui.add_sized([84.0, 20.0], crate::shell::field(&mut nm).font(egui::TextStyle::Monospace));
                     if re.changed() {
                         set_buf(&mut app.par, &r.name, "name", nm.clone());
                     }
@@ -349,7 +349,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                     // expression
                     let mut ex = buf(&mut app.par, &r.name, "expr", &r.expr);
-                    let xe = ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut ex).font(egui::TextStyle::Monospace));
+                    let xe = ui.add_sized([150.0, 20.0], crate::shell::field(&mut ex).font(egui::TextStyle::Monospace));
                     let xe = if let Some(e) = &r.error { xe.on_hover_text(e) } else { xe };
                     if xe.changed() {
                         set_buf(&mut app.par, &r.name, "expr", ex.clone());
@@ -374,7 +374,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     } else {
                         let mut vv = buf(&mut app.par, &r.name, "value", &shown);
                         let ve = ui
-                            .add_sized([76.0, 20.0], egui::TextEdit::singleline(&mut vv).font(egui::TextStyle::Monospace))
+                            .add_sized([76.0, 20.0], crate::shell::field(&mut vv).font(egui::TextStyle::Monospace))
                             .on_hover_text(tv("params.panel.driven_by", &[("expr", r.expr.clone())]));
                         if ve.changed() {
                             set_buf(&mut app.par, &r.name, "value", vv.clone());
@@ -408,8 +408,8 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
         }
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut app.par.new_name).hint_text(t("params.panel.name")).desired_width(90.0));
-            ui.add(egui::TextEdit::singleline(&mut app.par.new_expr).hint_text(t("params.panel.value_expression")).desired_width(160.0));
+            ui.add(crate::shell::field(&mut app.par.new_name).hint_text(t("params.panel.name")).desired_width(90.0));
+            ui.add(crate::shell::field(&mut app.par.new_expr).hint_text(t("params.panel.value_expression")).desired_width(160.0));
             if ui.button(t("params.panel.add")).clicked() && !app.par.new_name.trim().is_empty() {
                 act.push(("par.add", format!("{}={}", app.par.new_name.trim(), app.par.new_expr.trim())));
             }
@@ -499,7 +499,7 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
         .default_pos(pos)
         .show(ctx, |ui| {
             ui.label(t("params.panel.value_expression_number_driven"));
-            let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(240.0).font(egui::TextStyle::Monospace));
+            let r = ui.add(crate::shell::field(&mut text).desired_width(240.0).font(egui::TextStyle::Monospace));
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 apply = true;
             }

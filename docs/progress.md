@@ -50,7 +50,10 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   Fillet, Trim, Dimension, More), the sketch's name and solve state on a row under it; BimCraft's plan tools (Select,
   Wall, Door, Window, Floor, Ceiling, Roof) as the toolbar's Draw group while drawing, the tool options row under it.
   pcuidiff identical, bmuidiff 2568/2568.
-- Next (gaps item 12): fields and tabs in every panel, dialogs, CadCraft's layer flags, 3D backgrounds.
+- M17.10: every one-line field in every panel and dialog comes through `shell::field` (0.7's `.cc-input`: text centred
+  in the box, 8 px in), and the panels' tab rows (MarkupCraft's panels, DetailCraft's reports, the input styles'
+  Customize) are 0.7's tabs (`shell::tab`). Full sweep 0 differences.
+- Next (gaps item 12): dialogs, CadCraft's layer flags, 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

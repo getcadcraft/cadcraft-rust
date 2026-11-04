@@ -308,7 +308,7 @@ fn field(
     let r = if multi {
         ui.add(egui::TextEdit::multiline(&mut e.1).desired_rows(3).desired_width(w))
     } else {
-        ui.add(egui::TextEdit::singleline(&mut e.1).desired_width(w))
+        ui.add(crate::shell::field(&mut e.1).desired_width(w))
     }
     .labelled_by(l.id);
     (r.lost_focus() && e.1 != e.0).then(|| e.1.clone())

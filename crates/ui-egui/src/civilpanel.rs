@@ -1026,7 +1026,7 @@ fn cell_x(
         _ => current.to_string(),
     };
     // a fixed size: inside a grid a text field otherwise shrinks to the column's last width
-    let mut r = ui.add_sized([width, 18.0], egui::TextEdit::singleline(&mut text).id_salt(("civil_cell", key)));
+    let mut r = ui.add_sized([width, 18.0], crate::shell::field(&mut text).id_salt(("civil_cell", key)));
     if let Some(l) = label {
         r = r.labelled_by(l);
     }
@@ -1320,7 +1320,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
     };
     egui::Grid::new("cv_fl_off").num_columns(2).spacing([8.0, 3.0]).show(ui, |ui| {
         let l = ui.label(RichText::new(t0("fl.offset.dist")).color(tk.text_dim));
-        ui.add(egui::TextEdit::singleline(&mut dist).desired_width(70.0)).labelled_by(l.id);
+        ui.add(crate::shell::field(&mut dist).desired_width(70.0)).labelled_by(l.id);
         ui.end_row();
         ui.label(RichText::new(t0("fl.offset.how")).color(tk.text_dim));
         egui::ComboBox::new(("cv_fl_how", id.as_str()), "")
@@ -1333,7 +1333,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
             .on_hover_text(t0("fl.offset.how"));
         ui.end_row();
         let l = ui.label(RichText::new(t0("fl.offset.amount")).color(tk.text_dim));
-        ui.add(egui::TextEdit::singleline(&mut amt).desired_width(70.0)).labelled_by(l.id);
+        ui.add(crate::shell::field(&mut amt).desired_width(70.0)).labelled_by(l.id);
         ui.end_row();
     });
     cv.profile.offset_form = Some((id.clone(), dist.clone(), how.clone(), amt.clone()));

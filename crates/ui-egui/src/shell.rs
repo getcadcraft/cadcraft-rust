@@ -545,3 +545,9 @@ pub fn bar_toggle(ui: &mut egui::Ui, t: &Tokens, label: &str, on: bool) -> Respo
     }
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
+/// A one-line field as 0.7 draws them (`.cc-input`: the text centred in the box, 8 px in from the edge); every
+/// panel's text fields come through here (the theme gives the sheet fill and the 1 px line border).
+pub fn field(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
+    egui::TextEdit::singleline(text).align(egui::Align2::LEFT_CENTER).margin(egui::Margin::symmetric(8, 4))
+}

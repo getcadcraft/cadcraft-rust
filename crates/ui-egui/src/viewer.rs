@@ -872,7 +872,7 @@ pub fn find_panel(app: &mut UiApp, ui: &mut egui::Ui) {
             });
         });
         let id = ui.make_persistent_id("viewer.find.q");
-        let r = ui.add(egui::TextEdit::singleline(&mut q).id(id).desired_width(f32::INFINITY));
+        let r = ui.add(crate::shell::field(&mut q).id(id).desired_width(f32::INFINITY));
         if !f.ran && q.is_empty() {
             r.request_focus();
         }

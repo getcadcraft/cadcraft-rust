@@ -212,9 +212,7 @@ pub fn settings_window(cv: &mut CivilView, ctx: &egui::Context, tk: &crate::them
                     let l = ui.label(t("set.start", &[]));
                     let shown = s.start.map_or(String::new(), cc_civil::js::num_to_string);
                     let mut text = cv.lasso_start_text.clone().unwrap_or_else(|| shown.clone());
-                    let r = ui
-                        .add(egui::TextEdit::singleline(&mut text).desired_width(90.0).hint_text(t("set.start.ph", &[])))
-                        .labelled_by(l.id);
+                    let r = ui.add(crate::shell::field(&mut text).desired_width(90.0).hint_text(t("set.start.ph", &[]))).labelled_by(l.id);
                     if r.changed() || r.has_focus() {
                         cv.lasso_start_text = Some(text.clone());
                     }

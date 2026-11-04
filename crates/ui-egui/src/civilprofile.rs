@@ -586,7 +586,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         };
         let mut text = cv.profile.within_text.clone().unwrap_or_else(|| shown.clone());
         let r = ui
-            .add_enabled(fl_on, egui::TextEdit::singleline(&mut text).desired_width(48.0))
+            .add_enabled(fl_on, crate::shell::field(&mut text).desired_width(48.0))
             .labelled_by(l.id)
             .on_hover_text(t("ui.prof.fl.within.title", &[]));
         if r.has_focus() || r.changed() {

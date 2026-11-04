@@ -600,7 +600,7 @@ fn blocks_window(app: &mut UiApp, ctx: &egui::Context) {
     dialog(title, "cad_delblocks", ctx).open(&mut open).default_size([360.0, 420.0]).show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label(t("delblocks.dialog.filter"));
-            ui.add(egui::TextEdit::singleline(&mut filter).hint_text("*").desired_width(160.0));
+            ui.add(crate::shell::field(&mut filter).hint_text("*").desired_width(160.0));
         });
         let q = filter.trim().to_uppercase().replace('*', "");
         egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
@@ -729,7 +729,7 @@ fn tile_ui(ui: &mut egui::Ui, t: &Tile, v: &mut DclView, used: &mut Option<(Stri
             ui.horizontal(|ui| {
                 let lab = ui.label(&label);
                 if let Some(x) = v.tile_mut(&key) {
-                    let r = ui.add_enabled(enabled, egui::TextEdit::singleline(&mut x.value).desired_width(160.0)).labelled_by(lab.id);
+                    let r = ui.add_enabled(enabled, crate::shell::field(&mut x.value).desired_width(160.0)).labelled_by(lab.id);
                     if r.lost_focus() {
                         *used = Some((key.clone(), None));
                     }

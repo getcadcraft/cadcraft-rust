@@ -180,7 +180,7 @@ impl ModelView {
                         for (k, key) in ["app.info.width", "app.info.depth", "app.info.height"].iter().enumerate() {
                             let l = ui.label(mt(key, &[]));
                             if let Some(v) = size.get_mut(k) {
-                                ui.text_edit_singleline(v).labelled_by(l.id);
+                                ui.add(crate::shell::field(v)).labelled_by(l.id);
                             }
                             ui.end_row();
                         }

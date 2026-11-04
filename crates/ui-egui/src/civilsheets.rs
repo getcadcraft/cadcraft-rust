@@ -373,7 +373,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                     let l = ui.label(t("mh.factor", &[]));
                     let mut text = cv.sheets.mh.as_ref().map(|x| x.text.clone()).unwrap_or_default();
                     let invalid = cv.sheets.mh.as_ref().is_some_and(|x| x.invalid);
-                    let mut te = egui::TextEdit::singleline(&mut text).desired_width(70.0);
+                    let mut te = crate::shell::field(&mut text).desired_width(70.0);
                     if invalid {
                         te = te.text_color(ui.visuals().error_fg_color);
                     }

@@ -556,7 +556,7 @@ fn field(app: &mut UiApp, ui: &mut egui::Ui, key: &str, current: &str, label: eg
         _ => current.to_string(),
     };
     let w = ui.available_width().max(80.0);
-    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(w).id_salt(("bim_field", key))).labelled_by(label);
+    let r = ui.add(crate::shell::field(&mut text).desired_width(w).id_salt(("bim_field", key))).labelled_by(label);
     if r.has_focus() || r.changed() {
         app.bimh.editing = Some((key.to_string(), text.clone()));
     }
@@ -575,11 +575,11 @@ pub fn new_dialog(app: &mut UiApp, ctx: &egui::Context) {
     egui::Window::new(RichText::new(bt("new.title", &[])).strong()).collapsible(false).resizable(false).show(ctx, |ui| {
         ui.label(bt("new.lede", &[]));
         let l = ui.label(bt("new.name", &[]));
-        ui.add(egui::TextEdit::singleline(&mut dlg.name).id_salt("bim_new_name")).labelled_by(l.id);
+        ui.add(crate::shell::field(&mut dlg.name).id_salt("bim_new_name")).labelled_by(l.id);
         let l = ui.label(bt("new.levels", &[]));
-        ui.add(egui::TextEdit::singleline(&mut dlg.levels).id_salt("bim_new_levels")).labelled_by(l.id);
+        ui.add(crate::shell::field(&mut dlg.levels).id_salt("bim_new_levels")).labelled_by(l.id);
         let l = ui.label(bt("new.height", &[]));
-        ui.add(egui::TextEdit::singleline(&mut dlg.height).id_salt("bim_new_height")).labelled_by(l.id);
+        ui.add(crate::shell::field(&mut dlg.height).id_salt("bim_new_height")).labelled_by(l.id);
         ui.label(RichText::new(bt("new.height.hint", &[])).small());
         if !dlg.problem.is_empty() {
             ui.colored_label(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c), &dlg.problem);

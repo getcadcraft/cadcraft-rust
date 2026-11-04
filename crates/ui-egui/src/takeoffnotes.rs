@@ -657,7 +657,7 @@ impl TakeoffMode {
                     if e.0 != field {
                         *e = (field.clone(), field.clone());
                     }
-                    let r = ui.add(egui::TextEdit::singleline(&mut e.1).desired_width(w));
+                    let r = ui.add(crate::shell::field(&mut e.1).desired_width(w));
                     if r.lost_focus() && e.1 != e.0 {
                         ops.push(format!("{k}:{id}:{}", e.1));
                     }
@@ -690,9 +690,9 @@ impl TakeoffMode {
         egui::Window::new(t("group.dlg")).collapsible(false).resizable(false).show(ctx, |ui| {
             ui.label(text);
             let l = ui.label(t("group.f.name"));
-            ui.add(egui::TextEdit::singleline(&mut ask.name).char_limit(200)).labelled_by(l.id);
+            ui.add(crate::shell::field(&mut ask.name).char_limit(200)).labelled_by(l.id);
             let l = ui.label(t("group.f.repeat"));
-            ui.add(egui::TextEdit::singleline(&mut ask.repeat)).labelled_by(l.id);
+            ui.add(crate::shell::field(&mut ask.repeat)).labelled_by(l.id);
             if !ask.error.is_empty() {
                 ui.label(RichText::new(&ask.error).color(ui.visuals().error_fg_color));
             }

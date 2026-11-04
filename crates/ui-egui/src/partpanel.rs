@@ -36,7 +36,7 @@ fn cmd(id: &'static str, name: impl Into<String>) -> Cmd {
 /// A text field that commits on Enter or when it loses focus (Esc keeps the old text): the typed text, if changed.
 fn field(ui: &mut egui::Ui, edits: &mut HashMap<String, String>, key: &str, shown: &str, width: f32, hint: &str) -> Option<String> {
     let mut text = edits.get(key).cloned().unwrap_or_else(|| shown.to_string());
-    let resp = ui.add_sized([width, 18.0], egui::TextEdit::singleline(&mut text).id_salt(("pc-field", key))).on_hover_text(hint);
+    let resp = ui.add_sized([width, 18.0], crate::shell::field(&mut text).id_salt(("pc-field", key))).on_hover_text(hint);
     if resp.has_focus() {
         edits.insert(key.to_string(), text.clone());
     }
@@ -993,9 +993,9 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
         }
     });
     ui.horizontal(|ui| {
-        ui.add(egui::TextEdit::singleline(&mut pv.new_param.0).hint_text(tr("ui.params.new.name_ph")).desired_width(80.0))
+        ui.add(crate::shell::field(&mut pv.new_param.0).hint_text(tr("ui.params.new.name_ph")).desired_width(80.0))
             .on_hover_text(tr("ui.params.new.name"));
-        ui.add(egui::TextEdit::singleline(&mut pv.new_param.1).hint_text(tr("ui.params.new.value_ph")).desired_width(110.0))
+        ui.add(crate::shell::field(&mut pv.new_param.1).hint_text(tr("ui.params.new.value_ph")).desired_width(110.0))
             .on_hover_text(tr("ui.params.new.value"));
         if ui.button(tr("touch.add")).clicked() {
             let (n, v) = (pv.new_param.0.trim().to_string(), pv.new_param.1.trim().to_string());
@@ -1073,7 +1073,7 @@ fn configurations(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
     ui.horizontal(|ui| {
         let key = "cfg-new".to_string();
         let mut text = pv.edits.get(&key).cloned().unwrap_or_default();
-        let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(tr("configs.new_placeholder")).desired_width(130.0));
+        let r = ui.add(crate::shell::field(&mut text).hint_text(tr("configs.new_placeholder")).desired_width(130.0));
         pv.edits.insert(key.clone(), text.clone());
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui.button(tr("configs.save")).clicked() || enter {

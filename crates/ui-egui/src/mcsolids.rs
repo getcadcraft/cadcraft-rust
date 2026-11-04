@@ -355,8 +355,8 @@ impl ModelView {
                         ui.label("");
                         ui.end_row();
                         for (i, (n, e)) in rows.iter_mut().enumerate() {
-                            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(n).char_limit(80));
-                            ui.add_sized([90.0, 20.0], egui::TextEdit::singleline(e));
+                            ui.add_sized([150.0, 20.0], crate::shell::field(n).char_limit(80));
+                            ui.add_sized([90.0, 20.0], crate::shell::field(e));
                             if ui.small_button("×").on_hover_text(mt("app.storeys.remove", &[])).clicked() {
                                 a = Some(format!("storeys-remove:{i}"));
                             }

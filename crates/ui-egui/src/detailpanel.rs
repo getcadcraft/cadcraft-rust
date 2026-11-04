@@ -336,7 +336,7 @@ pub(crate) fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &
         Some((k, v)) if k == key => v.clone(),
         _ => current.to_string(),
     };
-    let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(width).id_salt(("detail_field", key))).labelled_by(label);
+    let r = ui.add(crate::shell::field(&mut text).desired_width(width).id_salt(("detail_field", key))).labelled_by(label);
     if r.has_focus() || r.changed() {
         dv.editing = Some((key.to_string(), text.clone()));
     }
@@ -596,7 +596,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
             (Tab::Bending, t0("page.rep.bending")),
             (Tab::Nest, t0("nest.tab")),
         ] {
-            if ui.selectable_label(dv.tab == tab, label).clicked() {
+            if crate::shell::tab(ui, tk, &label, dv.tab == tab).clicked() {
                 dv.tab = tab;
             }
         }

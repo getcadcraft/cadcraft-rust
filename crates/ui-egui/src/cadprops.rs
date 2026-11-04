@@ -915,7 +915,7 @@ fn text_field(
 ) -> Option<String> {
     let editing = edits.contains_key(key);
     let mut buf = edits.get(key).cloned().unwrap_or_else(|| shown.to_string());
-    let te = if multi { egui::TextEdit::multiline(&mut buf).desired_rows(2) } else { egui::TextEdit::singleline(&mut buf) };
+    let te = if multi { egui::TextEdit::multiline(&mut buf).desired_rows(2) } else { crate::shell::field(&mut buf) };
     let r = ui.add(te.desired_width(w).hint_text(hint).interactive(enabled)).labelled_by(lab);
     if r.gained_focus()
         && !editing

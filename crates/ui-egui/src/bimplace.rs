@@ -533,9 +533,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     });
     ui.horizontal_wrapped(|ui| {
         let l = ui.label(bt("ui.place.xy", &[]));
-        let r = ui
-            .add(egui::TextEdit::singleline(&mut xy).desired_width(110.0).hint_text("1200, 3400").id_salt("bim_place_xy"))
-            .labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut xy).desired_width(110.0).hint_text("1200, 3400").id_salt("bim_place_xy")).labelled_by(l.id);
         let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
         if ui.button(bt("ui.place.here", &[])).clicked() || enter {
             run_ids.push(("bim.place.at", xy.clone()));
@@ -570,7 +568,7 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let field = |ui: &mut egui::Ui, key: &str, v: &mut String, id: &str| {
                 let l = ui.label(bt(key, &[]));
-                ui.add(egui::TextEdit::singleline(v).desired_width(240.0).id_salt(id)).labelled_by(l.id);
+                ui.add(crate::shell::field(v).desired_width(240.0).id_salt(id)).labelled_by(l.id);
             };
             field(ui, "place.dlg.number", &mut a.number, "bim_place_no");
             field(ui, "place.dlg.qty", &mut a.qty, "bim_place_qty");

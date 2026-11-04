@@ -300,11 +300,11 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
     };
     egui::Grid::new("pc-num").num_columns(2).show(ui, |ui| {
         ui.label(tr(labels.0));
-        ui.add(egui::TextEdit::singleline(&mut num.1).hint_text("0, 0").desired_width(110.0));
+        ui.add(crate::shell::field(&mut num.1).hint_text("0, 0").desired_width(110.0));
         ui.end_row();
         if let Some(l2) = labels.1 {
             ui.label(tr(l2));
-            ui.add(egui::TextEdit::singleline(&mut num.2).hint_text(if num.0 == "circle" { "10" } else { "0, 0" }).desired_width(110.0));
+            ui.add(crate::shell::field(&mut num.2).hint_text(if num.0 == "circle" { "10" } else { "0, 0" }).desired_width(110.0));
             ui.end_row();
         }
     });
@@ -460,9 +460,8 @@ fn value_box(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView) {
     let mut done: Option<bool> = None;
     egui::Area::new(egui::Id::unique("pc-sk-value")).fixed_pos(Pos2::new(x, y)).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
         ui.horizontal(|ui| {
-            let r = ui
-                .add(egui::TextEdit::singleline(&mut ask.text).desired_width(90.0).id_salt("pc-sk-value-text"))
-                .on_hover_text(ask.label.clone());
+            let r =
+                ui.add(crate::shell::field(&mut ask.text).desired_width(90.0).id_salt("pc-sk-value-text")).on_hover_text(ask.label.clone());
             if !r.has_focus() && !r.lost_focus() {
                 r.request_focus();
             }

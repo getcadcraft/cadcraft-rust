@@ -1218,13 +1218,13 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
                 ui.end_row();
                 let l = ui.label(tr!("tui.l.margin", unit = uw));
                 let mut m = d.margin.clone();
-                if ui.add_enabled(d.area == "extents", egui::TextEdit::singleline(&mut m).desired_width(90.0)).labelled_by(l.id).changed() {
+                if ui.add_enabled(d.area == "extents", crate::shell::field(&mut m).desired_width(90.0)).labelled_by(l.id).changed() {
                     acts.push(("civil.terrain", format!("margin={m}")));
                 }
                 ui.end_row();
                 let l = ui.label(tr!("tui.l.thin", unit = uw));
                 let mut s = d.spacing.clone();
-                if ui.add(egui::TextEdit::singleline(&mut s).desired_width(90.0)).labelled_by(l.id).changed() {
+                if ui.add(crate::shell::field(&mut s).desired_width(90.0)).labelled_by(l.id).changed() {
                     acts.push(("civil.terrain", format!("spacing={s}")));
                 }
                 ui.end_row();
@@ -1514,7 +1514,7 @@ pub fn geotiff_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts:
         ui.horizontal(|ui| {
             let l = ui.label(tr!("tui.l.cell", unit = cv.u_word()));
             let mut c = d.cell.clone();
-            if ui.add(egui::TextEdit::singleline(&mut c).desired_width(90.0)).labelled_by(l.id).changed() {
+            if ui.add(crate::shell::field(&mut c).desired_width(90.0)).labelled_by(l.id).changed() {
                 acts.push(("civil.geotiff", format!("cell={c}")));
             }
         });

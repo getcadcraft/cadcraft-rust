@@ -659,19 +659,16 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 let lab = ui.label(shell("shell.input.dlg.name", &[]));
                 let mut n = d.name.clone();
-                if ui
-                    .add(egui::TextEdit::singleline(&mut n).char_limit(ip::limits::NAME).desired_width(260.0))
-                    .labelled_by(lab.id)
-                    .changed()
-                {
+                if ui.add(crate::shell::field(&mut n).char_limit(ip::limits::NAME).desired_width(260.0)).labelled_by(lab.id).changed() {
                     act.push(("input.custom.name", Some(n)));
                 }
             });
             ui.horizontal(|ui| {
-                if ui.selectable_label(!d.mouse_tab, shell("shell.input.dlg.tab.keys", &[])).clicked() {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                if crate::shell::tab(ui, &t, &shell("shell.input.dlg.tab.keys", &[]), !d.mouse_tab).clicked() {
                     act.push(("input.custom.tab", Some("keys".into())));
                 }
-                if ui.selectable_label(d.mouse_tab, shell("shell.input.dlg.tab.mouse", &[])).clicked() {
+                if crate::shell::tab(ui, &t, &shell("shell.input.dlg.tab.mouse", &[]), d.mouse_tab).clicked() {
                     act.push(("input.custom.tab", Some("mouse".into())));
                 }
             });
@@ -680,8 +677,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 mouse_pane(ui, &t, &d, &mut act);
             } else {
                 let mut f = d.filter.clone();
-                if ui.add(egui::TextEdit::singleline(&mut f).hint_text(shell("shell.input.dlg.filter", &[])).desired_width(260.0)).changed()
-                {
+                if ui.add(crate::shell::field(&mut f).hint_text(shell("shell.input.dlg.filter", &[])).desired_width(260.0)).changed() {
                     act.push(("input.custom.filter", Some(f)));
                 }
                 let lab = |x: &String| if let Some(s) = x.strip_prefix("text:") { s.to_string() } else { label(x) };

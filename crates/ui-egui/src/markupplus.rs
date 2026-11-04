@@ -296,7 +296,7 @@ impl PdfView {
         if e.0 != p.assignee {
             *e = (p.assignee.clone(), p.assignee.clone());
         }
-        let r = ui.text_edit_singleline(&mut e.1).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut e.1)).labelled_by(l.id);
         if r.lost_focus() && e.1 != e.0 {
             set = Some(("assignee", e.1.clone()));
         }
@@ -311,7 +311,7 @@ impl PdfView {
         if e.0 != due {
             *e = (due.clone(), due.clone());
         }
-        let r = ui.add(egui::TextEdit::singleline(&mut e.1).hint_text("YYYY-MM-DD")).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut e.1).hint_text("YYYY-MM-DD")).labelled_by(l.id);
         if r.lost_focus() && e.1 != e.0 {
             set = Some(("due", e.1.clone()));
         }
@@ -429,7 +429,7 @@ impl PdfView {
             if e.0 != m.label {
                 *e = (m.label.clone(), m.label.clone());
             }
-            let r = ui.text_edit_singleline(&mut e.1).labelled_by(l.id);
+            let r = ui.add(crate::shell::field(&mut e.1)).labelled_by(l.id);
             if r.lost_focus() && e.1 != e.0 {
                 prop = Some(("title", e.1.clone()));
             }
@@ -453,7 +453,7 @@ impl PdfView {
             if e.0 != m.label {
                 *e = (m.label.clone(), m.label.clone());
             }
-            let r = ui.text_edit_singleline(&mut e.1).labelled_by(l.id);
+            let r = ui.add(crate::shell::field(&mut e.1)).labelled_by(l.id);
             if r.lost_focus() && e.1 != e.0 {
                 prop = Some(("label", e.1.clone()));
             }

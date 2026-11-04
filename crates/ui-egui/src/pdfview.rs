@@ -1395,7 +1395,7 @@ impl PdfView {
         if self.tools.cal_len.is_some() {
             let label = ui.label(t0("cal.real"));
             let field = ui
-                .add(egui::TextEdit::singleline(&mut self.tools.cal_text).hint_text(t0("cal.placeholder")).desired_width(110.0))
+                .add(crate::shell::field(&mut self.tools.cal_text).hint_text(t0("cal.placeholder")).desired_width(110.0))
                 .labelled_by(label.id);
             let unit_name = units().into_iter().find(|(u, _)| *u == self.tools.cal_unit).map(|(_, n)| n).unwrap_or_default();
             egui::ComboBox::new("mc-cal-unit", t0("set.unit")).selected_text(unit_name).show_ui(ui, |ui| {

@@ -530,7 +530,7 @@ impl TakeoffMode {
             *e = (value.to_string(), value.to_string());
         }
         let l = ui.label(RichText::new(label).small());
-        let r = ui.add(egui::TextEdit::singleline(&mut e.1).hint_text(hint).desired_width(ui.available_width())).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut e.1).hint_text(hint).desired_width(ui.available_width())).labelled_by(l.id);
         (r.lost_focus() && e.1 != e.0).then(|| e.1.clone())
     }
 
@@ -575,7 +575,7 @@ impl TakeoffMode {
             egui::Window::new(t("area.new.title")).collapsible(false).resizable(false).open(&mut open).show(ctx, |ui| {
                 ui.label(t("area.new.text"));
                 let l = ui.label(t("area.name"));
-                let r = ui.add(egui::TextEdit::singleline(&mut name).hint_text(t("area.name.placeholder"))).labelled_by(l.id);
+                let r = ui.add(crate::shell::field(&mut name).hint_text(t("area.name.placeholder"))).labelled_by(l.id);
                 let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.horizontal(|ui| {
                     if ui.button(t("btn.cancel")).clicked() {
@@ -616,7 +616,7 @@ impl TakeoffMode {
                         if e.0 != name {
                             *e = (name.clone(), name.clone());
                         }
-                        let r = ui.add(egui::TextEdit::singleline(&mut e.1).desired_width(160.0));
+                        let r = ui.add(crate::shell::field(&mut e.1).desired_width(160.0));
                         if r.lost_focus() && e.1 != e.0 {
                             act = Some(format!("rename:{id}:{}", e.1));
                         }
@@ -643,8 +643,7 @@ impl TakeoffMode {
                 }
                 ui.separator();
                 ui.horizontal(|ui| {
-                    let r =
-                        ui.add(egui::TextEdit::singleline(&mut self.new_area).hint_text(t("area.name.placeholder")).desired_width(180.0));
+                    let r = ui.add(crate::shell::field(&mut self.new_area).hint_text(t("area.name.placeholder")).desired_width(180.0));
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     if (ui.button(t("area.add")).clicked() || enter) && !self.new_area.trim().is_empty() {
                         act = Some(format!("add:{}", self.new_area));

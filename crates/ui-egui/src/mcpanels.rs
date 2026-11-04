@@ -16,7 +16,7 @@ use crate::theme::Tokens;
 /// the old text back. `id` keeps the typed text between frames.
 pub(crate) fn text_box(ui: &mut egui::Ui, boxes: &mut HashMap<String, String>, id: &str, current: &str, width: f32) -> Option<String> {
     let buf = boxes.entry(id.to_string()).or_insert_with(|| current.to_string());
-    let r = ui.add(egui::TextEdit::singleline(buf).desired_width(width).id_salt(("mcbox", id)));
+    let r = ui.add(crate::shell::field(buf).desired_width(width).id_salt(("mcbox", id)));
     if r.lost_focus() {
         let v = boxes.remove(id).unwrap_or_default();
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -524,7 +524,7 @@ impl ModelView {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("⌕").color(t.text_dim)).on_hover_text(mt("ui.outliner.search", &[]));
                     let buf = boxes.entry("tree-filter".into()).or_insert_with(|| cur.clone());
-                    let r = ui.add(egui::TextEdit::singleline(buf).hint_text(mt("ui.outliner.search", &[])).desired_width(170.0));
+                    let r = ui.add(crate::shell::field(buf).hint_text(mt("ui.outliner.search", &[])).desired_width(170.0));
                     if r.changed() {
                         acts.push(format!("tree-filter:{buf}"));
                     }
@@ -620,8 +620,7 @@ impl ModelView {
                 if renaming.as_deref() == Some(d.id.as_str()) {
                     ui.label(icon);
                     let r = ui.add(
-                        egui::TextEdit::singleline(boxes.entry(format!("rename:{}", d.id)).or_insert_with(|| d.name.clone()))
-                            .desired_width(150.0),
+                        crate::shell::field(boxes.entry(format!("rename:{}", d.id)).or_insert_with(|| d.name.clone())).desired_width(150.0),
                     );
                     if !r.has_focus() && !r.lost_focus() {
                         r.request_focus();
@@ -913,7 +912,7 @@ impl ModelView {
                 ui.horizontal(|ui| {
                     let key = format!("scene:{i}");
                     if boxes.contains_key(&key) {
-                        let r = ui.add(egui::TextEdit::singleline(boxes.entry(key.clone()).or_default()).desired_width(140.0));
+                        let r = ui.add(crate::shell::field(boxes.entry(key.clone()).or_default()).desired_width(140.0));
                         if !r.has_focus() && !r.lost_focus() {
                             r.request_focus();
                         }
@@ -1022,7 +1021,7 @@ fn soften_row(ui: &mut egui::Ui, t: &Tokens, boxes: &mut HashMap<String, String>
     ui.label(RichText::new(mt("app.info.soften", &[])).color(t.text_dim));
     ui.horizontal(|ui| {
         let buf = boxes.entry("soften".into()).or_insert_with(|| ns(deg));
-        ui.add(egui::TextEdit::singleline(buf).desired_width(40.0));
+        ui.add(crate::shell::field(buf).desired_width(40.0));
         ui.label("°");
         if ui.small_button(mt("app.info.soften.go", &[])).clicked() {
             acts.push(format!("soften:{buf}"));

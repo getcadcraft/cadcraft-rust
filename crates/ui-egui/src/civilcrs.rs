@@ -1506,7 +1506,7 @@ fn field(ui: &mut egui::Ui, label: &str, v: &str, hint: &str, w: f32, acts: &mut
     ui.horizontal(|ui| {
         let l = ui.label(label);
         let mut s = v.to_string();
-        let r = ui.add(egui::TextEdit::singleline(&mut s).hint_text(hint).desired_width(w)).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut s).hint_text(hint).desired_width(w)).labelled_by(l.id);
         if r.changed() {
             acts.push(("civil.crs.dlg", format!("{key}={s}")));
         }
@@ -1593,9 +1593,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     ui.horizontal(|ui| {
                         let l = ui.label(t0("crs.d.search"));
                         let mut q = d.q.clone();
-                        let r = ui
-                            .add(egui::TextEdit::singleline(&mut q).hint_text(t0("crs.d.search.ph")).desired_width(300.0))
-                            .labelled_by(l.id);
+                        let r = ui.add(crate::shell::field(&mut q).hint_text(t0("crs.d.search.ph")).desired_width(300.0)).labelled_by(l.id);
                         if r.changed() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
                             acts.push(("civil.crs.dlg", format!("search={q}")));
                         }
@@ -1603,8 +1601,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     ui.horizontal(|ui| {
                         let l = ui.label(t0("crs.d.near"));
                         let mut q = d.near.clone();
-                        let r =
-                            ui.add(egui::TextEdit::singleline(&mut q).hint_text("30.27, -97.74").desired_width(200.0)).labelled_by(l.id);
+                        let r = ui.add(crate::shell::field(&mut q).hint_text("30.27, -97.74").desired_width(200.0)).labelled_by(l.id);
                         if r.changed()
                             && let Some(x) = cv.crs_dlg.as_mut()
                         {
@@ -1696,7 +1693,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                             ("ll", &c.ll, t0("crs.d.cp.ll.ph"), 130.0),
                                         ] {
                                             let mut s = val.clone();
-                                            let r = ui.add(egui::TextEdit::singleline(&mut s).hint_text(hint).desired_width(w));
+                                            let r = ui.add(crate::shell::field(&mut s).hint_text(hint).desired_width(w));
                                             if r.changed() {
                                                 acts.push(("civil.crs.dlg", format!("cp={i}:{f}={s}")));
                                             }

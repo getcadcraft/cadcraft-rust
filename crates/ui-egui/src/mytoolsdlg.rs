@@ -719,7 +719,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     ("macro", "mytools.f.macro", &mut e.macro_, 4000),
                 ] {
                     let lab = ui.label(t(label));
-                    let r = ui.add(egui::TextEdit::singleline(val).desired_width(260.0).char_limit(max)).labelled_by(lab.id);
+                    let r = ui.add(crate::shell::field(val).desired_width(260.0).char_limit(max)).labelled_by(lab.id);
                     if r.changed() {
                         acts.push(("mytools.field", Some(format!("{k}={val}"))));
                     }

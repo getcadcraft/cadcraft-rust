@@ -2188,7 +2188,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         if dr.tool == "wall" || dr.tool == "door" || dr.tool == "window" {
             let l = ui.label(bt("model.typed", &[]));
-            let r = ui.add(egui::TextEdit::singleline(&mut typed).desired_width(90.0).id_salt("bim_typed")).labelled_by(l.id);
+            let r = ui.add(crate::shell::field(&mut typed).desired_width(90.0).id_salt("bim_typed")).labelled_by(l.id);
             if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 run.push(("bim.typed", typed.clone()));
             }
@@ -2365,8 +2365,7 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
             Some((k, v)) if k == key => v.clone(),
             _ => cur.clone(),
         };
-        let r =
-            ui.add(egui::TextEdit::singleline(&mut text).desired_width(ui.available_width()).id_salt(("bim_mp", key))).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut text).desired_width(ui.available_width()).id_salt(("bim_mp", key))).labelled_by(l.id);
         if r.has_focus() || r.changed() {
             app.bimh.editing = Some((key.to_string(), text.clone()));
         }

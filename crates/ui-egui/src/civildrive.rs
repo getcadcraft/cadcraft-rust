@@ -464,7 +464,7 @@ fn sun_field(cv: &mut CivilView, ui: &mut egui::Ui, acts: &mut Vec<(&'static str
     ui.horizontal(|ui| {
         let l = ui.label(t0(key));
         let mut text = cv.sun_edit.get(k).cloned().unwrap_or_else(|| cur.to_string());
-        let r = ui.add(egui::TextEdit::singleline(&mut text).desired_width(w)).labelled_by(l.id);
+        let r = ui.add(crate::shell::field(&mut text).desired_width(w)).labelled_by(l.id);
         if r.changed() {
             cv.sun_edit.insert(k.to_string(), text.clone());
         }

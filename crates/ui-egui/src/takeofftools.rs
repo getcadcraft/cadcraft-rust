@@ -805,7 +805,7 @@ impl TakeoffMode {
         // add an item
         ui.add_space(4.0);
         ui.add(
-            egui::TextEdit::singleline(&mut self.new_name)
+            crate::shell::field(&mut self.new_name)
                 .hint_text(cc_takeoff::i18n::t("items.new.placeholder"))
                 .desired_width(ui.available_width()),
         );

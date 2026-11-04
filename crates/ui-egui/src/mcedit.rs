@@ -367,10 +367,10 @@ impl ModelView {
                         ui.add(egui::TextEdit::multiline(&mut text).desired_rows(3).char_limit(400)).labelled_by(l.id);
                         ui.end_row();
                         let l = ui.label(mt("app.text3d.height", &[]));
-                        ui.text_edit_singleline(&mut height).labelled_by(l.id);
+                        ui.add(crate::shell::field(&mut height)).labelled_by(l.id);
                         ui.end_row();
                         let l = ui.label(mt("app.text3d.depth", &[]));
-                        ui.text_edit_singleline(&mut depth).labelled_by(l.id);
+                        ui.add(crate::shell::field(&mut depth)).labelled_by(l.id);
                         ui.end_row();
                     });
                     ui.label(egui::RichText::new(mt("app.text3d.note", &[])).small());

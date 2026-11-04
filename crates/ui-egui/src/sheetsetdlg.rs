@@ -1269,7 +1269,7 @@ fn field(ui: &mut egui::Ui, label: &str, v: &mut String, multi: bool) {
     if multi {
         ui.add(egui::TextEdit::multiline(v).desired_rows(4).desired_width(300.0));
     } else {
-        ui.add(egui::TextEdit::singleline(v).desired_width(300.0));
+        ui.add(crate::shell::field(v).desired_width(300.0));
     }
 }
 

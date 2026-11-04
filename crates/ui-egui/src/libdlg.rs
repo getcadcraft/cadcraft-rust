@@ -380,8 +380,7 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
                     );
                     let mut filter = dlg.filter.clone();
                     if !names.is_empty() {
-                        let r =
-                            ui.add(egui::TextEdit::singleline(&mut filter).hint_text(t("app.filter_blocks")).desired_width(f32::INFINITY));
+                        let r = ui.add(crate::shell::field(&mut filter).hint_text(t("app.filter_blocks")).desired_width(f32::INFINITY));
                         if r.changed() {
                             act = Some(("filter", filter.clone()));
                         }

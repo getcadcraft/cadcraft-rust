@@ -381,7 +381,7 @@ fn qs_window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                 } else {
                     let mut buf = q.value.clone();
-                    let r = ui.add(egui::TextEdit::singleline(&mut buf).desired_width(220.0)).labelled_by(vl.id);
+                    let r = ui.add(crate::shell::field(&mut buf).desired_width(220.0)).labelled_by(vl.id);
                     if r.changed() {
                         set.push(format!("value={buf}"));
                     }
@@ -451,7 +451,7 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
             egui::Grid::new("find_grid").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                 let l = ui.label(t("dlg.find.what"));
                 let mut what = f.what.clone();
-                let r = ui.add(egui::TextEdit::singleline(&mut what).desired_width(260.0)).labelled_by(l.id);
+                let r = ui.add(crate::shell::field(&mut what).desired_width(260.0)).labelled_by(l.id);
                 if r.changed() {
                     set.push(format!("what={what}"));
                 }
@@ -461,7 +461,7 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
                 ui.end_row();
                 let l = ui.label(t("dlg.find.with"));
                 let mut with = f.with.clone();
-                if ui.add(egui::TextEdit::singleline(&mut with).desired_width(260.0)).labelled_by(l.id).changed() {
+                if ui.add(crate::shell::field(&mut with).desired_width(260.0)).labelled_by(l.id).changed() {
                     set.push(format!("with={with}"));
                 }
                 ui.end_row();
