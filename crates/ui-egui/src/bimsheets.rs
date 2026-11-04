@@ -336,3 +336,83 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
         app.run_ui("bim.res", &Params { name: Some(a), ..Default::default() });
     }
 }
+
+/// The model bar's Takeoff (res-ui.js `takeoffClick`): every quantity marked on a plan of each level, the takeoff
+/// inside the PDF (TakeoffCraft opens it), saved or downloaded.
+pub fn takeoff(app: &mut UiApp) -> Result<(), String> {
+    let Some(sn) = app.bimh.draw.data.clone() else { return Err(bt("model.needs.ifc", &[])) };
+    let units = app.bimh.draw.units.clone();
+    let mut scenes = Vec::new();
+    for lv in &sn.levels {
+        if let Some(sc) = scene_for(app, lv.id) {
+            scenes.push((lv.id, sc));
+        }
+    }
+    let base = base_name(app);
+    let base = if base.is_empty() { "model".to_string() } else { base };
+    let doc = app.bimh.ed.as_mut().ok_or_else(|| bt("model.needs.ifc", &[]))?;
+    let mut d = W::new(&mut doc.ed.api)
+        .and_then(|mut w| cc_bim::draw::restakeoff::gather(&mut w, &sn, &units))
+        .map_err(|e| bt("res.to.failed", &[("why", &e.0)]))?;
+    d.scenes = scenes;
+    d.date = cc_engine::cmd::layout::iso_date(cc_clock::now_ms());
+    d.name = format!("{base} — {}", bt("res.to.button", &[]).to_lowercase());
+    let mut input = cc_bim::draw::restakeoff::model_quantities(&d);
+    input.paper = app.bimh.draw.res.sheets.as_ref().map(|s| s.paper.clone());
+    let Some(b) = cc_bim::draw::restakeoff::build_takeoff(&input) else { return Err(bt("res.to.none", &[])) };
+    let save = app.services.save.as_mut().ok_or("Saving is not available here")?;
+    if let Some(to) = save(&b.name, b.pdf)? {
+        app.message = bt("res.to.saved", &[("file", &to)]);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use crate::{Params, Services, UiApp};
+
+    fn run(app: &mut UiApp, id: &str, name: &str) -> Result<(), String> {
+        app.run(id, &Params { name: (!name.is_empty()).then(|| name.to_string()), ..Default::default() })
+    }
+
+    #[test]
+    fn a_house_gets_its_sheets_and_a_takeoff_takeoffcraft_reads() {
+        type Saved = Arc<Mutex<Vec<(String, Vec<u8>)>>>;
+        let saved: Saved = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&saved);
+        let services = Services {
+            save: Some(Box::new(move |name, bytes| {
+                sink.lock().unwrap().push((name.to_string(), bytes));
+                Ok(Some(name.to_string()))
+            })),
+            ..Default::default()
+        };
+        let mut app = UiApp::new(services);
+        for (id, n) in [("bim.clock", "1791979200000"), ("bim.new", "House|2|9'"), ("bim.draw", "on"), ("bim.tool", "wall")] {
+            run(&mut app, id, n).unwrap();
+        }
+        for p in ["0,0", "9144,0", "9144,6096", "0,6096", "0,0"] {
+            run(&mut app, "bim.point", p).unwrap();
+        }
+        for (id, n) in [("bim.tool", "foundation"), ("bim.point", "4572,3048"), ("bim.tool", "electrical"), ("bim.point", "3000,200")] {
+            run(&mut app, id, n).unwrap();
+        }
+        assert_eq!(app.bimh.draw.res.founds.len(), 1);
+        assert_eq!(app.bimh.draw.res.devs.len(), 1);
+        run(&mut app, "bim.res", "sheets").unwrap();
+        let n = app.bimh.draw.res.sheets.as_ref().map_or(0, |d| d.sheets.len());
+        assert!(n >= 3, "{n} sheets");
+        run(&mut app, "bim.res", "sheets.pdf").unwrap();
+        run(&mut app, "bim.res", "takeoff").unwrap();
+        let files = saved.lock().unwrap().clone();
+        assert_eq!(files.len(), 2);
+        assert!(files[0].1.starts_with(b"%PDF-1.4"));
+        // the takeoff is inside the PDF, as TakeoffCraft reads it
+        let doc = cc_io_takeoff::pdfread::open(&files[1].1).unwrap();
+        let (stands_for, tk) = cc_io_takeoff::embed::read_embedded(&doc).expect("an embedded takeoff");
+        assert_eq!(stands_for.len(), 64);
+        assert!(tk.get("marks").and_then(|m| m.as_array()).is_some_and(|m| !m.is_empty()));
+    }
+}

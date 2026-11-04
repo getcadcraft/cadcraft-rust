@@ -99,6 +99,10 @@ pub struct Cabinet {
     mi: [f64; 16],
 }
 impl Cabinet {
+    /// The footprint in the level's plan (`poly`).
+    pub fn poly(&self) -> Vec<V2> {
+        self.local.iter().map(|p| self.to_plan(p[0], p[1])).collect()
+    }
     fn to_plan(&self, x: f64, y: f64) -> V2 {
         let xx = self.px + x * self.c - y * self.s;
         let yy = self.py + x * self.s + y * self.c;

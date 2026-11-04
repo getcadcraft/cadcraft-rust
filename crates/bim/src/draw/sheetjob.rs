@@ -196,3 +196,46 @@ pub fn sheets_step(o: &J) -> J {
         "pdf": { "bytes": pdf.len(), "digest": crate::digest::bytes(&pdf) },
     })
 }
+
+/// The `takeoff` step: { scenes: [scene | null per level], units, date, base } → the takeoff's input (without the
+/// scenes), the takeoff, its PDF.
+pub fn takeoff_step(ed: &mut crate::draw::editor::Editor, sn: &crate::draw::ops::Snapshot, o: &J) -> J {
+    let units = st(o.get("units"));
+    let scenes: Vec<(f64, Scene)> = arr(o.get("scenes"))
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| s.is_object())
+        .filter_map(|(i, s)| Some((sn.levels.get(i)?.id, scene_from_json(s))))
+        .collect();
+    let mut d = match crate::draw::writer::W::new(&mut ed.api).and_then(|mut w| crate::draw::restakeoff::gather(&mut w, sn, &units)) {
+        Ok(d) => d,
+        Err(e) => return json!({ "$error": e.0 }),
+    };
+    d.scenes = scenes;
+    d.date = st(o.get("date"));
+    d.name = format!("{} — {}", st(o.get("base")), crate::draw::tr::t("res.to.button", &[]).to_lowercase());
+    let input = crate::draw::restakeoff::model_quantities(&d);
+    let pj = |p: &[V2]| p.iter().map(|q| json!([jn(q[0]), jn(q[1])])).collect::<Vec<_>>();
+    let strip = json!({
+        "name": input.name, "units": input.units, "project": input.project, "date": input.date,
+        "items": input.items.iter().map(|(k, v)| json!({
+            "key": k, "name": v.name, "type": v.kind, "pack": v.pack, "heightFt": v.height_ft.map(jn), "pitch": v.pitch.map(jn), "slope": v.slope,
+        })).collect::<Vec<_>>(),
+        "cutList": input.cut_list.iter().map(|c| json!({ "item": c.0, "n": jn(c.1), "label": c.2 })).collect::<Vec<_>>(),
+        "levels": input.levels.iter().map(|l| json!({
+            "title": l.title,
+            "runs": l.runs.iter().map(|r| json!({ "item": r.0, "pts": pj(&r.1) })).collect::<Vec<_>>(),
+            "areas": l.areas.iter().map(|a| json!({ "item": a.0, "pts": pj(&a.1), "holes": a.2.iter().map(|h| pj(h)).collect::<Vec<_>>() })).collect::<Vec<_>>(),
+            "counts": l.counts.iter().map(|c| json!({ "item": c.0, "at": [jn(c.1[0]), jn(c.1[1])] })).collect::<Vec<_>>(),
+        })).collect::<Vec<_>>(),
+    });
+    match crate::draw::restakeoff::build_takeoff(&input) {
+        Some(b) => {
+            if let Some(out) = o.get("out").and_then(J::as_str) {
+                let _ = std::fs::write(out, &b.pdf);
+            }
+            json!({ "input": strip, "takeoff": b.takeoff, "standsFor": b.stands_for, "pdf": { "bytes": b.pdf.len(), "digest": crate::digest::bytes(&b.pdf) } })
+        }
+        None => json!({ "input": strip, "takeoff": null, "standsFor": null, "pdf": null }),
+    }
+}

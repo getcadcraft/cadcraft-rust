@@ -416,6 +416,11 @@ fn sheet(number: &str, title: &str, cells: &[Cell<'_>], paper_name: &str, units:
     Sheet { number: number.to_string(), title: title.to_string(), items, views, scale: None }
 }
 
+/// `blankSheet(number, title, opts)`: a sheet with its frame and title block and nothing in it.
+pub fn blank_sheet(number: &str, title: &str, paper_name: &str, units: &str, project: &str, date: &str) -> Sheet {
+    sheet(number, title, &[], paper_name, units, project, date)
+}
+
 /// `buildSet(input)`'s input.
 #[derive(Default)]
 pub struct SetInput<'a> {

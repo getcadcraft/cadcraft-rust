@@ -2262,6 +2262,10 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
         if ui.add(crate::shell::Btn::new(bt("res.sh.title", &[]))).on_hover_text(bt("res.sh.open.title", &[])).clicked() {
             run.push(("bim.res", "sheets".into()));
         }
+        // and its Takeoff (res-ui.js takeoffClick): desktop saves the PDF, the web build downloads it
+        if ui.add(crate::shell::Btn::new(bt("res.to.button", &[]))).on_hover_text(bt("res.to.title", &[])).clicked() {
+            run.push(("bim.res", "takeoff".into()));
+        }
         if ui.add(egui::Button::new(bt("model.sch.title", &[])).selected(dr.show_sched)).clicked() {
             sched_toggle = true;
         }

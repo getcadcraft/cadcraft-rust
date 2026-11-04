@@ -70,7 +70,7 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[(
     "bim.res",
     "Residential tool action",
     "Enter / Esc",
-    "{name: \"finish\" | \"dbl\" | \"escape\" | \"groundopen\" | \"groundmake\" | \"groundclear\" | \"landxml\" | \"frameall\" | \"frshow\" | \"frsee\" | \"link\" | \"linkdone\" | \"fit\" | \"keep\" | \"edit:<field>=<value>\"} → finishes a roof plane or railing, frames every wall, shows / hides the framing, sees through framed hosts, links lights to the picked switch, fits a countertop again, keeps a framing piece, changes the picked roof plane / foundation / countertop / stair / railing / framing / section line / device (fields: pitch, base, thickness, kind, slabT, edgeW, edgeD, stemT, footW, footD, bottom, stemDrop, basementH, overhang, turn, width, riserMax, tread, railings, railHeight, well, height, spacing, corners, blocking, roofMode, name, look, depth, tag, circuit, load)",
+    "{name: \"finish\" | \"dbl\" | \"escape\" | \"sheets\" | \"sheets.paper:<paper>\" | \"sheets.show:<n>\" | \"sheets.pdf\" | \"sheets.close\" | \"takeoff\" | \"groundopen\" | \"groundmake\" | \"groundclear\" | \"landxml\" | \"frameall\" | \"frshow\" | \"frsee\" | \"link\" | \"linkdone\" | \"fit\" | \"keep\" | \"edit:<field>=<value>\"} → finishes a roof plane or railing, frames every wall, shows / hides the framing, sees through framed hosts, links lights to the picked switch, fits a countertop again, keeps a framing piece, changes the picked roof plane / foundation / countertop / stair / railing / framing / section line / device (fields: pitch, base, thickness, kind, slabT, edgeW, edgeD, stemT, footW, footD, bottom, stemDrop, basementH, overhang, turn, width, riserMax, tread, railings, railHeight, well, height, spacing, corners, blocking, roofMode, name, look, depth, tag, circuit, load)",
 )];
 
 // ------------------------------------------------------------------------------------------------------------ state
@@ -1970,6 +1970,7 @@ pub fn run(app: &mut UiApp, name: &str) -> Result<(), String> {
         "groundclear" => r(app).spots.clear(),
         "landxml" => land_xml(app)?,
         n if n == "sheets" || n.starts_with("sheets.") => crate::bimsheets::run(app, n)?,
+        "takeoff" => crate::bimsheets::takeoff(app)?,
         "link" => {
             let p = pick(app).ok_or_else(|| bt("edit.nothing.picked", &[]))?;
             let d = app

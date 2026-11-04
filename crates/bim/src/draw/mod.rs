@@ -24,6 +24,7 @@ pub mod resground;
 pub mod resops;
 pub mod ressheets;
 pub mod resstair;
+pub mod restakeoff;
 pub mod resterrain;
 pub mod resviews;
 pub mod roof;
