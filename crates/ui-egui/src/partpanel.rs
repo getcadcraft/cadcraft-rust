@@ -63,45 +63,35 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let c = t.canvas_bg;
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
     pv.view.style.back = if app.preset.is_dark() { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };
-    egui::Panel::top("part_bar")
-        .exact_size(30.0)
-        .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
-        .show(ui, |ui| {
-            egui::ScrollArea::horizontal().show(ui, |ui| {
-                ui.horizontal_centered(|ui| {
-                    if pv.mode == Mode::Sketch {
-                        crate::partsketchui::sketch_bar(ui, pv, &t, &mut act);
-                    } else {
-                        tool_bar(ui, pv, &t, &mut act);
-                    }
+    if pv.mode == Mode::Sketch {
+        egui::Panel::top("part_bar")
+            .exact_size(30.0)
+            .frame(egui::Frame::new().fill(t.panel_darker).inner_margin(egui::Margin::symmetric(8, 3)))
+            .show(ui, |ui| {
+                egui::ScrollArea::horizontal().show(ui, |ui| {
+                    ui.horizontal_centered(|ui| crate::partsketchui::sketch_bar(ui, pv, &t, &mut act));
                 });
             });
-        });
-    let frame = egui::Frame::new().fill(t.panel).inner_margin(6);
-    egui::Panel::left("part_history").default_size(250.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| history(ui, pv, &t, &mut act));
+    } else {
+        // 0.7's toolbar (the sketch's own bar stays a row while a sketch is open)
+        let groups = tool_groups(pv);
+        let h = crate::shell::toolbar_height(ui, &groups, ui.available_width());
+        egui::Panel::top("part_bar")
+            .exact_size(h)
+            .frame(egui::Frame::new().fill(t.app_bar))
+            .show(ui, |ui| tool_bar(ui, pv, &t, &mut act, &groups));
+    }
+    // 0.7's docks: a grip over each side panel, the body inset
+    let frame = crate::shell::panel_frame(&t);
+    let inset = egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 4 });
+    let app_c = t.app("partcraft");
+    egui::Panel::left("part_history").default_size(256.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
+        crate::shell::grip(ui, &t, app_c, &tr("ui.left.aria"), false, false);
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| inset.show(ui, |ui| history(ui, pv, &t, &mut act)));
     });
-    egui::Panel::right("part_side").default_size(290.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            if ui.selectable_label(pv.tab == "props", tr("ui.right.props")).clicked() {
-                pv.tab = "props";
-            }
-            if ui.selectable_label(pv.tab == "params", tr("ui.right.params")).clicked() {
-                pv.tab = "params";
-            }
-        });
-        ui.separator();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            if pv.tab == "params" {
-                parameters(ui, pv, &t, &mut act);
-            } else if pv.mode == Mode::Sketch {
-                let mut num = std::mem::take(&mut pv.num_entry);
-                crate::partsketchui::sketch_props(ui, pv, &t, &mut act, &mut num);
-                pv.num_entry = num;
-            } else {
-                properties(ui, pv, &t);
-            }
-        });
+    egui::Panel::right("part_side").default_size(296.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
+        crate::shell::grip(ui, &t, app_c, &tr("ui.right.props"), false, false);
+        inset.show(ui, |ui| part_side(ui, pv, &t, &mut act));
     });
     egui::CentralPanel::no_frame().show(ui, |ui| {
         let rect = ui.max_rect();
@@ -118,88 +108,133 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     }
 }
 
-fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
-    let name = pv.part.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-    ui.label(RichText::new(name).strong().color(t.text_strong));
-    if pv.dirty {
-        ui.label(RichText::new("•").color(t.text_dim)).on_hover_text(tr("app.file.unsaved_title"));
-    }
-    ui.separator();
-    if ui.button(tr("ui.tb.file.new")).on_hover_text(tr("ui.tb.file.new.title")).clicked() {
-        *act = cmd("part.new", "");
-    }
-    if ui.button(tr("ui.tb.file.save")).on_hover_text(tr("ui.tb.file.save.title")).clicked() {
-        *act = cmd("part.save", "");
-    }
-    ui.menu_button(tr("ui.tb.export"), |ui| {
-        for (k, key) in [
-            ("stl", "ui.tb.export.stl"),
-            ("3mf", "ui.tb.export.3mf"),
-            ("step", "ui.tb.export.step_faceted"),
-            ("step214", "ui.tb.export.step214_faceted"),
-            ("ifc", "ui.tb.export.ifc"),
-        ] {
-            if ui.button(tr(key)).clicked() {
-                *act = cmd("part.export", k);
-                ui.close();
-            }
+/// The right dock's body: Properties | Parameters (0.7's tabs), then the sketch's or the part's properties.
+fn part_side(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        if crate::shell::tab(ui, t, &tr("ui.right.props"), pv.tab == "props").clicked() {
+            pv.tab = "props";
         }
-    })
-    .response
-    .on_hover_text(tr("ui.tb.export.title"));
-    ui.separator();
-    if pv.mode == Mode::Pick {
-        if ui
-            .add(egui::Button::new(RichText::new(tr("ui.tb.features.pick_done")).strong()))
-            .on_hover_text(tr("ui.tb.features.pick_done.title"))
-            .clicked()
-        {
-            *act = cmd("part.pick.done", "");
+        if crate::shell::tab(ui, t, &tr("ui.right.params"), pv.tab == "params").clicked() {
+            pv.tab = "params";
         }
+    });
+    ui.add_space(6.0);
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        if pv.tab == "params" {
+            parameters(ui, pv, t, act);
+        } else if pv.mode == Mode::Sketch {
+            let mut num = std::mem::take(&mut pv.num_entry);
+            crate::partsketchui::sketch_props(ui, pv, t, act, &mut num);
+            pv.num_entry = num;
+        } else {
+            properties(ui, pv, t);
+        }
+    });
+}
+
+/// The part bar's groups as 0.7's toolbar (PartCraft ui.inc: File, Sketch, Features, Edit, View).
+fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
+    use crate::shell::{Tool, ToolGroup};
+    let icon = |c: &str| match c {
+        "extrude" => "box-arrow-up",
+        "cut-extrude" => "box-arrow-in-down",
+        "revolve" => "arrow-repeat",
+        "hole" => "record-circle",
+        "lpattern" => "grid-dots",
+        "cpattern" => "arrow-clockwise",
+        "mirror" => "symmetry-vertical",
+        "fillet" => "bezier",
+        "chamfer" => "triangle-half",
+        _ => "hexagon",
+    };
+    let sketch = if pv.mode == Mode::Pick {
+        Tool::new("pick-done", "check2-circle", tr("ui.tb.features.pick_done")).tip(tr("ui.tb.features.pick_done.title")).on(true)
     } else {
-        if ui
-            .add(egui::Button::selectable(pv.pending_sketch, tr("ui.tb.sketch.sketch")))
-            .on_hover_text(tr("ui.tb.sketch.sketch.title"))
-            .clicked()
-        {
-            *act = cmd("part.sketch", "");
-        }
-        ui.separator();
-        for (c, _, key) in crate::partfeat::FEATURE_CMDS.iter().filter(|c| c.0 != "revolve-cut") {
-            if ui.button(tr(key)).on_hover_text(tr(&format!("{key}.title"))).clicked() {
-                *act = cmd("part.feature", *c);
-            }
-        }
-        ui.menu_button(tr("ui.tb.more"), |ui| {
-            if ui.button(tr("ui.tb.fmore.revolve_cut")).on_hover_text(tr("ui.tb.fmore.revolve_cut.title")).clicked() {
-                *act = cmd("part.feature", "revolve-cut");
-                ui.close();
-            }
+        Tool::new("sketch", "pencil-square", tr("ui.tb.sketch.sketch")).tip(tr("ui.tb.sketch.sketch.title")).on(pv.pending_sketch)
+    };
+    let mut features: Vec<Tool> = crate::partfeat::FEATURE_CMDS
+        .iter()
+        .filter(|c| c.0 != "revolve-cut")
+        .map(|(c, _, key)| {
+            Tool::new(format!("feature:{c}"), icon(c), tr(key)).tip(tr(&format!("{key}.title"))).enabled(pv.mode != Mode::Pick)
         })
-        .response
-        .on_hover_text(tr("ui.tb.features.more.title"));
+        .collect();
+    features
+        .push(Tool::new("menu:more", "three-dots", tr("ui.tb.more")).tip(tr("ui.tb.features.more.title")).enabled(pv.mode != Mode::Pick));
+    let mut view = vec![Tool::new("fit", "arrows-fullscreen", tr("ui.tb.view.view_fit")).tip(tr("ui.tb.view.view_fit.title"))];
+    for (v, ic) in [("iso", "box"), ("front", "layout-sidebar"), ("top", "square"), ("right", "layout-sidebar-inset")] {
+        view.push(Tool::new(format!("view:{v}"), ic, tr(&format!("ui.tb.view.{v}"))));
     }
-    ui.separator();
-    if ui.add_enabled(pv.can_undo(), egui::Button::new(tr("ui.tb.edit.undo"))).on_hover_text(tr("ui.tb.edit.undo.title")).clicked() {
-        *act = cmd("part.undo", "");
-    }
-    if ui.add_enabled(pv.can_redo(), egui::Button::new(tr("ui.tb.edit.redo"))).on_hover_text(tr("ui.tb.edit.redo.title")).clicked() {
-        *act = cmd("part.redo", "");
-    }
-    ui.separator();
-    if ui.button(tr("ui.tb.view.view_fit")).on_hover_text(tr("ui.tb.view.view_fit.title")).clicked() {
-        pv.fit();
-    }
-    for v in ["iso", "front", "top", "right"] {
-        if ui.button(tr(&format!("ui.tb.view.{v}"))).clicked() {
-            pv.standard(v);
+    view.push(Tool::new("edges", "bounding-box", cc_part::i18n::t0("app.fillet.edges")).on(pv.view.style.edges));
+    vec![
+        ToolGroup {
+            label: tr("ui.tb.group.file"),
+            tools: vec![
+                Tool::new("new", "file-earmark-plus", tr("ui.tb.file.new")).tip(tr("ui.tb.file.new.title")),
+                Tool::new("save", "download", tr("ui.tb.file.save")).tip(tr("ui.tb.file.save.title")),
+                Tool::new("menu:export", "box-arrow-up-right", tr("ui.tb.export")).tip(tr("ui.tb.export.title")),
+            ],
+        },
+        ToolGroup { label: tr("ui.tb.group.sketch"), tools: vec![sketch] },
+        ToolGroup { label: tr("ui.tb.group.features"), tools: features },
+        ToolGroup {
+            label: tr("ui.tb.group.edit"),
+            tools: vec![
+                Tool::new("undo", "arrow-counterclockwise", tr("ui.tb.edit.undo")).tip(tr("ui.tb.edit.undo.title")).enabled(pv.can_undo()),
+                Tool::new("redo", "arrow-clockwise", tr("ui.tb.edit.redo")).tip(tr("ui.tb.edit.redo.title")).enabled(pv.can_redo()),
+            ],
+        },
+        ToolGroup { label: tr("ui.tb.group.view"), tools: view },
+    ]
+}
+
+fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, groups: &[crate::shell::ToolGroup]) {
+    for (id, resp) in crate::shell::toolbar(ui, t, t.app("partcraft"), "pc-tb", groups) {
+        match id.as_str() {
+            "menu:export" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    for (k, key) in [
+                        ("stl", "ui.tb.export.stl"),
+                        ("3mf", "ui.tb.export.3mf"),
+                        ("step", "ui.tb.export.step_faceted"),
+                        ("step214", "ui.tb.export.step214_faceted"),
+                        ("ifc", "ui.tb.export.ifc"),
+                    ] {
+                        if ui.button(tr(key)).clicked() {
+                            *act = cmd("part.export", k);
+                            ui.close();
+                        }
+                    }
+                });
+            }
+            "menu:more" => {
+                egui::Popup::menu(&resp).show(|ui| {
+                    if ui.button(tr("ui.tb.fmore.revolve_cut")).on_hover_text(tr("ui.tb.fmore.revolve_cut.title")).clicked() {
+                        *act = cmd("part.feature", "revolve-cut");
+                        ui.close();
+                    }
+                });
+            }
+            _ if !resp.clicked() => {}
+            "new" => *act = cmd("part.new", ""),
+            "save" => *act = cmd("part.save", ""),
+            "sketch" => *act = cmd("part.sketch", ""),
+            "pick-done" => *act = cmd("part.pick.done", ""),
+            "undo" => *act = cmd("part.undo", ""),
+            "redo" => *act = cmd("part.redo", ""),
+            "fit" => pv.fit(),
+            "edges" => pv.view.style.edges = !pv.view.style.edges,
+            x => {
+                if let Some(v) = x.strip_prefix("view:") {
+                    pv.standard(v);
+                } else if let Some(f) = x.strip_prefix("feature:")
+                    && let Some((c, _, _)) = crate::partfeat::FEATURE_CMDS.iter().find(|c| c.0 == f)
+                {
+                    *act = cmd("part.feature", *c);
+                }
+            }
         }
-    }
-    ui.separator();
-    let st = pv.view.style;
-    let mut edges = st.edges;
-    if ui.checkbox(&mut edges, cc_part::i18n::t0("app.fillet.edges")).changed() {
-        pv.view.style.edges = edges;
     }
 }
 
