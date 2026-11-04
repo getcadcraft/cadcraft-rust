@@ -273,6 +273,7 @@ dependencies = [
  "cc-m3d",
  "libm",
  "miniz_oxide 0.8.9",
+ "rayon",
  "serde_json",
 ]
 

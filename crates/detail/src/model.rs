@@ -41,6 +41,108 @@ pub fn strict_eq(a: Option<&Value>, b: Option<&Value>) -> bool {
         _ => false,
     }
 }
+/// A value as `===` tells values apart (None: equal to nothing, as NaN or an object).
+fn eq_key(v: Option<&Value>) -> Option<String> {
+    Some(match v {
+        None => "u".into(),
+        Some(Value::Null) => "z".into(),
+        Some(Value::Bool(b)) => {
+            if *b {
+                "b1".into()
+            } else {
+                "b0".into()
+            }
+        }
+        Some(Value::Number(n)) => {
+            let f = n.as_f64()?;
+            if f.is_nan() {
+                return None;
+            }
+            format!("n{}", if f == 0.0 { 0.0f64 } else { f }.to_bits())
+        }
+        Some(Value::String(s)) => format!("s{s}"),
+        Some(_) => return None,
+    })
+}
+
+/// What [`Tx::add_connection_in`] checks a new connection against: the beam ends, base plates, splices and gussets
+/// taken, and the members (their types) — made once for a whole paste instead of scanning the lists for each.
+#[derive(Debug, Default)]
+pub struct ConnIndex {
+    beam_ends: std::collections::HashSet<(String, String)>,
+    bases: std::collections::HashSet<String>,
+    splice_a_end: std::collections::HashSet<(String, String)>,
+    splice_ab: std::collections::HashSet<(String, String)>,
+    gussets: std::collections::HashSet<(String, String)>,
+    /// member id → type of the first member with it
+    members: std::collections::HashMap<String, String>,
+}
+
+impl ConnIndex {
+    /// The index of a state's connections and members.
+    pub fn of(state: &Value) -> ConnIndex {
+        let mut ix = ConnIndex::default();
+        for m in arr(state.get("members")) {
+            if let Some(k) = eq_key(m.get("id")) {
+                ix.members.entry(k).or_insert_with(|| m.get("type").and_then(Value::as_str).unwrap_or("\u{0}").to_string());
+            }
+        }
+        for c in arr(state.get("connections")) {
+            ix.learn(c);
+        }
+        ix
+    }
+    fn learn(&mut self, x: &Value) {
+        let k2 = |a: &str, b: &str| eq_key(x.get(a)).zip(eq_key(x.get(b)));
+        if is_beam_end_v(x)
+            && let Some(p) = k2("beam", "end")
+        {
+            self.beam_ends.insert(p);
+        }
+        match x.get("type").and_then(Value::as_str) {
+            Some("baseplate") => {
+                if let Some(k) = eq_key(x.get("column")) {
+                    self.bases.insert(k);
+                }
+            }
+            Some("splice") => {
+                if let Some(p) = k2("a", "aEnd") {
+                    self.splice_a_end.insert(p);
+                }
+                if let Some(p) = k2("a", "b") {
+                    self.splice_ab.insert(p);
+                }
+            }
+            Some("gusset") => {
+                if let Some(p) = k2("brace", "end") {
+                    self.gussets.insert(p);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn pair(a: Option<&Value>, b: Option<&Value>) -> Option<(String, String)> {
+        eq_key(a).zip(eq_key(b))
+    }
+    fn beam_end_taken(&self, beam: Option<&Value>, end: Option<&Value>) -> bool {
+        Self::pair(beam, end).is_some_and(|p| self.beam_ends.contains(&p))
+    }
+    fn base_taken(&self, column: Option<&Value>) -> bool {
+        eq_key(column).is_some_and(|k| self.bases.contains(&k))
+    }
+    fn splice_taken(&self, a: Option<&Value>, a_end: Option<&Value>, b: Option<&Value>) -> bool {
+        Self::pair(a, a_end).is_some_and(|p| self.splice_a_end.contains(&p))
+            || Self::pair(b, a).is_some_and(|p| self.splice_ab.contains(&p))
+            || Self::pair(a, b).is_some_and(|p| self.splice_ab.contains(&p))
+    }
+    fn gusset_taken(&self, brace: Option<&Value>, end: Option<&Value>) -> bool {
+        Self::pair(brace, end).is_some_and(|p| self.gussets.contains(&p))
+    }
+    fn member_type(&self, id: Option<&Value>) -> Option<&str> {
+        eq_key(id).and_then(|k| self.members.get(&k)).map(String::as_str)
+    }
+}
+
 /// `new Set(list).has(v)`.
 fn set_has(list: &[Value], v: Option<&Value>) -> bool {
     v.is_some_and(|v| list.iter().any(|x| strict_eq(Some(x), Some(v))))
@@ -825,6 +927,12 @@ impl Tx<'_> {
     }
 
     pub fn add_connection(&mut self, c: Option<&Value>) -> Res<Value> {
+        self.add_connection_in(c, None)
+    }
+
+    /// [`Tx::add_connection`] checking against `idx` (what is taken, the members) instead of scanning the lists: the same
+    /// decisions, for pasting thousands at once; `idx` learns the new one.
+    pub fn add_connection_in(&mut self, c: Option<&Value>, idx: Option<&mut ConnIndex>) -> Res<Value> {
         let id = self.next_id("j");
         let ty = field(c, "type");
         let params_with = |kind: &str| -> Value {
@@ -832,14 +940,17 @@ impl Tx<'_> {
             let extra = field(c, "params").filter(|v| truthy(Some(v)));
             Value::Object(spread(Some(&base), extra))
         };
-        let conns = self.list("connections").to_vec();
+        let conns = self.list("connections");
         let mut o = Map::new();
         let cv = c.cloned().unwrap_or(Value::Null);
         if is_beam_end_v(&cv) {
-            if conns
-                .iter()
-                .any(|x| is_beam_end_v(x) && strict_eq(x.get("beam"), field(c, "beam")) && strict_eq(x.get("end"), field(c, "end")))
-            {
+            let taken = match idx.as_deref() {
+                Some(ix) => ix.beam_end_taken(field(c, "beam"), field(c, "end")),
+                None => conns
+                    .iter()
+                    .any(|x| is_beam_end_v(x) && strict_eq(x.get("beam"), field(c, "beam")) && strict_eq(x.get("end"), field(c, "end"))),
+            };
+            if taken {
                 return Err(t0("model.err.end-taken"));
             }
             let kind = ty.and_then(Value::as_str).unwrap_or("");
@@ -854,10 +965,13 @@ impl Tx<'_> {
             }
             o.insert("params".into(), params_with(kind));
         } else if ty.and_then(Value::as_str) == Some("baseplate") {
-            if conns
-                .iter()
-                .any(|x| x.get("type").and_then(Value::as_str) == Some("baseplate") && strict_eq(x.get("column"), field(c, "column")))
-            {
+            let taken = match idx.as_deref() {
+                Some(ix) => ix.base_taken(field(c, "column")),
+                None => conns
+                    .iter()
+                    .any(|x| x.get("type").and_then(Value::as_str) == Some("baseplate") && strict_eq(x.get("column"), field(c, "column"))),
+            };
+            if taken {
                 return Err(t0("model.err.base-taken"));
             }
             o.insert("id".into(), Value::from(id.clone()));
@@ -869,17 +983,25 @@ impl Tx<'_> {
         } else if ty.and_then(Value::as_str) == Some("splice") {
             let ms = self.list("members");
             let (a, b) = (field(c, "a"), field(c, "b"));
-            if !ms.iter().any(|m| strict_eq(m.get("id"), a)) || !ms.iter().any(|m| strict_eq(m.get("id"), b)) || strict_eq(a, b) {
+            let has_m = |v: Option<&Value>| match idx.as_deref() {
+                Some(ix) => ix.member_type(v).is_some(),
+                None => ms.iter().any(|m| strict_eq(m.get("id"), v)),
+            };
+            if !has_m(a) || !has_m(b) || strict_eq(a, b) {
                 return Err(t0("model.err.conn-gone"));
             }
             let a_end = if field(c, "aEnd").and_then(Value::as_str) == Some("start") { "start" } else { "end" };
             let a_end_v = Value::from(a_end);
-            if conns.iter().any(|x| {
-                x.get("type").and_then(Value::as_str) == Some("splice")
-                    && ((strict_eq(x.get("a"), a) && strict_eq(x.get("aEnd"), Some(&a_end_v)))
-                        || (strict_eq(x.get("a"), b) && strict_eq(x.get("b"), a))
-                        || (strict_eq(x.get("a"), a) && strict_eq(x.get("b"), b)))
-            }) {
+            let taken = match idx.as_deref() {
+                Some(ix) => ix.splice_taken(a, Some(&a_end_v), b),
+                None => conns.iter().any(|x| {
+                    x.get("type").and_then(Value::as_str) == Some("splice")
+                        && ((strict_eq(x.get("a"), a) && strict_eq(x.get("aEnd"), Some(&a_end_v)))
+                            || (strict_eq(x.get("a"), b) && strict_eq(x.get("b"), a))
+                            || (strict_eq(x.get("a"), a) && strict_eq(x.get("b"), b)))
+                }),
+            };
+            if taken {
                 return Err(t0("model.err.splice-taken"));
             }
             o.insert("id".into(), Value::from(id.clone()));
@@ -895,20 +1017,29 @@ impl Tx<'_> {
         } else if ty.and_then(Value::as_str) == Some("gusset") {
             let ms = self.list("members");
             let (br, sp) = (field(c, "brace"), field(c, "support"));
-            let brm = ms.iter().find(|m| strict_eq(m.get("id"), br));
-            if brm.is_none_or(|m| m.get("type").and_then(Value::as_str) != Some("brace"))
-                || !ms.iter().any(|m| strict_eq(m.get("id"), sp))
-                || strict_eq(br, sp)
-            {
+            let (br_type, sp_ok) = match idx.as_deref() {
+                Some(ix) => (ix.member_type(br).map(|t| t.to_string()), ix.member_type(sp).is_some()),
+                None => (
+                    ms.iter()
+                        .find(|m| strict_eq(m.get("id"), br))
+                        .map(|m| m.get("type").and_then(Value::as_str).unwrap_or("\u{0}").to_string()),
+                    ms.iter().any(|m| strict_eq(m.get("id"), sp)),
+                ),
+            };
+            if br_type.as_deref() != Some("brace") || !sp_ok || strict_eq(br, sp) {
                 return Err(t0("model.err.conn-gone"));
             }
             let end = if field(c, "end").and_then(Value::as_str) == Some("start") { "start" } else { "end" };
             let end_v = Value::from(end);
-            if conns.iter().any(|x| {
-                x.get("type").and_then(Value::as_str) == Some("gusset")
-                    && strict_eq(x.get("brace"), br)
-                    && strict_eq(x.get("end"), Some(&end_v))
-            }) {
+            let taken = match idx.as_deref() {
+                Some(ix) => ix.gusset_taken(br, Some(&end_v)),
+                None => conns.iter().any(|x| {
+                    x.get("type").and_then(Value::as_str) == Some("gusset")
+                        && strict_eq(x.get("brace"), br)
+                        && strict_eq(x.get("end"), Some(&end_v))
+                }),
+            };
+            if taken {
                 return Err(t0("model.err.end-taken"));
             }
             o.insert("id".into(), Value::from(id.clone()));
@@ -924,7 +1055,11 @@ impl Tx<'_> {
         } else {
             return Err(t0("model.err.conn-unknown"));
         }
-        arr_mut(self.st(), "connections").push(Value::Object(o));
+        let made = Value::Object(o);
+        if let Some(ix) = idx {
+            ix.learn(&made);
+        }
+        arr_mut(self.st(), "connections").push(made);
         Ok(Value::from(id))
     }
     pub fn update_connection(&mut self, id: Option<&Value>, params: Option<&Value>) -> Res<()> {
@@ -1462,4 +1597,33 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
 
 fn s_(v: Option<&Value>) -> &str {
     s(v)
+}
+
+#[cfg(test)]
+mod conn_index_tests {
+    use super::*;
+
+    /// The index decides as the scans do: every existing connection again is refused the same way, and a fresh one
+    /// on a free joint is made by both.
+    #[test]
+    fn the_index_decides_as_the_scans() {
+        let m = crate::sample::sample_model("Sample frame").expect("sample");
+        let conns: Vec<Value> = arr(m.state.get("connections")).to_vec();
+        assert!(!conns.is_empty());
+        for c in &conns {
+            let mut a = m.state.clone();
+            let mut b = m.state.clone();
+            let slow = Tx { s: &mut a }.add_connection(Some(c));
+            let mut ix = ConnIndex::of(&b);
+            let fast = Tx { s: &mut b }.add_connection_in(Some(c), Some(&mut ix));
+            assert_eq!(slow, fast, "{c}");
+            assert_eq!(stringify(&a), stringify(&b));
+        }
+        // a splice of two members that don't meet still goes through the same member checks
+        let s = json!({"type": "splice", "a": "m7", "aEnd": "end", "b": "m404"});
+        let (mut a, mut b) = (m.state.clone(), m.state.clone());
+        let mut ix = ConnIndex::of(&b);
+        assert_eq!(Tx { s: &mut a }.add_connection(Some(&s)), Tx { s: &mut b }.add_connection_in(Some(&s), Some(&mut ix)));
+        assert_eq!(eq_key(Some(&json!(-0.0))), eq_key(Some(&json!(0))));
+    }
 }

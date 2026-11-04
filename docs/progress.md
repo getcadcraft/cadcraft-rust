@@ -2,6 +2,19 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M14.5 DetailCraft edits on big models at 1.3–2× the JS (agent, work/detailfin)
+
+- The rebuild after an edit: the connections and the parts' mark signatures worked out in parallel (rayon on the desktop,
+  in order on the web, the language pinned per thread), each part's signatures made once and reused by the assembly
+  marks, the old model dropped on a side thread, footing marks and the schedule remade only when the footings changed, and
+  a move or drag reading only the parts it moves (`transform::refs_state`).
+- Pasting thousands of parts: `ConnIndex` (what is taken, the members) checks each new connection instead of scanning the
+  lists, ids looked up by map; no clone of the connection list per connection (test `the_index_decides_as_the_scans`).
+- grid24x12x5 (dcuitoolbench, JS ms / Rust ms): drag one bay 134 / 83 (was 0.9×), move one bay 119 / 88 (was 0.8×),
+  duplicate everything 499 / 371 (was 453 / 72 112), place a beam 142 / 71, move a column 117 / 84, undo 137 / 79.
+- Parity unchanged: dcdiff seeds 1–8 exact 44 589 calls, 0 differ; the sweep (dcuidiff en + es-MX, drag, drawings) 10/10
+  identical.
+
 ## 2026-11-04 — M7.20–M7.24 BimCraft finished: the Build menu, terrain, Sheets, Takeoff, equipment schedule, credits (agent, work/bimfin)
 
 - M7.20 (cc-bim `resops.rs`, ui `bimres.rs`): res-ui.js's Build tools in the plan's Draw group — roof plane, foundation,

@@ -171,9 +171,14 @@ pub fn paste_into(tx: &mut Tx, clip: &Value, offset: Option<&Value>) -> Res<Valu
         }
     }
     let mut ids: Vec<(Value, Value)> = Vec::new();
+    // string ids (all of them in practice) by a map, the last of equal ones kept as the list's reverse search finds it
+    let mut by_str: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
     let mut refs: Vec<Value> = Vec::new();
-    let id_of = |ids: &Vec<(Value, Value)>, k: Option<&Value>| -> Option<Value> {
-        ids.iter().rev().find(|(a, _)| strict_eq(Some(a), k)).map(|(_, b)| b.clone())
+    let id_of = |ids: &Vec<(Value, Value)>, by_str: &std::collections::HashMap<String, Value>, k: Option<&Value>| -> Option<Value> {
+        match k {
+            Some(Value::String(s)) => by_str.get(s).cloned(),
+            _ => ids.iter().rev().find(|(a, _)| strict_eq(Some(a), k)).map(|(_, b)| b.clone()),
+        }
     };
     for m in arr(clip.get("members")) {
         let mut mm = crate::js::spread(Some(m), None);
@@ -186,11 +191,15 @@ pub fn paste_into(tx: &mut Tx, clip: &Value, offset: Option<&Value>) -> Res<Valu
         for c in arr(m.get("cuts")) {
             tx.add_cut(Some(&id), Some(c))?;
         }
+        if let Some(Value::String(k)) = m.get("id") {
+            by_str.insert(k.clone(), id.clone());
+        }
         ids.push((m.get("id").cloned().unwrap_or(Value::Null), id.clone()));
         refs.push(json!({ "kind": "member", "id": id }));
     }
+    let mut index = crate::model::ConnIndex::of(tx.s);
     for c in arr(clip.get("connections")) {
-        if !members_of_v(c).iter().all(|m| id_of(&ids, *m).is_some()) {
+        if !members_of_v(c).iter().all(|m| id_of(&ids, &by_str, *m).is_some()) {
             continue;
         }
         let ty = c.get("type").and_then(Value::as_str).unwrap_or("");
@@ -203,26 +212,26 @@ pub fn paste_into(tx: &mut Tx, clip: &Value, offset: Option<&Value>) -> Res<Valu
         match ty {
             "splice" => {
                 o.insert("type".into(), Value::from("splice"));
-                put(&mut o, "a", id_of(&ids, c.get("a")));
+                put(&mut o, "a", id_of(&ids, &by_str, c.get("a")));
                 put(&mut o, "aEnd", c.get("aEnd").cloned());
-                put(&mut o, "b", id_of(&ids, c.get("b")));
+                put(&mut o, "b", id_of(&ids, &by_str, c.get("b")));
             }
             "gusset" => {
                 o.insert("type".into(), Value::from("gusset"));
-                put(&mut o, "brace", id_of(&ids, c.get("brace")));
+                put(&mut o, "brace", id_of(&ids, &by_str, c.get("brace")));
                 put(&mut o, "end", c.get("end").cloned());
-                put(&mut o, "support", id_of(&ids, c.get("support")));
+                put(&mut o, "support", id_of(&ids, &by_str, c.get("support")));
             }
             _ => {
                 put(&mut o, "type", c.get("type").cloned());
-                let beam = if crate::js::truthy(c.get("beam")) { id_of(&ids, c.get("beam")) } else { None };
+                let beam = if crate::js::truthy(c.get("beam")) { id_of(&ids, &by_str, c.get("beam")) } else { None };
                 put(&mut o, "beam", beam);
                 put(&mut o, "end", c.get("end").cloned());
-                put(&mut o, "column", id_of(&ids, c.get("column")));
+                put(&mut o, "column", id_of(&ids, &by_str, c.get("column")));
             }
         }
         put(&mut o, "params", c.get("params").cloned());
-        let id = tx.add_connection(Some(&Value::Object(o)))?;
+        let id = tx.add_connection_in(Some(&Value::Object(o)), Some(&mut index))?;
         refs.push(json!({ "kind": "conn", "id": id }));
     }
     for f in arr(clip.get("footings")) {

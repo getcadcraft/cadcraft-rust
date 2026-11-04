@@ -1224,8 +1224,8 @@ impl DetailView {
             };
             self.edit(&t0(&format!("xf.undo.{kind}.copy")), |tx| {
                 let p = cc_detail::clipboard::paste_into(tx, &clip, Some(&json!([0, 0, 0])))?;
-                let st = tx.s.clone();
                 let pr = arr(p.get("refs")).to_vec();
+                let st = cc_detail::transform::refs_state(tx.s, &pr)?;
                 let mut x = cc_detail::transform::transform_refs(tx, &st, &pr, xf)?;
                 if let Some(o) = x.as_object_mut() {
                     o.insert("refs".into(), Value::Array(pr));
@@ -1235,7 +1235,7 @@ impl DetailView {
         } else {
             let rj = refs_json(refs);
             self.edit(&t0(&format!("xf.undo.{kind}")), |tx| {
-                let st = tx.s.clone();
+                let st = cc_detail::transform::refs_state(tx.s, &rj)?;
                 let mut x = cc_detail::transform::transform_refs(tx, &st, &rj, xf)?;
                 if let Some(o) = x.as_object_mut() {
                     o.insert("refs".into(), Value::Array(rj.clone()));

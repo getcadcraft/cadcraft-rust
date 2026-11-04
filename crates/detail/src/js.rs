@@ -289,6 +289,19 @@ pub fn g3<T: Copy + Default, const N: usize>(a: [T; N], i: usize) -> T {
 /// A thrown error's message.
 pub type Res<T> = Result<T, String>;
 
+/// `items.map(f)` in order; on the desktop the items are worked on in parallel (rayon), in the browser one by one.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
+    use rayon::prelude::*;
+    // the workers speak the caller's language (problem texts made on them)
+    let l = cc_lang::locale();
+    items.par_iter().map(|x| cc_lang::with(l, || f(x))).collect()
+}
+#[cfg(target_arch = "wasm32")]
+pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
+    items.iter().map(f).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

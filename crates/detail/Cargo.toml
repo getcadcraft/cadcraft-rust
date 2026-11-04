@@ -27,3 +27,7 @@ libm = "0.2.16"
 cc-cad-geom.workspace = true
 # Flate for the PDF content streams
 miniz_oxide = "0.8"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# the connections of a rebuild and the parts' mark signatures worked out in parallel (M14.5)
+rayon = "1"

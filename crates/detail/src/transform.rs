@@ -234,6 +234,20 @@ fn has(ids: &[Value], v: Option<&Value>) -> bool {
 }
 
 /// `transformRefs(tx, state, refs, xf)`.
+/// What [`transform_refs`] reads of the state for `refs` (the custom profiles and the referenced members, footings and
+/// stairs, in their order): a small copy to pass while `tx` writes, instead of a copy of the whole state.
+pub fn refs_state(state: &Value, refs: &[Value]) -> Res<Value> {
+    let (m, f, s) = (ids_of(refs, "member")?, ids_of(refs, "footing")?, ids_of(refs, "stair")?);
+    let pick =
+        |k: &str, ids: &[Value]| -> Value { Value::Array(arr(state.get(k)).iter().filter(|x| has(ids, x.get("id"))).cloned().collect()) };
+    Ok(json!({
+        "profiles": state.get("profiles").cloned().unwrap_or(Value::Null),
+        "members": pick("members", &m),
+        "footings": pick("footings", &f),
+        "stairs": pick("stairs", &s),
+    }))
+}
+
 pub fn transform_refs(tx: &mut Tx, state: &Value, refs: &[Value], xf: &Xf) -> Res<Value> {
     let member_ids = ids_of(refs, "member")?;
     let footing_ids = ids_of(refs, "footing")?;

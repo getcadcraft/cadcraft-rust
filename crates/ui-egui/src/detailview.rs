@@ -244,6 +244,8 @@ pub struct DetailView {
     pub live: Option<crate::detaillive::LiveSession>,
     /// the Live window is open
     pub live_window: bool,
+    /// the footings the footing marks and the bending schedule were made from (they change less often than members)
+    foot_key: Option<(Value, bool)>,
 }
 
 /// The view's mode (detailcraft.js `viewMode`).
@@ -323,6 +325,7 @@ impl DetailView {
             dwg: None,
             live: None,
             live_window: false,
+            foot_key: None,
         };
         v.tools.cur_phase =
             cc_detail::js::arr(v.model.state.get("phases")).first().and_then(|p| p.get("n")).and_then(Value::as_f64).unwrap_or(1.0);
@@ -414,20 +417,35 @@ impl DetailView {
         }
         let t1 = web_time::Instant::now();
         let st = &self.model.state;
-        self.built = match cc_detail::build::build(st) {
+        let built = match cc_detail::build::build(st) {
             Ok(b) => b,
             Err(e) => {
                 self.message = e;
                 Built::default()
             }
         };
+        let old = std::mem::replace(&mut self.built, built);
+        // freeing the old build of a big model takes a while (thousands of parts): on the desktop it goes on a thread
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new().name("cc-detail-free".into()).spawn(move || drop(old));
+        #[cfg(target_arch = "wasm32")]
+        drop(old);
         let t2 = web_time::Instant::now();
         let per_phase = st.get("numbering").and_then(|n| n.get("perPhase")) != Some(&Value::Bool(false));
-        self.marks = cc_detail::marks::mark_parts(&self.built, 1.0, per_phase);
-        let footings = cc_detail::js::arr(st.get("footings"));
-        self.footing_marks = cc_detail::marks::mark_footings(footings, per_phase);
-        let typed: Vec<cc_detail::rebar::Footing> = footings.iter().map(cc_detail::rebar::Footing::from_value).collect();
-        self.schedule = cc_detail::rebar::bending_schedule(&typed);
+        let old_marks = std::mem::replace(&mut self.marks, cc_detail::marks::mark_parts(&self.built, 1.0, per_phase));
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new().name("cc-detail-free".into()).spawn(move || drop(old_marks));
+        #[cfg(target_arch = "wasm32")]
+        drop(old_marks);
+        // the footing marks and the bending schedule depend on the footings only: made again when they changed
+        let fv = st.get("footings").cloned().unwrap_or(Value::Null);
+        if self.foot_key.as_ref().is_none_or(|(v, pp)| *pp != per_phase || *v != fv) {
+            let footings = cc_detail::js::arr(Some(&fv));
+            self.footing_marks = cc_detail::marks::mark_footings(footings, per_phase);
+            let typed: Vec<cc_detail::rebar::Footing> = footings.iter().map(cc_detail::rebar::Footing::from_value).collect();
+            self.schedule = cc_detail::rebar::bending_schedule(&typed);
+            self.foot_key = Some((fv, per_phase));
+        }
         let phases: Vec<f64> = cc_detail::js::arr(st.get("phases")).iter().filter_map(|p| p.get("n").and_then(Value::as_f64)).collect();
         self.built_version = self.model.version;
         self.set_timing("build", t2.duration_since(t1).as_secs_f64() * 1000.0);

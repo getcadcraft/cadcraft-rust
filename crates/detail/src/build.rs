@@ -154,15 +154,16 @@ pub fn build(state: &Value) -> Res<Built> {
     let mut world_holes: Vec<(WHole, String)> = Vec::new();
     let mut bolts: Vec<Bolt> = Vec::new();
     let mut welds: Vec<Weld> = Vec::new();
-    for c in &conns {
-        let r: Made = match c.kind.as_str() {
-            "endplate" => build_end_plate(c, &drafts),
-            "sheartab" => build_shear_tab(c, &drafts),
-            "baseplate" => build_base_plate(c, &drafts),
-            "splice" => build_splice(c, &drafts),
-            "gusset" => build_gusset(c, &drafts, &conns),
-            _ => Made { built: false, problems: vec![t0("build.err.connection")], ..Made::default() },
-        };
+    // each connection is made from the drafts alone (in parallel on the desktop), then applied in order
+    let made: Vec<Made> = crate::js::par_map(&conns, |c| match c.kind.as_str() {
+        "endplate" => build_end_plate(c, &drafts),
+        "sheartab" => build_shear_tab(c, &drafts),
+        "baseplate" => build_base_plate(c, &drafts),
+        "splice" => build_splice(c, &drafts),
+        "gusset" => build_gusset(c, &drafts, &conns),
+        _ => Made { built: false, problems: vec![t0("build.err.connection")], ..Made::default() },
+    });
+    for (c, r) in conns.iter().zip(made) {
         for text in &r.problems {
             problems.push(BProblem { r#ref: Some(c.id.clone()), text: text.clone(), hard: Some(!r.built) });
         }

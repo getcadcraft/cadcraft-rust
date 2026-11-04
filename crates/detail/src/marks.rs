@@ -249,6 +249,9 @@ struct Grp<'a> {
 
 pub fn mark_parts(built: &Built, tol: f64, per_phase: bool) -> Marks {
     let parts = &built.parts;
+    // every part's signature under each way of turning it over, worked out once (the assemblies below reuse them)
+    let all_sigs: Vec<Vec<String>> =
+        crate::js::par_map(parts, |p| variants_for(&p.profile.kind).iter().map(|v| part_sig(p, v, tol)).collect());
     let phased = per_phase && {
         let mut seen: Vec<f64> = Vec::new();
         for p in parts {
@@ -264,12 +267,11 @@ pub fn mark_parts(built: &Built, tol: f64, per_phase: bool) -> Marks {
     let mut own_sig: Vec<String> = Vec::with_capacity(parts.len());
     let mut groups: Vec<Grp> = Vec::new();
     let mut gidx: HashMap<String, usize> = HashMap::new();
-    for p in parts {
+    for (p, sigs) in parts.iter().zip(&all_sigs) {
         let mut best: Option<String> = None;
-        for v in variants_for(&p.profile.kind) {
-            let s = part_sig(p, v, tol);
-            if best.as_ref().is_none_or(|b| utf16_cmp(&s, b) == Ordering::Less) {
-                best = Some(s);
+        for s in sigs {
+            if best.as_ref().is_none_or(|b| utf16_cmp(s, b) == Ordering::Less) {
+                best = Some(s.clone());
             }
         }
         let best = best.unwrap_or_default();
@@ -358,9 +360,9 @@ pub fn mark_parts(built: &Built, tol: f64, per_phase: bool) -> Marks {
         }
         let subs = subs_of(&p.id);
         let mut best: Option<String> = None;
-        for v in variants_for(&p.profile.kind) {
-            let own = part_sig(p, v, tol);
-            if Some(&own) != own_sig.get(pi) {
+        let sigs = all_sigs.get(pi).map_or(&[][..], Vec::as_slice);
+        for (v, own) in variants_for(&p.profile.kind).iter().zip(sigs) {
+            if Some(own) != own_sig.get(pi) {
                 continue;
             }
             let mut at: Vec<Vec<It>> = subs
