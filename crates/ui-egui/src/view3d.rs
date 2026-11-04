@@ -468,6 +468,7 @@ impl Default for View3 {
 
 /// Show `scene` in `rect`, handling orbit / pan / zoom. Returns the response (for the tools on top).
 pub fn show(ui: &mut egui::Ui, rect: Rect, scene: &Scene3D, view: &mut View3) -> egui::Response {
+    crate::viewshot::note_view_rect(ui.ctx(), rect);
     let ppp = f64::from(ui.ctx().pixels_per_point());
     let resp = ui.allocate_rect(rect, Sense::click_and_drag());
     view.cam.width = f64::from(rect.width()) * ppp;

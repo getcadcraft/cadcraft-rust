@@ -2,6 +2,19 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.10 the window's view_screenshot and DetailCraft's live tools (agent, work/detailfin)
+
+- `view_screenshot` (CadCraft and ModelCraft, 0.5 agents.js): the control channel asks egui for the window's next frame,
+  crops it to the view the app drew last (the drawing canvas or the 3D view note their rectangle, `viewshot.rs`), scales it
+  to `maxSize` (200–1600, default 1200) on its long side and answers an MCP image (CadCraft adds "The model as shown,
+  W × H px." and `{width, height, space}`); the request waits at most 3 s for the frame, the requests after it wait their
+  turn. Checked on the desktop app under WSLg: a 400 × 268 PNG of a DXF plan.
+- DetailCraft's twelve live tools (agents.js through cc_detail::agents) on the window's model: app_info (with what the
+  person is in the middle of), model_describe, parts_list, problems_list, clash_check, selection_get / selection_set (the
+  window's selection, the Select tool, duplicates dropped), member_add / connection_add (one "Assistant: …" undo step each,
+  refused while placing, moving or pasting), undo, model_save and model_export (the window's own Save and exports). Test
+  `detailcraft_tools_act_on_the_window`.
+
 ## 2026-11-04 — M16.9 Studio Live's network side: the session server, handshake and sealed frames on the LAN (agent, work/detailfin)
 
 - `crates/live`: `crypto.rs` (the SPAKE2 handshake on Ed25519, ChaCha20-Poly1305 frames, rekeys, exporters, short codes

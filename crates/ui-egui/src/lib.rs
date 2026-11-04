@@ -133,6 +133,7 @@ pub mod theme;
 pub mod tkbench;
 pub mod view3d;
 pub mod viewer;
+pub mod viewshot;
 pub mod winsetdlg;
 
 use std::collections::{HashMap, HashSet};

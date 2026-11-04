@@ -32,6 +32,10 @@ pub struct Channel {
     pub ctx: Arc<Mutex<Option<egui::Context>>>,
     pub control: Control,
     pub token_path: Option<std::path::PathBuf>,
+    /// a `view_screenshot` call waiting for the window's next frame (egui's viewport screenshot), and when it was asked
+    waiting: Option<(Job, std::time::Instant)>,
+    /// the frame the screenshot callback delivered
+    shot: Arc<Mutex<Option<Arc<egui::ColorImage>>>>,
 }
 
 impl Channel {
@@ -63,7 +67,7 @@ impl Channel {
             None => eprintln!("Token file: not written (no config folder)"),
         }
         let control = Control::new(groups, env!("CARGO_PKG_VERSION"));
-        Ok(Channel { server, queue, ctx, control, token_path })
+        Ok(Channel { server, queue, ctx, control, token_path, waiting: None, shot: Arc::new(Mutex::new(None)) })
     }
 
     /// The line the status bar shows while the channel is on (never the token itself).
@@ -74,20 +78,49 @@ impl Channel {
         }
     }
 
-    /// Answer every queued request (call once per frame, on the UI thread).
+    /// Answer every queued request (call once per frame, on the UI thread). A `view_screenshot` waits for the next frame
+    /// of the window (asked through egui's viewport screenshot), at most 3 s; the requests after it wait their turn.
     pub fn pump(&mut self, app: &mut UiApp) {
+        if let Some((job, at)) = self.waiting.take() {
+            let ready = self.shot.lock().unwrap_or_else(PoisonError::into_inner).is_some();
+            if !ready && at.elapsed() < Duration::from_secs(3) {
+                self.waiting = Some((job, at));
+                return;
+            }
+            self.answer(job, app);
+        }
         loop {
             let job = self.queue.lock().unwrap_or_else(PoisonError::into_inner).pop_front();
             let Some(job) = job else { break };
-            let groups = self.control.groups.clone();
-            let mut win = Win { app: &mut *app, groups };
-            // a tool must never take the window down: a panic becomes an error answer
-            let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.control.handle(&job.msg, &job.session, &mut win)))
-                .unwrap_or_else(|_| {
-                    job.msg.get("id").map(|id| json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "Internal error"}}))
-                });
-            let _ = job.reply.send(answer);
+            let wants_shot = job.msg.get("method").and_then(Value::as_str) == Some("tools/call")
+                && job.msg.get("params").and_then(|p| p.get("name")).and_then(Value::as_str) == Some("view_screenshot");
+            let ctx = self.ctx.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if wants_shot && let Some(ctx) = ctx {
+                *self.shot.lock().unwrap_or_else(PoisonError::into_inner) = None;
+                let (slot, c2) = (self.shot.clone(), ctx.clone());
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(move |img| {
+                    *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(img);
+                    c2.request_repaint();
+                })));
+                ctx.request_repaint();
+                self.waiting = Some((job, std::time::Instant::now()));
+                return;
+            }
+            self.answer(job, app);
         }
+    }
+
+    fn answer(&mut self, job: Job, app: &mut UiApp) {
+        let groups = self.control.groups.clone();
+        let shot = self.shot.lock().unwrap_or_else(PoisonError::into_inner).take();
+        let ctx = self.ctx.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        let mut win = Win { app: &mut *app, groups, shot, ctx };
+        // a tool must never take the window down: a panic becomes an error answer
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.control.handle(&job.msg, &job.session, &mut win)))
+            .unwrap_or_else(|_| {
+                job.msg.get("id").map(|id| json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": "Internal error"}}))
+            });
+        let _ = job.reply.send(answer);
     }
 }
 
@@ -95,6 +128,31 @@ impl Channel {
 pub struct Win<'a> {
     pub app: &'a mut UiApp,
     pub groups: Vec<String>,
+    /// the window's last frame, for `view_screenshot`
+    pub shot: Option<Arc<egui::ColorImage>>,
+    pub ctx: Option<egui::Context>,
+}
+
+impl Win<'_> {
+    /// `view_screenshot` (0.5 agents.js of CadCraft and ModelCraft): the view as shown, at most `maxSize` (1200) pixels
+    /// on its long side, as an MCP image with a line of text; ModelCraft's carries no text.
+    fn view_screenshot(&self, args: &Value, cad: bool) -> Result<ToolOut, String> {
+        let none = || "No view to take a picture of.".to_string();
+        let (shot, ctx) = (self.shot.as_ref().ok_or_else(none)?, self.ctx.as_ref().ok_or_else(none)?);
+        let rect = cc_ui_egui::viewshot::view_rect(ctx).ok_or_else(none)?;
+        let max = args.get("maxSize").and_then(Value::as_u64).unwrap_or(1200).clamp(200, 1600);
+        let (png, w, h) =
+            cc_ui_egui::viewshot::crop_png(shot, rect, ctx.pixels_per_point(), u32::try_from(max).unwrap_or(1200)).ok_or_else(none)?;
+        let data = cc_ui_egui::viewshot::b64(&png);
+        let image = json!({"type": "image", "data": data, "mimeType": "image/png"});
+        if !cad {
+            return Ok(ToolOut::Raw { content: vec![image], structured: Some(json!({"width": w, "height": h})) });
+        }
+        let space = self.app.editor.as_ref().and_then(|e| e.eng.doc().layout().map(|l| l.name.clone())).unwrap_or_else(|| "model".into());
+        let what = if space == "model" { "model".to_string() } else { format!("sheet {space}") };
+        let text = json!({"type": "text", "text": format!("The {what} as shown, {w} × {h} px.")});
+        Ok(ToolOut::Raw { content: vec![image, text], structured: Some(json!({"width": w, "height": h, "space": space})) })
+    }
 }
 
 /// The apps whose 0.5 windows have live tools (agents.js); the others list only `app_info`.
@@ -313,6 +371,72 @@ impl Win<'_> {
 }
 
 /// Save a drawing in one of CadCraft's save formats.
+/// What the person is in the middle of in DetailCraft (detailcraft.js installAgents' `busy`).
+fn detail_busy(dv: &cc_ui_egui::detailview::DetailView) -> Option<&'static str> {
+    if dv.tools.pending.is_some() {
+        Some("placing a member")
+    } else if dv.tools.move_refs.is_some() {
+        Some("moving parts")
+    } else if dv.tools.tool == "paste" {
+        Some("pasting")
+    } else {
+        None
+    }
+}
+
+impl Win<'_> {
+    /// DetailCraft's live tools (agents.js through cc_detail::agents) on the window's model: the model moves into the
+    /// tools' app for the call and back (one undo step per edit, "Assistant: …"), the selection is the window's, Save
+    /// and the exports are the window's own (detail.save / detail.export).
+    fn detail_run(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        match name {
+            "model_save" => {
+                self.app.run("detail.save", &cc_ui_egui::Params::default())?;
+                let dv = self.app.detail.as_ref().ok_or("No DetailCraft model is open.")?;
+                return Ok(json!({"saved": dv.model.state.get("name").cloned().unwrap_or(Value::Null), "unsaved": dv.model.dirty()}));
+            }
+            "model_export" => {
+                let f = args.get("format").and_then(Value::as_str).unwrap_or("").to_string();
+                if !["ifc", "nc", "bom", "bending", "kiss", "cutlist"].contains(&f.as_str()) {
+                    return Err(format!("model_export: no format {f}"));
+                }
+                self.app.run("detail.export", &cc_ui_egui::Params { name: Some(f.clone()), ..Default::default() })?;
+                return Ok(json!({"exported": f}));
+            }
+            _ => {}
+        }
+        let dv = self.app.detail.as_mut().ok_or("No DetailCraft model is open.")?;
+        let busy = detail_busy(dv);
+        if let (Some(why), "member_add" | "connection_add") = (busy, name) {
+            return Err(format!("The person is {why}: try again when they finish."));
+        }
+        let model = std::mem::take(&mut dv.model);
+        let mut ag = cc_detail::agents::AgentApp::new(model);
+        ag.selected = dv.selected().iter().map(cc_ui_egui::detailtools::ref_json).collect();
+        let r = ag.run(name, args);
+        let picked = ag.selected.clone();
+        dv.model = ag.model;
+        dv.recompute();
+        let mut r = r?;
+        match name {
+            "app_info" => {
+                if let Some(o) = r.as_object_mut() {
+                    o.insert("busy".into(), busy.map_or(Value::Null, Value::from));
+                }
+            }
+            "selection_set" => {
+                // detailcraft.js app.select(refs): the Select tool, the selection set, how many are selected
+                let refs: Vec<cc_ui_egui::detail3d::Ref> = picked.iter().filter_map(cc_ui_egui::detailtools::ref_of_json).collect();
+                let _ = dv.set_tool("select");
+                dv.set_selection(refs);
+                r = json!({"selected": dv.selected().len()});
+            }
+            _ => {}
+        }
+        Ok(r)
+    }
+}
+
 fn cc_io_cad_save(doc: &cc_cad::Doc, fmt: &str) -> Result<(Vec<u8>, &'static str, Value), String> {
     cc_io_cad::save_bytes(doc, fmt, None).map_err(|e| e.0)
 }
@@ -338,6 +462,9 @@ impl Tools for Win<'_> {
     fn run(&mut self, name: &str, args: Value, ctx: &CallCtx) -> Result<ToolOut, ToolError> {
         let slug = self.app.active_app();
         let groups = self.groups.clone();
+        if name == "view_screenshot" && matches!(slug, "cadcraft" | "modelcraft") {
+            return self.view_screenshot(&args, slug == "cadcraft").map_err(ToolError::new);
+        }
         let out = match slug {
             "cadcraft" => match name {
                 "drawing_save" => self.cad_save(args.get("format").and_then(Value::as_str)),
@@ -385,20 +512,12 @@ impl Tools for Win<'_> {
                     Err(e) => Err(e),
                 }
             }
-            "modelcraft" => match name {
-                "view_screenshot" => Err("A picture of the view is not available in this version of ModelCraft yet.".into()),
-                _ => {
-                    let mc = self.app.mc.as_mut().ok_or("No model is open for editing in ModelCraft.")?;
-                    cc_mcp::modelcraft::run(&mut mc.tools.host.model, name, &args, &groups)
-                }
-            },
+            "modelcraft" => {
+                let mc = self.app.mc.as_mut().ok_or("No model is open for editing in ModelCraft.")?;
+                cc_mcp::modelcraft::run(&mut mc.tools.host.model, name, &args, &groups)
+            }
             "civilcraft" => self.civil_run(name, &args),
-            "detailcraft" => match name {
-                "app_info" => Ok(json!({"app": "detailcraft", "title": "DetailCraft", "allowed": groups})),
-                other => {
-                    Err(format!("{other} is not available in this version of DetailCraft yet: its assistant tools have not been ported."))
-                }
-            },
+            "detailcraft" => self.detail_run(name, &args),
             other => match name {
                 "app_info" => Ok(json!({"app": other, "title": app_title(other), "allowed": groups})),
                 n => Err(format!("{n} is not available in {}.", app_title(other))),
@@ -415,6 +534,12 @@ impl Tools for Win<'_> {
             m.insert("site".into(), cv.project.state.get("name").cloned().unwrap_or(Value::Null));
             m.insert("points".into(), json!(cv.project.points.len()));
             m.insert("unsaved".into(), json!(cv.project.dirty()));
+        }
+        // detailcraft.js control.configure({ info: () => modelSummary(…) })
+        if let (Some(dv), Some(m)) = (self.app.detail.as_ref().filter(|_| slug == "detailcraft"), v.as_object_mut()) {
+            m.insert("name".into(), dv.model.state.get("name").cloned().unwrap_or(Value::Null));
+            m.insert("unsaved".into(), json!(dv.model.dirty()));
+            m.insert("parts".into(), json!(dv.built.parts.len()));
         }
         Some(v)
     }
@@ -437,6 +562,9 @@ impl Window for Win<'_> {
             } else {
                 None
             };
+        }
+        if let Some(dv) = self.app.detail.as_ref().filter(|_| self.app.active_app() == "detailcraft") {
+            return detail_busy(dv).map(str::to_string);
         }
         let ed = self.app.editor.as_ref()?;
         if ed.eng.busy() { ed.eng.running().map(str::to_string) } else { None }
@@ -489,7 +617,7 @@ mod tests {
     }
 
     fn ask(c: &mut Control, app: &mut UiApp, m: Value) -> Value {
-        let mut w = Win { app, groups: c.groups.clone() };
+        let mut w = Win { app, groups: c.groups.clone(), shot: None, ctx: None };
         c.handle(&m, "t", &mut w).unwrap_or(Value::Null)
     }
     fn call(c: &mut Control, app: &mut UiApp, name: &str, args: Value) -> Value {
@@ -534,6 +662,39 @@ mod tests {
         assert!(d["structuredContent"]["instances"].as_array().unwrap().iter().any(|i| i["name"] == "Box"));
         let u = call(&mut c, &mut app, "undo", json!({}));
         assert_eq!(u["structuredContent"]["undone"], json!(["Assistant: box"]));
+    }
+
+    /// DetailCraft's tools (agents.js) on the window's model: reads, an edit as one "Assistant:" undo step, the selection
+    /// shown in the window, the busy refusal.
+    #[test]
+    fn detailcraft_tools_act_on_the_window() {
+        let all: Vec<String> = ["read", "edit", "save", "export"].iter().map(|s| s.to_string()).collect();
+        let mut c = Control::new(all, "t");
+        let mut app = UiApp::default();
+        app.run("detail.sample", &cc_ui_egui::Params::default()).unwrap();
+        let list = ask(&mut c, &mut app, json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}));
+        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 13, "windows_list + DetailCraft's 12");
+        let info = call(&mut c, &mut app, "app_info", json!({}));
+        assert_eq!(info["structuredContent"]["members"], 11, "{info}");
+        assert_eq!(info["structuredContent"]["busy"], Value::Null);
+        let parts = call(&mut c, &mut app, "parts_list", json!({"type": "beam"}));
+        assert!(parts["structuredContent"]["total"].as_u64().unwrap() >= 1, "{parts}");
+        let added = call(&mut c, &mut app, "member_add", json!({"type": "beam", "start": [0, 7000, 4000], "end": [6000, 7000, 0]}));
+        let id = added["structuredContent"]["id"].as_str().unwrap().to_string();
+        assert_eq!(app.detail.as_ref().unwrap().model.undo_stack.last().unwrap().label, "Assistant: add beam");
+        let sel = call(&mut c, &mut app, "selection_set", json!({"refs": [{"kind": "member", "id": id}, {"kind": "member", "id": id}]}));
+        assert_eq!(sel["structuredContent"]["selected"], 1, "{sel}");
+        assert_eq!(app.detail.as_ref().unwrap().selected().len(), 1);
+        let got = call(&mut c, &mut app, "selection_get", json!({}));
+        assert_eq!(got["structuredContent"]["selected"][0]["type"], "beam");
+        let undo = call(&mut c, &mut app, "undo", json!({}));
+        assert_eq!(undo["structuredContent"]["undone"], json!(["Assistant: add beam"]));
+        app.run("detail.tool", &cc_ui_egui::Params { name: Some("beam".into()), ..Default::default() }).unwrap();
+        app.run("detail.node", &cc_ui_egui::Params { name: Some("A/1/Level 2".into()), ..Default::default() }).unwrap();
+        let refused = call(&mut c, &mut app, "member_add", json!({"type": "beam", "start": [0, 0, 0], "end": [1000, 0, 0]}));
+        assert_eq!(refused["isError"], true, "{refused}");
+        let info = call(&mut c, &mut app, "app_info", json!({}));
+        assert_eq!(info["structuredContent"]["busy"], "placing a member");
     }
 
     /// CivilCraft's tools (civil-agent.js) through the channel: none until Settings › Assistants is on, then those of

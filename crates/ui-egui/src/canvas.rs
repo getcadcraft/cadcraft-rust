@@ -212,6 +212,7 @@ pub struct FrameStats {
 
 /// Paint one frame of the canvas into `rect` (points). Returns stats.
 pub fn paint(ui: &egui::Ui, rect: Rect, f: &Frame) -> FrameStats {
+    crate::viewshot::note_view_rect(ui.ctx(), rect);
     let ppp = ui.ctx().pixels_per_point();
     let painter = ui.painter_at(rect);
     let t = f.tokens;

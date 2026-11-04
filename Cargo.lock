@@ -308,6 +308,7 @@ version = "0.0.1"
 dependencies = [
  "cc-cad",
  "cc-civil",
+ "cc-detail",
  "cc-engine",
  "cc-io-cad",
  "cc-mcp",
