@@ -2,6 +2,53 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
+
+- M4.57 (panes.rs, paneview.rs): split panes as panes.js and view.js's pane handling. SPLIT / VPORTS in the model ask
+  the window (the UI host now has panes; LINKVIEWS links them); 2v 2h 3r 3l 4 with a 4 px gap, dividers that drag
+  (a double click puts one back in the middle), a press or the wheel in another pane makes it active (the first
+  primary click only does that, a middle / right drag pans on), each pane its own view (centre, zoom, turn) and space;
+  the inactive panes drawn from their records (their own GPU view slots, their own point cloud pictures), with the
+  selection and rubber band where they show the open space; frames: the accent round the active pane. The panes go
+  into the saved file (`doc.vports`, the VPORT table's *ACTIVE records; one pane: the model view's turn) and come
+  back when it opens for editing. Parity: forks/tools/panediff-cadpanes.mjs (new) runs view.js itself headless
+  against `cadcraft-shot panecases` — state, live view, the DXF R12 text with its VPORT table and the panes read
+  back — 2,010 cases / 8,348 records 0 differences in en and 2,010 / 8,428 in es-MX (view turns through V8's
+  fdlibm sin / cos). A drawing the window saved with 3 panes reads the same in the JS and the Rust (idiff 0).
+  Not ported: a pane showing another open drawing (0.5's Tile: the window holds one drawing).
+- M4.58 (cadset.rs, cad3dtab.rs, paneview.rs, cadprops.rs): Settings › CadCraft › Corner indicator — automatic (the
+  default: view.js's axis icon at the bottom left of each Model pane, turned with the view and the UCS, the square
+  for the world UCS; the view cube on the 3D tab), view cube (the Model tab's cube from the top: another face, a
+  step, a compass letter, Home or a drag opens the 3D tab looking from there), axis icon (X/Y/Z on the 3D tab), none;
+  Properties › Misc's UCS icon is the same setting (on = automatic).
+- M4.59 (cc-engine mytools.rs, cuix.rs; mytoolsdlg.rs, ribbon.rs): My tools — cleanTools / mergeTools / exportTools,
+  checkIcon / iconFromBytes, macro.js parseMacro with the DIESEL subset, cuix.js readCuix (the ZIP capped at
+  32 MB / 2,000 entries / 16 MB an entry, inflated with a cap; the XML reader refuses DOCTYPE, 64 deep, 200,000
+  elements; BMP button pictures to PNG; toolbars, ribbon panels, accelerators, PGP aliases). Settings › CadCraft ›
+  My tools (add / edit / delete, Import, Import CUIx, Export), the edit dialog (a key recorded by pressing it, a
+  PNG / SVG icon), the groups after the toolbar's own (menu bar: More; ribbon: an Add-ons tab, as app-input-ui.js
+  shows a toolbar's other buttons), a button's key before the window's own keys, macros run through the command line
+  (^C, Enter, a pause waits for the person's answer, a leading * repeats until Esc). Kept with the settings
+  (`cadcraftMyTools`). Fuzz target cad_my_tools. Parity: forks/tools/mytoolsdiff-cadpanes.mjs (new) against
+  `cadcraft-shot mytoolscases`: 12,023 cases × 2 seeds 0 differences (macros, cleaned / merged / exported data,
+  icons, 2,002 generated CUIx files — stored and deflated parts, BMP and PNG pictures, broken and cut files; a BMP
+  becomes a PNG with the same pixels, its zlib bytes this build's own). A 151 KB CUIx with 1,900 buttons and 300 BMP
+  icons reads in 74 ms (JS 720 ms). An SVG icon is kept and exported but drawn as the star: the window renders no
+  SVG that comes from a file.
+- M4.60 (sheetsetdlg.rs, apps/cadcraft-web folder.rs): SHEETSET in the web build — Open and New ask the browser for
+  the folder: the directory picker (the set file and drawings written back in place) or 0.5's fallback, an
+  `<input webkitdirectory>` (read only, said so); a folder with several sets asks which. The folder's files are read
+  when it is picked (6 folders deep, at most 1 GB / 20,000 files). The web build loads in Chromium (3 runs); the
+  pickers themselves need a person's click.
+- The point cloud's overscan (item 5) is **not** done: a probe (pans in whole pixels on three room scans, 240 frames)
+  found the overscanned picture moved by the pan equal to a full redraw every time, but the pan between the two is a
+  whole number of pixels exactly only 31 times in 240 (the view's float steps), so a point on a half pixel can land
+  one pixel off: not provably the same picture. The picture is still made again on every pan / zoom.
+- Gate: green for M4.57, M4.59, M4.60; M4.58's run stopped at fuzz m3d_tools, an out-of-memory input in ModelCraft's
+  tools unrelated to this work (kept for the lead); the targets after it ran clean by hand.
+- Parity after the rebase onto main (release CLI): kdiff 5,250 / 5,250 in en and es-MX, idiff kit 78 files 0
+  differences (idiff reads in English only), plotdiff 32 / 32 in en and es-MX.
+
 ## 2026-11-03 — M11.26–M11.31 CivilCraft complete for 0.5 (agent, work/civil3)
 
 - M11.26 (civilcrs.rs, civilgis3.rs, civilpics.rs): the Coordinates window as gis-crs-ui.js — the system now and its
