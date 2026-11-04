@@ -150,8 +150,7 @@ Last updated 2026-11-04 · Change: BimCraft finished (M7.20–M7.24: the Build m
    dragging selected parts (D2), the view cube / axis icon, plan / elevation cut exactly, the Drawings dialog with its
    preview and issue log, settings kept between runs, the touch long press, es-MX at parity with the frozen JS doing
    the same. Missing: the clipboard between windows only through the system clipboard (no localStorage); the shop
-   drawing opens no preview dialog (it downloads, as the dialog's PDF button does); a bolt picked in 3D selects
-   nothing (0.5 selects its connection).
+   drawing opens no preview dialog (it downloads, as the dialog's PDF button does).
 9. **Words** (M3.6–M3.7): every app speaks en or es-MX (0.5's catalogs unchanged; Settings or the start screen
    switches; the desktop keeps it, the web keeps it in the browser or follows `?lang=` / the browser's language). es-MX
    parity: kdiff 4426/4426, mkuidiff 17/17, cvuidiff all, cvtooldiff 76/76 + 2084/2084, dcuidiff 58/58, pcuidiff all,

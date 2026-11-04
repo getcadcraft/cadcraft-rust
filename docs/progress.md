@@ -2,6 +2,12 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M14.6 DetailCraft: a bolt picked in 3D selects its connection (agent, work/detailfin)
+
+- The 3D scene keeps each bolt (head, axis, length, radius, the connection it belongs to); a click whose nearest hit is
+  the bolts' mesh selects that bolt's connection, a loose bolt selects nothing (0.5 view3d.js pickRef). Tests
+  `a_bolt_on_the_scene_names_its_connection`, `a_click_on_a_bolt_selects_its_connection`.
+
 ## 2026-11-04 — M14.5 DetailCraft edits on big models at 1.3–2× the JS (agent, work/detailfin)
 
 - The rebuild after an edit: the connections and the parts' mark signatures worked out in parallel (rayon on the desktop,

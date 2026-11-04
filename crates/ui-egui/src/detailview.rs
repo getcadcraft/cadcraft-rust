@@ -928,8 +928,14 @@ impl DetailView {
             planes.iter().all(|pl| pl.n[0] * q[0] + pl.n[1] * q[1] + pl.n[2] * q[2] + pl.d >= 0.0)
         };
         let hit = crate::view3d::pick_where(&s.scene, &self.view.cam, sx, sy, &keep);
-        let part = hit.and_then(|h| s.refs.get(h.instance).cloned().flatten().map(|r| (r, h.t)));
         let (o, d) = self.view.cam.ray(sx, sy);
+        // a bolt selects its connection; a loose bolt selects nothing (view3d.js pickRef)
+        if let Some(h) = hit.as_ref().filter(|h| Some(h.instance) == s.bolt_inst) {
+            let conn = detail3d::bolt_at(&s.bolts, h.point).and_then(|b| b.conn.clone())?;
+            let at = [h.point[0] / 0.001, h.point[1] / 0.001, h.point[2] / 0.001];
+            return Some((Ref::Conn(conn), at));
+        }
+        let part = hit.and_then(|h| s.refs.get(h.instance).cloned().flatten().map(|r| (r, h.t)));
         // solid steel before see-through concrete (view3d.js pickRef's sort)
         let best = match part {
             Some(p) => p,
@@ -1836,6 +1842,31 @@ mod tests {
         assert!(!v.marks.parts.is_empty());
         assert!(!v.schedule.rows.is_empty(), "the footings have bars");
         assert!(!v.model.dirty());
+    }
+
+    #[test]
+    fn a_click_on_a_bolt_selects_its_connection() {
+        let mut v = DetailView::sample().unwrap();
+        v.set_view("3d").unwrap();
+        v.view.cam.width = 1200.0;
+        v.view.cam.height = 800.0;
+        v.sync_scene();
+        let s = v.scene.as_ref().unwrap();
+        v.view.cam.fit(s.scene.min, s.scene.max, None);
+        let bolts = v.scene.as_ref().unwrap().bolts.clone();
+        let mut hits = 0;
+        for b in bolts.iter().filter(|b| b.conn.is_some()) {
+            let a = b.axis;
+            let l = (a[0] * a[0] + a[1] * a[1] + a[2] * a[2]).sqrt().max(1e-12);
+            let mid = [b.head[0] + a[0] / l * b.len / 2.0, b.head[1] + a[1] / l * b.len / 2.0, b.head[2] + a[2] / l * b.len / 2.0];
+            let Some((x, y)) = project(&v.view.cam, mid) else { continue };
+            if let Some(Ref::Conn(c)) = v.pick_at(x, y)
+                && Some(&c) == b.conn.as_ref()
+            {
+                hits += 1;
+            }
+        }
+        assert!(hits > 0, "some bolt in view picks its connection");
     }
 
     #[test]

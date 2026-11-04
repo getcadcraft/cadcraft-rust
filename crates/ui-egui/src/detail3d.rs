@@ -115,6 +115,37 @@ pub struct DetailScene {
     pub triangles: usize,
     /// per instance: its box (metres; grids and bolts: none, never hidden by a plan or elevation)
     pub boxes: Vec<Option<([f64; 3], [f64; 3])>>,
+    /// the instance all bolts are drawn in, and each bolt (metres) with the connection it belongs to: a pick on a bolt
+    /// selects its connection (view3d.js `userData.bolts[instanceId].conn`)
+    pub bolt_inst: Option<usize>,
+    pub bolts: Vec<BoltPick>,
+}
+
+/// A bolt as picking sees it.
+#[derive(Clone, Debug)]
+pub struct BoltPick {
+    pub head: [f64; 3],
+    pub axis: [f64; 3],
+    pub len: f64,
+    pub r: f64,
+    pub conn: Option<String>,
+}
+
+/// The bolt nearest a point (metres) on the bolts' mesh: its connection (None: a loose bolt).
+pub fn bolt_at(bolts: &[BoltPick], p: [f64; 3]) -> Option<&BoltPick> {
+    let mut best: Option<(f64, &BoltPick)> = None;
+    for b in bolts {
+        let a = norm(b.axis);
+        let w = sub(p, b.head);
+        let t = (w[0] * a[0] + w[1] * a[1] + w[2] * a[2]).clamp(0.0, b.len);
+        let q = [b.head[0] + a[0] * t, b.head[1] + a[1] * t, b.head[2] + a[2] * t];
+        let d = sub(p, q);
+        let dist = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if dist <= b.r * 1.5 + 1e-4 && best.as_ref().is_none_or(|x| dist < x.0) {
+            best = Some((dist, b));
+        }
+    }
+    best.map(|x| x.1)
 }
 
 fn colour_of(kind: &str) -> [u8; 4] {
@@ -507,6 +538,8 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
     }
 
     // bolts and anchor rods: one mesh (they are not picked: view3d.js gives them no ref)
+    let mut bolt_inst = None;
+    let mut bolt_picks: Vec<BoltPick> = Vec::new();
     if bolts {
         let mut m = Mk::default();
         for b in built.bolts.iter().filter(|b| shown(b.phase)) {
@@ -515,9 +548,11 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
             }
             let head = [b.head[0] * MM, b.head[1] * MM, b.head[2] * MM];
             cylinder(&mut m, head, b.axis, b.length * MM, b.d * MM, 12, palette::BOLT, true);
+            bolt_picks.push(BoltPick { head, axis: b.axis, len: b.length * MM, r: b.d * MM / 2.0, conn: b.conn.clone() });
         }
         if !m.idx.is_empty() {
             triangles = triangles.saturating_add(m.triangles());
+            bolt_inst = Some(instances.len());
             let mi = push(&mut meshes, m.done());
             instances.push(Instance3 { mesh: mi, m: IDENT, tint: None, hidden: false });
             refs.push(None);
@@ -581,7 +616,17 @@ pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f6
         lo = [-5.0, -5.0, 0.0];
         hi = [5.0, 5.0, 3.0];
     }
-    DetailScene { scene: Scene3D::new(id, meshes, instances, lo, hi), refs, base, footings, labels, triangles, boxes }
+    DetailScene {
+        scene: Scene3D::new(id, meshes, instances, lo, hi),
+        refs,
+        base,
+        footings,
+        labels,
+        triangles,
+        boxes,
+        bolt_inst,
+        bolts: bolt_picks,
+    }
 }
 
 /// The nearest footing box a ray (metres) passes through: (ref, distance).
@@ -634,6 +679,20 @@ mod tests {
         let b = cc_detail::build::build(&m.state).unwrap();
         let k = cc_detail::marks::mark_parts(&b, 1.0, true);
         (m.state, b, k)
+    }
+
+    #[test]
+    fn a_bolt_on_the_scene_names_its_connection() {
+        let (state, built, marks) = sample();
+        let d = build(&state, &built, &marks, 1, &[], true);
+        assert!(d.bolt_inst.is_some() && !d.bolts.is_empty());
+        let b = d.bolts.iter().find(|b| b.conn.is_some()).expect("a connection's bolt");
+        let a = norm(b.axis);
+        let mid = [b.head[0] + a[0] * b.len / 2.0, b.head[1] + a[1] * b.len / 2.0, b.head[2] + a[2] * b.len / 2.0];
+        assert_eq!(bolt_at(&d.bolts, mid).and_then(|x| x.conn.clone()), b.conn.clone());
+        assert!(bolt_at(&d.bolts, [1e3, 1e3, 1e3]).is_none());
+        let none = build(&state, &built, &marks, 2, &[], false);
+        assert!(none.bolt_inst.is_none() && none.bolts.is_empty(), "bolts hidden: nothing to pick");
     }
 
     #[test]
