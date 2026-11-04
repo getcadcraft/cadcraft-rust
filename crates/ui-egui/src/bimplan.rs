@@ -35,13 +35,13 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "bim.tool",
         "Drawing tool",
         "W / D / N / V",
-        "{name: \"select\" | \"wall\" | \"door\" | \"window\" | \"floor\" | \"ceiling\" | \"roof\"}",
+        "{name: \"select\" | \"wall\" | \"door\" | \"window\" | \"floor\" | \"ceiling\" | \"roof\" | \"roofplane\" | \"foundation\" | \"countertop\" | \"stair\" | \"railing\" | \"framing\" | \"section\" | \"electrical\"}",
     ),
     (
         "bim.set",
         "Tool option",
         "",
-        "{name: \"wall.type=ext-2x6\" | \"wall.top=level|fixed\" | \"wall.height=10'\" | \"door.type=…\" | \"door.width=…\" | \"window.sill=…\" | \"floor.mode=room|building\" | \"floor.kind=wood|concrete\" | \"floor.thickness=…\" | \"ceiling.mode=…\" | \"ceiling.height=…\" | \"roof.pitch=6/12\" | \"roof.overhang=…\" | \"roof.ends=hip|gable-short|gable-long|shed\" | \"roof.fascia=on|off\"}",
+        "{name: \"wall.type=ext-2x6\" | \"wall.top=level|fixed\" | \"wall.height=10'\" | \"door.type=…\" | \"door.width=…\" | \"window.sill=…\" | \"floor.mode=room|building\" | \"floor.kind=wood|concrete\" | \"floor.thickness=…\" | \"ceiling.mode=…\" | \"ceiling.height=…\" | \"roof.pitch=6/12\" | \"roof.overhang=…\" | \"roof.ends=hip|gable-short|gable-long|shed\" | \"roof.fascia=on|off\" | \"rp.pitch=4/12\" | \"rp.base=…\" | \"fd.kind=slab|stemslab|crawl|basement\" | \"ct.overhang=…\" | \"ct.thickness=…\" | \"st.kind=straight|l|u|winder\" | \"st.turn=left|right\" | \"st.width=…\" | \"st.railings=both|left|right|none\" | \"rl.kind=guard|handrail\" | \"rl.height=…\" | \"fr.spacing=406.4\" | \"fr.corners=three-stud|california\" | \"fr.roof=stick|truss\" | \"fr.blocking=on|off\" | \"el.kind=socket.double|switch|luminaire|…\" | \"el.circuit=…\" | \"el.height=…\"}",
     ),
     ("bim.flip", "Flip the hinges", "H", "{} → the door or window being placed hinges at the other end"),
     ("bim.units", "Units", "", "{name: \"ftin\" | \"mm\"}"),
@@ -86,7 +86,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
     ("bim.timings", "Plan timings", "", "{} → the status line says what the last drag preview, change, plan and 3D rebuild took"),
     ("bim.view", "Plan view", "", "{name: \"cx,cy,scale\"} → centre (plan mm) and px per mm of the plan"),
-    ("bim.schedule", "Schedule", "", "{name: \"doors\" | \"windows\" | \"walls\" | \"rooms\" [\":csv\"]} → shows it (\":csv\" saves it)"),
+    (
+        "bim.schedule",
+        "Schedule",
+        "",
+        "{name: \"doors\" | \"windows\" | \"walls\" | \"rooms\" | \"lumber\" | \"devices\" | \"circuits\" [\":csv\"]} → shows it (\":csv\" saves it)",
+    ),
 ];
 
 pub(crate) const SNAP_PX: f64 = 12.0;
@@ -271,6 +276,8 @@ pub struct Draw {
     pub placing: Option<crate::bimplace::Placing>,
     pub ask: Option<crate::bimplace::Ask>,
     pub place_xy: String,
+    /// the residential tools (bimres.rs)
+    pub res: crate::bimres::Res,
 }
 
 impl Default for Draw {
@@ -320,6 +327,7 @@ impl Default for Draw {
             placing: None,
             ask: None,
             place_xy: String::new(),
+            res: crate::bimres::Res::default(),
         }
     }
 }
@@ -335,7 +343,7 @@ fn d(app: &mut UiApp) -> &mut Draw {
 }
 
 /// Errors from the engine as the page shows them.
-fn status_err(app: &mut UiApp, e: &str) {
+pub(crate) fn status_err(app: &mut UiApp, e: &str) {
     let text = if e.starts_with("model.") || e.starts_with("res.err.") { bt(e, &[]) } else { bt("model.err.failed", &[("why", e)]) };
     app.error = Some(text);
 }
@@ -416,6 +424,7 @@ fn refresh_in(app: &mut UiApp, fit: bool) {
     let loops = loops_of(&mut doc.ed.api, level).ok();
     app.bimh.draw.data = Some(sn);
     app.bimh.draw.loops = loops;
+    crate::bimres::refresh(app);
     cut_plan(app);
     build_scene(app);
     if fit {
@@ -449,7 +458,8 @@ fn cut_plan(app: &mut UiApp) {
     };
     let (Some((_, model)), Some(sn)) = (app.bimh.draw.model.as_ref(), app.bimh.draw.data.as_ref()) else { return };
     let Some(mm) = viewer_to_plan(&model.coord, &sw) else { return };
-    let own = own_keys(sn, 0.0);
+    let mut own = own_keys(sn, 0.0);
+    crate::bimres::own_keys(&app.bimh.draw.res, &mut own);
     let c = plan_cut(model, &mm, level, CUT, &own, 50.0, true);
     let (cut, below) = cut_scene(&c);
     app.bimh.draw.cut = Some((key, cut, below));
@@ -467,6 +477,7 @@ pub(crate) fn build_scene(app: &mut UiApp) {
     let api = &mut doc.ed.api;
     let mut other = |st: f64| loops_of(api, st).ok();
     let mut scene = make_scene(&sn, level, &loops.loops, &cut, &below, &units, dims, 0.0, &mut other);
+    crate::bimres::scene(&app.bimh.draw, &mut scene);
     if let Some(k) = crate::bimgrips::dragged_symbol(&app.bimh.draw) {
         scene.symbols.retain(|s| s.key != k);
     }
@@ -490,7 +501,7 @@ fn level_info(dr: &Draw) -> Option<(cc_bim::draw::levels::Level, Option<cc_bim::
 pub(crate) fn round_step(dr: &Draw) -> f64 {
     if dr.units == "mm" { 10.0 } else { 12.7 }
 }
-fn snap_walls(dr: &Draw) -> Vec<SnapWall> {
+pub(crate) fn snap_walls(dr: &Draw) -> Vec<SnapWall> {
     walls_here(dr).iter().map(|w| SnapWall { a: w.a, b: w.b, t: w.t }).collect()
 }
 fn snap_at(dr: &Draw, p: V2, shift: bool) -> cc_bim::draw::tools::Snap {
@@ -625,9 +636,12 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
             crate::bimplace::level_changed(app);
         }
         "bim.tool" => {
-            if !["select", "wall", "door", "window", "floor", "ceiling", "roof"].contains(&name.as_str()) {
-                return Err("bim.tool: select, wall, door, window, floor, ceiling or roof".into());
+            if !["select", "wall", "door", "window", "floor", "ceiling", "roof"].contains(&name.as_str())
+                && !crate::bimres::is_res_tool(&name)
+            {
+                return Err("bim.tool: select, wall, door, window, floor, ceiling, roof, roofplane, foundation, countertop, stair, railing, framing, section or electrical".into());
             }
+            crate::bimres::tool_changed(app, &name);
             let dr = d(app);
             dr.tool = name;
             dr.drag = None;
@@ -736,8 +750,8 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
         "bim.edit" => edit_picked(app, &name)?,
         "bim.schedule" => {
             let (which, csv) = name.split_once(':').map_or((name.as_str(), false), |(a, b)| (a, b == "csv"));
-            if !["doors", "windows", "walls", "rooms"].contains(&which) {
-                return Err("bim.schedule: doors, windows, walls or rooms".into());
+            if !["doors", "windows", "walls", "rooms", "lumber", "devices", "circuits"].contains(&which) {
+                return Err("bim.schedule: doors, windows, walls, rooms, lumber, devices or circuits".into());
             }
             app.bimh.draw.sched = which.into();
             app.bimh.draw.show_sched = true;
@@ -785,6 +799,9 @@ fn drag(app: &mut UiApp, spec: &str) -> Result<(), String> {
 
 fn set_option(app: &mut UiApp, spec: &str) -> Result<(), String> {
     let (k, v) = spec.split_once('=').ok_or("bim.set: key=value")?;
+    if let Some(r) = crate::bimres::set_option(app, k, v) {
+        return r;
+    }
     let dr = d(app);
     let units = dr.units.clone();
     let len = |v: &str, min: f64| -> Result<f64, String> {
@@ -859,7 +876,7 @@ fn set_option(app: &mut UiApp, spec: &str) -> Result<(), String> {
 
 /// model-ui.js `onMove(p, e)`: previews.
 fn on_move(app: &mut UiApp, p: V2, shift: bool) {
-    if crate::bimplace::on_move(app, p) || crate::bimgrips::on_move(app, p, shift) {
+    if crate::bimplace::on_move(app, p) || crate::bimgrips::on_move(app, p, shift) || crate::bimres::on_move(app, p, shift) {
         return;
     }
     let dr = d(app);
@@ -886,7 +903,7 @@ fn on_move(app: &mut UiApp, p: V2, shift: bool) {
 
 /// model-ui.js `onClick(p, e)`.
 fn on_click(app: &mut UiApp, p: V2, shift: bool) {
-    if crate::bimplace::on_click(app, p) {
+    if crate::bimplace::on_click(app, p) || crate::bimres::on_click(app, p, shift) {
         return;
     }
     let tool = app.bimh.draw.tool.clone();
@@ -990,7 +1007,7 @@ fn wall_point(app: &mut UiApp, q: V2) {
 
 /// model-ui.js `commit` → `apply`: one change through the editor; the plan and 3D follow. `chain`: a wall of the chain
 /// (its point is taken back when the change is refused, its GlobalId kept for closing the room). → it worked.
-fn commit(app: &mut UiApp, op: Op, label: &str, verb: &str, chain: Option<bool>) -> bool {
+pub(crate) fn commit(app: &mut UiApp, op: Op, label: &str, verb: &str, chain: Option<bool>) -> bool {
     commit_in(app, op, label, verb, chain, None)
 }
 
@@ -1198,6 +1215,12 @@ fn picked(app: &UiApp) -> Picked {
 
 /// `deletePicked(p)`
 fn delete_picked(app: &mut UiApp) -> Result<(), String> {
+    let keys = crate::bimclip::picks(app);
+    if let Some((op, label)) = crate::bimres::remove_op(app, &keys) {
+        app.select_product_none();
+        commit(app, op, &label, &bt("model.verb.deleted", &[]), None);
+        return Ok(());
+    }
     let (walls, openings, derived, label) = picked(app);
     if walls.is_empty() && openings.is_empty() && derived.is_empty() {
         return Err(bt("edit.nothing.picked", &[]));
@@ -1410,10 +1433,15 @@ fn schedule_data(app: &mut UiApp) -> Option<cc_bim::draw::schedule::Schedules> {
 fn schedule_csv(app: &mut UiApp) -> Result<(), String> {
     let all = schedule_data(app).ok_or("Draw is off")?;
     let which = app.bimh.draw.sched.clone();
-    let sc = all.get(&which).ok_or("bim.schedule: no such schedule")?;
+    let res = crate::bimres::schedule(app, &which);
+    let sc = res.as_ref().or_else(|| all.get(&which)).ok_or("bim.schedule: no such schedule")?;
+    let title = crate::bimres::schedule_kinds(app)
+        .into_iter()
+        .find(|k| k.0 == which)
+        .map_or_else(|| bt(&format!("model.sch.{which}"), &[]), |k| k.1);
     let name = app.ifc_name().to_string();
     let base = if name.to_ascii_lowercase().ends_with(".ifc") { name.get(..name.len() - 4).unwrap_or(&name).to_string() } else { name };
-    let file = format!("{base} {}.csv", bt(&format!("model.sch.{which}"), &[]).to_lowercase());
+    let file = format!("{base} {}.csv", title.to_lowercase());
     let mut bytes = "\u{feff}".as_bytes().to_vec();
     bytes.extend(cc_bim::draw::schedule::schedule_csv(sc).into_bytes());
     let save = app.services.save.as_mut().ok_or("Saving is not available here")?;
@@ -1655,6 +1683,7 @@ fn overlay(dr: &Draw, sel: Option<f64>) -> Overlay {
         }
         _ => {}
     }
+    crate::bimres::overlay(dr, &mut o);
     crate::bimgrips::overlay(dr, sel, &mut o);
     crate::bimplace::overlay(dr, &mut o);
     o
@@ -2073,6 +2102,9 @@ pub fn plan_ui(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect) {
     if resp.double_clicked() && app.bimh.draw.tool == "wall" {
         app.run_ui("bim.end", &Params::default());
     }
+    if resp.double_clicked() && crate::bimres::is_res_tool(&app.bimh.draw.tool) {
+        app.run_ui("bim.res", &Params { name: Some("dbl".into()), ..Default::default() });
+    }
     if resp.secondary_clicked() && !pan_drag {
         app.bimh.draw.chain = None;
     }
@@ -2193,6 +2225,9 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
             }
             _ => {}
         }
+        if crate::bimres::is_res_tool(&dr.tool) {
+            crate::bimres::bar_row(app, ui, &mut run);
+        }
         if dr.tool == "wall" || dr.tool == "door" || dr.tool == "window" {
             let l = ui.label(bt("model.typed", &[]));
             let r = ui.add(crate::shell::field(&mut typed).desired_width(90.0).id_salt("bim_typed")).labelled_by(l.id);
@@ -2227,7 +2262,11 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     if sched_toggle {
         app.bimh.draw.show_sched = !app.bimh.draw.show_sched;
     }
-    let hint = format!("model.hint.{}", app.bimh.draw.tool);
+    let hint = if crate::bimres::is_res_tool(&app.bimh.draw.tool) {
+        format!("res.hint.{}", app.bimh.draw.tool)
+    } else {
+        format!("model.hint.{}", app.bimh.draw.tool)
+    };
     ui.label(RichText::new(bt(&hint, &[])).small().color(t.text_dim));
     for (id, arg) in run {
         app.run_ui(id, &Params { name: (!arg.is_empty()).then_some(arg), ..Default::default() });
@@ -2310,6 +2349,8 @@ pub fn schedules_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     let Some(all) = schedule_data(app) else { return };
     let which = app.bimh.draw.sched.clone();
+    let res_kinds = crate::bimres::schedule_kinds(app);
+    let res_sc = crate::bimres::schedule(app, &which);
     let mut out: Vec<(&'static str, String)> = Vec::new();
     egui::CollapsingHeader::new(RichText::new(bt("model.sch.title", &[])).color(t.text_strong))
         .id_salt("bim_sched")
@@ -2321,11 +2362,16 @@ pub fn schedules_panel(app: &mut UiApp, ui: &mut egui::Ui) {
                         out.push(("bim.schedule", k.into()));
                     }
                 }
+                for (k, label) in &res_kinds {
+                    if ui.selectable_label(which == *k, label).clicked() {
+                        out.push(("bim.schedule", (*k).into()));
+                    }
+                }
                 if ui.add(crate::shell::Btn::new(bt("model.sch.csv", &[]))).clicked() {
                     out.push(("bim.schedule", format!("{which}:csv")));
                 }
             });
-            let Some(sc) = all.get(&which) else { return };
+            let Some(sc) = res_sc.as_ref().or_else(|| all.get(&which)) else { return };
             if sc.rows.is_empty() {
                 ui.label(RichText::new(bt("model.sch.none", &[])).small().color(t.text_dim));
                 return;
@@ -2356,6 +2402,9 @@ pub fn schedules_panel(app: &mut UiApp, ui: &mut egui::Ui) {
 
 /// The drawn element's own Properties (`propsBlock`): fields that are one change each.
 pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
+    if crate::bimres::props(app, ui) {
+        return;
+    }
     let (walls, openings, derived, title) = picked(app);
     if walls.is_empty() && openings.is_empty() && derived.is_empty() {
         return;
@@ -2535,7 +2584,8 @@ pub fn keys(app: &mut UiApp, ctx: &egui::Context) {
         )
     });
     let p = |s: &str| Params { name: Some(s.into()), ..Default::default() };
-    if esc || (enter && app.bimh.draw.chain.is_some()) {
+    let res_took = (esc && crate::bimres::escape(app)) || (enter && crate::bimres::enter(app));
+    if !res_took && (esc || (enter && app.bimh.draw.chain.is_some())) {
         app.run_ui("bim.end", &Params::default());
     }
     if w {
@@ -2568,6 +2618,19 @@ pub fn edit_drawn(app: &mut UiApp, name: &str) -> Result<bool, String> {
     let keys = crate::bimclip::picks(app);
     if keys.is_empty() || app.ifc3.is_none() {
         return Ok(false);
+    }
+    // the residential tools' elements (bimres.rs `remove`): Delete through their own ops
+    if app.bimh.draw.on
+        && let Some((op, label)) = crate::bimres::remove_op(app, &keys)
+    {
+        if name != "delete" {
+            app.message = bt("model.copy.notyet", &[]);
+            app.error = None;
+            return Ok(true);
+        }
+        crate::bimclip::pick_none(app);
+        commit(app, op, &label, &bt("model.verb.deleted", &[]), None);
+        return Ok(true);
     }
     // cheap first: none of the picked is of a drawn kind → nothing of ours (no reading of the model)
     let ours = |c: &str| {

@@ -737,6 +737,23 @@ impl Run {
                 }
             }
             // res-ui.js ensureTin: the ground is loaded on this page (the terrain follows the walls from now on)
+            // a residential tool's change: { name (the res-*.js function), args, label, verb }
+            "resOp" => {
+                let name = s(o.get("name")).unwrap_or_default();
+                let args = o.get("args").and_then(J::as_array).cloned().unwrap_or_default();
+                let label = s(o.get("label")).unwrap_or_default();
+                let verb = s(o.get("verb")).unwrap_or_default();
+                self.model(Op::Res(crate::draw::resops::ResOp::new(&name, args)), &label, &verb)
+            }
+            "lumber" => match crate::draw::writer::W::new(&mut ed.api)
+                .and_then(|mut w| crate::draw::resops::lumber_list(&mut w, o.get("metric").and_then(J::as_bool).unwrap_or(false)))
+            {
+                Ok((rows, pieces, bf)) => json!({
+                    "rows": rows.iter().map(|r| json!({ "size": r.size, "label": r.label, "stock": jn(r.stock), "count": jn(r.count), "bf": jn(r.bf) })).collect::<Vec<_>>(),
+                    "pieces": jn(pieces), "bf": jn(bf),
+                }),
+                Err(e) => err(&e.0),
+            },
             "groundLoaded" => {
                 crate::draw::resterrain::set_ground_loaded(true);
                 json!({ "ok": true })

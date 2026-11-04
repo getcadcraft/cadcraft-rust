@@ -27,7 +27,7 @@ const HEADROOM: f64 = 80.0 * IN;
 const RAIL_MIN: f64 = 34.0 * IN;
 const RAIL_MAX: f64 = 38.0 * IN;
 
-fn ifc_type(kind: &str) -> &'static str {
+pub(crate) fn ifc_type(kind: &str) -> &'static str {
     match kind {
         "l" => "QUARTER_TURN_STAIR",
         "u" => "HALF_TURN_STAIR",
@@ -83,6 +83,22 @@ pub struct Layout {
     pub pieces: Vec<Piece>,
     pub sides: Vec<Vec<[f64; 3]>>,
     pub checks: [(&'static str, bool); 4],
+    /// the walk line (plan), bottom to top
+    pub walk: Vec<V2>,
+}
+
+impl Layout {
+    /// `outline`: every tread and landing joined (`planLoops(polys, { snap: 0.5 }).outlines`).
+    pub fn outline(&self) -> Vec<Vec<V2>> {
+        let mut polys = Vec::new();
+        for pc in &self.pieces {
+            match pc {
+                Piece::Landing(t) => polys.push(t.poly.clone()),
+                Piece::Flight(ts) | Piece::Winders(ts) => polys.extend(ts.iter().map(|t| t.poly.clone())),
+            }
+        }
+        crate::draw::rooms::plan_loops_snap(&polys, 0.5).outlines.into_iter().map(|o| o.poly).collect()
+    }
 }
 
 fn ccw(poly: Vec<V2>) -> Vec<V2> {
@@ -119,6 +135,7 @@ pub fn stair_layout(s: &Stair, height: f64) -> Result<Layout, &'static str> {
     };
     let mut pieces: Vec<Piece> = Vec::new();
     let mut sides: Vec<Vec<[f64; 3]>> = Vec::new();
+    let mut walk: Vec<V2> = Vec::new();
     let checks = [
         ("riser", r <= s.riser_max + 1e-6 && r <= RISER_MAX + 1e-6),
         ("tread", d >= TREAD_MIN - 1e-6),
@@ -143,6 +160,8 @@ pub fn stair_layout(s: &Stair, height: f64) -> Result<Layout, &'static str> {
         if rail_r {
             sides.push(nosing(0.0, (tt - 1.0) * d + d, -w / 2.0 + ins, r, tt * r + r));
         }
+        walk.push(p(-0.0, 0.0));
+        walk.push(p(tt * d, 0.0));
     } else {
         let turn_treads = if s.kind == "winder" { 3.0 } else { 1.0 };
         let before = m::max(1.0, m::min(tt - turn_treads - 1.0, m::round((tt - turn_treads) * s.split)));
@@ -195,6 +214,7 @@ pub fn stair_layout(s: &Stair, height: f64) -> Result<Layout, &'static str> {
                 sides.push(nosing(0.0, s0, in1, r, z1));
                 sides.push(vec![p3(s0, in2, z_l + r), p3(s0 - after * d, in2, z_l + (after + 1.0) * r)]);
             }
+            walk.extend([p(0.0, 0.0), p(s0 + w / 2.0, 0.0), p(s0 + w / 2.0, c2), p(s0 - after * d, c2)]);
         } else {
             let z_t = |k: f64| (before + 1.0 + k) * r;
             if s.kind == "l" {
@@ -258,9 +278,10 @@ pub fn stair_layout(s: &Stair, height: f64) -> Result<Layout, &'static str> {
                     p3(s_i, t_in + t_side * after * d, z_end),
                 ]);
             }
+            walk.extend([p(0.0, 0.0), p(s0 + w / 2.0, 0.0), p(s0 + w / 2.0, t_in + t_side * after * d)]);
         }
     }
-    Ok(Layout { n, riser: r, tread: d, treads: tt, pieces, sides, checks })
+    Ok(Layout { n, riser: r, tread: d, treads: tt, pieces, sides, checks, walk })
 }
 
 // ---------------------------------------------------------------------------------------------------------- railings
@@ -405,7 +426,7 @@ pub fn stair_height(st: &Stair, levels: &[Level]) -> (f64, Option<Level>) {
     (if st.fixed_height > 0.0 { st.fixed_height } else { lh }, None)
 }
 
-fn wells_of(w: &mut W<'_>, guid: &str) -> R<Vec<Id>> {
+pub(crate) fn wells_of(w: &mut W<'_>, guid: &str) -> R<Vec<Id>> {
     let mut out = Vec::new();
     for id in w.ids("IFCOPENINGELEMENT") {
         if let Some(ps) = w.read_pset(id, WELL_PSET)?
@@ -438,7 +459,7 @@ fn floors_of(w: &mut W<'_>, storey: Id) -> R<Vec<FloorAbove>> {
 
 // ----------------------------------------------------------------------------------------------------------- writing
 /// `writeStair(w, st, { levels })` → true when it was made again.
-fn write_stair(w: &mut W<'_>, st: &Stair, levels: &[Level]) -> R<bool> {
+pub(crate) fn write_stair(w: &mut W<'_>, st: &Stair, levels: &[Level]) -> R<bool> {
     let Some(storey) = st.storey else { return Ok(false) };
     let (height, top) = stair_height(st, levels);
     let floors = match &top {

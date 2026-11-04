@@ -45,7 +45,7 @@ const CLASSES: [&str; 9] = [
     "IFCELECTRICDISTRIBUTIONBOARD",
 ];
 
-fn device(kind: &str) -> Option<&'static (&'static str, bool, [f64; 3])> {
+pub(crate) fn device(kind: &str) -> Option<&'static (&'static str, bool, [f64; 3])> {
     DEVICES.iter().find(|d| d.0 == kind)
 }
 pub fn is_light(kind: &str) -> bool {
@@ -56,7 +56,12 @@ pub fn is_light(kind: &str) -> bool {
 #[derive(Clone, Debug)]
 pub struct Device {
     pub id: Id,
+    pub guid: String,
     pub storey: Option<Id>,
+    pub level: String,
+    pub circuit: String,
+    pub load: f64,
+    pub controls: Vec<String>,
     pub kind: String,
     pub tag: String,
     pub height: f64,
@@ -112,9 +117,23 @@ pub fn read_devices(w: &mut W<'_>) -> R<Vec<Device>> {
                 continue;
             }
             let l = w.must(id)?;
+            let guid = l.a("GlobalId").val_str().unwrap_or_default();
+            let circuit = match ps.get("Circuit") {
+                Some(v) if !matches!(v, P::Undef | P::Null) => v.string(),
+                _ => String::new(),
+            };
+            let controls = match ps.get("Controls") {
+                Some(v) if v.truthy() => v.string().split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+                _ => Vec::new(),
+            };
             out.push(Device {
                 id,
+                guid,
                 storey: so.get(&id_key(id)).copied(),
+                level: s_or(&ps, "Level"),
+                circuit,
+                load: numd(&ps, "Load", 0.0),
+                controls,
                 kind,
                 tag: l.a("Tag").text_or_empty(),
                 height: numd(&ps, "MountingHeight", 0.0) * mm,
@@ -131,7 +150,7 @@ pub fn read_devices(w: &mut W<'_>) -> R<Vec<Device>> {
 }
 
 /// `spotOn(w, s, side)`: the point on the wall's face s along it.
-fn spot_on(wall: &Wall, s: f64, side: f64) -> V2 {
+pub(crate) fn spot_on(wall: &Wall, s: f64, side: f64) -> V2 {
     let d = [wall.b[0] - wall.a[0], wall.b[1] - wall.a[1]];
     let l = hypot(d[0], d[1]);
     let l = if l != 0.0 && !l.is_nan() { l } else { 1.0 };
@@ -141,7 +160,7 @@ fn spot_on(wall: &Wall, s: f64, side: f64) -> V2 {
 }
 
 /// `writeDevice(w, d, walls)`
-fn write_device(w: &mut W<'_>, d: &Device, walls: &[Wall]) -> R<()> {
+pub(crate) fn write_device(w: &mut W<'_>, d: &Device, walls: &[Wall]) -> R<()> {
     let Some(dv) = device(&d.kind) else { return Ok(()) };
     let mut at = d.at;
     let mut ang = d.angle;
@@ -207,4 +226,240 @@ pub fn sync_electrical(w: &mut W<'_>, storey: Id) -> R<usize> {
         n = n.saturating_add(1);
     }
     Ok(n)
+}
+
+// ------------------------------------------------------------------------------------------------------------ symbols
+/// One drawing element of a device symbol (res-elec-symbols.js; paper mm, base point on the wall, +y into the room).
+#[derive(Clone, Copy, Debug)]
+enum Ent {
+    Line(f64, f64, f64, f64),
+    Circle(f64, f64, f64),
+    Arc(f64, f64, f64, f64, f64),
+    Poly(&'static [[f64; 2]]),
+    Hatch(&'static [f64]),
+}
+
+/// res-elec-symbols.js SYMBOLS: (key, group, entities). Generated there from the Electrical add-on's symbols.
+const SYMBOLS: [(&str, &str, &[Ent]); 16] = [
+    (
+        "socket",
+        "outlets",
+        &[Ent::Arc(0.0, 0.0, 3.0, 0.0, std::f64::consts::PI), Ent::Line(-3.0, 0.0, 3.0, 0.0), Ent::Line(0.0, 3.0, 0.0, 4.5)],
+    ),
+    (
+        "socket.double",
+        "outlets",
+        &[
+            Ent::Arc(0.0, 0.0, 3.0, 0.0, std::f64::consts::PI),
+            Ent::Line(-3.0, 0.0, 3.0, 0.0),
+            Ent::Line(-1.0, 3.0, -1.0, 4.5),
+            Ent::Line(1.0, 3.0, 1.0, 4.5),
+        ],
+    ),
+    (
+        "socket.earth",
+        "outlets",
+        &[
+            Ent::Arc(0.0, 0.0, 3.0, 0.0, std::f64::consts::PI),
+            Ent::Line(-3.0, 0.0, 3.0, 0.0),
+            Ent::Line(0.0, 3.0, 0.0, 4.5),
+            Ent::Line(-3.0, 3.0, 3.0, 3.0),
+        ],
+    ),
+    (
+        "socket.3ph",
+        "outlets",
+        &[
+            Ent::Arc(0.0, 0.0, 3.0, 0.0, std::f64::consts::PI),
+            Ent::Line(-3.0, 0.0, 3.0, 0.0),
+            Ent::Line(-1.2, 2.7, -1.6, 4.4),
+            Ent::Line(0.0, 3.0, 0.0, 4.5),
+            Ent::Line(1.2, 2.7, 1.6, 4.4),
+        ],
+    ),
+    ("switch", "switches", &[Ent::Circle(0.0, 0.0, 1.2), Ent::Line(0.85, 0.85, 3.4, 3.4), Ent::Line(3.4, 3.4, 4.3, 2.5)]),
+    (
+        "switch.2way",
+        "switches",
+        &[
+            Ent::Circle(0.0, 0.0, 1.2),
+            Ent::Line(0.85, 0.85, 3.4, 3.4),
+            Ent::Line(3.4, 3.4, 4.3, 2.5),
+            Ent::Line(-0.85, -0.85, -3.4, -3.4),
+            Ent::Line(-3.4, -3.4, -4.3, -2.5),
+        ],
+    ),
+    (
+        "switch.dimmer",
+        "switches",
+        &[
+            Ent::Circle(0.0, 0.0, 1.2),
+            Ent::Line(0.85, 0.85, 3.4, 3.4),
+            Ent::Line(3.4, 3.4, 4.3, 2.5),
+            Ent::Line(-0.6, -2.2, 0.6, -2.2),
+            Ent::Line(0.6, -2.2, 0.6, -1.6),
+        ],
+    ),
+    ("pushbutton", "switches", &[Ent::Circle(0.0, 0.0, 1.6), Ent::Circle(0.0, 0.0, 0.6)]),
+    (
+        "sensor",
+        "switches",
+        &[
+            Ent::Circle(0.0, 0.0, 2.0),
+            Ent::Arc(0.0, 0.0, 3.0, std::f64::consts::FRAC_PI_6, 2.617994),
+            Ent::Arc(0.0, 0.0, 3.8, std::f64::consts::FRAC_PI_4, 2.356194),
+        ],
+    ),
+    ("luminaire", "lights", &[Ent::Circle(0.0, 0.0, 3.0), Ent::Line(-2.12, -2.12, 2.12, 2.12), Ent::Line(-2.12, 2.12, 2.12, -2.12)]),
+    ("downlight", "lights", &[Ent::Circle(0.0, 0.0, 2.0), Ent::Circle(0.0, 0.0, 0.8)]),
+    ("luminaire.linear", "lights", &[Ent::Line(-5.0, 0.0, 5.0, 0.0), Ent::Line(-5.0, -1.2, -5.0, 1.2), Ent::Line(5.0, -1.2, 5.0, 1.2)]),
+    (
+        "luminaire.emergency",
+        "lights",
+        &[
+            Ent::Circle(0.0, 0.0, 3.0),
+            Ent::Line(-2.12, -2.12, 2.12, 2.12),
+            Ent::Line(-2.12, 2.12, 2.12, -2.12),
+            Ent::Hatch(&[-3.0, -0.5, 3.0, -0.5, -3.0, 0.5]),
+        ],
+    ),
+    (
+        "junction",
+        "other",
+        &[
+            Ent::Circle(0.0, 0.0, 1.5),
+            Ent::Hatch(&[
+                0.7, 0.0, 0.606218, 0.35, 0.35, 0.606218, 0.0, 0.7, -0.35, 0.606218, -0.606218, 0.35, -0.7, 0.0, -0.606218, -0.35, -0.35,
+                -0.606218, 0.0, -0.7, 0.35, -0.606218, 0.606218, -0.35,
+            ]),
+        ],
+    ),
+    ("appliance", "other", &[Ent::Poly(&[[-3.0, -3.0], [3.0, -3.0], [3.0, 3.0], [-3.0, 3.0]])]),
+    (
+        "board",
+        "boards",
+        &[Ent::Poly(&[[-5.0, -2.0], [5.0, -2.0], [5.0, 2.0], [-5.0, 2.0]]), Ent::Hatch(&[-5.0, -2.0, 5.0, -2.0, -5.0, 2.0])],
+    ),
+];
+/// res-elec-symbols.js GROUPS
+pub const GROUPS: [&str; 5] = ["outlets", "switches", "lights", "other", "boards"];
+
+/// The device kinds of a symbol group, in the catalog's order.
+pub fn kinds_in(group: &str) -> Vec<&'static str> {
+    SYMBOLS.iter().filter(|s| s.1 == group).map(|s| s.0).collect()
+}
+/// Mounted on a wall (else on the ceiling).
+pub fn wall_mounted(kind: &str) -> bool {
+    device(kind).is_some_and(|d| d.1)
+}
+/// `symbolScale(units)`: plan mm per paper mm.
+pub fn symbol_scale(units: &str) -> f64 {
+    if units == "mm" { 50.0 } else { 48.0 }
+}
+
+/// A circle or an arc of a symbol (plan mm, radians).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SymArc {
+    pub c: V2,
+    pub r: f64,
+    pub a0: f64,
+    pub a1: f64,
+}
+/// `symbolPlan(kind, at, angle, scale)`: lines, arcs, thin lines (hatches) and the picking box.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SymPlan {
+    pub lines: Vec<[f64; 4]>,
+    pub arcs: Vec<SymArc>,
+    pub thin: Vec<[f64; 4]>,
+    pub poly: Vec<V2>,
+}
+
+pub fn symbol_plan(kind: &str, at: V2, angle: f64, scale: f64) -> Option<SymPlan> {
+    let s = SYMBOLS.iter().find(|x| x.0 == kind)?;
+    let (fx, fy) = (m::cos(angle), m::sin(angle));
+    let (rx, ry) = (fy, -fx);
+    let pp = |x: f64, y: f64| -> V2 { [at[0] + (x * rx + y * fx) * scale, at[1] + (x * ry + y * fy) * scale] };
+    let rot = m::atan2(ry, rx);
+    let mut out = SymPlan::default();
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    let mut grow = |q: V2, r: f64| {
+        x0 = m::min(x0, q[0] - r);
+        y0 = m::min(y0, q[1] - r);
+        x1 = m::max(x1, q[0] + r);
+        y1 = m::max(y1, q[1] + r);
+    };
+    for e in s.2 {
+        match *e {
+            Ent::Line(a, b, c, d) => {
+                let (p, q) = (pp(a, b), pp(c, d));
+                out.lines.push([p[0], p[1], q[0], q[1]]);
+                grow(p, 0.0);
+                grow(q, 0.0);
+            }
+            Ent::Circle(cx, cy, r) => {
+                let c = pp(cx, cy);
+                out.arcs.push(SymArc { c, r: r * scale, a0: 0.0, a1: std::f64::consts::PI * 2.0 });
+                grow(c, r * scale);
+            }
+            Ent::Arc(cx, cy, r, a0, a1) => {
+                let c = pp(cx, cy);
+                let mirror = rx * fy - ry * fx < 0.0;
+                let (b0, b1) = if mirror { (rot - a1, rot - a0) } else { (rot + a0, rot + a1) };
+                out.arcs.push(SymArc { c, r: r * scale, a0: b0, a1: b1 });
+                grow(c, r * scale);
+            }
+            Ent::Poly(pts) => {
+                let q: Vec<V2> = pts.iter().map(|v| pp(v[0], v[1])).collect();
+                for i in 0..q.len() {
+                    let (a, b) = (m::at(&q, i), m::at(&q, m::nx(i, q.len())));
+                    if i.saturating_add(1) < q.len() || q.len() > 2 {
+                        out.lines.push([a[0], a[1], b[0], b[1]]);
+                        grow(a, 0.0);
+                        grow(b, 0.0);
+                    }
+                }
+            }
+            Ent::Hatch(l) => {
+                let q: Vec<V2> = l.as_chunks::<2>().0.iter().map(|v| pp(v[0], v[1])).collect();
+                for i in 0..q.len() {
+                    let (a, b) = (m::at(&q, i), m::at(&q, m::nx(i, q.len())));
+                    out.thin.push([a[0], a[1], b[0], b[1]]);
+                    grow(a, 0.0);
+                    grow(b, 0.0);
+                }
+            }
+        }
+    }
+    if !x0.is_finite() {
+        return None;
+    }
+    let pad = scale * 0.8;
+    out.poly = vec![[x0 - pad, y0 - pad], [x1 + pad, y0 - pad], [x1 + pad, y1 + pad], [x0 - pad, y1 + pad]];
+    Some(out)
+}
+
+/// `wallSpot(walls, p, reach)`: the nearest wall face within reach → (wall guid, side, offset along, the spot, angle).
+pub fn wall_spot(walls: &[Wall], p: V2, reach: f64) -> Option<(String, f64, f64, V2, f64)> {
+    let mut best: Option<(String, f64, f64, f64, V2, f64)> = None;
+    for w in walls {
+        let d = [w.b[0] - w.a[0], w.b[1] - w.a[1]];
+        let l = hypot(d[0], d[1]);
+        if l < 1.0 {
+            continue;
+        }
+        let u = [d[0] / l, d[1] / l];
+        let n = [-u[1], u[0]];
+        let s = m::max(0.0, m::min(l, (p[0] - w.a[0]) * u[0] + (p[1] - w.a[1]) * u[1]));
+        let off = (p[0] - w.a[0]) * n[0] + (p[1] - w.a[1]) * n[1];
+        let side = if off >= 0.0 { 1.0 } else { -1.0 };
+        let dist = (off.abs() - w.t / 2.0).abs();
+        let along = (p[0] - w.a[0]) * u[0] + (p[1] - w.a[1]) * u[1];
+        if along < -w.t || along > l + w.t || dist > reach {
+            continue;
+        }
+        if best.as_ref().is_none_or(|b| dist < b.3) {
+            best = Some((w.guid.clone(), side, s, dist, spot_on(w, s, side), m::atan2(n[1] * side, n[0] * side)));
+        }
+    }
+    best.map(|(g, side, s, _, at, ang)| (g, side, s, at, ang))
 }

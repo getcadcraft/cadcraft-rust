@@ -116,6 +116,8 @@ pub enum Op {
         guid: String,
         changes: LevelChange,
     },
+    /// a residential tool's change (resops.rs: the JS function's name and arguments)
+    Res(crate::draw::resops::ResOp),
     /// several ops as one change; `keep_first`: the result is the first's (chainClose), else the last's (mergeR)
     Seq {
         ops: Vec<Op>,
@@ -422,6 +424,7 @@ impl Op {
                 regen_all(w)?;
                 Ok((w.by_guid(guid)?, moved, Vec::new()))
             }
+            Op::Res(r) => r.body(w),
             Op::Seq { .. } => Ok((None, Vec::new(), Vec::new())),
         }
     }

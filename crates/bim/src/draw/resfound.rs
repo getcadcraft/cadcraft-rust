@@ -21,7 +21,7 @@ pub const FOUND_PSET: &str = "CadCraft_Foundation";
 const IN: f64 = 25.4;
 pub const FOUNDATION_KINDS: [&str; 4] = ["slab", "stemslab", "crawl", "basement"];
 /// The stored size fields and their keys.
-const FIELDS: [(&str, &str); 9] = [
+pub(crate) const FIELDS: [(&str, &str); 9] = [
     ("SlabThickness", "slabT"),
     ("EdgeWidth", "edgeW"),
     ("EdgeDepth", "edgeD"),
@@ -33,7 +33,7 @@ const FIELDS: [(&str, &str); 9] = [
     ("BasementHeight", "basementH"),
 ];
 /// `foundationParams`' own order of the sizes.
-const PKEYS: [&str; 9] = ["slabT", "edgeW", "edgeD", "stemT", "footW", "footD", "bottom", "stemDrop", "basementH"];
+pub const PKEYS: [&str; 9] = ["slabT", "edgeW", "edgeD", "stemT", "footW", "footD", "bottom", "stemDrop", "basementH"];
 
 /// Every size a foundation needs (`foundationParams`).
 #[derive(Clone, Debug)]
@@ -369,7 +369,7 @@ pub struct Outlines {
     pub walls: Vec<Wall>,
     pub outlines: Vec<Outline>,
 }
-fn storey_outlines(w: &mut W<'_>, storey: Option<Id>) -> R<Outlines> {
+pub fn storey_outlines(w: &mut W<'_>, storey: Option<Id>) -> R<Outlines> {
     let walls = read_walls(w, storey)?;
     let segs: Vec<Seg> = walls.iter().map(|x| x.seg()).collect();
     let polys: Vec<Vec<V2>> = wall_outlines(&segs, 1.0).into_iter().map(|(_, p)| p).collect();
@@ -386,7 +386,7 @@ fn role_of(role: &str) -> (&'static str, &'static str, &'static str) {
 }
 
 /// `writeFoundation(w, f, { L })` → true when it was made again.
-fn write_foundation(w: &mut W<'_>, f: &Foundation, given: Option<&Outlines>) -> R<bool> {
+pub(crate) fn write_foundation(w: &mut W<'_>, f: &Foundation, given: Option<&Outlines>) -> R<bool> {
     let Some(storey) = f.storey else { return Ok(false) };
     let own;
     let l = match given {

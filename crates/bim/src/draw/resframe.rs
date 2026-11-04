@@ -27,11 +27,11 @@ const IN: f64 = 25.4;
 const FT: f64 = 304.8;
 pub const FRAME_PSET: &str = "CadCraft_Framing";
 pub const LUMBER_PSET: &str = "CadCraft_Lumber";
-const SIZES: [&str; 5] = ["2x4", "2x6", "2x8", "2x10", "2x12"];
+pub(crate) const SIZES: [&str; 5] = ["2x4", "2x6", "2x8", "2x10", "2x12"];
 const DEFAULT_SPACING: f64 = 16.0 * IN;
 
 /// LUMBER: (thickness, depth, nominal)
-fn lumber(size: &str) -> Option<(f64, f64, [f64; 2])> {
+pub(crate) fn lumber(size: &str) -> Option<(f64, f64, [f64; 2])> {
     Some(match size {
         "2x4" => (1.5 * IN, 3.5 * IN, [2.0, 4.0]),
         "2x6" => (1.5 * IN, 5.5 * IN, [2.0, 6.0]),
@@ -92,7 +92,7 @@ fn header_for(width: f64, bearing: bool) -> (&'static str, f64, bool) {
     ("2x12", 3.0, true)
 }
 /// `boardFeet(size, length)`
-fn board_feet(size: &str, length: f64) -> f64 {
+pub(crate) fn board_feet(size: &str, length: f64) -> f64 {
     lumber(size).map_or(0.0, |l| l.2[0] * l.2[1] * (length / FT) / 12.0)
 }
 
@@ -881,6 +881,8 @@ fn piece_item(w: &mut W<'_>, pc: &Piece, mp: &Map) -> R<Id> {
 #[derive(Clone, Debug)]
 pub struct Framing {
     pub id: Id,
+    pub guid: String,
+    pub kind: String,
     pub storey: Option<Id>,
     pub host: String,
     pub spacing: f64,
@@ -899,8 +901,14 @@ pub fn read_framing(w: &mut W<'_>) -> R<Vec<Framing>> {
         let Some(ps) = w.read_pset(id, FRAME_PSET)? else { continue };
         let sp = num(&ps, "Spacing") * um;
         let is_str = |k: &str, v: &str| matches!(ps.get(k), Some(P::Str(s)) if s.lossy() == v);
+        let guid = w.must(id)?.a("GlobalId").val_str().unwrap_or_default();
         out.push(Framing {
             id,
+            guid,
+            kind: {
+                let k = s_or(&ps, "Kind");
+                if k.is_empty() { "wall".into() } else { k }
+            },
             storey: so.get(&id_key(id)).copied(),
             host: s_or(&ps, "Host"),
             spacing: if sp != 0.0 && !sp.is_nan() { sp } else { DEFAULT_SPACING },
@@ -915,20 +923,20 @@ pub fn read_framing(w: &mut W<'_>) -> R<Vec<Framing>> {
 }
 
 #[derive(Default)]
-struct Cache {
+pub(crate) struct Cache {
     walls: Option<Vec<Wall>>,
     derived: Option<Derived>,
     levels: Option<Vec<Level>>,
     openings: Option<Vec<Opening>>,
 }
 
-enum Host {
+pub(crate) enum Host {
     Wall(usize),
     Floor(usize),
     Roof(usize),
 }
 /// `hostOf(w, guid, cache)` → (the host, its storey)
-fn host_of(w: &mut W<'_>, guid: &str, cache: &mut Cache) -> R<Option<(Host, Option<Id>)>> {
+pub(crate) fn host_of(w: &mut W<'_>, guid: &str, cache: &mut Cache) -> R<Option<(Host, Option<Id>)>> {
     if cache.walls.is_none() {
         cache.walls = Some(read_walls(w, None)?);
     }
@@ -1158,16 +1166,29 @@ fn pieces_for(w: &mut W<'_>, fr: &Framing, host: &Host, storey: Option<Id>, cach
 
 /// `writeFraming(w, fr, cache)` → Some(true) written, Some(false) the same / an error, None the host is gone.
 fn write_framing(w: &mut W<'_>, fr: &Framing, cache: &mut Cache) -> R<bool> {
-    let Some((host, storey)) = host_of(w, &fr.host, cache)? else { return Ok(false) };
+    Ok(write_framing_out(w, fr, cache)? == Wrote::Written)
+}
+
+/// What `writeFraming` did: written, the same, its host gone, or why it could not be framed.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum Wrote {
+    Written,
+    Same,
+    Removed,
+    Error(&'static str),
+}
+
+pub(crate) fn write_framing_out(w: &mut W<'_>, fr: &Framing, cache: &mut Cache) -> R<Wrote> {
+    let Some((host, storey)) = host_of(w, &fr.host, cache)? else { return Ok(Wrote::Removed) };
     if storey.is_none() {
-        return Ok(false);
+        return Ok(Wrote::Removed);
     }
     let made = pieces_for(w, fr, &host, storey, cache)?;
-    if made.framed.error.is_some() {
-        return Ok(false);
+    if let Some(e) = made.framed.error {
+        return Ok(Wrote::Error(e));
     }
     if fr.key == made.key && !fr.parts.is_empty() {
-        return Ok(false);
+        return Ok(Wrote::Same);
     }
     // generated pieces go; pieces kept by hand stay, flagged
     let (mut kept, mut gone) = (Vec::new(), Vec::new());
@@ -1183,7 +1204,7 @@ fn write_framing(w: &mut W<'_>, fr: &Framing, cache: &mut Cache) -> R<bool> {
     for &pid in &kept {
         w.upsert_pset(pid, LUMBER_PSET, &[row("Check", "IFCLABEL", P::s(&t0("res.fr.check")))])?;
     }
-    let Some(fst) = fr.storey else { return Ok(false) };
+    let Some(fst) = fr.storey else { return Ok(Wrote::Same) };
     let st_lp = w.must(fst)?.a("ObjectPlacement").href();
     let mp = match made.map {
         MapKind::Wall(a, u, n, z) => Map::Wall { a, u, n, z },
@@ -1259,7 +1280,7 @@ fn write_framing(w: &mut W<'_>, fr: &Framing, cache: &mut Cache) -> R<bool> {
             row("Size", "IFCLABEL", P::s(made.framed.size)),
         ],
     )?;
-    Ok(true)
+    Ok(Wrote::Written)
 }
 
 /// `syncFraming(w, storey)`: framings of the level's walls and floors, and of roofs over its walls, made again where

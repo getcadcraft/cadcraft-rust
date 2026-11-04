@@ -495,12 +495,14 @@ fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
         ToolGroup {
             label: bt("model.draw", &[]),
             tools: if app.bimh.draw.on {
+                // the plan's tools, then ui.inc's Build menu ([data-res-tools]): the residential tools (bimres.rs)
                 crate::bimplan::DRAW_TOOLS
                     .iter()
+                    .chain(crate::bimres::RES_TOOLS.iter())
                     .map(|(k, key, icon)| {
                         Tool::new(format!("bim.tool={k}"), icon, bt(key, &[]))
                             .tip(bt(&format!("{key}.title"), &[]))
-                            .on(app.bimh.draw.tool == *k)
+                            .on(app.bimh.draw.tool == *k || (*k == "electrical" && app.bimh.draw.tool == "ellink"))
                     })
                     .collect()
             } else {

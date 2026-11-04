@@ -23,6 +23,7 @@ pub mod bimlib;
 pub mod bimlibnet;
 pub mod bimplace;
 pub mod bimplan;
+pub mod bimres;
 pub mod bimtools;
 pub mod cad3dtab;
 pub mod cadprops;
@@ -923,13 +924,19 @@ impl UiApp {
             (Some((only, set)), Some(p)) => set.contains(&p.to_bits()) != *only,
             _ => false,
         };
-        by_group || by_find
+        let by_res = self
+            .ifc3
+            .as_ref()
+            .and_then(|(_, p)| p.get(i))
+            .is_some_and(|p| self.bimh.draw.res.hidden.contains(&cc_bim::draw::plan::key_u64(*p)));
+        by_group || by_find || by_res
     }
 
-    fn apply_hidden3(&mut self) {
+    pub(crate) fn apply_hidden3(&mut self) {
         let groups = &self.ifc_groups;
         let hidden = &self.hidden3;
         let iso = &self.iso3;
+        let res_hidden = &self.bimh.draw.res.hidden;
         let products = self.ifc3.as_ref().map(|(_, p)| p);
         if let Some((scene, _)) = self.scene3.as_mut() {
             scene.set_hidden(&|i| {
@@ -939,7 +946,9 @@ impl UiApp {
                     (Some((only, set)), Some(p)) => set.contains(&p.to_bits()) != *only,
                     _ => false,
                 };
-                by_group || by_find
+                // the residential framing's Show / See through (bimres.rs)
+                let by_res = products.and_then(|p| p.get(i)).is_some_and(|p| res_hidden.contains(&cc_bim::draw::plan::key_u64(*p)));
+                by_group || by_find || by_res
             });
         }
     }
@@ -1925,6 +1934,7 @@ impl UiApp {
             id if id.starts_with("input.") => return ribbon::run(self, id, params),
             id if bimedit::COMMANDS.iter().any(|c| c.0 == id) => return bimedit::run(self, id, params),
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
+            "bim.res" => return bimres::run(self, params.name.as_deref().unwrap_or("")),
             id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
             id if id.starts_with("recovery.") => return recover::run(self, id, params),
             id if bimlib::COMMANDS.iter().any(|c| c.0 == id) => return bimlib::run(self, id, params),

@@ -171,7 +171,7 @@ fn centroid_of(p: &[V2]) -> V2 {
     [p.iter().fold(0.0, |s, q| s + q[0]) / n, p.iter().fold(0.0, |s, q| s + q[1]) / n]
 }
 /// `pointIn(pt, poly)`: even-odd, the boundary counting as inside.
-fn point_in(pt: V2, poly: &[V2]) -> bool {
+pub fn point_in(pt: V2, poly: &[V2]) -> bool {
     if m::in_poly(pt[0], pt[1], poly) {
         return true;
     }
@@ -243,6 +243,7 @@ pub fn counter_runs(cabinets: &[Cabinet], overhang: f64) -> Vec<Run> {
 #[derive(Clone, Debug)]
 pub struct Countertop {
     pub id: Id,
+    pub guid: String,
     pub storey: Option<Id>,
     pub seed: V2,
     pub overhang: f64,
@@ -257,8 +258,10 @@ pub fn read_countertops(w: &mut W<'_>) -> R<Vec<Countertop>> {
     for cls in ["IFCFURNITURE", "IFCFURNISHINGELEMENT"] {
         for id in w.ids(cls) {
             let Some(ps) = w.read_pset(id, COUNTER_PSET)? else { continue };
+            let guid = w.must(id)?.a("GlobalId").val_str().unwrap_or_default();
             out.push(Countertop {
                 id,
+                guid,
                 storey: so.get(&id_key(id)).copied(),
                 seed: [num(&ps, "SeedX") * um, num(&ps, "SeedY") * um],
                 overhang: num(&ps, "Overhang") * um,
@@ -270,12 +273,12 @@ pub fn read_countertops(w: &mut W<'_>) -> R<Vec<Countertop>> {
     Ok(out)
 }
 
-fn run_key(run: &Run, thickness: f64) -> String {
+pub fn run_key(run: &Run, thickness: f64) -> String {
     shape_key_scaled(vec![kpts(&run.poly), K::N(run.top), K::N(thickness)], 10.0)
 }
 
 /// `writeCountertop(w, c, run)`
-fn write_countertop(w: &mut W<'_>, c: &Countertop, run: &Run) -> R<()> {
+pub(crate) fn write_countertop(w: &mut W<'_>, c: &Countertop, run: &Run) -> R<()> {
     let key = run_key(run, c.thickness);
     let pr = w.profile(&run.poly, None)?;
     let solid = w.extrude(pr, run.top, c.thickness)?;
