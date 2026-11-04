@@ -621,6 +621,116 @@ impl TakeoffMode {
     }
 
     /// The right-hand panel: the sheet's scale, the items with their quantities, the estimate's totals.
+    /// TakeoffCraft's tools as 0.7's toolbar (ui.inc's Takeoff group): Select, the item's measure, Circle, Arc and
+    /// Deduct (on / off), the Notes menu, 3D. Each button's id is what [`Self::toolbar_click`] takes.
+    pub fn toolbar_groups(&self) -> Vec<crate::shell::ToolGroup> {
+        use crate::shell::{Tool, ToolGroup};
+        let tr = cc_takeoff::i18n::t;
+        let ty = self.item_type();
+        let draw = ty.as_deref().map_or_else(|| tr("tool.linear"), |t| tr(&format!("tool.{t}")));
+        let draw_icon = match ty.as_deref() {
+            Some("area") => "pentagon",
+            Some("count") => "grid-dots",
+            _ => "arrow-90deg-up",
+        };
+        let export = [
+            ("xlsx", "tool.export-xlsx", "file-earmark-arrow-down"),
+            ("csv", "tool.export-csv", "card-text"),
+            ("pdf", "tool.export-pdf", "printer"),
+            ("project", "tool.save-project", "download"),
+        ]
+        .iter()
+        .map(|(k, key, icon)| Tool::new(format!("export:{k}"), icon, tr(key)).tip(tr(&format!("{key}.title"))))
+        .collect();
+        let edit = vec![
+            Tool::new("undo", "arrow-counterclockwise", tr("tool.undo")).enabled(self.tk.can_undo()),
+            Tool::new("redo", "arrow-clockwise", tr("tool.redo")).enabled(self.tk.can_redo()),
+            Tool::new("edit:copy", "copy", tr("edit.copy")),
+            Tool::new("edit:paste", "clipboard-plus", tr("edit.paste")),
+            Tool::new("menu:edit", "three-dots", tr("edit.more")),
+        ];
+        vec![
+            ToolGroup { label: tr("group.export"), tools: export },
+            ToolGroup {
+                label: tr("group.takeoff"),
+                tools: vec![
+                    Tool::new("tool:select", "cursor", tr("tool.select")).on(self.tool == "select"),
+                    Tool::new("tool:draw", draw_icon, draw).on(self.tool == "draw"),
+                    Tool::new("tool:circle", "circle", tr("tool.circle")).on(self.tool == "circle"),
+                    Tool::new("arc", "bezier2", tr("tool.arc")).tip(tr("tool.arc.title")).on(self.arc),
+                    Tool::new("deduct", "dash-lg", tr("toolbar.deduct")).tip(tr("toolbar.deduct.title")).on(self.deduct),
+                    Tool::new("menu:notes", "sticky", tr("note.menu"))
+                        .tip(tr("note.menu.title"))
+                        .on(matches!(self.tool, "note" | "cloud" | "highlight")),
+                    Tool::new("3d", "box", tr("d3.button")).tip(tr("d3.button.title")),
+                ],
+            },
+            ToolGroup { label: tr("group.edit"), tools: edit },
+        ]
+    }
+
+    /// The Edit group's More menu: cut, paste in place, duplicate, select all / none.
+    pub fn edit_menu(&mut self, ui: &mut egui::Ui, sheet: &str) {
+        for (a, k) in [
+            ("cut", "edit.cut"),
+            ("paste-in-place", "edit.paste_in_place"),
+            ("duplicate", "edit.duplicate"),
+            ("select-all", "edit.select_all"),
+            ("select-none", "edit.select_none"),
+        ] {
+            if ui.button(cc_takeoff::i18n::t(k)).clicked() {
+                let _ = self.edit(sheet, a);
+                ui.close();
+            }
+        }
+    }
+
+    /// A toolbar button pressed (see [`Self::toolbar_groups`]).
+    pub fn toolbar_click(&mut self, id: &str, sheet: &str) {
+        match id {
+            "undo" => self.history(false),
+            "redo" => self.history(true),
+            "export:xlsx" => self.export = Some("xlsx"),
+            "export:csv" => self.export = Some("csv"),
+            "export:pdf" => self.export = Some("pdf"),
+            "export:project" => self.export = Some("project"),
+            x if x.starts_with("edit:") => {
+                let _ = self.edit(sheet, x.trim_start_matches("edit:"));
+            }
+            "tool:select" => {
+                self.set_tool("select");
+            }
+            "tool:draw" => {
+                self.set_tool("draw");
+            }
+            "tool:circle" => {
+                self.set_tool("circle");
+            }
+            "arc" => {
+                self.toggle_arc(!self.arc);
+            }
+            "deduct" => {
+                self.toggle_deduct(!self.deduct);
+            }
+            "3d" => self.want_3d = true,
+            _ => {}
+        }
+    }
+
+    /// The Notes menu's items (note, cloud, highlight).
+    pub fn notes_menu(&mut self, ui: &mut egui::Ui) {
+        for k in ["note", "cloud", "highlight"] {
+            if ui.selectable_label(self.tool == k, cc_takeoff::i18n::t(&format!("tool.{k}"))).clicked() {
+                self.set_tool(match k {
+                    "note" => "note",
+                    "cloud" => "cloud",
+                    _ => "highlight",
+                });
+                ui.close();
+            }
+        }
+    }
+
     pub fn panel(&mut self, ui: &mut egui::Ui, t: &Tokens, sheet: &str, user_unit: f64) {
         ui.label(RichText::new(cc_takeoff::i18n::t("group.takeoff")).strong().color(t.text_strong));
         // scale
@@ -647,45 +757,7 @@ impl TakeoffMode {
         if let Some(k) = pick {
             self.set_preset(sheet, k, user_unit);
         }
-        ui.horizontal_wrapped(|ui| {
-            let draw = self.item_type().map_or_else(|| cc_takeoff::i18n::t("tool.linear"), |ty| cc_takeoff::i18n::t(&format!("tool.{ty}")));
-            for (tool, label) in
-                [("select", cc_takeoff::i18n::t("tool.select")), ("draw", draw), ("circle", cc_takeoff::i18n::t("tool.circle"))]
-            {
-                if ui.selectable_label(self.tool == tool, label).clicked() {
-                    self.set_tool(tool);
-                }
-            }
-            ui.menu_button(cc_takeoff::i18n::t("note.menu"), |ui| {
-                for k in ["note", "cloud", "highlight"] {
-                    if ui.selectable_label(self.tool == k, cc_takeoff::i18n::t(&format!("tool.{k}"))).clicked() {
-                        self.set_tool(match k {
-                            "note" => "note",
-                            "cloud" => "cloud",
-                            _ => "highlight",
-                        });
-                        ui.close();
-                    }
-                }
-            })
-            .response
-            .on_hover_text(cc_takeoff::i18n::t("note.menu.title"));
-            if ui.button(cc_takeoff::i18n::t("d3.button")).on_hover_text(cc_takeoff::i18n::t("d3.button.title")).clicked() {
-                self.want_3d = true;
-            }
-            let mut a = self.arc;
-            if ui.checkbox(&mut a, cc_takeoff::i18n::t("tool.arc")).on_hover_text(cc_takeoff::i18n::t("tool.arc.title")).changed() {
-                self.toggle_arc(a);
-            }
-            let mut d = self.deduct;
-            if ui
-                .checkbox(&mut d, cc_takeoff::i18n::t("toolbar.deduct"))
-                .on_hover_text(cc_takeoff::i18n::t("toolbar.deduct.title"))
-                .changed()
-            {
-                self.toggle_deduct(d);
-            }
-        });
+        // the tools are in the toolbar over the sheet (0.7's Takeoff group: `toolbar_groups`)
         self.areas_row(ui);
         ui.separator();
         // items
@@ -797,42 +869,7 @@ impl TakeoffMode {
         self.by_area(ui, t);
         self.autocount_panel(ui, t);
         self.area_windows(ui.ctx());
-        ui.separator();
-        ui.label(RichText::new(cc_takeoff::i18n::t("group.export")).small());
-        ui.horizontal_wrapped(|ui| {
-            for (kind, key) in
-                [("xlsx", "tool.export-xlsx"), ("csv", "tool.export-csv"), ("pdf", "tool.export-pdf"), ("project", "tool.save-project")]
-            {
-                if ui.button(cc_takeoff::i18n::t(key)).on_hover_text(cc_takeoff::i18n::t(&format!("{key}.title"))).clicked() {
-                    self.export = Some(kind);
-                }
-            }
-        });
-        ui.horizontal_wrapped(|ui| {
-            if ui.add_enabled(self.tk.can_undo(), egui::Button::new(cc_takeoff::i18n::t("tool.undo"))).clicked() {
-                self.history(false);
-            }
-            if ui.add_enabled(self.tk.can_redo(), egui::Button::new(cc_takeoff::i18n::t("tool.redo"))).clicked() {
-                self.history(true);
-            }
-            let mut act: Option<&str> = None;
-            for (a, k) in [
-                ("copy", "edit.copy"),
-                ("cut", "edit.cut"),
-                ("paste", "edit.paste"),
-                ("paste-in-place", "edit.paste_in_place"),
-                ("duplicate", "edit.duplicate"),
-                ("select-all", "edit.select_all"),
-                ("select-none", "edit.select_none"),
-            ] {
-                if ui.small_button(cc_takeoff::i18n::t(k)).clicked() {
-                    act = Some(a);
-                }
-            }
-            if let Some(a) = act {
-                let _ = self.edit(sheet, a);
-            }
-        });
+        // Export and Edit are in the toolbar over the sheet (0.7's groups: `toolbar_groups`)
         if !self.message.is_empty() {
             ui.label(RichText::new(&self.message).color(t.text_dim));
         }

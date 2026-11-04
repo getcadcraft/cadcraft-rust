@@ -43,8 +43,11 @@ Newest first. One entry per working session: what was done, numbers, what is nex
   Plan | 3D and the 3D turns; the site name, GIS, Settings and the 3D view's choices on a row under it) as 0.7's
   toolbars, every side dock under a grip; the start screen's drafting grid drawn as one repeated 40 px tile (one quad a
   frame instead of 25,000 dots in model space).
-- Next: TakeoffCraft's own tool rows (its tools live in its panel), the 3D views' view cubes and the remaining dialogs
-  (gaps item 12).
+- M17.8: TakeoffCraft's tools as 0.7's toolbar over the sheet (Export: XLSX, CSV, Marked PDF, Save takeoff; Takeoff:
+  Select, the item's measure, Circle, Arc and Deduct on / off, the Notes menu, 3D; Edit: Undo, Redo, Copy, Paste,
+  More), taken out of the Takeoff panel. tkopsdiff 61 checks 0 different (262/262 status lines), mkuidiff 0.
+- Next (gaps item 12): PartCraft's sketch bar and BimCraft's draw bars, fields and tabs in every panel, dialogs,
+  CadCraft's layer flags, 3D backgrounds.
 
 ## 2026-11-03 — M4.57–M4.60 CadCraft's last 0.5 gaps: split panes, the corner indicator, My tools with CUIx, SHEETSET on the web (agent, work/cadpanes)
 

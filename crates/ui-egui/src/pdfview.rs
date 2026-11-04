@@ -1225,6 +1225,33 @@ impl PdfView {
             }
         });
         if self.mode == "takeoff" {
+            // TakeoffCraft's tools as 0.7's toolbar
+            let groups = self.takeoff.toolbar_groups();
+            let app_c = t.app("takeoffcraft");
+            let mut act: Option<String> = None;
+            let mut notes: Option<egui::Response> = None;
+            let mut edit: Option<egui::Response> = None;
+            ui.vertical(|ui| {
+                for (id, resp) in crate::shell::toolbar(ui, t, app_c, "tk-tb", &groups) {
+                    if id == "menu:notes" {
+                        notes = Some(resp);
+                    } else if id == "menu:edit" {
+                        edit = Some(resp);
+                    } else if resp.clicked() {
+                        act = Some(id);
+                    }
+                }
+            });
+            if let Some(resp) = notes {
+                egui::Popup::menu(&resp).show(|ui| self.takeoff.notes_menu(ui));
+            }
+            let sheet = self.takeoff.sheet(self.page);
+            if let Some(resp) = edit {
+                egui::Popup::menu(&resp).show(|ui| self.takeoff.edit_menu(ui, &sheet));
+            }
+            if let Some(id) = act {
+                self.takeoff.toolbar_click(&id, &sheet);
+            }
             return save;
         }
         {

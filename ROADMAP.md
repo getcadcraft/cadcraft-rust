@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-03 M17.8: TakeoffCraft's Export, Takeoff and Edit tools as 0.7's toolbar over the sheet; tkopsdiff and mkuidiff 0 different.
 - 2026-11-03 M17.3–M17.7: DetailCraft, PartCraft, BimCraft (IFC view) and CivilCraft with 0.7's toolbars and docked grips; the start screen's grid as one tile; every harness at 0 differences.
 - 2026-11-03 M17.2: ModelCraft's tools and MarkupCraft's tools as 0.7's toolbar groups, their docks under grips, the viewer's app-bar toggles; mcuidiff 1243/1243, mkuidiff and tkopsdiff 0 different.
 - 2026-11-03 M17.1: the 0.7 look — 0.7's tokens (five presets), Archivo, the app shell (app bar, status bar, toolbar groups, dock grips, tabs, command area), CadCraft's whole window, the start screen as the website's /apps page; every harness unchanged at 0 differences (kdiff 5250/5250 en + es-MX, mk / cv / dc / pc / tk / mc / bm all identical).
