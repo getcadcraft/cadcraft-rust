@@ -21,12 +21,14 @@ use cc_bim::draw::resops::{
     read_sections, section_dir, stair_defaults,
 };
 use cc_bim::draw::resstair::{Layout, Piece, STAIR_KINDS, Stair, railing_parts, read_stairs, stair_height, stair_layout};
+use cc_bim::draw::resterrain::{Hard, Pad, Terrain, read_hardscape, read_pads, read_terrain};
 use cc_bim::draw::rooms::{label_point, loop_at};
 use cc_bim::draw::schedule::Schedule;
 use cc_bim::draw::tools::{Snap, SnapOpts, snap_point};
 use cc_bim::draw::units::{fmt_area, fmt_len, fmt_pitch, parse_len, parse_pitch};
 use cc_bim::draw::walls::wall_type;
 use cc_bim::draw::writer::W;
+use cc_bim::util::{M4, apply4, inv4};
 use egui::RichText;
 use serde_json::{Value as J, json};
 
@@ -35,19 +37,26 @@ use crate::bimtools::bt;
 use crate::{Params as UParams, UiApp};
 
 const D2R: f64 = std::f64::consts::PI / 180.0;
+/// res-ui.js UNIT_MM: a survey file's units in mm.
+const UNIT_MM: [(&str, f64); 4] = [("mm", 1.0), ("m", 1000.0), ("ft", 304.8), ("ftUS", 1200.0 / 3937.0 * 1000.0)];
+fn unit_mm(u: &str) -> Option<f64> {
+    UNIT_MM.iter().find(|x| x.0 == u).map(|x| x.1)
+}
 const IN: f64 = 25.4;
 /// The plan's cut height (model-ui.js): steps above it are dashed.
 const CUT: f64 = 1200.0;
 
-/// The Build menu's tools (ui.inc `[data-res-tools]`): (tool, label key, icon). Terrain, pad and paving come with the
-/// ground (M7.21).
-pub const RES_TOOLS: [(&str, &str, &str); 8] = [
+/// The Build menu's tools (ui.inc `[data-res-tools]`): (tool, label key, icon).
+pub const RES_TOOLS: [(&str, &str, &str); 11] = [
     ("roofplane", "res.tool.roofplane", "triangle"),
     ("foundation", "res.tool.foundation", "bounding-box"),
     ("countertop", "res.tool.countertop", "square-half"),
     ("stair", "res.tool.stair", "reception-4"),
     ("railing", "res.tool.railing", "distribute-horizontal"),
     ("framing", "res.tool.framing", "grid-3x3"),
+    ("terrain", "res.tool.terrain", "image-alt"),
+    ("pad", "res.tool.pad", "square"),
+    ("paving", "res.tool.paving", "signpost-split"),
     ("section", "res.tool.section", "slash-square"),
     ("electrical", "res.tool.electrical", "plug"),
 ];
@@ -61,7 +70,7 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[(
     "bim.res",
     "Residential tool action",
     "Enter / Esc",
-    "{name: \"finish\" | \"dbl\" | \"escape\" | \"frameall\" | \"frshow\" | \"frsee\" | \"link\" | \"linkdone\" | \"fit\" | \"keep\" | \"edit:<field>=<value>\"} → finishes a roof plane or railing, frames every wall, shows / hides the framing, sees through framed hosts, links lights to the picked switch, fits a countertop again, keeps a framing piece, changes the picked roof plane / foundation / countertop / stair / railing / framing / section line / device (fields: pitch, base, thickness, kind, slabT, edgeW, edgeD, stemT, footW, footD, bottom, stemDrop, basementH, overhang, turn, width, riserMax, tread, railings, railHeight, well, height, spacing, corners, blocking, roofMode, name, look, depth, tag, circuit, load)",
+    "{name: \"finish\" | \"dbl\" | \"escape\" | \"groundopen\" | \"groundmake\" | \"groundclear\" | \"landxml\" | \"frameall\" | \"frshow\" | \"frsee\" | \"link\" | \"linkdone\" | \"fit\" | \"keep\" | \"edit:<field>=<value>\"} → finishes a roof plane or railing, frames every wall, shows / hides the framing, sees through framed hosts, links lights to the picked switch, fits a countertop again, keeps a framing piece, changes the picked roof plane / foundation / countertop / stair / railing / framing / section line / device (fields: pitch, base, thickness, kind, slabT, edgeW, edgeD, stemT, footW, footD, bottom, stemDrop, basementH, overhang, turn, width, riserMax, tread, railings, railHeight, well, height, spacing, corners, blocking, roofMode, name, look, depth, tag, circuit, load)",
 )];
 
 // ------------------------------------------------------------------------------------------------------------ state
@@ -183,6 +192,37 @@ pub struct Res {
     pub sec_at: Option<Snap>,
     /// 3D instances hidden by the framing's Show / See through (product ids)
     pub hidden: HashSet<u64>,
+    /// the ground (res-terrain.js): the terrain, its pads (with their plan outline, cut, fill), the paving
+    pub terrain: Option<Terrain>,
+    pub pads: Vec<PadView>,
+    pub hards: Vec<Hard>,
+    /// the finished grade's contours (world mm) for the terrain's shape key
+    pub contours: Option<(String, Vec<cc_civil::tin::Contour>)>,
+    /// plan of the level shown → world (its storey's matrix)
+    pub world: Option<M4>,
+    /// the Terrain tool: spots clicked (world mm), the spot elevation typed, the survey file's units, the pointer
+    pub spots: Vec<[f64; 3]>,
+    pub tr_z: f64,
+    pub tr_unit: String,
+    pub tr_at: Option<V2>,
+    /// the Pad tool: margin, slope (run per rise), depth; the building outline under the pointer
+    pub pad_set: (f64, f64, f64),
+    pub pad_hover: Option<Vec<V2>>,
+    /// the Paving tool
+    pub hard_kind: String,
+    pub hard_pts: Option<Vec<V2>>,
+    pub hard_at: Option<Snap>,
+    /// web: a survey file being picked
+    pub ground_reading: bool,
+}
+
+/// A building pad and what the plan and Properties show of it.
+#[derive(Clone, Debug)]
+pub struct PadView {
+    pub p: Pad,
+    pub poly: Option<Vec<V2>>,
+    pub cut: f64,
+    pub fill: f64,
 }
 
 impl Default for Res {
@@ -220,6 +260,21 @@ impl Default for Res {
             sec_a: None,
             sec_at: None,
             hidden: HashSet::new(),
+            terrain: None,
+            pads: Vec::new(),
+            hards: Vec::new(),
+            contours: None,
+            world: None,
+            spots: Vec::new(),
+            tr_z: 0.0,
+            tr_unit: "ft".into(),
+            tr_at: None,
+            pad_set: cc_bim::draw::resground::PAD_DEFAULTS,
+            pad_hover: None,
+            hard_kind: "walk".into(),
+            hard_pts: None,
+            hard_at: None,
+            ground_reading: false,
         }
     }
 }
@@ -256,6 +311,23 @@ fn pp(poly: &[V2]) -> Vec<[f64; 4]> {
             [a[0], a[1], b[0], b[1]]
         })
         .collect()
+}
+/// `toPlan(x, y)`: world mm → the plan of the level shown.
+fn to_plan(res: &Res, x: f64, y: f64) -> V2 {
+    match res.world.and_then(|m| inv4(&m)) {
+        Some(mi) => {
+            let q = apply4(&mi, x, y, 0.0);
+            [q[0], q[1]]
+        }
+        None => [x, y],
+    }
+}
+/// `toWorld(p)`: the plan of the level shown → world mm.
+fn to_world(res: &Res, p: V2) -> [f64; 3] {
+    match res.world {
+        Some(mm) => apply4(&mm, p[0], p[1], 0.0),
+        None => [p[0], p[1], 0.0],
+    }
 }
 fn run_res(app: &mut UiApp, name: &str, args: Vec<J>, label: &str, verb: &str) -> bool {
     commit(app, Op::Res(ResOp::new(name, args)), label, verb, None)
@@ -390,6 +462,39 @@ pub fn refresh(app: &mut UiApp) {
     res.frames = frames;
     res.secs = read_sections(&mut w).unwrap_or_default();
     res.devs = read_devices(&mut w).unwrap_or_default();
+    // the ground: the level shown's world matrix, the terrain, pads, paving; contours once tin.js is "loaded"
+    res.world = app.bimh.draw.level.and_then(|l| w.storey_world(l).ok());
+    res.terrain = read_terrain(&mut w).ok().flatten();
+    res.hards = read_hardscape(&mut w).unwrap_or_default();
+    res.pads = Vec::new();
+    for p in read_pads(&mut w).unwrap_or_default() {
+        let shape = cc_bim::draw::resterrain::pad_shape(&mut w, &p, &sn.levels).ok().flatten();
+        let ps = w.read_pset(p.id, cc_bim::draw::resterrain::PAD_PSET).ok().flatten().unwrap_or_default();
+        let n0 = |k: &str| ps.get(k).map_or(0.0, cc_bim::wapi::P::number);
+        let mi = res.world.and_then(|m| inv4(&m));
+        let poly = shape.map(|s| {
+            s.poly
+                .iter()
+                .map(|q| {
+                    mi.map_or(*q, |mi| {
+                        let r = apply4(&mi, q[0], q[1], 0.0);
+                        [r[0], r[1]]
+                    })
+                })
+                .collect()
+        });
+        res.pads.push(PadView { p, poly, cut: n0("Cut"), fill: n0("Fill") });
+    }
+    match &res.terrain {
+        Some(t) if cc_bim::draw::resterrain::ground_loaded() => {
+            if res.contours.as_ref().is_none_or(|c| c.0 != t.key) {
+                let fin = cc_bim::draw::resterrain::finished_surface(&mut w, t).ok().flatten();
+                let c = fin.and_then(|f| f.contours(t.interval, 0.0, 2000.0)).unwrap_or_default();
+                res.contours = Some((t.key.clone(), c));
+            }
+        }
+        _ => res.contours = None,
+    }
     frame_vis(app);
 }
 
@@ -417,6 +522,12 @@ pub fn own_keys(res: &Res, set: &mut HashSet<u64>) {
     }
     for f in &res.frames {
         set.extend(f.f.parts.iter().map(|x| k(*x)));
+    }
+    if let Some(t) = &res.terrain {
+        set.insert(k(t.id));
+    }
+    for h in &res.hards {
+        set.insert(k(h.id));
     }
 }
 
@@ -518,6 +629,31 @@ pub fn scene(dr: &Draw, scene: &mut Scene) {
     let Some(level) = dr.level else { return };
     let res = &dr.res;
     let levels = dr.data.as_ref().map(|s| s.levels.clone()).unwrap_or_default();
+    // the ground, on the ground level (`terrainScene`): contours (every fifth heavier), pads dashed, paving
+    let ground = levels.iter().find(|l| l.elevation.abs() < 1.0).or(levels.first()).map(|l| l.id);
+    if let (Some(t), true) = (&res.terrain, ground == Some(level)) {
+        if let Some((_, cs)) = &res.contours {
+            let (mut thin, mut lines) = (Vec::new(), Vec::new());
+            for c in cs {
+                let pl: Vec<V2> = c.pts.iter().map(|q| to_plan(res, q.x, q.y)).collect();
+                let major = (m::round(c.z / (t.interval * 5.0)) * t.interval * 5.0 - c.z).abs() < 1.0;
+                for q in pl.windows(2) {
+                    if let [a, b] = q {
+                        if major { lines.push([a[0], a[1], b[0], b[1]]) } else { thin.push([a[0], a[1], b[0], b[1]]) }
+                    }
+                }
+            }
+            scene.symbols.insert(0, ssym(f64::NAN, sym(lines, thin, Vec::new(), Vec::new()), false));
+        }
+        for pd in &res.pads {
+            if let Some(poly) = &pd.poly {
+                scene.symbols.push(ssym(pd.p.id, sym(Vec::new(), Vec::new(), pp(poly), poly.clone()), true));
+            }
+        }
+        for h in res.hards.iter().filter(|h| h.points.len() >= 3) {
+            scene.symbols.push(ssym(h.id, sym(pp(&h.points), Vec::new(), Vec::new(), h.points.clone()), true));
+        }
+    }
     // roof planes, on the level they sit on; first: a plane over a roof picks before it
     for rp in &res.planes {
         if rp.storey != Some(level) || rp.points.len() < 3 || !levels.iter().any(|l| l.guid.as_deref() == Some(rp.level.as_str())) {
@@ -851,6 +987,41 @@ pub fn overlay(dr: &Draw, o: &mut Overlay) {
                 }
             }
         }
+        "terrain" => {
+            o.points.extend(res.spots.iter().map(|q| to_plan(res, q[0], q[1])));
+            if let Some(at) = res.tr_at {
+                o.hud = Some((at, bt("res.tr.hud.spot", &[("z", &fmt_len(res.tr_z, u)), ("n", &res.spots.len().to_string())])));
+            }
+        }
+        "paving" => {
+            if let Some(a) = &res.hard_at {
+                o.snap = Some((a.p, a.kind));
+            }
+            let pts = res.hard_pts.clone().unwrap_or_default();
+            o.points.extend(pts.iter().copied());
+            let mut all = pts;
+            if let Some(a) = &res.hard_at {
+                all.push(a.p);
+            }
+            let lines: Vec<[f64; 4]> =
+                all.windows(2).filter_map(|q| if let [a, b] = q { Some([a[0], a[1], b[0], b[1]]) } else { None }).collect();
+            let mut dashed = Vec::new();
+            if all.len() >= 3
+                && let (Some(l), Some(f)) = (all.last(), all.first())
+            {
+                dashed.push([l[0], l[1], f[0], f[1]]);
+            }
+            o.symbols.push(Symbol { lines, dashed, ..Symbol::default() });
+            if let Some(a) = &res.hard_at {
+                o.hud = Some((a.p, bt(&format!("res.hard.{}", res.hard_kind), &[])));
+            }
+        }
+        "pad" => {
+            if let Some(p) = &res.pad_hover {
+                o.walls.push(p.clone());
+                o.hud = Some((label_point(p), bt("res.pad.hud", &[])));
+            }
+        }
         "ellink" => {
             if let (Some(sw), Some(at)) = (res.devs.iter().find(|d| Some(&d.guid) == res.el.link.as_ref()), res.el.at) {
                 o.hud = Some((at, bt("res.el.hud.link", &[("tag", &sw.tag)])));
@@ -1016,6 +1187,16 @@ pub fn on_move(app: &mut UiApp, p: V2, shift: bool) -> bool {
             let s = snap(&app.bimh.draw, p, shift, &pts);
             r(app).sec_at = Some(s);
         }
+        "terrain" => r(app).tr_at = Some(p),
+        "paving" => {
+            let pts = app.bimh.draw.res.hard_pts.clone().unwrap_or_default();
+            let s = snap(&app.bimh.draw, p, shift, &pts);
+            r(app).hard_at = Some(s);
+        }
+        "pad" => {
+            let o = app.bimh.draw.loops.as_ref().and_then(|l| loop_at(&l.loops.outlines, p)).map(|o| o.poly.clone());
+            r(app).pad_hover = o;
+        }
         _ => r(app).el.at = Some(p),
     }
     true
@@ -1151,6 +1332,45 @@ pub fn on_click(app: &mut UiApp, p: V2, shift: bool) -> bool {
                 &placed(),
             );
         }
+        "terrain" => {
+            let elev = app.bimh.draw.data.as_ref().and_then(|s| s.levels.iter().find(|l| Some(l.id) == level)).map_or(0.0, |l| l.elevation);
+            let res = r(app);
+            let q = to_world(res, p);
+            if res.spots.len() < 20_000 {
+                res.spots.push([q[0], q[1], res.tr_z + elev]);
+            }
+        }
+        "pad" => {
+            if app.bimh.draw.loops.as_ref().and_then(|l| loop_at(&l.loops.outlines, p)).is_none() {
+                app.error = Some(bt("model.err.nobuilding2", &[]));
+                return true;
+            }
+            if app.bimh.draw.res.terrain.is_none() {
+                app.error = Some(bt("res.err.noterrain", &[]));
+                return true;
+            }
+            cc_bim::draw::resterrain::set_ground_loaded(true);
+            let (margin, slope, depth) = app.bimh.draw.res.pad_set;
+            let spec = json!({ "level": lg, "seed": [p[0], p[1]], "margin": margin, "slope": slope, "depth": depth });
+            run_res(app, "placePad", vec![spec], &bt("res.pad", &[]), &placed());
+        }
+        "paving" => {
+            if app.bimh.draw.res.terrain.is_none() {
+                app.error = Some(bt("res.err.noterrain", &[]));
+                return true;
+            }
+            let pts = app.bimh.draw.res.hard_pts.clone().unwrap_or_default();
+            let q = snap(&app.bimh.draw, p, shift, &pts).p;
+            let close = app.bimh.draw.view.px_to_mm(10.0);
+            if let Some(f) = pts.first()
+                && pts.len() >= 3
+                && m::hypot(q[0] - f[0], q[1] - f[1]) <= close
+            {
+                finish_paving(app);
+                return true;
+            }
+            r(app).hard_pts.get_or_insert_with(Vec::new).push(q);
+        }
         "electrical" => {
             let Some((wall, at, angle)) = el_spot(&app.bimh.draw, p) else {
                 app.error = Some(bt("res.err.elwall", &[]));
@@ -1230,6 +1450,29 @@ fn finish_railing(app: &mut UiApp) {
         json!({ "level": lg, "points": pts.iter().map(|p| json!([p[0], p[1]])).collect::<Vec<_>>(), "height": rl.height, "kind": rl.kind });
     run_res(app, "placeRailing", vec![spec], &rail_label(&rl.kind), &placed());
 }
+fn finish_paving(app: &mut UiApp) {
+    let pts = r(app).hard_pts.take().unwrap_or_default();
+    if pts.len() < 3 {
+        app.error = Some(bt("res.err.hardscape", &[]));
+        return;
+    }
+    cc_bim::draw::resterrain::set_ground_loaded(true);
+    let lg = level_guid(&app.bimh.draw);
+    let kind = app.bimh.draw.res.hard_kind.clone();
+    let spec = json!({ "level": lg, "points": pts.iter().map(|p| json!([p[0], p[1]])).collect::<Vec<_>>(), "kind": kind });
+    run_res(app, "placeHardscape", vec![spec], &bt(&format!("res.hard.{kind}"), &[]), &placed());
+}
+/// `makeFromSpots()`: the ground from the spots clicked.
+fn make_from_spots(app: &mut UiApp) {
+    if app.bimh.draw.res.spots.len() < 3 {
+        app.error = Some(bt("res.err.spots", &[]));
+        return;
+    }
+    cc_bim::draw::resterrain::set_ground_loaded(true);
+    let pts: Vec<J> = std::mem::take(&mut r(app).spots).iter().map(|q| json!({ "x": q[0], "y": q[1], "z": q[2] })).collect();
+    let iv = if app.bimh.draw.units == "mm" { 500.0 } else { 304.8 };
+    run_res(app, "placeTerrain", vec![json!({ "source": "sketch", "points": pts, "interval": iv })], &bt("res.terrain", &[]), &placed());
+}
 fn end_link(app: &mut UiApp) {
     let g = r(app).el.link.take();
     app.bimh.draw.tool = "select".into();
@@ -1266,6 +1509,13 @@ pub fn tool_changed(app: &mut UiApp, name: &str) {
     res.el.at = None;
     res.sec_a = None;
     res.frame.hover = None;
+    res.hard_pts = None;
+    res.pad_hover = None;
+    if matches!(name, "terrain" | "pad" | "paving") {
+        // ensureTin: the ground's tools load the surface engine; the plan's contours come with it
+        cc_bim::draw::resterrain::set_ground_loaded(true);
+        res.contours = None;
+    }
     if name != "ellink" {
         res.el.link = None;
     }
@@ -1281,7 +1531,7 @@ pub fn escape(app: &mut UiApp) -> bool {
         res.stair.spec = None;
         return true;
     }
-    if res.rail.pts.take().is_some() || res.sec_a.take().is_some() {
+    if res.rail.pts.take().is_some() || res.hard_pts.take().is_some() || res.sec_a.take().is_some() {
         return true;
     }
     if app.bimh.draw.tool == "ellink" {
@@ -1297,6 +1547,8 @@ pub fn enter(app: &mut UiApp) -> bool {
     match tool.as_str() {
         "roofplane" if app.bimh.draw.res.plane.pts.is_some() => finish_plane(app),
         "railing" if app.bimh.draw.res.rail.pts.is_some() => finish_railing(app),
+        "paving" if app.bimh.draw.res.hard_pts.is_some() => finish_paving(app),
+        "terrain" if !app.bimh.draw.res.spots.is_empty() => make_from_spots(app),
         "ellink" => end_link(app),
         _ => return false,
     }
@@ -1318,6 +1570,12 @@ pub fn dbl(app: &mut UiApp) -> bool {
                 p.pop();
             }
             finish_railing(app);
+        }
+        "paving" if app.bimh.draw.res.hard_pts.is_some() => {
+            if let Some(p) = r(app).hard_pts.as_mut() {
+                p.pop();
+            }
+            finish_paving(app);
         }
         _ => return false,
     }
@@ -1437,6 +1695,42 @@ pub fn set_option(app: &mut UiApp, k: &str, v: &str) -> Option<Result<(), String
         "el.circuit" => {
             res.el.circuit = cc_cad::js::trim(v).chars().take(20).collect();
             Ok(())
+        }
+        "tr.z" => {
+            let mm = parse_len(v, &u);
+            if mm.is_finite() {
+                res.tr_z = mm;
+                Ok(())
+            } else {
+                Err(bt("model.err.length", &[]))
+            }
+        }
+        "tr.unit" => {
+            if UNIT_MM.iter().any(|x| x.0 == v) {
+                res.tr_unit = v.into();
+                Ok(())
+            } else {
+                Err("bim.set: tr.unit ft, ftUS, m or mm".into())
+            }
+        }
+        "pad.margin" => len(0.0).map(|mm| res.pad_set.0 = mm),
+        "pad.depth" => len(-2000.0).map(|mm| res.pad_set.2 = mm),
+        "pad.slope" => {
+            let x = cc_bim::js::str_num(v.strip_suffix(":1").unwrap_or(v));
+            if (1.0..=10.0).contains(&x) {
+                res.pad_set.1 = x;
+                Ok(())
+            } else {
+                Err(bt("res.err.padslope", &[]))
+            }
+        }
+        "hd.kind" => {
+            if cc_bim::draw::resterrain::HARD_KINDS.contains(&v) {
+                res.hard_kind = v.into();
+                Ok(())
+            } else {
+                Err("bim.set: hd.kind walk, driveway or patio".into())
+            }
         }
         "el.height" => {
             if cc_cad::js::trim(v).is_empty() {
@@ -1587,6 +1881,38 @@ pub fn bar_row(app: &mut UiApp, ui: &mut egui::Ui, run: &mut Vec<(&'static str, 
                 ui.label(RichText::new(ph).small().color(t.text_dim));
             }
         }
+        "terrain" => {
+            if ui.add(crate::shell::Btn::new(bt("res.tr.open", &[]))).clicked() {
+                run.push(("bim.res", "groundopen".into()));
+            }
+            let units: Vec<(String, String)> =
+                [("ft", "res.tr.unit.ft"), ("ftUS", "res.tr.unit.ftus"), ("m", "res.tr.unit.m"), ("mm", "res.tr.unit.mm")]
+                    .iter()
+                    .map(|(k, l)| ((*k).to_string(), bt(l, &[])))
+                    .collect();
+            combo(ui, "tru", bt("res.tr.unit", &[]), &res.tr_unit, &units, "tr.unit", run);
+            ui.label(RichText::new(bt("res.tr.or", &[])).small().color(t.text_dim));
+            field(app, ui, run, "tr.z", bt("res.tr.spot", &[]), fmt_len(res.tr_z, &u), 70.0);
+            if ui.add(crate::shell::Btn::new(bt("res.tr.make", &[]))).clicked() {
+                run.push(("bim.res", "groundmake".into()));
+            }
+            if ui.add(crate::shell::Btn::new(bt("res.tr.clear", &[]))).clicked() {
+                run.push(("bim.res", "groundclear".into()));
+            }
+            if ui.add(crate::shell::Btn::new(bt("res.tr.xml", &[]))).on_hover_text(bt("res.tr.xml.title", &[])).clicked() {
+                run.push(("bim.res", "landxml".into()));
+            }
+        }
+        "pad" => {
+            field(app, ui, run, "pad.margin", bt("res.pad.margin", &[]), fmt_len(res.pad_set.0, &u), 70.0);
+            field(app, ui, run, "pad.depth", bt("res.pad.depth", &[]), fmt_len(res.pad_set.2, &u), 70.0);
+            field(app, ui, run, "pad.slope", bt("res.pad.slope", &[]), format!("{}:1", cc_bim::js::num_str(res.pad_set.1)), 50.0);
+        }
+        "paving" => {
+            let kinds: Vec<(String, String)> =
+                ["walk", "driveway", "patio"].iter().map(|k| ((*k).to_string(), bt(&format!("res.hard.{k}"), &[]))).collect();
+            combo(ui, "hdk", bt("res.hard.kind", &[]), &res.hard_kind, &kinds, "hd.kind", run);
+        }
         "ellink" => {
             ui.label(RichText::new(bt("res.el.link.row", &[])).small().color(t.text_dim));
             if ui.add(crate::shell::Btn::new(bt("res.el.done", &[]))).clicked() {
@@ -1622,6 +1948,20 @@ pub fn run(app: &mut UiApp, name: &str) -> Result<(), String> {
             frame_vis(app);
         }
         "linkdone" => end_link(app),
+        "groundopen" => {
+            let pick = app.services.pick_files.as_mut().ok_or("bim.res: this window cannot open files")?;
+            match pick("ground", false) {
+                Some(files) => {
+                    if let Some(f) = files.into_iter().next() {
+                        ground_from_file(app, &f);
+                    }
+                }
+                None => r(app).ground_reading = true,
+            }
+        }
+        "groundmake" => make_from_spots(app),
+        "groundclear" => r(app).spots.clear(),
+        "landxml" => land_xml(app)?,
         "link" => {
             let p = pick(app).ok_or_else(|| bt("edit.nothing.picked", &[]))?;
             let d = app
@@ -1702,6 +2042,15 @@ pub fn pick_of(app: &mut UiApp, key: f64) -> Option<RPick> {
     if let Some(x) = res.secs.iter().find(|x| x.id == key) {
         return mk("section", &x.guid, bt("res.sec.name", &[("name", &x.name)]));
     }
+    if let Some(t) = res.terrain.as_ref().filter(|t| t.id == key) {
+        return mk("terrain", &t.guid, bt("res.terrain", &[]));
+    }
+    if let Some(x) = res.pads.iter().find(|x| x.p.id == key) {
+        return mk("pad", &x.p.guid, bt("res.pad", &[]));
+    }
+    if let Some(x) = res.hards.iter().find(|x| x.id == key) {
+        return mk("paving", &x.guid, bt(&format!("res.hard.{}", x.kind), &[]));
+    }
     let fr = res.frames.iter().find(|x| x.f.id == key || x.f.parts.contains(&key))?.f.clone();
     let mut piece = None;
     if fr.parts.contains(&key)
@@ -1745,7 +2094,10 @@ fn reselect(app: &mut UiApp, guid: &str) {
         .or_else(|| res.counters.iter().find(|x| x.c.guid == guid).map(|x| x.c.id))
         .or_else(|| res.devs.iter().find(|x| x.guid == guid).map(|x| x.id))
         .or_else(|| res.rails.iter().find(|x| x.guid == guid).map(|x| x.id))
-        .or_else(|| res.secs.iter().find(|x| x.guid == guid).map(|x| x.id));
+        .or_else(|| res.secs.iter().find(|x| x.guid == guid).map(|x| x.id))
+        .or_else(|| res.terrain.as_ref().filter(|x| x.guid == guid).map(|x| x.id))
+        .or_else(|| res.pads.iter().find(|x| x.p.guid == guid).map(|x| x.p.id))
+        .or_else(|| res.hards.iter().find(|x| x.guid == guid).map(|x| x.id));
     if let Some(id) = id {
         app.select_product(id);
     }
@@ -1774,11 +2126,19 @@ pub fn remove_op(app: &mut UiApp, keys: &[f64]) -> Option<(Op, String)> {
         ("stair", "removeStairs"),
         ("railing", "removeRailings"),
         ("framing", "removeFraming"),
+        ("paving", "removeHardscape"),
+        ("pad", "removePads"),
+        ("terrain", "removeTerrain"),
         ("section", "removeSectionLines"),
         ("device", "removeDevices"),
     ] {
         let g = of(kind);
-        if !g.is_empty() {
+        if kind == "terrain" {
+            // removeTerrain(terr[0])
+            if let Some(t) = g.into_iter().next() {
+                ops.push(Op::Res(ResOp::new(name, vec![t])));
+            }
+        } else if !g.is_empty() {
             ops.push(Op::Res(ResOp::new(name, vec![J::Array(g)])));
         }
     }
@@ -1911,6 +2271,40 @@ fn edit(app: &mut UiApp, k: &str, v: &str) -> Result<(), String> {
                 _ => return Err(format!("bim.res: a device has no field {k}")),
             };
             ("changeDevice", ch, p.label.clone())
+        }
+        "terrain" => {
+            let ch = match k {
+                "interval" => json!({ "interval": len(10.0, false)? }),
+                "raise" => json!({ "raise": any_len()? }),
+                _ => return Err(format!("bim.res: the terrain has no field {k}")),
+            };
+            cc_bim::draw::resterrain::set_ground_loaded(true);
+            ("changeTerrain", ch, bt("res.terrain", &[]))
+        }
+        "pad" => {
+            let ch = match k {
+                "margin" => json!({ "margin": len(0.0, true)? }),
+                "depth" => json!({ "depth": any_len()? }),
+                "slope" => {
+                    let x = cc_bim::js::str_num(v.strip_suffix(":1").unwrap_or(v));
+                    if !(1.0..=10.0).contains(&x) {
+                        return Err(bt("res.err.padslope", &[]));
+                    }
+                    json!({ "slope": x })
+                }
+                _ => return Err(format!("bim.res: a pad has no field {k}")),
+            };
+            cc_bim::draw::resterrain::set_ground_loaded(true);
+            ("changePad", ch, bt("res.pad", &[]))
+        }
+        "paving" => {
+            let ch = match k {
+                "kind" => json!({ "kind": v }),
+                "thickness" => json!({ "thickness": len(10.0, false)? }),
+                _ => return Err(format!("bim.res: paving has no field {k}")),
+            };
+            cc_bim::draw::resterrain::set_ground_loaded(true);
+            ("changeHardscape", ch, p.label.clone())
         }
         _ => return Err(bt("edit.nothing.picked", &[])),
     };
@@ -2126,6 +2520,37 @@ pub fn props(app: &mut UiApp, ui: &mut egui::Ui) -> bool {
             out = out.take().or(row(app, ui, "depth", &bt("res.sec.depth", &[]), fmt_len(sl.depth, &u)));
             note(ui, bt("res.sec.depth.note", &[]));
         }
+        "terrain" => {
+            let Some(tr) = &res.terrain else { return };
+            info(ui, &bt("res.tr.source", &[]), bt(&format!("res.tr.src.{}", tr.source), &[]));
+            info(ui, &bt("res.tr.points", &[]), tr.pts.len().to_string());
+            out = out.take().or(row(app, ui, "interval", &bt("res.tr.interval", &[]), fmt_len(tr.interval, &u)));
+            out = out.take().or(row(app, ui, "raise", &bt("res.tr.raise", &[]), fmt_len(0.0, &u)));
+            note(ui, bt("res.tr.raise.note", &[]));
+            info(ui, &bt("res.tr.cut", &[]), format!("{} m³", cc_bim::js::to_fixed(tr.cut, 1)));
+            info(ui, &bt("res.tr.fill", &[]), format!("{} m³", cc_bim::js::to_fixed(tr.fill, 1)));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(bt("res.tr.civil", &[])).small().color(t.text_dim));
+                if ui.add(crate::shell::Btn::new(bt("res.tr.xml", &[]))).clicked() {
+                    out = Some("landxml".into());
+                }
+            });
+        }
+        "pad" => {
+            let Some(pd) = res.pads.iter().find(|x| x.p.guid == p.guid) else { return };
+            out = out.take().or(row(app, ui, "margin", &bt("res.pad.margin", &[]), fmt_len(pd.p.margin, &u)));
+            out = out.take().or(row(app, ui, "depth", &bt("res.pad.depth", &[]), fmt_len(pd.p.depth, &u)));
+            out = out.take().or(row(app, ui, "slope", &bt("res.pad.slope", &[]), format!("{}:1", cc_bim::js::num_str(pd.p.slope))));
+            info(ui, &bt("res.tr.cut", &[]), format!("{} m³", cc_bim::js::to_fixed(pd.cut, 1)));
+            info(ui, &bt("res.tr.fill", &[]), format!("{} m³", cc_bim::js::to_fixed(pd.fill, 1)));
+        }
+        "paving" => {
+            let Some(h) = res.hards.iter().find(|x| x.guid == p.guid) else { return };
+            let kinds: Vec<(&str, String)> =
+                ["driveway", "walk", "patio"].iter().map(|k| (*k, bt(&format!("res.hard.{k}"), &[]))).collect();
+            choice(ui, &bt("res.hard.kind", &[]), &h.kind, &kinds, "kind", &mut out);
+            out = out.take().or(row(app, ui, "thickness", &bt("model.prop.thickness", &[]), fmt_len(h.thickness, &u)));
+        }
         "device" => {
             let Some(d) = res.devs.iter().find(|x| x.guid == p.guid) else { return };
             out = out.take().or(row(app, ui, "tag", &bt("res.el.sch.tag", &[]), d.tag.clone()));
@@ -2294,5 +2719,160 @@ pub fn schedule(app: &mut UiApp, which: &str) -> Option<Schedule> {
             Some(Schedule { head, rows, total: Some(total), nums: Vec::new() })
         }
         _ => None,
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------ the ground
+
+/// What a survey file holds: points and contour lines (its units), the units.
+type Survey = (Vec<cc_civil::geo::P3>, Vec<Vec<cc_civil::geo::P3>>, String);
+/// The largest survey file read (bytes).
+const GROUND_MAX: usize = 512 << 20;
+
+/// `readGroundFile(f)`: survey points (source units), contour lines, the units → or why it could not be read.
+fn read_ground_file(f: &crate::ImportedFile, unit0: &str) -> Result<Survey, String> {
+    use cc_civil::geo::P3;
+    if f.bytes.len() > GROUND_MAX {
+        return Err(format!("{} MB", f.bytes.len() >> 20));
+    }
+    let low = f.name.to_ascii_lowercase();
+    let ext = low.rsplit('.').next().unwrap_or("");
+    let infile = || cc_io_civil::raster::InFile { name: f.name.clone(), bytes: f.bytes.clone() };
+    match ext {
+        "las" | "laz" => {
+            let tr = cc_cad::i18n::catalog();
+            let file = infile();
+            let info = cc_io_civil::pointcloud::read_cloud_info(&tr, &file)?;
+            let cloud = cc_io_civil::pointcloud::load_cloud(&tr, &file, &info, 400_000.0)?;
+            let ground_class = cloud.cls.is_some() && cloud.class_counts.get(2).is_some_and(|n| *n > 0.0);
+            let mut pts = Vec::new();
+            for i in 0..cloud.n {
+                if ground_class && cloud.cls.as_ref().and_then(|c| c.get(i)).copied() != Some(2) {
+                    continue;
+                }
+                pts.push(P3 { x: cloud.p(i, 0) + cloud.origin[0], y: cloud.p(i, 1) + cloud.origin[1], z: cloud.p(i, 2) + cloud.origin[2] });
+            }
+            let unit = cloud.unit.clone().filter(|u| unit_mm(u).is_some()).unwrap_or_else(|| unit0.to_string());
+            let cell = 1000.0 / unit_mm(&unit).unwrap_or(1.0);
+            Ok((cc_bim::draw::resground::thin_to_grid(&pts, cell), Vec::new(), unit))
+        }
+        "tif" | "tiff" | "asc" => {
+            let src = cc_io_civil::raster::open_raster(&[infile()])?;
+            let step = m::max(1.0, (src.width * src.height / 15000.0).sqrt().ceil());
+            let grid = cc_io_civil::raster::read_window(&src, None, None, None, None, Some(step))?;
+            let g = cc_io_civil::terrain::grid_points(&grid, &src.gt, &|x, y| Ok([x, y]), 1.0, "", 1.0)?;
+            let unit = src.z_unit.filter(|u| unit_mm(u).is_some()).map_or_else(|| unit0.to_string(), str::to_string);
+            Ok((g.iter().map(|p| P3 { x: p.x, y: p.y, z: p.z }).collect(), Vec::new(), unit))
+        }
+        "dxf" | "dwg" => {
+            let model = if ext == "dwg" {
+                cc_io_dwg::read::read_dwg(&f.bytes, &cc_io_dwg::read::ReadOpts::default())
+            } else {
+                cc_io_dwg::dxf_model::read_dxf_model(&String::from_utf8_lossy(&f.bytes))
+            };
+            let (lines, points) = cc_bim::draw::resground::drawing_contours(&model, 2_000_000);
+            Ok((points, lines, unit0.to_string()))
+        }
+        _ => Ok((
+            cc_bim::draw::resground::parse_point_text(&String::from_utf8_lossy(&f.bytes), "auto", 2_000_000),
+            Vec::new(),
+            unit0.to_string(),
+        )),
+    }
+}
+
+/// `groundFromFile(f)`: the ground from a survey file, moved near the building and set on its datum.
+fn ground_from_file(app: &mut UiApp, f: &crate::ImportedFile) {
+    use cc_civil::geo::P3;
+    cc_bim::draw::resterrain::set_ground_loaded(true);
+    app.message = bt("res.tr.reading", &[("name", &f.name)]);
+    let unit0 = app.bimh.draw.res.tr_unit.clone();
+    let (points, lines, unit) = match read_ground_file(f, &unit0) {
+        Ok(r) => r,
+        Err(e) => {
+            app.error = Some(bt("res.err.readground", &[("why", &e)]));
+            return;
+        }
+    };
+    app.message.clear();
+    let all: Vec<P3> = points.iter().chain(lines.iter().flatten()).copied().collect();
+    if all.len() < 3 {
+        app.error = Some(bt("res.err.nosurvey", &[]));
+        return;
+    }
+    let k = unit_mm(&unit).unwrap_or(1.0);
+    // buildingCentre(): the walls' middle, in the world
+    let walls = walls_here(&app.bimh.draw);
+    let c = if walls.is_empty() {
+        [0.0, 0.0]
+    } else {
+        let n = walls.len() as f64;
+        let (x, y) = walls.iter().fold((0.0, 0.0), |a, w| (a.0 + w.a[0] + w.b[0], a.1 + w.a[1] + w.b[1]));
+        let q = to_world(&app.bimh.draw.res, [x / n / 2.0, y / n / 2.0]);
+        [q[0], q[1]]
+    };
+    let offset = cc_bim::draw::resground::auto_offset(&all, k, c);
+    // the datum: the ground near the building sits 8" under the first floor
+    let mut near: Vec<f64> =
+        all.iter().filter(|p| m::hypot(p.x * k - offset[0] - c[0], p.y * k - offset[1] - c[1]) < 10000.0).map(|p| p.z).collect();
+    if near.is_empty() {
+        near = all.iter().map(|p| p.z).collect();
+    }
+    near.sort_by(f64::total_cmp);
+    let datum = near.get(near.len() / 2).copied().unwrap_or(0.0) + 200.0 / k;
+    let to_j = |v: &[P3]| -> J {
+        J::Array(cc_bim::draw::resground::to_model(v, k, offset, datum).iter().map(|p| json!({ "x": p.x, "y": p.y, "z": p.z })).collect())
+    };
+    let source = match f.name.to_ascii_lowercase().rsplit('.').next().unwrap_or("") {
+        "las" | "laz" => "las",
+        "tif" | "tiff" | "asc" => "grid",
+        "dxf" | "dwg" => "contours",
+        _ => "points",
+    };
+    let spec = json!({
+        "source": source, "points": to_j(&points), "lines": lines.iter().map(|l| to_j(l)).collect::<Vec<_>>(),
+        "datum": datum, "offset": [offset[0], offset[1]], "unit": unit,
+        "interval": if app.bimh.draw.units == "mm" { 500.0 } else { 304.8 },
+    });
+    run_res(app, "placeTerrain", vec![spec], &bt("res.terrain", &[]), &placed());
+}
+
+/// `exportLandXml()`: the existing and finished ground as LandXML for CivilCraft.
+fn land_xml(app: &mut UiApp) -> Result<(), String> {
+    cc_bim::draw::resterrain::set_ground_loaded(true);
+    let name = app.ifc_name().to_string();
+    let base = if name.to_ascii_lowercase().ends_with(".ifc") {
+        name.get(..name.len().saturating_sub(4)).unwrap_or(&name).to_string()
+    } else {
+        name
+    };
+    let base = if base.is_empty() { "model".to_string() } else { base };
+    let unit = if app.bimh.draw.units == "mm" { "m" } else { "ft" };
+    let text = {
+        let doc = app.bimh.ed.as_mut().ok_or_else(|| bt("res.err.noterrain", &[]))?;
+        let mut w = W::new(&mut doc.ed.api).map_err(|e| e.0)?;
+        let trn = read_terrain(&mut w).map_err(|e| e.0)?.ok_or_else(|| bt("res.err.noterrain", &[]))?;
+        let ex = cc_bim::draw::resterrain::existing_surface(&trn).ok_or_else(|| bt("res.err.noterrain", &[]))?;
+        let fin = cc_bim::draw::resterrain::finished_surface(&mut w, &trn).map_err(|e| e.0)?.ok_or_else(|| bt("res.err.noterrain", &[]))?;
+        let date = cc_engine::cmd::layout::iso_date(cc_clock::now_ms());
+        cc_bim::draw::resground::land_xml(&[(bt("res.tr.existing", &[]), &ex), (bt("res.tr.finished", &[]), &fin)], &base, unit, &date)
+    };
+    let file = format!("{base} terrain.xml");
+    let save = app.services.save.as_mut().ok_or("Saving is not available here")?;
+    if save(&file, text.into_bytes())?.is_some() {
+        app.message = bt("res.tr.xmldone", &[]);
+    }
+    Ok(())
+}
+
+/// web: the survey file the browser's picker read.
+pub fn sync(app: &mut UiApp) {
+    if app.bimh.draw.res.ground_reading
+        && let Some(files) = app.services.picked.as_ref().and_then(|p| p.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take())
+    {
+        r(app).ground_reading = false;
+        if let Some(f) = files.into_iter().next() {
+            ground_from_file(app, &f);
+        }
     }
 }

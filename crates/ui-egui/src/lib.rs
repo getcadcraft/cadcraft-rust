@@ -2294,6 +2294,7 @@ impl UiApp {
         lispdlg::window(self, &ctx);
         // the Library panel's picker and network answers (any view: the panel serves the drawing viewer too)
         bimlib::sync(self);
+        bimres::sync(self);
         bimlib::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);

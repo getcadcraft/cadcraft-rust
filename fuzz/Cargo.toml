@@ -72,6 +72,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "bim_ground"
+path = "fuzz_targets/bim_ground.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "bim_libfiles"
 path = "fuzz_targets/bim_libfiles.rs"
 test = false

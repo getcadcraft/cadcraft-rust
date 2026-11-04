@@ -758,6 +758,39 @@ impl Run {
                 crate::draw::resterrain::set_ground_loaded(true);
                 json!({ "ok": true })
             }
+            // res-terrain.js inputs: survey text → points, then toModel with autoOffset (as res-ui.js groundFromFile)
+            "groundText" => {
+                let g = crate::draw::resground::parse_point_text(
+                    o.get("text").and_then(J::as_str).unwrap_or(""),
+                    o.get("format").and_then(J::as_str).unwrap_or("auto"),
+                    1_000_000,
+                );
+                let k = o.get("unitMm").and_then(J::as_f64).unwrap_or(1.0);
+                let off = crate::draw::resground::auto_offset(&g, k, [0.0, 0.0]);
+                let thin = crate::draw::resground::thin_to_grid(&g, o.get("cell").and_then(J::as_f64).unwrap_or(1.0));
+                let p3 = |v: &[cc_civil::geo::P3]| v.iter().map(|p| json!([jn(p.x), jn(p.y), jn(p.z)])).collect::<Vec<_>>();
+                json!({ "points": p3(&g), "offset": [jn(off[0]), jn(off[1])], "model": p3(&crate::draw::resground::to_model(&g, k, off, 0.0)), "thin": p3(&thin) })
+            }
+            "landXml" | "contours" => match crate::draw::writer::W::new(&mut ed.api).and_then(|mut w| {
+                let Some(trn) = crate::draw::resterrain::read_terrain(&mut w)? else { return Ok(json!(null)) };
+                let ex = crate::draw::resterrain::existing_surface(&trn);
+                let fin = crate::draw::resterrain::finished_surface(&mut w, &trn)?;
+                let (Some(ex), Some(fin)) = (ex, fin) else { return Ok(json!(null)) };
+                if op == "contours" {
+                    let c = fin.contours(o.get("interval").and_then(J::as_f64).unwrap_or(trn.interval), 0.0, 2000.0).unwrap_or_default();
+                    return Ok(json!(c.iter().map(|c| json!({ "z": jn(c.z), "n": c.pts.len(), "closed": c.closed })).collect::<Vec<_>>()));
+                }
+                let s = |k: &str| o.get(k).and_then(J::as_str).unwrap_or("").to_string();
+                Ok(J::String(crate::draw::resground::land_xml(
+                    &[(s("existing"), &ex), (s("finished"), &fin)],
+                    &s("name"),
+                    &s("unit"),
+                    &s("date"),
+                )))
+            }) {
+                Ok(v) => v,
+                Err(e) => err(&e.0),
+            },
             "res" => match res_json(&mut ed.api) {
                 Ok(v) => v,
                 Err(e) => err(&e.0),

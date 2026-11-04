@@ -51,9 +51,16 @@ pub struct Terrain {
     pub pts: Vec<P3>,
     pub faces: Vec<Vec<f64>>,
     pub key: String,
+    pub source: String,
+    pub datum: f64,
+    pub offset: [f64; 2],
+    pub interval: f64,
+    pub cut: f64,
+    pub fill: f64,
+    pub unit: String,
 }
 
-fn site_of(w: &W<'_>) -> Option<Id> {
+pub(crate) fn site_of(w: &W<'_>) -> Option<Id> {
     w.ids("IFCSITE").first().copied()
 }
 
@@ -79,7 +86,30 @@ pub fn read_terrain(w: &mut W<'_>) -> R<Option<Terrain>> {
             })
             .collect();
         let faces = unpack(&s_or(&ps, "Faces"), 3);
-        return Ok(Some(Terrain { id, guid: l.a("GlobalId").val_str().unwrap_or_default(), pts, faces, key: s_or(&ps, "ShapeKey") }));
+        // `Number(ps.X || 0)`, `Number(ps.Interval) * unitMm || FT`, `ps.Source || 'points'`
+        let n0 = |k: &str| {
+            let v = num(&ps, k);
+            if v.is_nan() { 0.0 } else { v }
+        };
+        let iv = num(&ps, "Interval") * w.unit_mm;
+        let or = |k: &str, d: &str| {
+            let v = s_or(&ps, k);
+            if v.is_empty() { d.to_string() } else { v }
+        };
+        return Ok(Some(Terrain {
+            id,
+            guid: l.a("GlobalId").val_str().unwrap_or_default(),
+            pts,
+            faces,
+            key: s_or(&ps, "ShapeKey"),
+            source: or("Source", "points"),
+            datum: n0("Datum"),
+            offset: [n0("OffsetX"), n0("OffsetY")],
+            interval: if iv != 0.0 && !iv.is_nan() { iv } else { 304.8 },
+            cut: n0("Cut"),
+            fill: n0("Fill"),
+            unit: or("Unit", "mm"),
+        }));
     }
     Ok(None)
 }
@@ -97,6 +127,7 @@ pub fn existing_surface(t: &Terrain) -> Option<Surface> {
 #[derive(Clone, Debug)]
 pub struct Pad {
     pub id: Id,
+    pub guid: String,
     pub level: String,
     pub seed: V2,
     pub margin: f64,
@@ -110,8 +141,10 @@ pub fn read_pads(w: &mut W<'_>) -> R<Vec<Pad>> {
     for id in w.ids("IFCGEOGRAPHICELEMENT") {
         let Some(ps) = w.read_pset(id, PAD_PSET)? else { continue };
         let slope = num(&ps, "Slope");
+        let guid = w.must(id)?.a("GlobalId").val_str().unwrap_or_default();
         out.push(Pad {
             id,
+            guid,
             level: s_or(&ps, "Level"),
             seed: [num(&ps, "SeedX") * um, num(&ps, "SeedY") * um],
             margin: num(&ps, "Margin") * um,
@@ -126,6 +159,8 @@ pub fn read_pads(w: &mut W<'_>) -> R<Vec<Pad>> {
 #[derive(Clone, Debug)]
 pub struct Hard {
     pub id: Id,
+    pub guid: String,
+    pub storey: Option<Id>,
     pub level: String,
     pub kind: String,
     pub points: Vec<V2>,
@@ -135,6 +170,7 @@ pub struct Hard {
 pub fn read_hardscape(w: &mut W<'_>) -> R<Vec<Hard>> {
     let mut out = Vec::new();
     let um = w.unit_mm;
+    let so = w.storey_of()?;
     for id in w.ids("IFCSLAB") {
         let Some(ps) = w.read_pset(id, HARD_PSET)? else { continue };
         let points = s_or(&ps, "Points")
@@ -146,8 +182,11 @@ pub fn read_hardscape(w: &mut W<'_>) -> R<Vec<Hard>> {
             })
             .collect();
         let k = s_or(&ps, "Kind");
+        let guid = w.must(id)?.a("GlobalId").val_str().unwrap_or_default();
         out.push(Hard {
             id,
+            guid,
+            storey: so.get(&cc_io_ifc::model::id_key(id)).copied(),
             level: s_or(&ps, "Level"),
             kind: if HARD_KINDS.contains(&k.as_str()) { k } else { "walk".into() },
             points,
@@ -196,7 +235,7 @@ fn dist_to(p: V2, poly: &[V2]) -> f64 {
     let n = poly.len();
     m::min_of((0..n).map(|i| seg_dist(p, at(poly, i), at(poly, nx(i, n)))))
 }
-fn offset_out(p: &[V2], d: f64) -> Vec<V2> {
+pub(crate) fn offset_out(p: &[V2], d: f64) -> Vec<V2> {
     let n = p.len();
     let e: Vec<(V2, V2, V2)> = (0..n)
         .map(|i| {
@@ -306,7 +345,7 @@ pub fn grade_surface(existing: &Surface, pads: &[PadShape]) -> Option<Surface> {
 }
 
 /// `cutFill(existing, finished)` → (cut, fill) in m³.
-fn cut_fill(existing: &Surface, finished: &Surface) -> (f64, f64) {
+pub(crate) fn cut_fill(existing: &Surface, finished: &Surface) -> (f64, f64) {
     let cell = 250.0;
     let b = existing.stats().bounds;
     let (mut cut, mut fill) = (0.0, 0.0);
@@ -413,7 +452,7 @@ fn p3_key(p: Option<&P3>) -> K {
 }
 
 /// `writeTerrain(w, trn, { levels })`: the terrain's body again — the existing ground with every pad graded in.
-fn write_terrain(w: &mut W<'_>, trn: &Terrain, levels: &[Level]) -> R<bool> {
+pub(crate) fn write_terrain(w: &mut W<'_>, trn: &Terrain, levels: &[Level]) -> R<bool> {
     let Some(existing) = existing_surface(trn) else { return Ok(false) };
     let mut pads = Vec::new();
     for pd in read_pads(w)? {
@@ -490,7 +529,7 @@ fn write_terrain(w: &mut W<'_>, trn: &Terrain, levels: &[Level]) -> R<bool> {
 }
 
 /// `writeHardscape(w, h, finished, levels)`
-fn write_hardscape(w: &mut W<'_>, h: &Hard, finished: &Surface, levels: &[Level]) -> R<bool> {
+pub(crate) fn write_hardscape(w: &mut W<'_>, h: &Hard, finished: &Surface, levels: &[Level]) -> R<bool> {
     let Some(lv) = levels.iter().find(|l| l.guid.as_deref() == Some(h.level.as_str())) else { return Ok(false) };
     if h.points.len() < 3 {
         return Ok(false);
@@ -553,7 +592,7 @@ fn write_hardscape(w: &mut W<'_>, h: &Hard, finished: &Surface, levels: &[Level]
 }
 
 /// `finishedSurface(w, trn)`
-fn finished_surface(w: &mut W<'_>, trn: &Terrain) -> R<Option<Surface>> {
+pub fn finished_surface(w: &mut W<'_>, trn: &Terrain) -> R<Option<Surface>> {
     let Some(ex) = existing_surface(trn) else { return Ok(None) };
     let levels = crate::draw::levels::read_levels(w)?;
     let mut pads = Vec::new();

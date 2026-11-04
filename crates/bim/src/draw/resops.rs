@@ -156,6 +156,15 @@ impl ResOp {
                 Ok(crate::draw::resframe::read_framing(w)?.into_iter().map(|f| (f.guid, [vec![f.id], f.parts].concat())).collect())
             }),
             "keepPiece" => keep_piece(w, &g0),
+            "placeTerrain" => crate::draw::resground::place_terrain(w, self.args.get_mut(0).ok_or_else(|| fail("model.err.gone"))?),
+            "changeTerrain" => crate::draw::resground::change_terrain(w, &g0, &a1),
+            "removeTerrain" => crate::draw::resground::remove_terrain(w, &g0),
+            "placePad" => crate::draw::resground::place_pad(w, self.args.get_mut(0).ok_or_else(|| fail("model.err.gone"))?),
+            "changePad" => crate::draw::resground::change_pad(w, &g0, &a1),
+            "removePads" => crate::draw::resground::remove_pads(w, &gl),
+            "placeHardscape" => crate::draw::resground::place_hardscape(w, self.args.get_mut(0).ok_or_else(|| fail("model.err.gone"))?),
+            "changeHardscape" => crate::draw::resground::change_hardscape(w, &g0, &a1),
+            "removeHardscape" => crate::draw::resground::remove_hardscape(w, &gl),
             other => Err(crate::api::JsErr(format!("unknown residential op {other}"))),
         }
     }

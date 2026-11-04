@@ -168,6 +168,7 @@ mod web {
                                 let input = kind == "input";
                                 let prj = kind == "prj";
                                 let grid = kind == "grid";
+                                let ground = kind == "ground";
                                 let mine = kind == "mytools";
                                 let cuix = kind == "cuix";
                                 let icon = kind == "icon";
@@ -202,6 +203,11 @@ mod web {
                                         rfd::AsyncFileDialog::new().add_filter(".prj", &["prj", "txt", "wkt"])
                                     } else if grid {
                                         rfd::AsyncFileDialog::new().add_filter("Grid shift files", &["gsb", "tif", "tiff"])
+                                    } else if ground {
+                                        rfd::AsyncFileDialog::new().add_filter(
+                                            "Survey files",
+                                            &["csv", "txt", "xyz", "pnezd", "dxf", "dwg", "las", "laz", "tif", "tiff", "asc"],
+                                        )
                                     } else {
                                         rfd::AsyncFileDialog::new().add_filter("Drawings", &["dwg", "dxf"])
                                     };

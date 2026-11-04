@@ -289,6 +289,9 @@ fn pick_files(kind: &str, multiple: bool) -> Option<Vec<ImportedFile>> {
         rfd::FileDialog::new().add_filter("Icons", &["png", "svg", "PNG", "SVG"])
     } else if kind == "lisp" {
         rfd::FileDialog::new().add_filter("LISP", &["lsp", "dcl", "fas", "vlx", "arx", "crx", "dbx", "dvb", "craft", "lua", "LSP", "DCL"])
+    } else if kind == "ground" {
+        // BimCraft's Terrain › Open (res-ui.js data-res-trfile): survey points, contours, a scan, a grid
+        rfd::FileDialog::new().add_filter("Survey files", &["csv", "txt", "xyz", "pnezd", "dxf", "dwg", "las", "laz", "tif", "tiff", "asc"])
     } else if kind == "cloud" {
         rfd::FileDialog::new().add_filter("Point clouds", &["las", "laz", "xyz", "pts", "LAS", "LAZ", "XYZ", "PTS"])
     } else if kind == "gis" {
