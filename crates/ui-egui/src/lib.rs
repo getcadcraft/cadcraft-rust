@@ -187,6 +187,10 @@ pub struct Services {
     /// desktop: a folder's entries (name, is a folder) — the drawing viewer walks the project folder for linked drawings
     /// and pictures (folder-pick.js); None = this host cannot list folders (web)
     pub list_dir: Option<ListDir>,
+    /// web: open the browser's folder picker (the directory picker, or `<input webkitdirectory>`); the folder arrives
+    /// in `folder_picked`: Ok(Some) its files, Ok(None) cancelled, Err why it could not be read
+    pub pick_folder_async: Option<Box<dyn FnMut()>>,
+    pub folder_picked: Option<FolderSlot>,
     /// where recovery copies of unsaved work go (desktop: a locked folder in the config dir; web: browser storage);
     /// None = the window cannot keep them, and says so (recover.rs)
     pub recovery: Option<cc_recovery::Service>,
@@ -195,6 +199,18 @@ pub struct Services {
     pub fetch: Option<Fetch>,
     pub fetched: Option<Arc<Mutex<Vec<Fetched>>>>,
 }
+
+/// A folder the browser picked (see `Services::pick_folder_async`): its name, every file in it ("a/b.dwg" paths) and,
+/// when the folder can be written (the directory picker), how to write a file back.
+pub struct PickedFolder {
+    pub name: String,
+    pub files: Vec<(String, Vec<u8>)>,
+    pub write: Option<FolderWrite>,
+}
+/// Write a file into a picked folder (path, bytes).
+pub type FolderWrite = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
+/// Where a picked folder lands.
+pub type FolderSlot = std::rc::Rc<std::cell::RefCell<Option<Result<Option<PickedFolder>, String>>>>;
 
 /// Ask a map server for a URL (see `Services::fetch`).
 pub type Fetch = Box<dyn FnMut(&str)>;

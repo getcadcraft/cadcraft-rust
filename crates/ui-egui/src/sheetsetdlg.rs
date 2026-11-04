@@ -6,7 +6,9 @@
 //! on a sheet, Archive as a zip, and undo / redo of set changes. SHEETSET (SSM) shows it. Every action is an `ss.*`
 //! command.
 //!
-//! Folders come through `Services::pick_folder` (desktop); the web build has none yet and says so.
+//! Folders come through `Services::pick_folder` (desktop: a folder on disk) or `Services::pick_folder_async` (the web:
+//! the browser's directory picker, read and written in place, or its `<input webkitdirectory>` fallback, read only —
+//! sheetset-panel.js `folderFromHandle` / `folderFromFiles`); a picked folder is kept as [`MemFolder`].
 
 use cc_engine::Lang;
 use cc_engine::sheetset as ss;
@@ -14,7 +16,103 @@ use cc_engine::sheetset_io::{self as io, Folder};
 use egui::RichText;
 use serde_json::{Value, json};
 
-use crate::{ImportedFile, Params, UiApp};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use crate::{FolderWrite, ImportedFile, Params, PickedFolder, UiApp};
+
+/// A folder the browser picked: its files in memory; written through to the folder on disk when the browser lets
+/// (the directory picker), else read only.
+/// A folder's files: ("a/b.dwg", bytes), sorted.
+type Files = Rc<RefCell<Vec<(String, Vec<u8>)>>>;
+
+#[derive(Clone)]
+pub struct MemFolder {
+    pub name: String,
+    files: Files,
+    write: Option<Rc<RefCell<FolderWrite>>>,
+}
+impl MemFolder {
+    pub fn new(p: PickedFolder) -> MemFolder {
+        MemFolder { name: p.name, files: Rc::new(RefCell::new(p.files)), write: p.write.map(|w| Rc::new(RefCell::new(w))) }
+    }
+}
+impl Folder for MemFolder {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
+        self.files.borrow().iter().find(|f| f.0 == path).map(|f| f.1.clone()).ok_or_else(|| "not in the folder".to_string())
+    }
+    fn write(&mut self, path: &str, data: &[u8]) -> Option<Result<(), String>> {
+        let w = self.write.as_ref()?;
+        if path.split('/').any(|p| p == "..") || path.starts_with('/') {
+            return Some(Err("outside the set's folder".into()));
+        }
+        {
+            let mut f = self.files.borrow_mut();
+            match f.iter_mut().find(|x| x.0 == path) {
+                Some(x) => x.1 = data.to_vec(),
+                None => {
+                    f.push((path.to_string(), data.to_vec()));
+                    f.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
+                }
+            }
+        }
+        Some((w.borrow_mut())(path, data))
+    }
+    fn writable(&self) -> bool {
+        self.write.is_some()
+    }
+    fn list(&mut self) -> Option<Vec<String>> {
+        Some(self.files.borrow().iter().map(|f| f.0.clone()).collect())
+    }
+}
+
+/// The set's folder: on disk, or picked by the browser.
+pub enum SetFolder {
+    Dir(io::DirFolder),
+    Mem(MemFolder),
+}
+impl Folder for SetFolder {
+    fn name(&self) -> String {
+        match self {
+            SetFolder::Dir(d) => d.name(),
+            SetFolder::Mem(m) => m.name(),
+        }
+    }
+    fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
+        match self {
+            SetFolder::Dir(d) => d.read(path),
+            SetFolder::Mem(m) => m.read(path),
+        }
+    }
+    fn write(&mut self, path: &str, data: &[u8]) -> Option<Result<(), String>> {
+        match self {
+            SetFolder::Dir(d) => d.write(path, data),
+            SetFolder::Mem(m) => m.write(path, data),
+        }
+    }
+    fn writable(&self) -> bool {
+        match self {
+            SetFolder::Dir(d) => d.writable(),
+            SetFolder::Mem(m) => m.writable(),
+        }
+    }
+    fn list(&mut self) -> Option<Vec<String>> {
+        match self {
+            SetFolder::Dir(d) => d.list(),
+            SetFolder::Mem(m) => m.list(),
+        }
+    }
+}
+
+/// What a browser folder pick was for.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pending {
+    Open,
+    New { name: String, pname: String, pnumber: String },
+}
 
 /// A dialog the panel has open.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +147,10 @@ pub struct SheetSetPanel {
     /// ("set" | "subset" | "sheet", id)
     pub sel: Option<(String, String)>,
     pub form: Option<Form>,
+    /// the folder the browser picked (the web; `folder` is then None)
+    pub mem: Option<MemFolder>,
+    /// a browser folder pick is open for this
+    pub pending: Option<Pending>,
 }
 
 /// UI commands of the panel.
@@ -95,9 +197,12 @@ fn print(app: &mut UiApp, s: &str) {
     }
 }
 
-fn folder_of(app: &UiApp) -> Option<io::DirFolder> {
+fn folder_of(app: &UiApp) -> Option<SetFolder> {
+    if let Some(m) = &app.sheetset.mem {
+        return Some(SetFolder::Mem(m.clone()));
+    }
     let p = app.sheetset.folder.as_ref()?;
-    Some(io::DirFolder { root: std::path::PathBuf::from(p), writable: app.sheetset.writable })
+    Some(SetFolder::Dir(io::DirFolder { root: std::path::PathBuf::from(p), writable: app.sheetset.writable }))
 }
 fn folder_name(app: &UiApp) -> String {
     folder_of(app).map(|f| f.name()).unwrap_or_default()
@@ -196,8 +301,12 @@ fn edit(app: &mut UiApp, next: Value, said: Option<String>) {
 }
 
 fn open_from_folder(app: &mut UiApp, folder: &str, file: &str) -> bool {
+    open_from(app, SetFolder::Dir(io::DirFolder { root: std::path::PathBuf::from(folder), writable: true }), file)
+}
+
+/// `openFromFolder(folder, setFile)`: a folder on disk, or one the browser picked.
+fn open_from(app: &mut UiApp, mut f: SetFolder, file: &str) -> bool {
     let l = lang();
-    let mut f = io::DirFolder { root: std::path::PathBuf::from(folder), writable: true };
     let text = match f.read(file) {
         Ok(b) => String::from_utf8_lossy(&b).into_owned(),
         Err(e) => {
@@ -214,18 +323,19 @@ fn open_from_folder(app: &mut UiApp, folder: &str, file: &str) -> bool {
     };
     let n = ss::all_sheets(&set).len();
     let name = set.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-    let p = &mut app.sheetset;
-    *p = SheetSetPanel {
-        open: true,
-        set: Some(set),
-        folder: Some(folder.into()),
-        set_file: file.into(),
-        writable: true,
-        ..Default::default()
+    let writable = f.writable();
+    let (folder, mem) = match &f {
+        SetFolder::Dir(d) => (Some(d.root.display().to_string()), None),
+        SetFolder::Mem(m) => (None, Some(m.clone())),
     };
+    let p = &mut app.sheetset;
+    *p = SheetSetPanel { open: true, set: Some(set), folder, mem, set_file: file.into(), writable, ..Default::default() };
     print(app, &tv("sheetset.opened", &[("name", name), ("n", n.to_string()), ("folder", f.name())]));
     for x in notes {
         print(app, &format!("  {x}"));
+    }
+    if !writable {
+        print(app, &t("sheetset.readonly"));
     }
     true
 }
@@ -249,6 +359,13 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "ss.show" => app.sheetset.open = true,
         "ss.hide" => app.sheetset.open = false,
         "ss.open" => {
+            // "|<set file>": the folder the browser picked
+            if let (Some((a, b)), Some(m)) = (name.split_once('|'), app.sheetset.mem.clone())
+                && a.is_empty()
+            {
+                open_from(app, SetFolder::Mem(m), b);
+                return Ok(());
+            }
             let (folder, file) = match name.split_once('|') {
                 Some((a, b)) => (a.to_string(), Some(b.to_string())),
                 None if !name.is_empty() => (name.clone(), None),
@@ -258,7 +375,9 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                         None => return Ok(()),
                     },
                     None => {
-                        print(app, "Sheet sets need a folder: the desktop app opens one (this build cannot yet).");
+                        if let Err(e) = pick_web(app, Pending::Open) {
+                            print(app, &e);
+                        }
                         return Ok(());
                     }
                 },
@@ -755,9 +874,13 @@ fn open_sheet(app: &mut UiApp, sid: &str) -> Result<(), String> {
         }
     };
     let name = file.rsplit('/').next().unwrap_or(&file).to_string();
-    let dir = std::path::Path::new(app.sheetset.folder.as_deref().unwrap_or("")).join(file.rsplit_once('/').map_or("", |x| x.0));
+    let dir = app
+        .sheetset
+        .folder
+        .as_deref()
+        .map(|f| std::path::Path::new(f).join(file.rsplit_once('/').map_or("", |x| x.0)).display().to_string());
     let keep = std::mem::take(&mut app.sheetset);
-    app.open_file(&ImportedFile { name, bytes, dir: Some(dir.display().to_string()) });
+    app.open_file(&ImportedFile { name, bytes, dir });
     app.sheetset = keep;
     app.run_ui_pub("file.edit", &Params::default());
     let idx = app.editor.as_ref().and_then(|e| e.eng.doc().layouts.iter().position(|x| x.name == lay));
@@ -765,6 +888,76 @@ fn open_sheet(app: &mut UiApp, sid: &str) -> Result<(), String> {
         app.run_ui_pub("space.select", &Params { index: Some(i.saturating_add(1)), ..Default::default() });
     }
     Ok(())
+}
+
+/// The web: open the browser's folder picker for this (sheetset-panel.js `pickFolder`; no picker here: 0.5's word).
+fn pick_web(app: &mut UiApp, why: Pending) -> Result<(), String> {
+    match app.services.pick_folder_async.as_mut() {
+        Some(pick) => {
+            app.sheetset.pending = Some(why);
+            pick();
+            Ok(())
+        }
+        None => Err("Sheet sets need a folder: this window cannot open one.".into()),
+    }
+}
+
+/// The folder the browser picked: the open or the new set it was for goes on (sheetset-panel.js `openSet` / `newSet`).
+fn web_folder(app: &mut UiApp) {
+    if app.sheetset.pending.is_none() {
+        return;
+    }
+    let got = app.services.folder_picked.as_ref().and_then(|s| s.borrow_mut().take());
+    let Some(got) = got else { return };
+    let Some(why) = app.sheetset.pending.take() else { return };
+    match got {
+        Ok(Some(p)) => picked_folder(app, MemFolder::new(p), why),
+        Ok(None) => {}
+        Err(e) => print(app, &e),
+    }
+}
+
+/// A folder the browser picked, for opening a set or starting one.
+pub fn picked_folder(app: &mut UiApp, mut m: MemFolder, why: Pending) {
+    match why {
+        Pending::Open => {
+            let sets: Vec<String> =
+                m.list().unwrap_or_default().into_iter().filter(|p| p.to_lowercase().ends_with(ss::EXT) && !p.contains('/')).collect();
+            match sets.as_slice() {
+                [] => print(app, &tv("sheetset.none", &[("folder", m.name())])),
+                [one] => {
+                    let one = one.clone();
+                    open_from(app, SetFolder::Mem(m), &one);
+                }
+                _ => {
+                    app.sheetset.folder = None;
+                    app.sheetset.mem = Some(m);
+                    app.sheetset.form = Some(Form::Which { sets });
+                }
+            }
+        }
+        Pending::New { name, pname, pnumber } => {
+            let l = lang();
+            let mut set = ss::new_sheet_set(&name, &l);
+            let mut props = serde_json::Map::new();
+            for (v, k) in [(&pname, "PROJECTNAME"), (&pnumber, "PROJECTNUMBER")] {
+                if !v.is_empty() {
+                    props.insert(k.into(), json!(v));
+                }
+            }
+            if let Some(o) = set.as_object_mut() {
+                o.insert("properties".into(), Value::Object(props));
+            }
+            let file = format!("{}{}", cc_cad::js::slice16(&safe_name(&name), 120), ss::EXT);
+            let shown = set.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let fname = m.name();
+            let writable = m.writable();
+            app.sheetset =
+                SheetSetPanel { open: true, set: Some(set), mem: Some(m), set_file: file.clone(), writable, ..Default::default() };
+            save_set(app);
+            print(app, &tv("sheetset.created", &[("name", shown), ("file", file), ("folder", fname)]));
+        }
+    }
 }
 
 /// After every input: SHEETSET's request to show the panel.
@@ -783,6 +976,7 @@ pub fn sync(app: &mut UiApp) {
 
 /// The panel (a window beside the drawing) and its dialogs.
 pub fn window(app: &mut UiApp, ctx: &egui::Context) {
+    web_folder(app);
     if !app.sheetset.open {
         return;
     }
@@ -1126,6 +1320,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(tv("sheetset.which.text", &[("folder", fname.clone())]));
                     for s in sets.iter() {
                         if ui.button(s).clicked() {
+                            // (a folder the browser picked has no path: "|<file>")
                             ok = Some(("ss.open", format!("{folder}|{s}")));
                         }
                     }
@@ -1293,16 +1488,17 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
         return;
     }
     if picked_folder && let Form::New { name, pname, pnumber } = &form {
-        let folder = app.services.pick_folder.as_mut().and_then(|p| p());
         app.sheetset.form = None;
-        match folder {
-            Some(f) => {
-                app.run_ui_pub("ss.new", &Params { name: Some(format!("{}|{f}|{pname}|{pnumber}", name.trim())), ..Default::default() })
+        if app.services.pick_folder.is_none() {
+            let p = Pending::New { name: name.trim().to_string(), pname: pname.clone(), pnumber: pnumber.clone() };
+            if let Err(e) = pick_web(app, p) {
+                print(app, &e);
             }
-            None if app.services.pick_folder.is_none() => {
-                print(app, "Sheet sets need a folder: the desktop app opens one (this build cannot yet).")
-            }
-            None => {}
+            return;
+        }
+        let folder = app.services.pick_folder.as_mut().and_then(|p| p());
+        if let Some(f) = folder {
+            app.run_ui_pub("ss.new", &Params { name: Some(format!("{}|{f}|{pname}|{pnumber}", name.trim())), ..Default::default() });
         }
         return;
     }
@@ -1316,4 +1512,59 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
         return;
     }
     app.sheetset.form = Some(form);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// M4.60: a folder the browser picked — read only (`<input webkitdirectory>`) or written in place (the directory
+    /// picker) — opens a set, starts one, and saves the set file through the folder's writer.
+    #[test]
+    fn a_folder_the_browser_picked() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let l = lang();
+            let set = ss::new_sheet_set("Tower", &l);
+            let text = ss::write_sheet_set(&set);
+            let files = vec![("Tower.ccsheets".to_string(), text.into_bytes()), ("plans/a.dwg".to_string(), b"x".to_vec())];
+            // read only: opens, says so, keeps changes unsaved
+            let mut app = UiApp::default();
+            picked_folder(&mut app, MemFolder::new(PickedFolder { name: "job".into(), files: files.clone(), write: None }), Pending::Open);
+            assert!(app.sheetset.set.is_some() && !app.sheetset.writable);
+            assert_eq!(folder_name(&app), "job");
+            assert_eq!(folder_of(&app).and_then(|mut f| f.list()).map(|l| l.len()), Some(2));
+            app.run("ss.subset", &Params { name: Some("Arch".into()), ..Default::default() }).unwrap();
+            assert!(app.sheetset.unsaved);
+            // written in place: the writer gets the set file
+            let wrote: Rc<RefCell<Vec<String>>> = Rc::default();
+            let w2 = Rc::clone(&wrote);
+            let write: FolderWrite = Box::new(move |p: &str, _d: &[u8]| {
+                w2.borrow_mut().push(p.to_string());
+                Ok(())
+            });
+            let mut app = UiApp::default();
+            let m = MemFolder::new(PickedFolder { name: "job".into(), files, write: Some(write) });
+            picked_folder(&mut app, m.clone(), Pending::Open);
+            assert!(app.sheetset.writable);
+            app.run("ss.subset", &Params { name: Some("Arch".into()), ..Default::default() }).unwrap();
+            assert_eq!(wrote.borrow().as_slice(), ["Tower.ccsheets"]);
+            // a new set in the picked folder
+            picked_folder(&mut app, m, Pending::New { name: "Bridge".into(), pname: "P".into(), pnumber: String::new() });
+            assert_eq!(app.sheetset.set_file, "Bridge.ccsheets");
+            assert!(wrote.borrow().iter().any(|p| p == "Bridge.ccsheets"));
+            // two sets in a folder: the panel asks which, then "|<file>" opens it from the picked folder
+            let mut app = UiApp::default();
+            let two = vec![
+                ("A.ccsheets".to_string(), ss::write_sheet_set(&set).into_bytes()),
+                ("B.ccsheets".to_string(), ss::write_sheet_set(&set).into_bytes()),
+            ];
+            picked_folder(&mut app, MemFolder::new(PickedFolder { name: "j".into(), files: two, write: None }), Pending::Open);
+            assert!(matches!(app.sheetset.form, Some(Form::Which { .. })));
+            app.run("ss.open", &Params { name: Some("|B.ccsheets".into()), ..Default::default() }).unwrap();
+            assert_eq!(app.sheetset.set_file, "B.ccsheets");
+            // no picker at all: said, not crashed
+            let mut app = UiApp::default();
+            app.run("ss.open", &Params::default()).unwrap();
+        });
+    }
 }

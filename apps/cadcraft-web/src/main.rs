@@ -26,6 +26,9 @@ fn main() {
 mod recovery;
 
 #[cfg(target_arch = "wasm32")]
+mod folder;
+
+#[cfg(target_arch = "wasm32")]
 mod web {
     use std::sync::{Arc, Mutex, PoisonError};
 
@@ -150,6 +153,9 @@ mod web {
                         let fetched: Arc<Mutex<Vec<Fetched>>> = Arc::new(Mutex::new(Vec::new()));
                         let fetch_out = Arc::clone(&fetched);
                         let fetch_ctx = ctx.clone();
+                        let folder_slot: cc_ui_egui::FolderSlot = std::rc::Rc::default();
+                        let folder_out = std::rc::Rc::clone(&folder_slot);
+                        let folder_ctx = ctx.clone();
                         let services = Services {
                             pick_files: Some(Box::new(move |kind: &str, multiple: bool| {
                                 let slot = Arc::clone(&pick_slot);
@@ -276,6 +282,11 @@ mod web {
                             open_pdf: Some(Box::new(open_pdf)),
                             pick_folder: None,
                             list_dir: None,
+                            // the Sheet Set panel's folder (sheetset-panel.js pickFolder): the browser's picker
+                            pick_folder_async: Some(Box::new(move || {
+                                crate::folder::pick(std::rc::Rc::clone(&folder_out), folder_ctx.clone())
+                            })),
+                            folder_picked: Some(std::rc::Rc::clone(&folder_slot)),
                             recovery: Some(crate::recovery::service()),
                             // CivilCraft's map layers (gis-map-ui.js FETCH_OPTS: cors, no credentials, no referrer)
                             fetch: Some(Box::new(move |url: &str| {
