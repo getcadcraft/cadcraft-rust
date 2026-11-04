@@ -1,0 +1,1 @@
+{"format":"cadcraft-library-item","format_version":1,"name":"Box","kind":"equipment","category":"other/other","ifc":{"class":"IfcElectricAppliance"},"plan":{"entities":[{"type":"poly","closed":true,"pts":[[-300,-600],[300,-600],[300,0],[-300,0]]}]},"body":{"type":"box","x":-300,"y":-600,"z":0,"w":600,"d":600,"h":900}}

@@ -1,7 +1,8 @@
 //! ifc-edit.js — edits an open IFC model and saves it as a new IFC file: attributes (Name, Description, ObjectType,
 //! Tag), single property values (copy-on-write where exporters share sets and values), and building-tool changes
-//! (model-ops.js), and library placements (ifc-place.js `place`), each one change with undo and redo. Swaps, pastes and
-//! deletes of other elements are not ported yet.
+//! (model-ops.js), and library placements (ifc-place.js `place`), each one change with undo and redo. Swaps and updates of
+//! placed items, other placements of them (`placeLike`), deletes, snapshots and pastes of any element (ifc-elements.js),
+//! each one change.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,7 +11,7 @@ use cc_io_ifc::model::{Id, id_key};
 
 use crate::api::{JsErr, R};
 use crate::draw::ops::{Op, OpResult};
-use crate::draw::place::{PlaceOpts, Placed, Placer};
+use crate::draw::place::{FrameEl, PasteOpts, Pasted, PlaceOpts, Placed, Placer, Removed, Snap, Swapped};
 use crate::draw::tr::t0;
 use crate::draw::writer::{Journal, undo_journal};
 use crate::wapi::{Api, JV, P, TV};
@@ -62,26 +63,92 @@ pub enum Change {
         journal: Box<Journal>,
         op: Box<Op>,
     },
-    /// a library item placed (redo places it again: same item, same place, a new element id)
+    /// a library item placed (redo places it again: same item, same place, a new element id), or another placement of
+    /// one already placed (`placeLike`: copy, paste, duplicate)
     Place {
         id: Id,
         label: String,
         journal: Box<Journal>,
+        again: PlaceAgain,
+        opts: Box<PlaceOpts>,
+    },
+    /// a placed item swapped to another (kind "swap") or to a newer version of itself ("update")
+    Swap {
+        id: Id,
+        label: String,
+        journal: Box<Journal>,
+        what: String,
+        old: Option<String>,
+        value: String,
         item: Arc<serde_json::Value>,
         opts: Box<PlaceOpts>,
     },
+    /// elements deleted with their parts and openings (`removeElements`)
+    Remove {
+        id: Id,
+        ids: Vec<Id>,
+        label: String,
+        journal: Box<Journal>,
+        list: Vec<Id>,
+    },
+    /// copies of a snapshot (`pasteElements`)
+    Paste {
+        id: Option<Id>,
+        ids: Vec<Id>,
+        label: String,
+        journal: Box<Journal>,
+        snap: Arc<Snap>,
+        opts: Box<PasteOpts>,
+    },
+}
+
+/// What redo places again.
+#[derive(Clone, Debug)]
+pub enum PlaceAgain {
+    Item(Arc<serde_json::Value>),
+    /// `placeLike(srcId)`: the placement it copies
+    Like(Id),
 }
 
 impl Change {
     pub fn label(&self) -> &str {
         match self {
-            Change::Attr { label, .. } | Change::Prop { label, .. } | Change::Model { label, .. } | Change::Place { label, .. } => label,
+            Change::Attr { label, .. }
+            | Change::Prop { label, .. }
+            | Change::Model { label, .. }
+            | Change::Place { label, .. }
+            | Change::Swap { label, .. }
+            | Change::Remove { label, .. }
+            | Change::Paste { label, .. } => label,
         }
     }
     pub fn id(&self) -> Option<Id> {
         match self {
-            Change::Attr { id, .. } | Change::Prop { id, .. } | Change::Place { id, .. } => Some(*id),
-            Change::Model { id, .. } => *id,
+            Change::Attr { id, .. }
+            | Change::Prop { id, .. }
+            | Change::Place { id, .. }
+            | Change::Swap { id, .. }
+            | Change::Remove { id, .. } => Some(*id),
+            Change::Model { id, .. } | Change::Paste { id, .. } => *id,
+        }
+    }
+    /// The change list's kind ("attr", "prop", "model", "place", "swap", "update", "remove", "paste").
+    pub fn kind(&self) -> &str {
+        match self {
+            Change::Attr { .. } => "attr",
+            Change::Prop { .. } => "prop",
+            Change::Model { .. } => "model",
+            Change::Place { .. } => "place",
+            Change::Swap { what, .. } => what,
+            Change::Remove { .. } => "remove",
+            Change::Paste { .. } => "paste",
+        }
+    }
+    /// The elements a journaled change names (a remove's or a paste's list).
+    pub fn ids(&self) -> Vec<Id> {
+        match self {
+            Change::Model { ids, .. } | Change::Remove { ids, .. } | Change::Paste { ids, .. } => ids.clone(),
+            other => other.id().into_iter().collect(),
         }
     }
 }
@@ -138,7 +205,10 @@ impl Editor {
                 Change::Attr { label: l, .. }
                 | Change::Prop { label: l, .. }
                 | Change::Model { label: l, .. }
-                | Change::Place { label: l, .. } => *l = label.to_string(),
+                | Change::Place { label: l, .. }
+                | Change::Swap { label: l, .. }
+                | Change::Remove { label: l, .. }
+                | Change::Paste { label: l, .. } => *l = label.to_string(),
             }
         }
     }
@@ -387,7 +457,104 @@ impl Editor {
         } else {
             crate::draw::tr::t("ifcedit.change.item", &[("label", &name), ("item", &opts.item_number)])
         };
-        self.record(Change::Place { id: r.id, label, journal: Box::new(r.journal.clone()), item, opts: Box::new(opts) });
+        self.record(Change::Place {
+            id: r.id,
+            label,
+            journal: Box::new(r.journal.clone()),
+            again: PlaceAgain::Item(item),
+            opts: Box::new(opts),
+        });
+        Ok(r)
+    }
+
+    /// `placeLike(srcId, opts, { label })`: another placement of placement `src` → its id.
+    pub fn place_like(&mut self, src: Id, opts: PlaceOpts, label: &str) -> R<Id> {
+        let (id, _, journal) = Placer::new(&mut self.api)?.place_like(src, &opts)?;
+        self.reindex();
+        let name = if label.is_empty() {
+            crate::draw::tr::t("ifcedit.copy.label", &[("id", &crate::js::num_str(src))])
+        } else {
+            label.to_string()
+        };
+        let label = if opts.item_number.is_empty() {
+            name
+        } else {
+            crate::draw::tr::t("ifcedit.change.item", &[("label", &name), ("item", &opts.item_number)])
+        };
+        self.record(Change::Place { id, label, journal: Box::new(journal), again: PlaceAgain::Like(src), opts: Box::new(opts) });
+        Ok(id)
+    }
+
+    /// `swapItem(id, item, opts, { what })`: a placed item swapped (or updated) → what the swap did.
+    pub fn swap_item(&mut self, id: Id, item: Arc<serde_json::Value>, opts: PlaceOpts, old_name: Option<&str>, what: &str) -> R<Swapped> {
+        let r = Placer::new(&mut self.api)?.swap(id, &item, &opts, false)?;
+        self.reindex();
+        let name = item.get("name").map_or_else(|| "undefined".to_string(), |v| v.as_str().map_or_else(|| v.to_string(), str::to_string));
+        // `item.name + (item.version ? ' v' + item.version : '')`
+        let version = match item.get("version") {
+            Some(serde_json::Value::Number(n)) => n.as_f64().filter(|x| *x != 0.0 && !x.is_nan()).map(crate::js::num_str),
+            Some(serde_json::Value::String(t)) if !t.is_empty() => Some(t.clone()),
+            Some(serde_json::Value::Bool(true)) => Some("true".into()),
+            Some(serde_json::Value::Array(_) | serde_json::Value::Object(_)) => Some("[object Object]".into()),
+            _ => None,
+        };
+        let value = match version {
+            Some(v) => format!("{name} v{v}"),
+            None => name.clone(),
+        };
+        self.record(Change::Swap {
+            id,
+            label: name,
+            journal: Box::new(r.journal.clone()),
+            what: what.to_string(),
+            old: old_name.map(str::to_string),
+            value,
+            item,
+            opts: Box::new(opts),
+        });
+        Ok(r)
+    }
+
+    /// `removeElements(list, { label })`: delete elements with their parts and openings, one change.
+    pub fn remove_elements(&mut self, list: &[Id], label: &str) -> R<Removed> {
+        let now: Vec<Id> = list.iter().map(|x| self.now(*x)).collect();
+        let mut r = Placer::new(&mut self.api)?.remove(&now)?;
+        let Some(first) = r.removed.first().copied() else { return Ok(r) };
+        self.reindex();
+        let journal = r.journal.take().unwrap_or_default();
+        let label = if label.is_empty() { format!("#{}", crate::js::num_str(first)) } else { label.to_string() };
+        self.record(Change::Remove { id: first, ids: r.removed.clone(), label, journal: Box::new(journal), list: list.to_vec() });
+        Ok(r)
+    }
+
+    /// `snapshot(list)`: what Copy / Cut keep, plus the frame (turned like the first element, its box; or none).
+    pub fn snapshot(&mut self, list: &[Id]) -> R<Snap> {
+        let now: Vec<Id> = list.iter().map(|x| self.now(*x)).collect();
+        let mut pl = Placer::new(&mut self.api)?;
+        let mut snap = pl.snapshot(&now)?;
+        let z_base = match snap.storey {
+            Some(st) => pl.info().ok().and_then(|ss| ss.iter().find(|s| s.id == st).map(|s| s.elevation)).unwrap_or(0.0),
+            None => 0.0,
+        };
+        let els: Vec<FrameEl> =
+            snap.elements.iter().map(|e| FrameEl { id: e.id, class: e.line.class.to_string(), top: e.top, world: e.world }).collect();
+        snap.frame = pl.elements_frame(&els, snap.storey, z_base, 2_000_000).ok().flatten();
+        Ok(snap)
+    }
+
+    /// `pasteElements(snap, opts, { label })`: new copies → (top-level ids, every new id).
+    pub fn paste_elements(&mut self, snap: Arc<Snap>, opts: PasteOpts, label: &str) -> R<Pasted> {
+        let r = Placer::new(&mut self.api)?.paste(&snap, &opts)?;
+        self.reindex();
+        let label = if label.is_empty() { "Pasted".to_string() } else { label.to_string() };
+        self.record(Change::Paste {
+            id: r.ids.first().copied(),
+            ids: r.ids.clone(),
+            label,
+            journal: Box::new(r.journal.clone()),
+            snap,
+            opts: Box::new(opts),
+        });
         Ok(r)
     }
 
@@ -400,7 +567,11 @@ impl Editor {
     pub fn undo(&mut self) -> R<Option<&Change>> {
         let Some(c) = self.changes.pop() else { return Ok(None) };
         match &c {
-            Change::Model { journal, .. } | Change::Place { journal, .. } => {
+            Change::Model { journal, .. }
+            | Change::Place { journal, .. }
+            | Change::Swap { journal, .. }
+            | Change::Remove { journal, .. }
+            | Change::Paste { journal, .. } => {
                 undo_journal(&mut self.api, journal)?;
                 self.reindex();
             }
@@ -463,10 +634,39 @@ impl Editor {
                     op,
                 })
             }
-            Change::Place { id, label, item, opts, .. } => {
-                let r = Placer::new(&mut self.api)?.place(&item, &opts)?;
-                self.moved.insert(id_key(id), r.id);
-                Ok(Change::Place { id: r.id, label, journal: Box::new(r.journal), item, opts })
+            Change::Place { id, label, again, opts, .. } => {
+                let (nid, journal) = match &again {
+                    PlaceAgain::Item(item) => {
+                        let r = Placer::new(&mut self.api)?.place(item, &opts)?;
+                        (r.id, r.journal)
+                    }
+                    PlaceAgain::Like(src) => {
+                        let s = self.now(*src);
+                        let (nid, _, j) = Placer::new(&mut self.api)?.place_like(s, &opts)?;
+                        (nid, j)
+                    }
+                };
+                self.moved.insert(id_key(id), nid);
+                Ok(Change::Place { id: nid, label, journal: Box::new(journal), again, opts })
+            }
+            Change::Swap { id, label, what, old, value, item, opts, .. } => {
+                let nid = self.now(id);
+                let r = Placer::new(&mut self.api)?.swap(nid, &item, &opts, false)?;
+                Ok(Change::Swap { id: nid, label, journal: Box::new(r.journal), what, old, value, item, opts })
+            }
+            Change::Remove { id, label, list, .. } => {
+                let now: Vec<Id> = list.iter().map(|x| self.now(*x)).collect();
+                let r = Placer::new(&mut self.api)?.remove(&now)?;
+                Ok(Change::Remove { id, ids: r.removed, label, journal: Box::new(r.journal.unwrap_or_default()), list })
+            }
+            Change::Paste { ids, label, snap, opts, .. } => {
+                let r = Placer::new(&mut self.api)?.paste(&snap, &opts)?;
+                for (i, old) in ids.iter().enumerate() {
+                    if let Some(n) = r.ids.get(i) {
+                        self.moved.insert(id_key(*old), *n);
+                    }
+                }
+                Ok(Change::Paste { id: r.ids.first().copied(), ids: r.ids, label, journal: Box::new(r.journal), snap, opts })
             }
         })();
         match res {

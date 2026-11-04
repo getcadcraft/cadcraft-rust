@@ -241,40 +241,40 @@ struct V {
     errors: Vec<String>,
 }
 impl V {
-    fn err(&mut self, path: &str, text: String) {
+    fn fail(&mut self, path: &str, text: String) {
         if self.errors.len() < 50 {
             self.errors.push(format!("{path}: {text}"));
         }
     }
     fn num(&mut self, path: &str, v: Option<&J>, min: f64, max: f64, positive: bool, int: bool) {
-        let Some(x) = v.and_then(is_num) else { return self.err(path, msg("libitem.v.number", &[])) };
+        let Some(x) = v.and_then(is_num) else { return self.fail(path, msg("libitem.v.number", &[])) };
         if x < min || x > max {
-            return self.err(path, msg("libitem.v.range", &[]));
+            return self.fail(path, msg("libitem.v.range", &[]));
         }
         if positive && !(x > 0.0) {
-            return self.err(path, msg("libitem.v.positive", &[]));
+            return self.fail(path, msg("libitem.v.positive", &[]));
         }
         if int && !is_int(x) {
-            self.err(path, msg("libitem.v.whole", &[]));
+            self.fail(path, msg("libitem.v.whole", &[]));
         }
     }
     fn coord(&mut self, path: &str, v: Option<&J>) {
         self.num(path, v, -LIMIT_COORD, LIMIT_COORD, false, false);
     }
     fn str(&mut self, path: &str, v: Option<&J>, required: bool) {
-        let Some(J::String(t)) = v else { return self.err(path, msg("libitem.v.text", &[])) };
+        let Some(J::String(t)) = v else { return self.fail(path, msg("libitem.v.text", &[])) };
         if len16(t) > LIMIT_TEXT {
-            self.err(path, msg("libitem.v.too_long", &[("n", LIMIT_TEXT.to_string())]));
+            self.fail(path, msg("libitem.v.too_long", &[("n", LIMIT_TEXT.to_string())]));
         }
         if required && crate::js::trim(t).is_empty() {
-            self.err(path, msg("libitem.v.empty", &[]));
+            self.fail(path, msg("libitem.v.empty", &[]));
         }
     }
     fn obj<'j>(&mut self, path: &str, v: Option<&'j J>) -> Option<&'j Map<String, J>> {
         match v {
             Some(J::Object(o)) => Some(o),
             _ => {
-                self.err(path, msg("libitem.v.object", &[]));
+                self.fail(path, msg("libitem.v.object", &[]));
                 None
             }
         }
@@ -282,7 +282,7 @@ impl V {
     fn keys(&mut self, path: &str, v: &Map<String, J>, allowed: &[&str]) {
         for k in v.keys() {
             if !allowed.contains(&k.as_str()) {
-                self.err(&format!("{path}.{k}"), msg("libitem.v.unknown_key", &[]));
+                self.fail(&format!("{path}.{k}"), msg("libitem.v.unknown_key", &[]));
             }
         }
     }
@@ -292,11 +292,11 @@ impl V {
             J::Number(_) => {
                 let x = v.as_f64().unwrap_or(f64::NAN);
                 if !is_int(x) || !(0.0..=256.0).contains(&x) {
-                    self.err(path, msg("libitem.v.aci", &[]));
+                    self.fail(path, msg("libitem.v.aci", &[]));
                 }
             }
             J::String(t) if t.len() == 7 && t.starts_with('#') && t.bytes().skip(1).all(|c| c.is_ascii_hexdigit()) => {}
-            _ => self.err(path, msg("libitem.v.color", &[])),
+            _ => self.fail(path, msg("libitem.v.color", &[])),
         }
     }
     fn bx(&mut self, p: &str, b: &Map<String, J>, named: bool) {
@@ -317,7 +317,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
     let mut v = V { errors: Vec::new() };
     let size = serde_json::to_string(obj).map(|x| x.len()).unwrap_or(0);
     if size > LIMIT_BYTES {
-        v.err("item", msg("libitem.v.too_large", &[]));
+        v.fail("item", msg("libitem.v.too_large", &[]));
     }
     v.keys("item", o, &TOP_KEYS);
     let mut required = vec!["format", "format_version", "name", "kind", "category", "plan", "body", "params"];
@@ -326,17 +326,17 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
     }
     for k in required {
         if !o.contains_key(k) {
-            v.err(k, msg("libitem.v.required", &[]));
+            v.fail(k, msg("libitem.v.required", &[]));
         }
     }
     if o.contains_key("format") && o.get("format").and_then(J::as_str) != Some(FORMAT) {
-        v.err("format", msg("libitem.v.must_be", &[("value", FORMAT.to_string())]));
+        v.fail("format", msg("libitem.v.must_be", &[("value", FORMAT.to_string())]));
     }
     if o.contains_key("format_version") && o.get("format_version").and_then(J::as_f64) != Some(FORMAT_VERSION) {
-        v.err("format_version", msg("libitem.v.must_be_1", &[]));
+        v.fail("format_version", msg("libitem.v.must_be_1", &[]));
     }
     if o.contains_key("uuid") && !o.get("uuid").and_then(J::as_str).is_some_and(is_uuid) {
-        v.err("uuid", msg("libitem.v.uuid", &[]));
+        v.fail("uuid", msg("libitem.v.uuid", &[]));
     }
     if o.contains_key("version") {
         v.num("version", o.get("version"), 1.0, LIMIT_COORD, false, true);
@@ -345,10 +345,10 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
         v.str("name", o.get("name"), true);
     }
     if o.contains_key("kind") && !o.get("kind").and_then(J::as_str).is_some_and(|k| KINDS.contains(&k)) {
-        v.err("kind", msg("libitem.v.one_of", &[("list", KINDS.join(", "))]));
+        v.fail("kind", msg("libitem.v.one_of", &[("list", KINDS.join(", "))]));
     }
     if o.contains_key("category") && !o.get("category").and_then(J::as_str).is_some_and(|k| CATEGORY_KEYS.contains(&k)) {
-        v.err("category", msg("libitem.v.taxonomy", &[]));
+        v.fail("category", msg("libitem.v.taxonomy", &[]));
     }
     for k in ["description", "maker", "model"] {
         if o.contains_key(k) {
@@ -360,7 +360,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
     {
         v.keys("ifc", ifc, &["class", "predefined"]);
         if !ifc.get("class").and_then(J::as_str).is_some_and(is_ifc_class) {
-            v.err("ifc.class", msg("libitem.v.ifc_class", &[]));
+            v.fail("ifc.class", msg("libitem.v.ifc_class", &[]));
         }
         if ifc.contains_key("predefined")
             && !ifc
@@ -368,7 +368,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
                 .and_then(J::as_str)
                 .is_some_and(|p| (1..=60).contains(&p.len()) && p.bytes().all(|c| c.is_ascii_uppercase() || c == b'_'))
         {
-            v.err("ifc.predefined", msg("libitem.v.enum", &[]));
+            v.fail("ifc.predefined", msg("libitem.v.enum", &[]));
         }
     }
     if o.contains_key("plan")
@@ -388,38 +388,38 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
                     Some(J::Array(p)) if p.len() >= 9 && p.len() % 3 == 0 => {
                         for (i, x) in p.iter().enumerate() {
                             if !is_num(x).is_some_and(|x| x.abs() <= LIMIT_COORD) {
-                                v.err("body.positions", msg("libitem.v.bad_coord_at", &[("i", i.to_string())]));
+                                v.fail("body.positions", msg("libitem.v.bad_coord_at", &[("i", i.to_string())]));
                                 break;
                             }
                         }
                         p.len() as f64 / 3.0
                     }
                     Some(J::Array(p)) => {
-                        v.err("body.positions", msg("libitem.v.positions", &[]));
+                        v.fail("body.positions", msg("libitem.v.positions", &[]));
                         p.len() as f64 / 3.0
                     }
                     _ => {
-                        v.err("body.positions", msg("libitem.v.positions", &[]));
+                        v.fail("body.positions", msg("libitem.v.positions", &[]));
                         0.0
                     }
                 };
                 match b.get("indices") {
                     Some(J::Array(ix)) if !ix.is_empty() && ix.len() % 3 == 0 => {
                         if ix.len() / 3 > LIMIT_TRIANGLES {
-                            v.err("body.indices", msg("libitem.v.too_many_triangles", &[("n", LIMIT_TRIANGLES.to_string())]));
+                            v.fail("body.indices", msg("libitem.v.too_many_triangles", &[("n", LIMIT_TRIANGLES.to_string())]));
                         }
                         for (i, x) in ix.iter().enumerate() {
                             let k = x.as_f64().unwrap_or(f64::NAN);
                             if !is_int(k) || k < 0.0 || k >= pn {
-                                v.err("body.indices", msg("libitem.v.index_range", &[("i", i.to_string())]));
+                                v.fail("body.indices", msg("libitem.v.index_range", &[("i", i.to_string())]));
                                 break;
                             }
                         }
                     }
-                    _ => v.err("body.indices", msg("libitem.v.triangles", &[])),
+                    _ => v.fail("body.indices", msg("libitem.v.triangles", &[])),
                 }
             }
-            _ => v.err("body.type", msg("libitem.v.body_type", &[])),
+            _ => v.fail("body.type", msg("libitem.v.body_type", &[])),
         }
     }
     if o.contains_key("clearances") {
@@ -433,7 +433,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
                     }
                 }
             }
-            _ => v.err("clearances", msg("libitem.v.list", &[])),
+            _ => v.fail("clearances", msg("libitem.v.list", &[])),
         }
     }
     if o.contains_key("params")
@@ -467,7 +467,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
     {
         for (k, x) in sa {
             if len16(k) > 255 {
-                v.err("source_attrs", msg("libitem.v.attr_name", &[]));
+                v.fail("source_attrs", msg("libitem.v.attr_name", &[]));
             }
             v.str(&format!("source_attrs.{}", slice16(k, 40)), Some(x), false);
         }
@@ -477,7 +477,7 @@ pub fn validate_item(obj: &J, partial: bool) -> (bool, Vec<String>) {
     {
         v.keys("license", l, &["id", "holder", "attribution", "url"]);
         if !l.get("id").and_then(J::as_str).is_some_and(|x| LICENSES.contains(&x)) {
-            v.err("license.id", msg("libitem.v.license", &[]));
+            v.fail("license.id", msg("libitem.v.license", &[]));
         }
         for k in ["holder", "attribution", "url"] {
             if l.contains_key(k) {
@@ -515,42 +515,42 @@ fn validate_plan(v: &mut V, plan: &Map<String, J>) {
                 }
             }
         }
-        _ => v.err("plan.layers", msg("libitem.v.list", &[])),
+        _ => v.fail("plan.layers", msg("libitem.v.list", &[])),
     }
-    let Some(J::Array(es)) = plan.get("entities") else { return v.err("plan.entities", msg("libitem.v.list", &[])) };
+    let Some(J::Array(es)) = plan.get("entities") else { return v.fail("plan.entities", msg("libitem.v.list", &[])) };
     if es.len() > LIMIT_ENTITIES {
-        v.err("plan.entities", msg("libitem.v.too_many_entities", &[("n", LIMIT_ENTITIES.to_string())]));
+        v.fail("plan.entities", msg("libitem.v.too_many_entities", &[("n", LIMIT_ENTITIES.to_string())]));
     }
     for (i, e) in es.iter().take(LIMIT_ENTITIES).enumerate() {
         let p = format!("plan.entities[{i}]");
         let Some(e) = v.obj(&p, Some(e)) else { continue };
         let ty = jstr(e.get("type"));
         let Some(want) = entity_keys(&ty) else {
-            v.err(&format!("{p}.type"), msg("libitem.v.entity_type", &[]));
+            v.fail(&format!("{p}.type"), msg("libitem.v.entity_type", &[]));
             continue;
         };
         let mut allowed = vec!["type", "layer", "color"];
         allowed.extend_from_slice(want);
         v.keys(&p, e, &allowed);
         match e.get("layer") {
-            None => v.err(&format!("{p}.layer"), msg("libitem.v.required", &[])),
+            None => v.fail(&format!("{p}.layer"), msg("libitem.v.required", &[])),
             Some(l) => v.str(&format!("{p}.layer"), Some(l), false),
         }
         match e.get("color") {
-            None => v.err(&format!("{p}.color"), msg("libitem.v.required", &[])),
+            None => v.fail(&format!("{p}.color"), msg("libitem.v.required", &[])),
             Some(c) => v.color(&format!("{p}.color"), c),
         }
         for k in want {
             let path = format!("{p}.{k}");
             let Some(x) = e.get(*k) else {
-                v.err(&path, msg("libitem.v.required", &[]));
+                v.fail(&path, msg("libitem.v.required", &[]));
                 continue;
             };
             match *k {
                 "value" => v.str(&path, Some(x), false),
                 "closed" | "solid" => {
                     if !x.is_boolean() {
-                        v.err(&path, msg("libitem.v.boolean", &[]));
+                        v.fail(&path, msg("libitem.v.boolean", &[]));
                     }
                 }
                 "pts" => match x {
@@ -563,11 +563,11 @@ fn validate_plan(v: &mut V, plan: &Map<String, J>) {
                                         v.coord(&qp, Some(cc));
                                     }
                                 }
-                                _ => v.err(&qp, msg("libitem.v.point", &[])),
+                                _ => v.fail(&qp, msg("libitem.v.point", &[])),
                             }
                         }
                     }
-                    _ => v.err(&path, msg("libitem.v.two_points", &[])),
+                    _ => v.fail(&path, msg("libitem.v.two_points", &[])),
                 },
                 "loops" => match x {
                     J::Array(loops) if !loops.is_empty() => {
@@ -576,14 +576,14 @@ fn validate_plan(v: &mut V, plan: &Map<String, J>) {
                             match lp {
                                 J::Array(c) if c.len() >= 6 && c.len() % 2 == 0 => {
                                     if c.iter().any(|q| !is_num(q).is_some_and(|x| x.abs() <= LIMIT_COORD)) {
-                                        v.err(&lpath, msg("libitem.v.bad_coord", &[]));
+                                        v.fail(&lpath, msg("libitem.v.bad_coord", &[]));
                                     }
                                 }
-                                _ => v.err(&lpath, msg("libitem.v.loop", &[])),
+                                _ => v.fail(&lpath, msg("libitem.v.loop", &[])),
                             }
                         }
                     }
-                    _ => v.err(&path, msg("libitem.v.one_loop", &[])),
+                    _ => v.fail(&path, msg("libitem.v.one_loop", &[])),
                 },
                 "r" | "h" => v.num(&path, Some(x), -LIMIT_COORD, LIMIT_COORD, true, false),
                 "ratio" => v.num(&path, Some(x), -LIMIT_COORD, 1.0, true, false),
@@ -591,7 +591,7 @@ fn validate_plan(v: &mut V, plan: &Map<String, J>) {
             }
         }
         if ty == "hatch" && e.get("solid") != Some(&J::Bool(true)) {
-            v.err(&format!("{p}.solid"), msg("libitem.v.solid_hatch", &[]));
+            v.fail(&format!("{p}.solid"), msg("libitem.v.solid_hatch", &[]));
         }
     }
 }

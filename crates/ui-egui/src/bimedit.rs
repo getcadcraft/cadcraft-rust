@@ -247,7 +247,9 @@ fn undo(app: &mut UiApp) -> Result<(), String> {
         Change::Model { label, .. } => bt("edit.undid.step", &[("what", if label.is_empty() { "model" } else { label })]),
         Change::Attr { attr, .. } => bt("edit.undid", &[("what", attr)]),
         Change::Prop { r, .. } => bt("edit.undid", &[("what", &r.prop_name)]),
-        Change::Place { label, .. } => bt("edit.undid.step", &[("what", if label.is_empty() { "place" } else { label })]),
+        c @ (Change::Place { .. } | Change::Swap { .. } | Change::Remove { .. } | Change::Paste { .. }) => {
+            bt("edit.undid.step", &[("what", if c.label().is_empty() { c.kind() } else { c.label() })])
+        }
     };
     after_change(app, None, true);
     app.message = msg;
@@ -265,7 +267,13 @@ fn redo(app: &mut UiApp) -> Result<(), String> {
         Change::Model { label, id, .. } => (bt("edit.redid.step", &[("what", if label.is_empty() { "model" } else { label })]), *id),
         Change::Attr { attr, id, .. } => (bt("edit.redid", &[("what", attr)]), Some(*id)),
         Change::Prop { r, id, .. } => (bt("edit.redid", &[("what", &r.prop_name)]), Some(*id)),
-        Change::Place { label, id, .. } => (bt("edit.redid.step", &[("what", if label.is_empty() { "place" } else { label })]), Some(*id)),
+        c @ (Change::Place { .. } | Change::Swap { .. } | Change::Remove { .. } | Change::Paste { .. }) => {
+            let sel = match c {
+                Change::Remove { .. } => None,
+                other => other.id(),
+            };
+            (bt("edit.redid.step", &[("what", if c.label().is_empty() { c.kind() } else { c.label() })]), sel)
+        }
     };
     after_change(app, sel, true);
     app.message = msg;

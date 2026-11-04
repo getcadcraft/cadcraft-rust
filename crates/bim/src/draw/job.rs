@@ -226,11 +226,13 @@ pub struct Run {
     pub ed: Option<Editor>,
     rand: Option<Rand>,
     now: f64,
+    /// snapshots kept by name for later pastes (`snapshotEls` / `pasteEls`)
+    snaps: std::collections::HashMap<String, Arc<crate::draw::place::Snap>>,
 }
 
 impl Run {
     pub fn new(seed: u32, now: f64) -> Run {
-        Run { ed: None, rand: Some(Rand::new(seed)), now }
+        Run { ed: None, rand: Some(Rand::new(seed)), now, snaps: std::collections::HashMap::new() }
     }
 
     fn model(&mut self, op: Op, label: &str, verb: &str) -> J {
@@ -743,6 +745,11 @@ impl Run {
                 Ok(v) => v,
                 Err(e) => err(&e.0),
             },
+            "placements" | "info" | "placeLike" | "swapItem" | "removeAny" | "snapshotEls" | "pasteEls" | "clipPlacement"
+            | "clipElements" | "clipFns" | "clipBench" => match crate::draw::clipjob::step(ed, &sn, &mut self.snaps, op, &o, self.now) {
+                Ok(v) => v,
+                Err(e) => err(&e.0),
+            },
             "nextItemNumber" => match crate::draw::place::next_item_number(&mut ed.api) {
                 Ok(n) => J::String(n),
                 Err(e) => err(&e.0),
@@ -755,6 +762,9 @@ impl Run {
                         Change::Attr { attr, .. } => json!({ "kind": "attr", "attr": attr }),
                         Change::Prop { r, .. } => json!({ "kind": "prop", "prop": r.prop_name }),
                         Change::Place { label, .. } => json!({ "kind": "place", "label": label }),
+                        c @ (Change::Swap { .. } | Change::Remove { .. } | Change::Paste { .. }) => {
+                            json!({ "kind": c.kind(), "label": c.label() })
+                        }
                     })
                     .collect(),
             ),

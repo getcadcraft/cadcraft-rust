@@ -197,7 +197,7 @@ pub fn items_from_ifc(bytes: Arc<[u8]>, list: bool, keys: Option<&[String]>) -> 
 }
 
 /// `productTriangles(api, mid, id, mm)`: a product's triangles in file units (the file's own coordinates).
-fn product_triangles(geo: Option<&mut cc_io_ifc::geo::geometry::Geometry<'_>>, id: f64, unit_mm: f64) -> (Vec<f64>, Vec<f64>) {
+pub(crate) fn product_triangles(geo: Option<&mut cc_io_ifc::geo::geometry::Geometry<'_>>, id: f64, unit_mm: f64) -> (Vec<f64>, Vec<f64>) {
     let mut pos = Vec::new();
     let mut idx = Vec::new();
     let Some(geo) = geo else { return (pos, idx) };

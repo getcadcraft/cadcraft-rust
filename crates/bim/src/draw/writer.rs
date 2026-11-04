@@ -204,6 +204,11 @@ impl<'a> W<'a> {
         self.journal.as_mut().ok_or_else(|| JsErr("TypeError: no journal".into()))?.add_created(e.id);
         Ok(e.id)
     }
+    /// A line written with `api.write` (not `make`) taken into the journal (`journal.created.push(id)`).
+    pub fn adopt(&mut self, id: Id) -> R<()> {
+        self.journal.as_mut().ok_or_else(|| JsErr("TypeError: no journal".into()))?.add_created(id);
+        Ok(())
+    }
     /// `touch(id)`: its first state journaled → the line now.
     pub fn touch(&mut self, id: Id) -> R<Line> {
         let j = self.journal.as_ref().ok_or_else(|| JsErr("TypeError: no journal".into()))?;

@@ -3,6 +3,8 @@
 //! IfcAPI ([`crate::wapi`]). No DOM, no clock, no randomness of their own: GlobalIds come from the model's seeded
 //! [`crate::wapi::Rand`], dates from the caller.
 
+pub mod clip;
+pub mod clipjob;
 pub mod editor;
 pub mod job;
 pub mod levels;

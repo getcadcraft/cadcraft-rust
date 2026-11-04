@@ -21,6 +21,11 @@ use crate::js::num_str;
 use crate::util::{apply4, inv4};
 use crate::wapi::{Api, JV, P};
 
+mod elems;
+mod more;
+pub use elems::{PasteOpts, Pasted, PlacementSet, Rels, Removed, Snap, SnapEl};
+pub use more::{Frame, FrameEl, PlacementRow, PropRow, PsetOn, StoreyInfo, Swapped, oriented_box};
+
 const D2R: f64 = std::f64::consts::PI / 180.0;
 /// The most vertices / triangles a placed mesh may have (a hostile item cannot ask for more).
 const MAX_VERTS: usize = 2_000_000;
@@ -945,16 +950,27 @@ impl<'a> Placer<'a> {
         let id = self.w.make(occ, args)?;
         self.w.relate_type(id, type_id)?;
         self.w.contain(id, o.storey)?;
-        let q = if o.quantity != 0.0 && !o.quantity.is_nan() { o.quantity } else { 1.0 };
+        let pl = self.placement_pset(&o.item_number, o.quantity, &o.notes)?;
+        self.w.relate(id, pl)?;
+        self.add_item_psets(id, item, o)?;
+        Ok((id, type_id, created))
+    }
+
+    /// `placementPset(opts)`: ItemNumber, Quantity (`Math.max(1, Math.round(Number(q) || 1))`), Notes.
+    fn placement_pset(&mut self, item_number: &str, quantity: f64, notes: &str) -> R<Id> {
+        let q = if quantity != 0.0 && !quantity.is_nan() { quantity } else { 1.0 };
         let q = m::round(q);
         let q = if q != 0.0 && !q.is_nan() { q } else { 1.0 };
         let prow = vec![
-            row("ItemNumber", "IFCLABEL", P::s(&o.item_number)),
+            row("ItemNumber", "IFCLABEL", P::s(item_number)),
             row("Quantity", "IFCINTEGER", P::Num(m::max(1.0, q))),
-            row("Notes", "IFCTEXT", P::s(&o.notes)),
+            row("Notes", "IFCTEXT", P::s(notes)),
         ];
-        let pl = self.w.pset(PSET_PLACEMENT, &prow)?;
-        self.w.relate(id, pl)?;
+        self.w.pset(PSET_PLACEMENT, &prow)
+    }
+
+    /// `addItemPsets(id, item, opts)`: CadCraft_LibraryItem, CadCraft_Equipment and CadCraft_SourceAttributes.
+    fn add_item_psets(&mut self, id: Id, item: &J, o: &PlaceOpts) -> R<()> {
         let lib = self.library_props(item, o);
         let lp2 = self.w.pset(PSET_LIBRARY, &lib)?;
         self.w.relate(id, lp2)?;
@@ -966,7 +982,7 @@ impl<'a> Placer<'a> {
             let sp = self.w.pset(PSET_SOURCE, &rows)?;
             self.w.relate(id, sp)?;
         }
-        Ok((id, type_id, created))
+        Ok(())
     }
 }
 
