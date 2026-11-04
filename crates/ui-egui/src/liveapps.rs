@@ -15,12 +15,19 @@ pub fn app_of(id: &str) -> Option<&'static str> {
         "takeoff" => "takeoffcraft",
         "markup" => "markupcraft",
         "part" => "partcraft",
+        "civil" => "civilcraft",
+        "model" => "modelcraft",
+        "bim" => "bimcraft",
         _ => return None,
     })
 }
 
 /// A `<prefix>.live.*` command (None: not one of these apps' live commands).
 pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> {
+    // BimCraft's Undo / Redo while live: the person's own steps (bimcraft live.js `watchEditor`)
+    if matches!(id, "bim.undo" | "bim.redo") && app.live.as_ref().is_some_and(|s| s.app == "bimcraft") {
+        return Some(crate::bimlive::BimLive(app).reverse(id == "bim.undo"));
+    }
     let which = app_of(id)?;
     if let Some(s) = app.live.as_ref()
         && s.app != which
@@ -34,6 +41,9 @@ pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> 
             "takeoffcraft" => crate::live::LiveView::live_state(&mut crate::takeofflive::TkLive(app)),
             "markupcraft" => crate::live::LiveView::live_state(&mut crate::markuplive::MkLive(app)),
             "partcraft" => crate::live::LiveView::live_state(&mut crate::partlive::PartLive(app)),
+            "civilcraft" => crate::live::LiveView::live_state(&mut crate::civillive::CvLive(app)),
+            "modelcraft" => crate::live::LiveView::live_state(&mut crate::modellive::McLive(app)),
+            "bimcraft" => crate::live::LiveView::live_state(&mut crate::bimlive::BimLive(app)),
             _ => None,
         };
         let Some(st) = st else { return Some(Err(format!("{id}: nothing open"))) };
@@ -45,6 +55,9 @@ pub fn run(app: &mut UiApp, id: &str, name: &str) -> Option<Result<(), String>> 
         "takeoffcraft" => crate::live::run(&mut crate::takeofflive::TkLive(app), id, name),
         "markupcraft" => crate::live::run(&mut crate::markuplive::MkLive(app), id, name),
         "partcraft" => crate::live::run(&mut crate::partlive::PartLive(app), id, name),
+        "civilcraft" => crate::live::run(&mut crate::civillive::CvLive(app), id, name),
+        "modelcraft" => crate::live::run(&mut crate::modellive::McLive(app), id, name),
+        "bimcraft" => crate::live::run(&mut crate::bimlive::BimLive(app), id, name),
         _ => Err(format!("unknown command {id}")),
     })
 }
@@ -83,6 +96,21 @@ pub fn pump(app: &mut UiApp) {
                     p.live_can = can;
                 }
             }
+            "civilcraft" => {
+                let mut v = crate::civillive::CvLive(app);
+                crate::live::poll(&mut v);
+                v.reverse_asked();
+                let can = app.live.as_ref().map_or((false, false), |s| (s.doc.can_undo(), s.doc.can_redo()));
+                if let Some(c) = app.civil.as_mut() {
+                    c.live_can = can;
+                }
+            }
+            "modelcraft" => {
+                let mut v = crate::modellive::McLive(app);
+                crate::live::poll(&mut v);
+                v.reverse_asked();
+            }
+            "bimcraft" => crate::live::poll(&mut crate::bimlive::BimLive(app)),
             _ => {}
         }
     }
@@ -109,6 +137,9 @@ pub fn frame(app: &mut UiApp, ctx: &egui::Context) {
             Some("takeoffcraft") => crate::live::window(&mut crate::takeofflive::TkLive(app), ctx, &tk, &mut acts),
             Some("markupcraft") => crate::live::window(&mut crate::markuplive::MkLive(app), ctx, &tk, &mut acts),
             Some("partcraft") => crate::live::window(&mut crate::partlive::PartLive(app), ctx, &tk, &mut acts),
+            Some("civilcraft") => crate::live::window(&mut crate::civillive::CvLive(app), ctx, &tk, &mut acts),
+            Some("modelcraft") => crate::live::window(&mut crate::modellive::McLive(app), ctx, &tk, &mut acts),
+            Some("bimcraft") => crate::live::window(&mut crate::bimlive::BimLive(app), ctx, &tk, &mut acts),
             _ => {}
         }
         for (id, n) in acts {

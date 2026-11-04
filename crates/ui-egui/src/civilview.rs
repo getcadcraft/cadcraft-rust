@@ -522,6 +522,10 @@ pub struct CivilView {
     pub cursor: Option<(f64, f64)>,
     /// the last thing said (civilcraft.js `say`)
     pub message: String,
+    /// in a Studio Live session (civillive.rs): Undo / Redo asked for (Some(redo)), what the session's can do
+    pub live_on: bool,
+    pub live_req: Option<bool>,
+    pub live_can: (bool, bool),
     /// notes of the last open (civilcraft.js `lastReport`)
     pub report: Vec<String>,
     pub facts: Facts,
@@ -625,6 +629,9 @@ impl CivilView {
             s3_seq: 0,
             cursor: None,
             message: String::new(),
+            live_on: false,
+            live_req: None,
+            live_can: (false, false),
             report: Vec::new(),
             facts: Facts { version: u64::MAX, ..Facts::default() },
             last_labels: 0,
@@ -1524,12 +1531,21 @@ impl CivilView {
     }
 
     pub fn undo(&mut self) {
+        if self.live_on {
+            // while live, Undo / Redo are the person's own steps in the session (liveapps.rs carries them out)
+            self.live_req = Some(false);
+            return;
+        }
         match self.project.undo() {
             Some(l) => self.message = tr!("cv.undo.done", what = l),
             None => self.message = t("cv.undo.none", &[]),
         }
     }
     pub fn redo(&mut self) {
+        if self.live_on {
+            self.live_req = Some(true);
+            return;
+        }
         match self.project.redo() {
             Some(l) => self.message = tr!("cv.redo.done", what = l),
             None => self.message = t("cv.redo.none", &[]),
@@ -2873,7 +2889,13 @@ fn civil_tool_groups(cv: &CivilView) -> Vec<crate::shell::ToolGroup> {
         }
     }
     vec![
-        ToolGroup { label: t0("ui.tb.group.file"), tools: vec![act("civil.save", "download", "ui.tb.save")] },
+        ToolGroup {
+            label: t0("ui.tb.group.file"),
+            tools: vec![
+                act("civil.save", "download", "ui.tb.save"),
+                Tool::new("civil.live.window", "globe", "Live").tip("Work on this project together (Studio Live)").on(cv.live_on),
+            ],
+        },
         ToolGroup {
             label: t0("ui.tb.group.surface"),
             tools: vec![tool(T::Breakline, "activity"), tool(T::Boundary, "bounding-box"), tool(T::Feature, "vector-pen")],
@@ -2890,8 +2912,16 @@ fn civil_tool_groups(cv: &CivilView) -> Vec<crate::shell::ToolGroup> {
         ToolGroup {
             label: t0("ui.tb.group.edit"),
             tools: vec![
-                act("civil.undo", "arrow-counterclockwise", "ui.tb.undo").enabled(!cv.project.undo_stack.is_empty()),
-                act("civil.redo", "arrow-clockwise", "ui.tb.redo").enabled(!cv.project.redo_stack.is_empty()),
+                act("civil.undo", "arrow-counterclockwise", "ui.tb.undo").enabled(if cv.live_on {
+                    cv.live_can.0
+                } else {
+                    !cv.project.undo_stack.is_empty()
+                }),
+                act("civil.redo", "arrow-clockwise", "ui.tb.redo").enabled(if cv.live_on {
+                    cv.live_can.1
+                } else {
+                    !cv.project.redo_stack.is_empty()
+                }),
                 act("civil.copy", "copy", "ui.tb.copy"),
                 act("civil.paste", "clipboard-plus", "ui.tb.paste"),
             ],
@@ -2926,8 +2956,9 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                             cmd.push(("civil.camera", Params { name: Some(v.into()), ..Default::default() }));
                         } else if let Some(v) = x.strip_prefix("view:") {
                             cmd.push(("civil.view", Params { name: Some(v.into()), ..Default::default() }));
-                        } else if let Some(c) =
-                            ["civil.save", "civil.undo", "civil.redo", "civil.copy", "civil.paste"].iter().find(|c| **c == x)
+                        } else if let Some(c) = ["civil.save", "civil.undo", "civil.redo", "civil.copy", "civil.paste", "civil.live.window"]
+                            .iter()
+                            .find(|c| **c == x)
                         {
                             cmd.push((c, Params::default()));
                         }

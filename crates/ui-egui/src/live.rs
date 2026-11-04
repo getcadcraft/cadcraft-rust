@@ -7,9 +7,9 @@
 //! Commands, for every app with a prefix `p` (`detail`, `part`, `cad` …): `p.live.host` = `[bind address]` (default the
 //! LAN on a free port), `p.live.join` = `<host:port> <code | plain>` or `<code>` (found on the LAN by its tag) or a join
 //! link `http://<host>:<port>/apps/<slug>/#live=<code>`, `p.live.approve` = `<c> [editor|viewer]`, `p.live.deny` = `<c>`,
-//! `p.live.invite`, `p.live.leave`, `p.live.window` = `open | close`, `p.live.pump` = `<ms> [wait] [approve]` (headless:
-//! carry messages until everything sent is decided, at most that long; `wait` the whole time; `approve` lets every joiner
-//! in as an editor meanwhile).
+//! `p.live.invite`, `p.live.leave`, `p.live.window` = `open | close`, `p.live.pump` = `<ms> [wait] [approve] [live]`
+//! (headless: carry messages until everything sent is decided, at most that long; `wait` the whole time; `live` until
+//! this window is in (let in, caught up); `approve` lets every joiner in as an editor meanwhile).
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{Receiver, channel};
@@ -496,7 +496,8 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
             let mut it = name.split_whitespace();
             let ms: u64 = it.next().and_then(|x| x.parse().ok()).unwrap_or(2000).min(120_000);
             let flags: Vec<&str> = it.collect();
-            let (wait, approve) = (flags.contains(&"wait"), flags.contains(&"approve"));
+            // `live`: until this window is in the session (let in, the snapshot loaded)
+            let (wait, approve, live) = (flags.contains(&"wait"), flags.contains(&"approve"), flags.contains(&"live"));
             let t0 = web_time::Instant::now();
             loop {
                 poll(v);
@@ -506,7 +507,7 @@ pub fn run<V: LiveView>(v: &mut V, id: &str, name: &str) -> Result<(), String> {
                         s.send(&Envelope::new("approve").body(Mp::map(vec![("c", Mp::from(k.c)), ("role", Mp::from("editor"))])));
                     }
                 }
-                let done = !wait && s.doc.settled() && s.doc.outbox.is_empty();
+                let done = if live { s.doc.is_live() } else { !wait && s.doc.settled() && s.doc.outbox.is_empty() };
                 if done || t0.elapsed() > Duration::from_millis(ms) {
                     break;
                 }
@@ -551,7 +552,7 @@ pub fn command_rows(prefix: &'static str) -> Vec<(String, &'static str, &'static
         ("invite", "A new session code", "{}"),
         ("window", "Live window", "{name: open | close}"),
         ("leave", "Leave the live session", "{} (the host ends it)"),
-        ("pump", "Carry live messages", "{name: \"<ms> [wait] [approve]\"} headless runs"),
+        ("pump", "Carry live messages", "{name: \"<ms> [wait] [approve] [live]\"} headless runs"),
     ]
     .into_iter()
     .map(|(k, l, p)| (format!("{prefix}.live.{k}"), l, "", p))

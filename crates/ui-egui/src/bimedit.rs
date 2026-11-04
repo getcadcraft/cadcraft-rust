@@ -448,8 +448,10 @@ fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
     use crate::shell::{Tool, ToolGroup};
     let n = app.bimh.ed.as_ref().map_or(0, |d| d.ed.changes.len());
     let save = if n > 0 { bt("save.ifc.count", &[("n", &n.to_string())]) } else { bt("save.ifc", &[]) };
-    let undo_ok = app.bimh.ed.as_ref().is_some_and(|d| !d.ed.changes.is_empty());
-    let redo_ok = app.bimh.ed.as_ref().is_some_and(|d| d.ed.can_redo());
+    // while live, Undo / Redo are the person's own steps in the session
+    let live = app.live.as_ref().filter(|s| s.app == "bimcraft").map(|s| (s.doc.can_undo(), s.doc.can_redo()));
+    let undo_ok = live.map_or_else(|| app.bimh.ed.as_ref().is_some_and(|d| !d.ed.changes.is_empty()), |l| l.0);
+    let redo_ok = live.map_or_else(|| app.bimh.ed.as_ref().is_some_and(|d| d.ed.can_redo()), |l| l.1);
     let edges = app.scene3.as_ref().is_some_and(|(_, v)| v.style.edges);
     let copy_why = crate::bimclip::why_not(app, "copy");
     let paste_why = crate::bimclip::why_not(app, "paste");
@@ -518,7 +520,12 @@ fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
         },
         ToolGroup {
             label: bt("input.m.output", &[]),
-            tools: vec![Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app))],
+            tools: vec![
+                Tool::new("bim.save", "download", save).tip(bt("ui.save.note", &[])).enabled(unsaved(app)),
+                Tool::new("bim.live.window=open", "globe", "Live")
+                    .tip("Work on this model together (Studio Live)")
+                    .on(app.live.as_ref().is_some_and(|s| s.app == "bimcraft")),
+            ],
         },
     ];
     // the Draw group only while drawing

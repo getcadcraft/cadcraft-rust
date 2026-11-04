@@ -22,6 +22,7 @@ pub mod bimequip;
 pub mod bimgrips;
 pub mod bimlib;
 pub mod bimlibnet;
+pub mod bimlive;
 pub mod bimplace;
 pub mod bimplan;
 pub mod bimres;
@@ -46,6 +47,7 @@ pub mod civilgis3;
 pub mod civilgisx;
 pub mod civilimport;
 pub mod civillasso;
+pub mod civillive;
 pub mod civilmaps;
 pub mod civilmore;
 pub mod civilpanel;
@@ -113,6 +115,7 @@ mod mcstretch;
 mod mcterrain;
 pub mod model3d;
 pub mod modelcraft;
+pub mod modellive;
 pub mod mytoolsdlg;
 pub mod panes;
 pub mod paneview;
@@ -385,6 +388,10 @@ pub struct UiApp {
     pub live_hold_tk: Option<cc_takeoff::model::Takeoff>,
     /// …and a joiner's markups (markuplive.rs)
     pub live_hold_mk: Option<cc_markup::model::Store>,
+    /// BimCraft live (bimlive.rs): the file's own largest id before this window's range was claimed, and a counter of
+    /// what others' lines changed
+    pub live_bim_max: f64,
+    pub live_bim_ver: u64,
     /// the zone local-time fields are written in (0.5 writes zip dates, LandXML date / time, the KISS header … with
     /// `getHours()`): the machine's, or a fixed offset (`app.tz`: scripts and tests)
     pub zone: cc_clock::Zone,
@@ -522,6 +529,8 @@ impl Default for UiApp {
             live_window: false,
             live_hold_tk: None,
             live_hold_mk: None,
+            live_bim_max: 0.0,
+            live_bim_ver: 0,
             zone: cc_clock::Zone::System,
             mc_prefs: serde_json::Value::Null,
             cv_prefs: serde_json::Value::Null,
@@ -880,7 +889,7 @@ impl UiApp {
     }
 
     /// Show a model in the 3D view (any drawing open is closed).
-    fn show_model(&mut self, model: cc_m3d::model::Model, name: &str) {
+    pub(crate) fn show_model(&mut self, model: cc_m3d::model::Model, name: &str) {
         // the model goes straight to ModelCraft's view (no copy, one scene build)
         let (defs, faces) = (model.defs.len(), model.defs.values().map(|d| d.faces.len()).sum::<usize>());
         self.doc = None;
@@ -1006,8 +1015,10 @@ impl UiApp {
         let mut pick: Option<&str> = None;
         let mut undo = false;
         let mut redo = false;
+        let mut live = false;
         let mut edit: Option<String> = None;
         let mut fit = false;
+        let live_on = self.live.as_ref().is_some_and(|s| s.app == "modelcraft");
         let mt = |k: &str| modelcraft::mt(k, &[]);
         let tool = |name: &'static str, icon: &'static str| {
             Tool::new(name, icon, mt(&format!("ui.tool.{name}"))).tip(modelcraft::tool_title(name, blender)).on(cur == name)
@@ -1059,6 +1070,7 @@ impl UiApp {
                     act("act:copy", "copy", "ui.tool.copy"),
                     act("act:paste", "clipboard-plus", "ui.tool.paste"),
                     Tool::new("menu:edit", "three-dots", mt("ui.editmenu")).tip(mt("ui.editmenu.title")),
+                    Tool::new("live", "globe", "Live").tip("Work on this model together (Studio Live)").on(live_on),
                 ],
             },
             ToolGroup {
@@ -1089,6 +1101,7 @@ impl UiApp {
                     _ if !resp.clicked() => {}
                     "undo" => undo = true,
                     "redo" => redo = true,
+                    "live" => live = true,
                     "fit" => fit = true,
                     a if a.starts_with("act:") => edit = Some(a.trim_start_matches("act:").to_string()),
                     name => pick = modelcraft::PALETTE.iter().map(|(n, _)| *n).find(|n| *n == name),
@@ -1097,6 +1110,9 @@ impl UiApp {
         });
         if fit {
             self.run_ui("view.fit", &Params::default());
+        }
+        if live {
+            self.live_window = true;
         }
         if let Some(mc) = self.mc.as_mut() {
             if let Some(a) = edit

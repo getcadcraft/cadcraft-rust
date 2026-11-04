@@ -155,12 +155,31 @@ pub fn format_value(out: &mut String, v: &Value, real: bool, rt: RealType<'_>) -
 }
 
 impl IfcFile<'_> {
+    /// The watch's record of a line before its first write (bimcraft live.js `before(id)`).
+    fn watched(&mut self, id: Id) {
+        let Some(w) = self.watch.as_ref() else { return };
+        if w.iter().any(|(x, _)| *x == id) || w.len() >= 10_000_000 {
+            return;
+        }
+        let was = match self.ty(id) {
+            Some(t) if !t.is_empty() => {
+                let t = t.to_string();
+                self.params(id).ok().flatten().map(|p| (t, p.to_vec()))
+            }
+            _ => None,
+        };
+        if let Some(w) = self.watch.as_mut() {
+            w.push((id, was));
+        }
+    }
+
     /// `m.set(id, type, params)`: a new line or a replacement (the type may change). Ids are positive whole numbers.
     pub fn set(&mut self, id: Id, ty: &str, params: Vec<Value>) -> Result<Id, StepError> {
         if !(id > 0.0 && id.fract() == 0.0 && id.is_finite()) {
             return Err(StepError("A line id must be a positive whole number.".into()));
         }
         let up = ty.to_ascii_uppercase();
+        self.watched(id);
         let k = id_key(id);
         self.gone.remove(&k);
         self.edits.insert(k, Edit { id, ty: up.into(), params: params.into_boxed_slice() });
@@ -182,6 +201,7 @@ impl IfcFile<'_> {
         if !self.has(id) {
             return false;
         }
+        self.watched(id);
         let k = id_key(id);
         self.edits.remove(&k);
         if self.rec(id).is_some() {

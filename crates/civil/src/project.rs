@@ -225,6 +225,13 @@ impl Project {
         }
         js_stringify(&s)
     }
+    /// Studio Live (ui-egui civillive.rs; civilcraft live.js `put`): others' edits into the state through restore(),
+    /// which keeps the TIN and the display, and the caches dropped.
+    pub fn live_restore(&mut self, json: &str) {
+        self.restore(json);
+        self.cache.clear();
+    }
+
     fn restore(&mut self, json: &str) {
         let Ok(mut s) = serde_json::from_str::<Value>(json) else { return };
         let tin = sget(&self.state, &["surface", "tin"]).cloned().unwrap_or(Value::Null);

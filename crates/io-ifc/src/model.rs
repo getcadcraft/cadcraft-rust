@@ -45,6 +45,9 @@ pub struct Edit {
     pub params: Box<[Value]>,
 }
 
+/// A line the write watch saw: its id and how it was before its first write (type, raw parameters; None = no line).
+pub type Watched = (Id, Option<(String, Vec<Value>)>);
+
 /// One open file.
 pub struct IfcFile<'a> {
     src: Src<'a>,
@@ -65,6 +68,9 @@ pub struct IfcFile<'a> {
     pub(crate) gone: HashSet<u64>,
     /// bumps on every write
     pub version: u64,
+    /// Studio Live (ui-egui bimlive.rs; bimcraft live.js `hook`): while Some, each line written or removed for the
+    /// first time since it was taken is listed with how it was before (None: there was no line)
+    pub watch: Option<Vec<Watched>>,
 }
 
 impl std::fmt::Debug for IfcFile<'_> {
@@ -130,6 +136,7 @@ impl<'a> IfcFile<'a> {
             edits: HashMap::new(),
             gone: HashSet::new(),
             version: 0,
+            watch: None,
         }
     }
 

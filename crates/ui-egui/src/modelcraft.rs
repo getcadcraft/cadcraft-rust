@@ -93,6 +93,9 @@ pub struct ModelView {
     pub vcb: String,
     /// the last message the tools printed
     pub message: String,
+    /// in a Studio Live session (modellive.rs): Undo / Redo asked for (Some(redo))
+    pub live_on: bool,
+    pub live_req: Option<bool>,
     /// the scene last gone to or saved (-1: none)
     pub scene_index: isize,
     /// a scene transition under way: (from, to, start time in ms)
@@ -218,6 +221,8 @@ impl ModelView {
             clock: web_time::Instant::now(),
             vcb: String::new(),
             message: String::new(),
+            live_on: false,
+            live_req: None,
             scene_index: -1,
             anim: None,
             mode: "shaded".into(),
@@ -335,6 +340,11 @@ impl ModelView {
     /// modelcraft.js act('undo'): Esc, undo, say what, afterHistory.
     pub fn undo(&mut self) {
         let _ = self.tools.escape();
+        if self.live_on {
+            // while live, Undo / Redo are the person's own steps in the session (liveapps.rs carries them out)
+            self.live_req = Some(false);
+            return;
+        }
         let l = self.tools.host.model.undo().ok().flatten();
         self.message = match l {
             Some(l) => mt("app.undid", &[("what", &l)]),
@@ -345,6 +355,10 @@ impl ModelView {
     /// modelcraft.js act('redo').
     pub fn redo(&mut self) {
         let _ = self.tools.escape();
+        if self.live_on {
+            self.live_req = Some(true);
+            return;
+        }
         let l = self.tools.host.model.redo().ok().flatten();
         self.message = match l {
             Some(l) => mt("app.redid", &[("what", &l)]),
