@@ -2,6 +2,15 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M14.7 DetailCraft's shop drawing dialog (agent, work/detailfin)
+
+- Shop drawing (the bar, a part's or a plate's properties) opens 0.5's dialog instead of downloading at once: "Shop
+  drawing <mark>", the sheet size (kept as the setting, the Drawings dialog's too), the drawing's preview on white paper,
+  the note ("W16x26 x 5650, 4 off. A3 … landscape, millimeters.") and Download PDF (the same PDF as before: the sweep's
+  shop_m7 / shop_j12 exports identical). Made again when the model changes under it. Command `detail.shop`
+  (`open[:<part>]`, `close`, `paper:<size>`); test `the_shop_drawing_dialog_opens_follows_the_paper_and_closes`;
+  screenshots en + es-MX checked.
+
 ## 2026-11-04 — M14.6 DetailCraft: a bolt picked in 3D selects its connection (agent, work/detailfin)
 
 - The 3D scene keeps each bolt (head, axis, length, radius, the connection it belongs to); a click whose nearest hit is

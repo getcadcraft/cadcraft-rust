@@ -522,34 +522,60 @@ pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool, zone: cc_clock::Zone) 
         }
         "shop" => {
             let id = if opt.is_empty() { c.part.clone() } else { Some(opt.to_string()) };
-            let part = id.as_deref().and_then(|i| c.built.get(i).or_else(|| c.built.get(&format!("{i}.plate"))));
-            if let Some(why) = cc_detail::shop::shop_refusal(part) {
-                return Ok(Outcome::Nothing(why));
-            }
-            let Some(part) = part else { return Ok(Outcome::Nothing(String::new())) };
-            let row = c.marks.parts.iter().find(|p| p.ids.contains(&part.id));
-            let mark = row.map_or_else(|| part.id.clone(), |r| r.mark.clone());
-            let weld = c.built.welds.iter().find(|w| w.between.contains(&part.id));
-            let info = cc_detail::shop::Info {
-                paper: c.settings.paper.clone(),
-                mark: mark.clone(),
-                asm_mark: c.marks.asm_of(&part.id).and_then(|a| c.marks.asm_mark(a)).unwrap_or("").to_string(),
-                count: Some(row.map_or(1.0, |r| if r.count > 0 { r.count as f64 } else { 1.0 })),
-                weld: weld
-                    .map_or_else(String::new, |w| t("app.shop.weld", &[("size", F::N(w.size)), ("where", F::S(w.r#where.to_lowercase()))])),
-                model: cc_detail::js::string_of(st.get("name")),
-                date: clock.date(),
+            let sh = match shop_of(c, id.as_deref(), &clock.date())? {
+                Ok(sh) => sh,
+                Err(why) => return Ok(Outcome::Nothing(why)),
             };
-            let sd = cc_detail::shop::shop_drawing(part, &info)?;
-            let list = cc_detail::display::List { w: sd.w, h: sd.h, items: sd.items };
             let (bytes, missing) =
-                cc_detail::pdf::to_pdf(&[list], &t("app.shop.title", &[("mark", F::S(mark.clone()))]), true, clock.pdf());
-            let mut msg = t("app.shop.saved", &[("mark", F::S(mark.clone()))]);
+                cc_detail::pdf::to_pdf(&[sh.list], &t("app.shop.title", &[("mark", F::S(sh.mark.clone()))]), true, clock.pdf());
+            let mut msg = t("app.shop.saved", &[("mark", F::S(sh.mark.clone()))]);
             missing_note(&mut msg, missing);
-            Outcome::File(format!("{safe} {mark}.pdf"), bytes, msg)
+            Outcome::File(format!("{safe} {}.pdf", sh.mark), bytes, msg)
         }
         other => return Err(format!("detail.export: one of {}, not {other}", KINDS.join(", "))),
     })
+}
+
+/// A part's shop drawing (detailcraft.js `makeShop`): its display list, mark and the dialog's note.
+pub struct Shop {
+    pub list: cc_detail::display::List,
+    pub mark: String,
+    /// the part id the drawing is of
+    pub part: String,
+    pub note: String,
+}
+
+/// The shop drawing of part `id` (a member, or a connection's plate) on `date`: Ok(Err(why)) when it can't have one
+/// (`shopRefusal`).
+pub fn shop_of(c: &Ctx, id: Option<&str>, date: &str) -> Result<Result<Shop, String>, String> {
+    let part = id.and_then(|i| c.built.get(i).or_else(|| c.built.get(&format!("{i}.plate"))));
+    if let Some(why) = cc_detail::shop::shop_refusal(part) {
+        return Ok(Err(why));
+    }
+    let Some(part) = part else { return Ok(Err(String::new())) };
+    let row = c.marks.parts.iter().find(|p| p.ids.contains(&part.id));
+    let mark = row.map_or_else(|| part.id.clone(), |r| r.mark.clone());
+    let weld = c.built.welds.iter().find(|w| w.between.contains(&part.id));
+    let count = row.map_or(1.0, |r| if r.count > 0 { r.count as f64 } else { 1.0 });
+    let info = cc_detail::shop::Info {
+        paper: c.settings.paper.clone(),
+        mark: mark.clone(),
+        asm_mark: c.marks.asm_of(&part.id).and_then(|a| c.marks.asm_mark(a)).unwrap_or("").to_string(),
+        count: Some(count),
+        weld: weld.map_or_else(String::new, |w| t("app.shop.weld", &[("size", F::N(w.size)), ("where", F::S(w.r#where.to_lowercase()))])),
+        model: cc_detail::js::string_of(c.state.get("name")),
+        date: date.to_string(),
+    };
+    let sd = cc_detail::shop::shop_drawing(part, &info)?;
+    let note = t(
+        "shop.note",
+        &[
+            ("part", F::S(format!("{} x {}", part.profile_name, cc_detail::js::num_to_string(cc_detail::js::round(part.length))))),
+            ("n", F::N(count)),
+            ("paper", F::S(cc_detail::paper::paper_label(sd.paper))),
+        ],
+    );
+    Ok(Ok(Shop { list: cc_detail::display::List { w: sd.w, h: sd.h, items: sd.items }, mark, part: part.id.clone(), note }))
 }
 
 /// `model.toJSON()` of a state (`JSON.stringify(state, null, 1)`).

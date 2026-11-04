@@ -214,7 +214,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
             "save" => run(acts, "detail.save", String::new()),
             "undo" => run(acts, "detail.undo", String::new()),
             "redo" => run(acts, "detail.redo", String::new()),
-            "shop" => run(acts, "detail.export", "shop".into()),
+            "shop" => run(acts, "detail.shop", "open".into()),
             "drawings" => run(acts, "detail.drawings", "open".into()),
             "live" => run(acts, "detail.live.window", "open".into()),
             "bolts" => run(acts, "detail.setting", format!("bolts={}", !dv.settings.bolts)),
@@ -488,7 +488,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     ui.horizontal_wrapped(|ui| {
         let why = cc_detail::shop::shop_refusal(dv.built.get(id));
         if why.is_none() && ui.add(crate::shell::Btn::new(t0("app.btn.shop"))).clicked() {
-            acts.push(Act::Run("detail.export", format!("shop:{id}")));
+            acts.push(Act::Run("detail.shop", format!("open:{id}")));
         }
     });
     for p in dv.built.problems.iter().filter(|x| x.r#ref.as_deref() == Some(id)) {

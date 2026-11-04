@@ -1012,7 +1012,7 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
             run(acts, "detail.act", "similar".into());
         }
         if shop && ui.add(crate::shell::Btn::new(t0("app.btn.plate-drawing"))).clicked() {
-            run(acts, "detail.export", "shop".into());
+            run(acts, "detail.shop", "open".into());
         }
         if ui.add(crate::shell::Btn::new(RichText::new(t0("app.btn.delete")).color(tk.accent))).clicked() {
             run(acts, "detail.act", "delete".into());

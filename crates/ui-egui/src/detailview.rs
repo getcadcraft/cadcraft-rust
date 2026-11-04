@@ -29,6 +29,7 @@ pub const SNAP_PX: f64 = 18.0;
 
 /// The `detail.*` UI commands (id, label, shortcut, params doc).
 pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
+    ("detail.shop", "Shop drawing", "", "{name: open[:<part>] | close | paper:<size>} the shop drawing dialog of the selected part"),
     ("detail.sample", "Open DetailCraft's sample", "", "{} → sample.js: the two-bay frame with connections, footings and rebar"),
     ("detail.new", "New DetailCraft model", "", "{} → an empty model on the starter grids (starterState)"),
     (
@@ -240,6 +241,8 @@ pub struct DetailView {
     pub long: Option<crate::detaildrag::LongPress>,
     /// the Drawings dialog (detaildwg.rs)
     pub dwg: Option<crate::detaildwg::DwgDlg>,
+    /// the shop drawing dialog (detaildwg.rs)
+    pub shop: Option<crate::detaildwg::ShopDlg>,
     /// a Studio Live session this window is in (detaillive.rs)
     pub live: Option<crate::detaillive::LiveSession>,
     /// the Live window is open
@@ -323,6 +326,7 @@ impl DetailView {
             drag: None,
             long: None,
             dwg: None,
+            shop: None,
             live: None,
             live_window: false,
             foot_key: None,
@@ -1437,7 +1441,7 @@ pub fn before_run(app: &mut UiApp, id: &str) {
 }
 
 /// The wall clock in ms (what date-stamped exports use unless a test fixes it).
-fn now_ms() -> f64 {
+pub fn now_ms() -> f64 {
     web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
@@ -1525,6 +1529,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "detail.drag" => dv.drag_cmd(&name)?,
         "detail.cube" => dv.cube_act(&name)?,
         "detail.drawings" => dv.drawings_cmd(&name, now_ms())?,
+        "detail.shop" => dv.shop_cmd(&name, now_ms())?,
         x if x.starts_with("detail.live.") => crate::detaillive::run(dv, x, &name)?,
         "detail.longpress" => {
             let r = Ref::parse(&name).ok_or_else(|| format!("detail.longpress: kind:id expected, not {name}"))?;
@@ -1722,6 +1727,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         });
         crate::detailprops::settings_window(dv, ui.ctx(), &tok, &mut acts);
         crate::detaildwg::window(dv, ui.ctx(), &tok, &mut acts);
+        crate::detaildwg::shop_window(dv, ui.ctx(), &tok, &mut acts);
         #[cfg(not(target_arch = "wasm32"))]
         crate::detaillive::window(dv, ui.ctx(), &tok, &mut acts);
         dv.live_poll();
@@ -1842,6 +1848,33 @@ mod tests {
         assert!(!v.marks.parts.is_empty());
         assert!(!v.schedule.rows.is_empty(), "the footings have bars");
         assert!(!v.model.dirty());
+    }
+
+    #[test]
+    fn the_shop_drawing_dialog_opens_follows_the_paper_and_closes() {
+        let mut v = DetailView::sample().unwrap();
+        v.shop_cmd("open", 0.0).unwrap();
+        assert!(v.shop.is_none(), "nothing selected: refused");
+        assert!(!v.message.is_empty());
+        let beam = cc_detail::js::string_of(
+            cc_detail::js::arr(v.model.state.get("members"))
+                .iter()
+                .find(|m| m.get("type").and_then(Value::as_str) == Some("beam"))
+                .unwrap()
+                .get("id"),
+        );
+        v.sel = Some(Ref::Member(beam.clone()));
+        v.shop_cmd("open", 0.0).unwrap();
+        let d = v.shop.as_ref().expect("the dialog");
+        assert_eq!(d.shop.part, beam);
+        assert!(!d.shop.mark.is_empty() && !d.shop.list.items.is_empty() && !d.shop.note.is_empty());
+        let other = cc_detail::paper::PAPER_KEYS.iter().find(|k| **k != v.settings.paper).unwrap().to_string();
+        v.shop_cmd(&format!("paper:{other}"), 0.0).unwrap();
+        assert_eq!(v.settings.paper, other, "kept as the setting, as 0.5's select does");
+        assert!(v.shop.as_ref().unwrap().shop.note.contains(&cc_detail::paper::paper_label(&other)));
+        v.shop_cmd("close", 0.0).unwrap();
+        assert!(v.shop.is_none());
+        assert!(v.shop_cmd("nope", 0.0).is_err());
     }
 
     #[test]

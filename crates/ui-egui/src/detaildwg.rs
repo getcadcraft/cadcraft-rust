@@ -189,19 +189,24 @@ impl DetailView {
 
 /// detailcraft.js `drawList(canvas, list)`: a sheet on white, fitted and centred, black ink, y up.
 pub fn draw_sheet(painter: &egui::Painter, rect: Rect, sh: &Sheet) {
+    draw_list(painter, rect, sh.w, sh.h, &sh.items);
+}
+
+/// A display list (`w` × `h` mm, y up) on white paper, fitted and centred (detailcraft.js `drawList`).
+pub fn draw_list(painter: &egui::Painter, rect: Rect, w: f64, h: f64, items: &[cc_detail::display::Item]) {
     painter.rect_filled(rect, 0.0, Color32::WHITE);
-    if !(sh.w > 0.0 && sh.h > 0.0) {
+    if !(w > 0.0 && h > 0.0) {
         return;
     }
-    let k = (f64::from(rect.width()) / sh.w).min(f64::from(rect.height()) / sh.h);
+    let k = (f64::from(rect.width()) / w).min(f64::from(rect.height()) / h);
     let (ox, oy) = (
-        f64::from(rect.left()) + (f64::from(rect.width()) - sh.w * k) / 2.0,
-        f64::from(rect.top()) + (f64::from(rect.height()) + sh.h * k) / 2.0,
+        f64::from(rect.left()) + (f64::from(rect.width()) - w * k) / 2.0,
+        f64::from(rect.top()) + (f64::from(rect.height()) + h * k) / 2.0,
     );
     let at = |p: [f64; 2]| Pos2::new((ox + p[0] * k) as f32, (oy - p[1] * k) as f32);
     let ink = Color32::BLACK;
     let pen = |w: f64| Stroke::new((w * k).max(0.5) as f32, ink);
-    for it in sh.items.iter().take(200_000) {
+    for it in items.iter().take(200_000) {
         match it {
             cc_detail::display::Item::Path { pts, w, dash, closed, fill } => {
                 let mut ps: Vec<Pos2> = pts.iter().map(|p| at(*p)).collect();
@@ -258,6 +263,110 @@ pub fn draw_sheet(painter: &egui::Painter, rect: Rect, sh: &Sheet) {
                 painter.add(egui::epaint::TextShape::new(tl, g, ink).with_angle(-*rot as f32));
             }
         }
+    }
+}
+
+/// The shop drawing dialog (detailcraft.js `openShop` / `makeShop`, ui.inc `data-shop`): the selected part's drawing on
+/// the sheet size, its preview, the note and Download PDF. `detail.shop` = `open[:<part>]` | `close` | `paper:<size>`.
+pub struct ShopDlg {
+    pub shop: crate::detailexport::Shop,
+    /// the model version it was made for
+    pub version: u64,
+}
+
+impl DetailView {
+    fn make_shop(&mut self, id: &str, now: f64) -> Result<(), String> {
+        self.recompute();
+        let date = crate::detailexport::Clock::of_ms(now).date();
+        match crate::detailexport::shop_of(&self.ctx(), Some(id), &date)? {
+            Ok(shop) => {
+                self.shop = Some(ShopDlg { shop, version: self.model.version });
+            }
+            Err(why) => {
+                self.shop = None;
+                self.message = why;
+            }
+        }
+        Ok(())
+    }
+
+    /// `detail.shop`.
+    pub fn shop_cmd(&mut self, spec: &str, now: f64) -> Result<(), String> {
+        let (k, v) = spec.split_once(':').unwrap_or((spec, ""));
+        match k {
+            "open" => {
+                let id = if v.is_empty() { self.selected_part().map(|p| p.id.clone()) } else { Some(v.to_string()) };
+                match id {
+                    Some(id) => self.make_shop(&id, now)?,
+                    None => self.message = cc_detail::shop::shop_refusal(None).unwrap_or_default(),
+                }
+            }
+            "close" => self.shop = None,
+            "paper" => {
+                let before = self.settings.clone();
+                self.settings.set(&format!("paper={v}"))?;
+                self.setting_changed(&before);
+                if let Some(id) = self.shop.as_ref().map(|d| d.shop.part.clone()) {
+                    self.make_shop(&id, now)?;
+                }
+            }
+            o => return Err(format!("detail.shop: open[:part] | close | paper:<size>, not {o}")),
+        }
+        Ok(())
+    }
+}
+
+/// The shop drawing dialog.
+pub fn shop_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec<Act>) {
+    // the model changed under it: made again (or closed when the part is gone)
+    if let Some(d) = dv.shop.as_ref().filter(|d| d.version != dv.model.version) {
+        let id = d.shop.part.clone();
+        let _ = dv.make_shop(&id, crate::detailview::now_ms());
+    }
+    let Some(d) = dv.shop.as_ref() else { return };
+    let mut open = true;
+    let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));
+    let title = t("app.shop.title", &[("mark", F::S(d.shop.mark.clone()))]);
+    crate::shell::Dialog::new(RichText::new(title).strong())
+        .collapsible(false)
+        .resizable(true)
+        .default_width(860.0)
+        .default_height(620.0)
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(ctx.content_rect().center())
+        .open(&mut open)
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
+                let mut paper = dv.settings.paper.clone();
+                egui::ComboBox::new("dc_shop_paper", "")
+                    .selected_text(cc_detail::paper::paper_label(&paper))
+                    .show_ui(ui, |ui| {
+                        for k in cc_detail::paper::PAPER_KEYS {
+                            ui.selectable_value(&mut paper, k.to_string(), cc_detail::paper::paper_label(k));
+                        }
+                    })
+                    .response
+                    .on_hover_text(t0("dwg.paper.title"))
+                    .labelled_by(pl.id);
+                if paper != dv.settings.paper {
+                    run(acts, "detail.shop", format!("paper:{paper}"));
+                }
+            });
+            let room = (ui.available_height() - 44.0).max(160.0);
+            let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), room), egui::Sense::hover());
+            let l = &d.shop.list;
+            draw_list(&ui.painter_at(r), r, l.w, l.h, &l.items);
+            ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, tk.divider), egui::StrokeKind::Outside);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(&d.shop.note).small().color(tk.text_dim));
+                if ui.add(crate::shell::Btn::primary(t0("page.dlg.shop.pdf"))).clicked() {
+                    run(acts, "detail.export", format!("shop:{}", d.shop.part));
+                }
+            });
+        });
+    if !open {
+        run(acts, "detail.shop", "close".into());
     }
 }
 

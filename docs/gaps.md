@@ -146,11 +146,11 @@ Last updated 2026-11-04 · Change: BimCraft finished (M7.20–M7.24: the Build m
    face, measure / mass / section, design-table CSV import, the exact kernel's features (they say "not built", as 0.5's
    mesh build does), Spanish words.
    **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; LISP scripts are in (M4.40; `drawing_plot` since M4.12, plot.js ported). The window's live tools are all in (M16.3, M16.10: view_screenshot for CadCraft and ModelCraft, DetailCraft's twelve). Studio Live (M16.4, M16.9, M16.11): the protocol core, the session server (0.5's live/session.rs), the SPAKE2 handshake and sealed frames byte for byte 0.5's, our own LAN WebSocket, `cadcraft-cli live-server`; the 0.5 JS client's suites pass against it and Rust joiners against 0.5's server; DetailCraft co-edits (host on the LAN with a code, approve, join; ops and snapshots as 0.5's live.js) with the 0.5 page and between two Rust windows. Not built: the relay (wss://, the internet path: web only, no desktop HTTP / TLS client by decision), mDNS discovery and the QR, the browser edition's own WebSocket joiner, signed-in names (assertions are passed through, never checked), the app adapters of the other apps (CadCraft, ModelCraft, MarkupCraft, TakeoffCraft, CivilCraft, PartCraft, BimCraft), hosting UI words (plain English: Studio's dialogs are not in the 0.5 catalogs). The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page) are not.
-   **DetailCraft** (M14.1, M14.3, M14.4): view, properties, reports, clash, every 0.5 export, the modelling tools,
+   **DetailCraft** (M14.1, M14.3–M14.7): view, properties, reports, clash, every 0.5 export, the modelling tools,
    dragging selected parts (D2), the view cube / axis icon, plan / elevation cut exactly, the Drawings dialog with its
-   preview and issue log, settings kept between runs, the touch long press, es-MX at parity with the frozen JS doing
-   the same. Missing: the clipboard between windows only through the system clipboard (no localStorage); the shop
-   drawing opens no preview dialog (it downloads, as the dialog's PDF button does).
+   preview and issue log, the shop drawing dialog, bolts picked in 3D, settings kept between runs, the touch long press,
+   edits on big models at 1.3–2× the JS, es-MX at parity with the frozen JS doing the same. Missing: the clipboard
+   between windows only through the system clipboard (no localStorage).
 9. **Words** (M3.6–M3.7): every app speaks en or es-MX (0.5's catalogs unchanged; Settings or the start screen
    switches; the desktop keeps it, the web keeps it in the browser or follows `?lang=` / the browser's language). es-MX
    parity: kdiff 4426/4426, mkuidiff 17/17, cvuidiff all, cvtooldiff 76/76 + 2084/2084, dcuidiff 58/58, pcuidiff all,
