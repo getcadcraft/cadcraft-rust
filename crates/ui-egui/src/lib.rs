@@ -16,8 +16,11 @@
 )]
 
 pub mod autocount;
+pub mod bimclip;
 pub mod bimedit;
 pub mod bimgrips;
+pub mod bimlib;
+pub mod bimlibnet;
 pub mod bimplace;
 pub mod bimplan;
 pub mod bimtools;
@@ -869,6 +872,19 @@ impl UiApp {
     }
 
     /// What the IFC view hides: storeys / classes switched off, and Find's isolate or hide.
+    /// Whether a 3D instance is hidden now (a storey or class turned off, Find's "show only" / "hide").
+    pub(crate) fn instance_hidden3(&self, i: usize) -> bool {
+        let by_group = self
+            .ifc_groups
+            .get(i)
+            .is_some_and(|(st, ty)| self.hidden3.contains(&format!("s:{st}")) || self.hidden3.contains(&format!("c:{ty}")));
+        let by_find = match (&self.iso3, self.ifc3.as_ref().and_then(|(_, p)| p.get(i))) {
+            (Some((only, set)), Some(p)) => set.contains(&p.to_bits()) != *only,
+            _ => false,
+        };
+        by_group || by_find
+    }
+
     fn apply_hidden3(&mut self) {
         let groups = &self.ifc_groups;
         let hidden = &self.hidden3;
@@ -1141,7 +1157,7 @@ impl UiApp {
 
     fn props_panel(&mut self, ui: &mut egui::Ui) {
         let t = self.tokens;
-        if self.sel_props.is_empty() {
+        if self.sel_props.is_empty() && self.bimh.picks.len() < 2 {
             return;
         }
         let groups = self.sel_props.clone();
@@ -1157,6 +1173,10 @@ impl UiApp {
                 let inner = ui.available_rect_before_wrap().shrink2(egui::vec2(12.0, 0.0));
                 let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(inner));
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    // several picked: how many, by class (bimcraft.js showMany)
+                    if bimclip::many_panel(self, ui) {
+                        return;
+                    }
                     bimedit::props_top(self, ui);
                     for g in &groups {
                         egui::CollapsingHeader::new(RichText::new(&g.title).color(t.text_strong)).default_open(true).show(ui, |ui| {
@@ -1854,6 +1874,8 @@ impl UiApp {
             id if bimplan::COMMANDS.iter().any(|c| c.0 == id) => return bimplan::run(self, id, params),
             id if bimplace::COMMANDS.iter().any(|c| c.0 == id) => return bimplace::run(self, id, params),
             id if id.starts_with("recovery.") => return recover::run(self, id, params),
+            id if bimlib::COMMANDS.iter().any(|c| c.0 == id) => return bimlib::run(self, id, params),
+            id if bimclip::COMMANDS.iter().any(|c| c.0 == id) => return bimclip::run(self, id, params),
             id if id.starts_with("part.") => {
                 partview::run(self, id, params)?;
                 self.error = None;
@@ -2207,6 +2229,9 @@ impl UiApp {
         sheetsetdlg::window(self, &ctx);
         libdlg::window(self, &ctx);
         lispdlg::window(self, &ctx);
+        // the Library panel's picker and network answers (any view: the panel serves the drawing viewer too)
+        bimlib::sync(self);
+        bimlib::window(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
         help::panel(self, ui);
@@ -2643,6 +2668,13 @@ impl UiApp {
             }
             if shell::bar_toggle(ui, &t, &lang::bim("info.h.drawing"), self.viewer.info).clicked() {
                 act = Some(("viewer.info", Params::default()));
+            }
+            // BimCraft's Library panel: the drawing's blocks made into items (This file), files read here (Files…)
+            if shell::bar_toggle(ui, &t, &bimtools::bt("ui.library", &[]), self.bimh.lib.open)
+                .on_hover_text(bimtools::bt("ui.lib.title", &[]))
+                .clicked()
+            {
+                act = Some(("bim.lib", Params::default()));
             }
         }
         if let Some((id, p)) = act {

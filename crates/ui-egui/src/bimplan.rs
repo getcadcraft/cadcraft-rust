@@ -2556,11 +2556,84 @@ pub fn keys(app: &mut UiApp, ctx: &egui::Context) {
     if f {
         app.run_ui("bim.fit", &Params::default());
     }
-    if del && app.picked_product().is_some() {
-        let (a, b, c, _) = picked(app);
-        if !a.is_empty() || !b.is_empty() || !c.is_empty() {
-            app.run_ui("bim.delete", &Params::default());
+    // Delete / Backspace: the Edit menu's Delete (drawn elements through their own delete first, bimclip.rs)
+    if del && !crate::bimclip::picks(app).is_empty() {
+        app.run_ui("bim.act", &p("delete"));
+    }
+}
+
+/// model-ui.js `edit(name)` for the picked elements: drawn walls, doors, windows, floors, ceilings and roofs have their
+/// own Delete (when every picked element is one of them); Copy, Cut and Duplicate of them are not built yet. → handled.
+pub fn edit_drawn(app: &mut UiApp, name: &str) -> Result<bool, String> {
+    let keys = crate::bimclip::picks(app);
+    if keys.is_empty() || app.ifc3.is_none() {
+        return Ok(false);
+    }
+    // cheap first: none of the picked is of a drawn kind → nothing of ours (no reading of the model)
+    let ours = |c: &str| {
+        matches!(c, "IfcWall" | "IfcWallStandardCase" | "IfcDoor" | "IfcWindow" | "IfcSpace" | "IfcSlab" | "IfcCovering" | "IfcRoof")
+    };
+    let d = crate::bimedit::doc(app)?;
+    let classes: Vec<String> =
+        keys.iter().map(|k| d.ed.api.line(d.ed.now(*k)).ok().flatten().map(|l| l.class.to_string()).unwrap_or_default()).collect();
+    if !classes.iter().any(|c| ours(c) || c.is_empty()) {
+        return Ok(false);
+    }
+    let sn = match (app.bimh.draw.on, app.bimh.draw.data.clone()) {
+        (true, Some(sn)) => sn,
+        _ => {
+            let d = crate::bimedit::doc(app)?;
+            cc_bim::draw::ops::snapshot(&mut d.ed.api).map_err(|e| e.0)?
         }
+    };
+    let (mut walls, mut openings, mut derived, mut label) = (Vec::new(), Vec::new(), Vec::<(&'static str, String)>::new(), String::new());
+    for &id in &keys {
+        if let Some(w) = sn.walls.iter().find(|x| x.id == id) {
+            walls.push(w.guid.clone());
+            label = bt("model.wall", &[]);
+        } else if let Some(o) = sn.openings.iter().find(|x| x.id == id) {
+            openings.push(o.guid.clone());
+            label = cc_bim::draw::openings::type_key_name(&o.type_key);
+        } else if let Some(sp) = sn.derived.spaces.iter().find(|x| x.id == id) {
+            derived.push(("room", sp.guid.clone()));
+            label = if sp.name.is_empty() { sp.number.clone() } else { sp.name.clone() };
+        } else if let Some(f) = sn.derived.floors.iter().find(|x| x.id == id) {
+            derived.push(("floor", f.guid.clone()));
+            label = bt(&format!("model.floor.{}", f.kind), &[]);
+        } else if let Some(c) = sn.derived.ceilings.iter().find(|x| x.id == id) {
+            derived.push(("ceiling", c.guid.clone()));
+            label = bt("model.ceiling", &[]);
+        } else if let Some(r) = sn.derived.roofs.iter().find(|x| x.id == id || x.parts.contains(&id)) {
+            if !derived.iter().any(|d| d.1 == r.guid) {
+                derived.push(("roof", r.guid.clone()));
+            }
+            label = bt("model.roof", &[]);
+        }
+    }
+    let count = walls.len() + openings.len() + derived.len();
+    if count == 0 {
+        return Ok(false);
+    }
+    match name {
+        "delete" => {
+            if count != keys.len() {
+                return Ok(false);
+            }
+            if derived.iter().any(|x| x.0 == "room") {
+                return Err(bt("model.room.nodelete", &[]));
+            }
+            crate::bimclip::pick_none(app);
+            let label = if count == 1 { label } else { bt("model.elements", &[("n", &count.to_string())]) };
+            let op = Op::RemoveElements { walls, openings, derived: derived.into_iter().map(|x| x.1).collect() };
+            commit(app, op, &label, &bt("model.verb.deleted", &[]), None);
+            Ok(true)
+        }
+        "copy" | "cut" | "duplicate" => {
+            app.message = bt("model.copy.notyet", &[]);
+            app.error = None;
+            Ok(true)
+        }
+        _ => Ok(false),
     }
 }
 

@@ -5,6 +5,8 @@
 //!       Enter), --click x,y (world), --mouse-click x,y (window points, a real click), --mouse-drag x1,y1:x2,y2,
 //!       --mouse-move x,y, --key NAME (Enter, Escape, Backspace, Delete, A …), --mods shift|ctrl|shift+ctrl|none (held for what follows), --event copy|cut|paste:TEXT, --run ID=NAME (any UI command), --open FILE (as a drop), --save-dir DIR (where UI saves land), --pick FILE[|FILE…] (what the picker hands the next command that asks), --wait MS, --seed-recovery N (copies of N drawings a crashed window left: the dialog opens), --trace (print the status line after each --run) and finally --hover x,y (where the pointer rests: rubber band and snap marker)
 //!       --lang en|es-MX: the language (also CADCRAFT_LANG)
+//!       --fetch-dir DIR: answers for the web build's fetch from files in DIR (the URL's path and query, other characters
+//!       than letters, digits, '.', '-', '_' as '_'; a missing file is a 404)
 //!       --folder: the file opens from its folder as on the desktop (folders listed: linked drawings and pictures are
 //!       found in it and its subfolders; `viewer.folder=DIR` opens another)
 //!       --edit: open the file for editing (CadCraft's importer); --save FORMAT:PATH (after the commands) saves it
@@ -189,6 +191,25 @@ fn shot(args: &[String]) -> Result<(), String> {
         _ => {}
     }
     // --folder: folders can be listed (the drawing viewer walks the drawing's folder, `viewer.folder` opens one)
+    // --fetch-dir DIR: what a web build's fetch would answer, from files (a URL's path and query, every character other
+    // than a letter, digit, '.', '-' or '_' made '_'); a missing file answers 404 (bmlibdiff-bimfin.mjs's LibraryCraft)
+    if let Some(dir) = arg(args, "--fetch-dir") {
+        let inbox: std::sync::Arc<std::sync::Mutex<Vec<cc_ui_egui::Fetched>>> = std::sync::Arc::default();
+        let out = std::sync::Arc::clone(&inbox);
+        app.services.fetch = Some(Box::new(move |url: &str| {
+            let name: String = url
+                .trim_start_matches('/')
+                .chars()
+                .map(|c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' })
+                .collect();
+            let result = match std::fs::read(std::path::Path::new(&dir).join(&name)) {
+                Ok(b) => Ok(("application/json".to_string(), b)),
+                Err(_) => Err("http:404 Not Found".to_string()),
+            };
+            out.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(cc_ui_egui::Fetched { url: url.to_string(), result });
+        }));
+        app.services.fetched = Some(inbox);
+    }
     if args.iter().any(|a| a == "--folder") {
         app.services.list_dir = Some(Box::new(|dir: &str| {
             let mut out: Vec<(String, bool)> = std::fs::read_dir(dir)

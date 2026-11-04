@@ -2,6 +2,48 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M7.18–M7.19 BimCraft: Library panel, swap / update, copy / paste (agent, work/bimfin)
+
+- Rebased work/bim's M7.16 (residential sync) and M7.17 (library item adapters) onto main (b00a86c; docs merged), and
+  its unfinished Library panel onto the 0.7 look (shell::Dialog, tabs, fields, Btn / Btn::primary; Library in the
+  toolbar's Build group and in the drawing viewer's bar).
+- M7.18, cc-bim (`draw::place` more / elems, `draw::clip`, `draw::editor`): ifc-place.js `placeLike`, `swap` (the
+  occurrence written again as another class under the same express ID when the new item maps to one), `placements`,
+  `info`, `elementsFrame`; ifc-elements.js `remove` / `snapshot` / `paste` (parts, openings, fills, materials, sets;
+  placed items get the next free number, or keep theirs after a Cut); ifc-edit.js `placeLike`, `swapItem` (swap /
+  update), `removeElements`, `snapshot`, `pasteElements` with undo / redo; clipboard.js (placement and elements clips,
+  pasteMove, besideSpot, pickStorey, boxFromItem / Equipment, ghostItem). `cadcraft-cli bimdraw` steps for all of it.
+  New fuzz target `bim_libfiles` (DWG / DXF blocks and IFC types as items, any JSON item placed, swapped, copied,
+  pasted, deleted, undone).
+- M7.19, the app: the Library panel (bimlib.rs, bimlibnet.rs) — This file, Files…, and on the web LibraryCraft and
+  other feeds (search after typing pauses, category, pages, cards with licence / version / team / withdrawn, the
+  item read and checked, Place, "Swap … to this"; feeds kept for the session); the desktop has no HTTP client and
+  says the library could not be reached. Edit (bimclip.rs): Copy, Paste and More (Cut, Paste in place, Duplicate,
+  Delete, Select all / none) in the toolbar and on Ctrl+C / X / V / Shift+V / D / A, Delete, each greyed out with
+  why; Ctrl / Shift + click picks several (Properties counts them by class); Paste follows the pointer on the plan
+  (R, Tab, typed X, Y; a click pastes until Esc); drawn walls / doors / windows keep their own Delete and say copy is
+  not built (model-ui.js); the clip and the library items kept survive opening another model. Properties shows the
+  placed item's library block with "Swap item…". Commands `bim.act`, `bim.pick` ("+id" adds), `bim.swap.pick`,
+  `bim.lib.swap`, `bim.lib.page`, `bim.lib.feed.add` / `.feed` / `.feed.remove`; `cadcraft-shot --fetch-dir` answers
+  the web build's fetch from files.
+- Parity (new `forks/tools/bmclipdiff.mjs` + `bmclipdiff-app.mjs`; `bmlibdiff-bimfin.mjs`, `bmuidiff-bimfin.mjs`,
+  `bimdiff-bimfin.mjs`, `bmgripdiff-bimfin.mjs`, `bmresdiff-bimfin.mjs`, `bmlibitemdiff-bimfin.mjs` add `--lang es-MX`
+  and should replace their originals at merge): the same in en and es-MX —
+  bmclipdiff engine 607/607 steps, saved IFC 70/70 byte-identical (new buildings, the three certification models,
+  FZK-Haus, Ifc4_SampleHouse, Duplex: other placements, swap / update with class changes, deletes with parts and
+  openings, copies moved / turned / onto another storey / after a Cut, undo / redo), app 90/90 status lines and 3/3
+  saved IFC (copy, paste, paste in place, duplicate, cut, delete, several picked, Swap item…, drawn walls, a placed
+  item pasted into another model); bmlibdiff 188/188, 16/16, app 125/125, 14/14 (with LibraryCraft and a feed through
+  a stubbed fetch); bmuidiff 2,573/2,573, 423/423; bimdiff 40,036/40,036; bmgripdiff 154/154, 20/20; bmresdiff
+  296/296, 61/61; bmlibitemdiff 892/892 files.
+- Speed (bmclipdiff --bench, in-process, best of 3, ms JS / Rust): FZK-Haus snapshot 9.7 / 1.8, paste 2.5 / 0.6,
+  delete 1.3 / 0.4, placeLike 0.8 / 0.2, swap 2.4 / 0.3; Ifc4_SampleHouse 4.3 / 1.4, 13.9 / 7.1, 1.3 / 0.4, 0.8 / 0.2,
+  2.0 / 0.4; Duplex 9.1 / 1.9, 17.3 / 9.2, 2.3 / 1.2, 1.2 / 0.5, 1.8 / 0.6 (1.9–7.2× the JS).
+- Screenshots: shots/bimfin/lib-files.png, lib-detail.png, lib-thisfile.png, lib-librarycraft.png, edit-many.png,
+  edit-pasting.png, edit-more.png.
+- Plain English (no 0.5 key): the commands' own help strings; the `--fetch-dir` note. Next: the residential tools'
+  Build menu, the IFC equipment schedule and credits buttons; on the web the library sign-in and Check for updates.
+
 ## 2026-10-21 — M7.17 BimCraft library item adapters (agent, work/bim)
 
 - cc-bim `libitem` (libitem.js, the same file CadCraft uses; libitem-ifc.js; rvt-reader.js's compound-file and

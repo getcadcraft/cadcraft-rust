@@ -129,6 +129,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-04 M7.18–M7.19: BimCraft Library panel (LibraryCraft and feeds on the web, This file, Files…), Swap item… / update, copy / cut / paste / paste in place / duplicate / delete of placements and any element, several picked; bmclipdiff, bmlibdiff, bmuidiff, bimdiff, bmgripdiff at 0 differences in en and es-MX; 1.9–7.2× the JS.
 - 2026-10-21 M7.17: BimCraft library item adapters (libitem.js: CSV, glTF / GLB, OBJ, STL, DWG / DXF blocks, IFC types, Revit families) at parity: bmlibitemdiff 880/880 files, 12,255 items; 1.2–4.4× the JS.
 - 2026-10-21 M7.16: BimCraft residential sync (res-follow.js: foundations, countertops, stairs, electrical, framing and, once the ground is loaded, the terrain follow the walls in the same undo step) at parity: bmresdiff 296/296 steps, 61/61 IFC byte-identical; grips in the app 97/97, 12/12; 2.2–3.4× the JS.
 - 2026-11-03 M17.14: ModelCraft's 3D view on 0.7's sheet colour in both spaces; full harness sweep 0 differences; web build loads 6 of 6.

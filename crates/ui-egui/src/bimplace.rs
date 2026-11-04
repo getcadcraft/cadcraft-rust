@@ -71,6 +71,8 @@ pub struct Placing {
     /// the storey's world (mm) and its inverse: plan ↔ model
     pub sw: M4,
     pub swi: M4,
+    /// pasting a clip (bimcraft.js `placing.paste`): a click pastes a copy (no dialog) until Esc
+    pub paste: Option<Box<cc_bim::draw::clip::Clip>>,
 }
 
 /// The placement dialog (`askPlacement`).
@@ -124,12 +126,21 @@ pub fn open_item(app: &mut UiApp, f: &ImportedFile) -> bool {
 
 /// `startPlacing(entry)`
 pub fn start(app: &mut UiApp, entry: LibEntry) {
+    start_with(app, entry, None);
+}
+
+/// `startPlacing(entry, paste)`: a clip pasted where the person clicks; its storey picked when this model has it.
+pub fn start_with(app: &mut UiApp, entry: LibEntry, paste: Option<cc_bim::draw::clip::Clip>) {
     if app.bimh.ed.is_none() || app.ifc3_bytes().is_none() {
         app.error = Some(bt("place.need.ifc", &[]));
         return;
     }
     if !app.bimh.draw.on {
         crate::bimplan::show(app, true);
+    }
+    if let Some(c) = &paste {
+        // paste on the storey the copy came from when this model has it (same model, or same name / nearest height)
+        crate::bimclip::paste_storey(app, c);
     }
     let Some(level) = app.bimh.draw.level else {
         app.error = Some(bt("place.need.storeys", &[]));
@@ -151,8 +162,11 @@ pub fn start(app: &mut UiApp, entry: LibEntry) {
     app.bimh.draw.chain = None;
     app.bimh.draw.drag = None;
     app.bimh.draw.ask = None;
-    app.bimh.draw.placing = Some(Placing { entry, rot: 0.0, snap: false, faces: None, last: None, at: None, storey: level, sw, swi });
-    status(app, bt("place.start", &[("name", &name)]));
+    let rot = paste.as_ref().map_or(0.0, |c| c.rot);
+    let pasting = paste.is_some();
+    app.bimh.draw.placing =
+        Some(Placing { entry, rot, snap: false, faces: None, last: None, at: None, storey: level, sw, swi, paste: paste.map(Box::new) });
+    status(app, bt(if pasting { "place.start.paste" } else { "place.start" }, &[("name", &name)]));
 }
 
 /// The storey changed while placing (the place bar's storey: here the plan's level): faces again, snap off.
@@ -219,9 +233,33 @@ pub fn on_click(app: &mut UiApp, p: V2) -> bool {
     }
     on_move(app, p);
     if let Some(at) = app.bimh.draw.placing.as_ref().and_then(|pl| pl.at) {
-        ask(app, at);
+        ask_or_paste(app, at);
     }
     true
+}
+
+/// `commitPlace(at)`: a paste goes straight in; an item asks for its number first.
+fn ask_or_paste(app: &mut UiApp, at: At) {
+    if app.bimh.draw.placing.as_ref().is_some_and(|p| p.paste.is_some()) {
+        if let Err(e) = crate::bimclip::commit_paste(app, at) {
+            app.error = Some(e);
+        }
+    } else {
+        ask(app, at);
+    }
+}
+
+/// After a paste: the wall faces read again when snapping (the model changed).
+pub fn refresh_faces(app: &mut UiApp) {
+    if let Some(p) = app.bimh.draw.placing.as_mut() {
+        p.faces = None;
+        if p.snap {
+            let f = faces(app);
+            if let Some(p) = app.bimh.draw.placing.as_mut() {
+                p.faces = Some(f);
+            }
+        }
+    }
 }
 
 /// `askPlacement(item, next)`: the dialog, its fields filled.
@@ -273,6 +311,8 @@ fn commit(app: &mut UiApp) -> Result<(), String> {
     let Some(doc) = app.bimh.ed.as_mut() else { return Ok(()) };
     let t0 = web_time::Instant::now();
     let r = doc.ed.place_item(pl.entry.item.clone(), opts).map_err(|e| e.0)?;
+    // `rememberItem(entry)`: kept for Paste in another model
+    crate::bimclip::remember_item(app, &pl.entry);
     app.bimh.draw.timings.insert("change", t0.elapsed().as_secs_f64() * 1000.0);
     crate::bimedit::after_change(app, Some(r.id), true);
     let key = if r.type_created { "place.done" } else { "place.done.shared" };
@@ -384,7 +424,7 @@ fn typed(app: &mut UiApp, text: &str) -> Result<(), String> {
     if let Some(pl) = app.bimh.draw.placing.as_mut() {
         pl.at = Some(at);
     }
-    ask(app, at);
+    ask_or_paste(app, at);
     Ok(())
 }
 
@@ -515,6 +555,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut run_ids: Vec<(&'static str, String)> = Vec::new();
     let name = pl.entry.name.clone();
     let snap = pl.snap;
+    let pasting = pl.paste.is_some();
     let at_text = match pl.at {
         Some(a) => bt(
             if a.snapped { "place.at.wall" } else { "place.at" },
@@ -528,7 +569,8 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     };
     let mut xy = app.bimh.draw.place_xy.clone();
     ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new(bt("place.bar.placing", &[("name", &name)])).strong());
+        let key = if pasting { "place.bar.pasting" } else { "place.bar.placing" };
+        ui.label(RichText::new(bt(key, &[("name", &name)])).strong());
         ui.label(RichText::new(bt("ui.place.hint", &[])).small().color(t.text_dim));
     });
     ui.horizontal_wrapped(|ui| {

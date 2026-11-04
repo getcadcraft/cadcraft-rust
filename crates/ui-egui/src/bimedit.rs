@@ -45,7 +45,7 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "bim.pick",
         "Pick an element",
         "",
-        "{name: \"<expressID>\"} → picks it in the 3D view and the plan (Properties shows it); empty = nothing",
+        "{name: \"<expressID>\" | \"+<expressID>\" (added to the pick, or taken out)} → picks it in the 3D view and the plan (Properties shows it); empty = nothing",
     ),
     ("bim.undo", "Undo", "Ctrl+Z", "{} → takes back the last change of the IFC model"),
     ("bim.redo", "Redo", "Ctrl+Y", "{} → applies the change Undo took back"),
@@ -68,6 +68,21 @@ pub struct Host {
     pub rebuild_ms: f64,
     /// a picked element with no piece in the 3D view (a room picked on the plan)
     pub picked_off: Option<f64>,
+    /// the Library panel (library-view.js)
+    pub lib: crate::bimlib::Lib,
+    /// "Swap item…": the placed item the Library's "Swap … to this" swaps (id, name)
+    pub swap_target: Option<(f64, String)>,
+    /// several elements picked (Ctrl / Shift + click, Select all); empty = the one picked (bimclip.rs)
+    pub picks: Vec<f64>,
+    /// what Copy / Cut keep (bimclip.rs): kept when another model opens
+    pub clip: Option<crate::bimclip::Held>,
+    /// library items placed, swapped in or updated in this window (key → entry), for Paste in another model
+    pub lib_items: Vec<(String, crate::bimplace::LibEntry)>,
+    /// this open model's session tag, and how many were made
+    pub model_tag: String,
+    pub tag_seq: u64,
+    /// text for the system clipboard (Copy), handed to egui on the next frame
+    pub copy_text: Option<String>,
 }
 
 impl std::fmt::Debug for Host {
@@ -165,7 +180,16 @@ pub fn run(app: &mut UiApp, id: &str, p: &Params) -> Result<(), String> {
             set_prop(app, pid, set, prop, v)
         }
         "bim.pick" => {
+            // "+<id>": added to the pick, or taken out (Ctrl / Shift + click; bimclip.rs)
+            if let Some(rest) = name.trim().strip_prefix('+') {
+                let id = cc_bim::js::str_num(rest);
+                if id.is_finite() {
+                    crate::bimclip::toggle_pick(app, id);
+                }
+                return Ok(());
+            }
             let id = cc_bim::js::str_num(&name);
+            app.bimh.picks.clear();
             if name.trim().is_empty() || !id.is_finite() {
                 app.select_product_none();
             } else {
@@ -214,6 +238,8 @@ fn set_prop(app: &mut UiApp, pid: f64, set: &str, prop: &str, value: &str) -> Re
 
 /// After a change: the model rebuilt from the edited file (the 3D view, and the plan when Draw is on), the pick kept.
 pub fn after_change(app: &mut UiApp, select: Option<f64>, rebuild_3d: bool) {
+    // the model is made again: the pick is the element given, or nothing (bimcraft.js rebuild)
+    app.bimh.picks.clear();
     if rebuild_3d {
         rebuild(app, select);
     }
@@ -416,13 +442,15 @@ pub fn save_button(app: &mut UiApp, ui: &mut egui::Ui) {
 }
 
 /// BimCraft's 0.7 toolbar groups for the IFC view: each button's id is the UI command it runs (`cmd=name`).
-fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
+fn ifc_tool_groups(app: &mut UiApp) -> Vec<crate::shell::ToolGroup> {
     use crate::shell::{Tool, ToolGroup};
     let n = app.bimh.ed.as_ref().map_or(0, |d| d.ed.changes.len());
     let save = if n > 0 { bt("save.ifc.count", &[("n", &n.to_string())]) } else { bt("save.ifc", &[]) };
     let undo_ok = app.bimh.ed.as_ref().is_some_and(|d| !d.ed.changes.is_empty());
     let redo_ok = app.bimh.ed.as_ref().is_some_and(|d| d.ed.can_redo());
     let edges = app.scene3.as_ref().is_some_and(|(_, v)| v.style.edges);
+    let copy_why = crate::bimclip::why_not(app, "copy");
+    let paste_why = crate::bimclip::why_not(app, "paste");
     let view =
         |name: &str, icon: &'static str, label: String, tip: String| Tool::new(format!("view.standard={name}"), icon, label).tip(tip);
     let mut build = vec![
@@ -435,6 +463,8 @@ fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
                 .tip("Pick a library item file (.item.json) to place on the plan"),
         );
     }
+    // ui.inc's library tools: Library (the Library panel)
+    build.push(Tool::new("bim.lib", "collection", bt("ui.library", &[])).tip(bt("ui.lib.title", &[])).on(app.bimh.lib.open));
     let mut groups = vec![
         ToolGroup {
             label: bt("ui.toolbar.view", &[]),
@@ -452,6 +482,13 @@ fn ifc_tool_groups(app: &UiApp) -> Vec<crate::shell::ToolGroup> {
             tools: vec![
                 Tool::new("bim.undo", "arrow-counterclockwise", bt("ui.undo", &[])).enabled(undo_ok),
                 Tool::new("bim.redo", "arrow-clockwise", bt("ui.redo", &[])).tip(bt("ui.redo.title", &[])).enabled(redo_ok),
+                Tool::new("bim.act=copy", "copy", bt("ui.copy", &[]))
+                    .tip(if copy_why.is_empty() { bt("edit.copy.title", &[]) } else { copy_why.clone() })
+                    .enabled(copy_why.is_empty()),
+                Tool::new("bim.act=paste", "clipboard-plus", bt("ui.paste", &[]))
+                    .tip(if paste_why.is_empty() { bt("edit.paste.title", &[]) } else { paste_why.clone() })
+                    .enabled(paste_why.is_empty()),
+                Tool::new("bim.more", "three-dots", bt("ui.more", &[])).tip(bt("ui.more.title", &[])),
             ],
         },
         ToolGroup { label: bt("input.m.build", &[]), tools: build },
@@ -706,10 +743,12 @@ impl UiApp {
     }
 }
 
-/// A file was opened: no editor, Draw off (the clock stays).
+/// A file was opened: no editor, Draw off, a new session tag (the clock, the clip and the Library stay).
 pub fn opened(app: &mut UiApp) {
-    let clock = app.bimh.clock;
-    app.bimh = Host { clock, ..Host::default() };
+    // the clip, the library items kept and the Library panel stay (a placed item pastes into any model)
+    let keep = std::mem::take(&mut app.bimh);
+    app.bimh =
+        Host { clock: keep.clock, lib: keep.lib, clip: keep.clip, lib_items: keep.lib_items, tag_seq: keep.tag_seq, ..Host::default() };
 }
 
 /// The IFC view (the app's `scene3` branch with an IFC model): the editing bar (Draw, Save as IFC, Undo, Redo, New
@@ -741,12 +780,18 @@ pub fn ifc_branch(app: &mut UiApp, ui: &mut egui::Ui) {
         }
     }
     crate::bimplan::keys(app, &ctx);
+    crate::bimclip::keys(app, &ctx);
     let frame = egui::Frame::new().fill(t.panel).inner_margin(4);
     // 0.7's toolbar (BimCraft ui.inc: View, Edit, Build, Output); while drawing, the plan's own bars under it
     let groups = ifc_tool_groups(app);
     let mut picked: Option<String> = None;
     egui::Panel::top("bim_edit_bar").frame(egui::Frame::new().fill(t.app_bar)).show(ui, |ui| {
         for (id, resp) in crate::shell::toolbar(ui, &t, t.app("bimcraft"), "bm-tb", &groups) {
+            if id == "bim.more" {
+                // ui.inc's More: Cut, Copy, Paste, Paste in place, Duplicate, Delete, Select all / none
+                egui::Popup::menu(&resp).show(|ui| crate::bimclip::more_menu(app, ui));
+                continue;
+            }
             if resp.clicked() {
                 picked = Some(id);
             }
@@ -811,8 +856,26 @@ pub fn ifc_branch(app: &mut UiApp, ui: &mut egui::Ui) {
         }
     });
     if let Some(at) = clicked {
-        app.select3(at);
+        // Ctrl / Cmd or Shift + click adds an element to the pick, or takes it out; a click on nothing keeps the pick then
+        let add = ui.input(|i| i.modifiers.command || i.modifiers.shift);
+        let hit = match (at, app.scene3.as_ref(), app.ifc3.as_ref()) {
+            (Some((x, y)), Some((scene, view)), Some((_, products))) => {
+                crate::view3d::pick(scene, &view.cam, x, y).and_then(|h| products.get(h.instance).copied())
+            }
+            _ => None,
+        };
+        if add && at.is_some() {
+            if let Some(id) = hit {
+                crate::bimclip::toggle_pick(app, id);
+            }
+        } else {
+            app.bimh.picks.clear();
+            app.select3(at);
+        }
         ui.ctx().request_repaint();
+    }
+    if let Some(text) = app.bimh.copy_text.take() {
+        ui.ctx().copy_text(text);
     }
 }
 
@@ -821,6 +884,7 @@ pub fn props_top(app: &mut UiApp, ui: &mut egui::Ui) {
     if app.bimh.draw.on {
         crate::bimplan::props_block(app, ui);
     }
+    crate::bimclip::library_block(app, ui);
     props_edit(app, ui);
     ui.separator();
 }
