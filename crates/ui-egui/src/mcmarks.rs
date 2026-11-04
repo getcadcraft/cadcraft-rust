@@ -4,8 +4,8 @@
 //! in a box), section planes (an outline, a light fill and four arrows toward the side cut away; the active one in
 //! ochre), a tool's dimension or section being placed, and the selection's dimensions, sections and guides. Presentation
 //! view leaves only the dimensions. Layouts are cc-m3d-tools' infer.js port (dimLayout, sectionLayout); the drawing is
-//! the page's canvas code. Unlike 0.5 (where axes and guide lines are lines in the 3D scene), they are drawn over the
-//! model.
+//! the page's canvas code. The drawing axes and guide lines are lines in the 3D scene as in 0.5 (the model in front
+//! of them hides them: [`ModelView::scene_lines`], drawn by cc-render's line pass); the rest is drawn over the model.
 
 use cc_m3d::model::{Guide, Radial};
 use cc_m3d::vec::{IDENT, P3, add, mul, sub};
@@ -225,7 +225,48 @@ fn ov_layout(d: &DimOv, cam: &cc_m3d_tools::Camera, vp: &[f64; 16]) -> DimLayout
     }
 }
 
+/// A line from `a` to `b` as dashes of `on` with gaps of `off` (world units; three.js LineDashedMaterial from `a`).
+fn dashed(out: &mut Vec<(P3, P3, [u8; 4])>, a: P3, b: P3, on: f64, off: f64, c: [u8; 4]) {
+    let len = cc_m3d::vec::dist(a, b);
+    if !(len.is_finite() && on > 0.0 && off >= 0.0) || len <= 0.0 {
+        return;
+    }
+    let u = mul(sub(b, a), 1.0 / len);
+    let mut t = 0.0;
+    // at most 4096 dashes a line (a huge model with a tiny dash would otherwise make millions)
+    let step = (on + off).max(len / 4096.0);
+    while t < len {
+        let e = (t + on).min(len);
+        out.push((add(a, mul(u, t)), add(a, mul(u, e)), c));
+        t += step;
+    }
+}
+
 impl ModelView {
+    /// view3d.js buildExtras' lines: the open context's drawing axes (solid on the positive side at 0.8, dashed R / 60
+    /// on the negative at 0.6, red / green / blue) and the guide lines (ink-2 at 0.75, dashes R / 120, gaps R / 160),
+    /// 4 R long each way (R: the model's diagonal, 10 at least, 30 empty). Presentation view leaves them out.
+    pub fn scene_lines(&self, dark: bool) -> Option<cc_render::lines3::Lines3> {
+        let ink = Ink::new(dark);
+        let rgba = |c: Color32, a: f64| [c.r(), c.g(), c.b(), (a * 255.0).round() as u8];
+        let model = &self.tools.host.model;
+        let r = model.bbox("root", &IDENT).map_or(30.0, |b| cc_m3d::vec::dist(b.min, b.max).max(10.0));
+        let big = r * 4.0;
+        let mut segs = Vec::new();
+        let am = model.axes_frame(&self.tools.host.path);
+        let o = apply(&am, [0.0; 3]);
+        for (dir, c) in [([1.0, 0.0, 0.0], ink.red), ([0.0, 1.0, 0.0], ink.green), ([0.0, 0.0, 1.0], ink.blue)] {
+            segs.push((o, apply(&am, mul(dir, big)), rgba(c, 0.8)));
+            dashed(&mut segs, o, apply(&am, mul(dir, -big)), r / 60.0, r / 60.0, rgba(c, 0.6));
+        }
+        for (_, g) in model.guides.iter() {
+            if let Guide::Line { p, d } = g {
+                dashed(&mut segs, add(*p, mul(*d, -big)), add(*p, mul(*d, big)), r / 120.0, r / 160.0, rgba(ink.ink2, 0.75));
+            }
+        }
+        Some(cc_render::lines3::Lines3 { segs })
+    }
+
     /// The model's marks under the tools' overlay (view3d.js buildExtras' axes and guide lines, drawOverlay's box,
     /// guide points, dimensions and section planes); `present`: dimensions only.
     pub fn marks(&self, painter: &Painter, rect: Rect, dark: bool) {
@@ -238,20 +279,10 @@ impl ModelView {
         let r = model.bbox("root", &IDENT).map_or(30.0, |b| cc_m3d::vec::dist(b.min, b.max).max(10.0));
         let big = r * 4.0;
         if !present {
-            // the drawing axes of the open context
-            let am = model.axes_frame(path);
-            let o = apply(&am, [0.0; 3]);
-            for (dir, c) in [([1.0, 0.0, 0.0], ink.red), ([0.0, 1.0, 0.0], ink.green), ([0.0, 0.0, 1.0], ink.blue)] {
-                pen.line(o, apply(&am, mul(dir, big)), alpha(c, 0.8), 1.0, None);
-                pen.line(o, apply(&am, mul(dir, -big)), alpha(c, 0.6), 1.0, Some((6.0, 6.0)));
-            }
-            // guide lines and points
+            // guide points (the drawing axes and guide lines are in the scene: scene_lines)
             for (_, g) in model.guides.iter() {
-                match g {
-                    Guide::Line { p, d } => {
-                        pen.line(add(*p, mul(*d, -big)), add(*p, mul(*d, big)), alpha(ink.ink2, 0.75), 1.0, Some((5.0, 4.0)))
-                    }
-                    Guide::Point { p } => pen.cross(pen.pt(*p), ink.ink2),
+                if let Guide::Point { p } = g {
+                    pen.cross(pen.pt(*p), ink.ink2);
                 }
             }
             // the open group's box

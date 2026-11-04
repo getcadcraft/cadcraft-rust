@@ -93,6 +93,7 @@ pub mod mcpanels;
 pub mod mcprint;
 mod mcrecord;
 mod mcrender;
+pub mod mcset;
 pub mod mcsolids;
 mod mcstarter;
 mod mcstretch;
@@ -390,6 +391,8 @@ pub struct UiApp {
     pub cadprops: cadprops::CadProps,
     /// Settings › CadCraft
     pub cadset: cadset::CadSet,
+    /// Settings › ModelCraft
+    pub mcset: mcset::McSet,
     /// the drafting editor's 3D tab (M4.25)
     pub tab3d: cad3dtab::Tab3d,
     /// the drafting editor's Plot dialog (M4.12)
@@ -505,6 +508,7 @@ impl Default for UiApp {
             editor: None,
             cadprops: cadprops::CadProps::default(),
             cadset: cadset::CadSet::default(),
+            mcset: mcset::McSet::default(),
             tab3d: cad3dtab::Tab3d::default(),
             plot: plotdlg::PlotDlg::default(),
             choose: None,
@@ -843,13 +847,13 @@ impl UiApp {
         self.hidden3.clear();
         self.sel3 = None;
         self.sel_props.clear();
-        // the key style is the viewer's, not the model's: it stays from the model open before
-        let keys = self.mc.as_ref().map(|m| m.keys.clone());
+        // the key style, Snap and Collide are the viewer's settings, not the model's: they stay from the model open
+        // before (Settings › ModelCraft)
+        let set = self.mcset_now();
+        self.mcset = set.clone();
         match modelcraft::ModelView::new(model, name, self.preset.is_dark()) {
             Ok(mut mv) => {
-                if let Some(k) = keys {
-                    mv.keys = k;
-                }
+                mv.apply_settings(&set);
                 let mut v = view3d::View3::default();
                 self.style3(&mut v);
                 mv.mode = if !v.style.faces {

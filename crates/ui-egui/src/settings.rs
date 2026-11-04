@@ -40,7 +40,7 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
         "settings.set",
         "Settings: change one",
         "",
-        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system|medium-dark|medium-light|contrast\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.corner=auto|cube|axes|none\" | \"cad.tabs=full|number\"} → applies at once",
+        "{name: \"lang=en|es-MX\" | \"theme=model|paper|system|medium-dark|medium-light|contrast\" | \"zoom=<0.5–2>\" | CadCraft's: \"cad.cursor=small|medium|large\" | \"cad.paste=lower-left|center\" | \"cad.pick=add|replace\" | \"cad.lasso=lasso|box\" | \"cad.corner=auto|cube|axes|none\" | \"cad.tabs=full|number\" | ModelCraft's: \"mc.keys=sketchup|blender\" | \"mc.scroll=auto|mouse|trackpad\" | \"mc.touch2=pan|orbit\" | \"mc.snap=true|false\" | \"mc.collide=true|false\" | \"mc.corner=cube|axes|none\"} → applies at once",
     ),
 ];
 
@@ -78,11 +78,14 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                     }
                     app.settings.zoom = z;
                 }
+                _ if k.starts_with("mc.") => {
+                    app.set_mc_setting(k.trim_start_matches("mc."), v)?;
+                }
                 _ if k.starts_with("cad.") => {
                     app.cadset.set(k.trim_start_matches("cad."), v)?;
                     crate::cadset::push(app);
                 }
-                _ => return Err(format!("settings.set: no setting {k} (lang, theme, zoom, cad.*)")),
+                _ => return Err(format!("settings.set: no setting {k} (lang, theme, zoom, cad.*, mc.*)")),
             }
             Ok(())
         }
@@ -99,6 +102,7 @@ impl UiApp {
             "theme": self.settings.theme,
             "zoom": self.settings.zoom,
             "cadcraft": self.cadset.json(),
+            "modelcraft": self.mcset_now().json(),
             "cadprops": self.cadprops.prefs_json(),
             "cadcraftInput": self.ribbon.prefs(),
             "helpCtx": self.help.saved,
@@ -120,6 +124,12 @@ impl UiApp {
         }
         if let Some(c) = v.get("cadcraft") {
             self.cadset.load(c);
+        }
+        if let Some(m) = v.get("modelcraft") {
+            self.mcset.load(m);
+            if let Some(mc) = self.mc.as_mut() {
+                mc.apply_settings(&self.mcset);
+            }
         }
         if let Some(p) = v.get("cadprops") {
             self.cadprops.load_prefs(p);
@@ -275,6 +285,9 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 crate::cadset::section(app, ui, &mut act);
                 crate::mytoolsdlg::section(app, ui, &mut input_act);
                 crate::inputdlg::section(app, ui, &mut input_act);
+            }
+            if app.active_app() == "modelcraft" {
+                crate::mcset::section(app, ui, &mut act);
             }
             ui.add_space(10.0);
             if ui.add(crate::shell::Btn::new(s("shell.settings.done"))).clicked() {

@@ -26,6 +26,8 @@ pub struct Scene3D {
     pub textures: Arc<Vec<(u32, Vec<u8>)>>,
     /// pictures as texture layers: (layer, key of the picture, TEX_SIZE² RGBA)
     pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
+    /// lines in the scene, depth-tested with it (ModelCraft's drawing axes and guide lines)
+    pub lines: Option<Arc<cc_render::lines3::Lines3>>,
 }
 
 /// A point cloud in a 3D scene: its points and colours (shared, not copied) and how they are drawn.
@@ -55,6 +57,7 @@ impl Scene3D {
             cloud: None,
             textures: Arc::default(),
             images: Vec::new(),
+            lines: None,
         }
     }
     /// Hide some instances (a storey, a class): not drawn, not picked.
@@ -188,6 +191,10 @@ pub struct Gpu3 {
     points: cc_render::points3::Points3,
     cloud: Option<((usize, usize), cc_render::points3::GpuCloud)>,
     shown_cloud: Option<((usize, usize), cc_render::points3::CloudDraw)>,
+    /// lines in the scene: the pipeline, the lines on the GPU (keyed by what they were made from), what the target shows
+    line_pass: cc_render::lines3::LinePass,
+    lines: Option<(Arc<cc_render::lines3::Lines3>, cc_render::lines3::GpuLines)>,
+    shown_lines: Option<Arc<cc_render::lines3::Lines3>>,
 }
 
 /// Install the 3D renderer next to the 2D one (hosts call [`crate::canvas::install_gpu`], which calls this).
@@ -208,6 +215,9 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         points: cc_render::points3::Points3::new(&rs.device),
         cloud: None,
         shown_cloud: None,
+        line_pass: cc_render::lines3::LinePass::new(&rs.device),
+        lines: None,
+        shown_lines: None,
     };
     rs.renderer.write().callback_resources.insert(g);
 }
@@ -318,6 +328,21 @@ impl egui_wgpu::CallbackTrait for Callback {
         if g.shown_cloud != ckey {
             g.shown = None;
         }
+        // lines in the scene: uploaded once per set (the Arc kept, so a new set is never mistaken for an old one)
+        let lkey = self.scene.lines.clone();
+        if let Some(l) = &self.scene.lines
+            && g.lines.as_ref().is_none_or(|(k, _)| !Arc::ptr_eq(k, l))
+        {
+            g.lines = Some((l.clone(), cc_render::lines3::GpuLines::upload(device, l)));
+        }
+        let same = match (&g.shown_lines, &lkey) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !same {
+            g.shown = None;
+        }
         if g.shown != Some(key)
             && let (Some((t, _)), Some(set)) = (&g.target, &g.instances)
         {
@@ -332,8 +357,12 @@ impl egui_wgpu::CallbackTrait for Callback {
             if let (Some(c), Some((_, gc))) = (&self.scene.cloud, &g.cloud) {
                 g.points.render(device, queue, t, &self.cam, gc, &c.draw);
             }
+            if let (Some(_), Some((_, gl))) = (&self.scene.lines, &g.lines) {
+                g.line_pass.render(device, queue, t, &self.cam, gl);
+            }
             g.shown = Some(key);
             g.shown_cloud = ckey;
+            g.shown_lines = lkey;
         }
         if let Some(cap) = &self.capture {
             capture(device, queue, g, cap);

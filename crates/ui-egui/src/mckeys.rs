@@ -107,6 +107,9 @@ impl ModelView {
                 self.set_section_view("cuts", on);
                 Ok(())
             }
+            // the view cube (viewcube.js through viewcube-camera.js cameraCubeOptions): a side, a step, a compass
+            // letter, Home (stdView('iso'))
+            "cube" => self.cube_act(arg),
             // the status bar's switches
             "toggle" => match arg {
                 "snap" => {
@@ -124,6 +127,41 @@ impl ModelView {
             _ => return None,
         };
         Some(r)
+    }
+
+    /// The view cube's click: `top` … `right`, `step:up|down|left|right|cw|ccw`, `letter:n|e|s|w`, `home`.
+    fn cube_act(&mut self, arg: &str) -> Result<(), String> {
+        use cc_m3d_tools::viewcube_camera as vc;
+        self.anim = None;
+        if arg == "home" {
+            self.std_view("iso");
+            return Ok(());
+        }
+        let cam = &mut self.tools.host.cam;
+        if let Some(step) = arg.strip_prefix("step:") {
+            let v = vc::camera_view(cam);
+            vc::face_on(v.dir, Some(v.up)).ok_or("model.edit: cube:step: the view does not look straight at a side")?;
+            let (dir, up) = vc::step_view(v.dir, Some(v.up), step).ok_or(format!("model.edit: cube: no step {step}"))?;
+            vc::apply_view(cam, dir, Some(up));
+            return Ok(());
+        }
+        if let Some(l) = arg.strip_prefix("letter:") {
+            let side = match l {
+                "n" => [0.0, 1.0],
+                "e" => [1.0, 0.0],
+                "s" => [0.0, -1.0],
+                "w" => [-1.0, 0.0],
+                _ => return Err(format!("model.edit: cube: no letter {l}")),
+            };
+            // look from that side, keeping the tilt (viewcube.js viewFromLetter)
+            let z = cam.axes().z[2].clamp(-0.9999, 0.9999);
+            let h = (1.0 - z * z).sqrt();
+            vc::apply_view(cam, [-side[0] * h, -side[1] * h, -z], None);
+            return Ok(());
+        }
+        let dir = cc_m3d_tools::camera::view_dir(arg).ok_or(format!("model.edit: cube: no side {arg}"))?;
+        vc::apply_view(cam, [-dir[0], -dir[1], -dir[2]], None);
+        Ok(())
     }
 
     /// setKeys(v): the style, and the words that say so.
@@ -428,6 +466,48 @@ impl ModelView {
 mod tests {
     use crate::mcact::ns;
     use crate::mcedit::testkit::{groups, root_insts};
+
+    /// The view cube's clicks: a side looks from it, a step turns from a side-on view, a letter keeps the tilt, Home is
+    /// the iso view; anything else is refused with words.
+    #[test]
+    fn view_cube_turns_the_camera() {
+        let mut v = groups(&[0.0, 2.0]);
+        v.act("view-size:1000,800").unwrap();
+        v.act("cube:top").unwrap();
+        let ax = v.tools.host.cam.axes();
+        assert!((ax.z[2] - 1.0).abs() < 1e-3, "{:?}", ax.z);
+        v.act("cube:step:down").unwrap();
+        let ax = v.tools.host.cam.axes();
+        assert!(ax.z[2].abs() < 1e-3, "{:?}", ax.z);
+        v.act("cube:letter:e").unwrap();
+        let ax = v.tools.host.cam.axes();
+        assert!((ax.z[0] - 1.0).abs() < 1e-3, "{:?}", ax.z);
+        v.act("cube:home").unwrap();
+        assert_eq!(v.message, "Iso view.");
+        assert!(v.act("cube:sideways").is_err());
+        assert!(v.act("cube:letter:q").is_err());
+    }
+
+    /// Settings › ModelCraft reach the open model, and its own switches are the settings kept.
+    #[test]
+    fn modelcraft_settings_follow_the_model() {
+        let mut app = crate::UiApp::new(crate::Services::default());
+        app.mc = Some(groups(&[0.0]));
+        app.run("settings.set", &crate::Params { name: Some("mc.keys=blender".into()), ..Default::default() }).unwrap();
+        app.run("settings.set", &crate::Params { name: Some("mc.corner=axes".into()), ..Default::default() }).unwrap();
+        let mc = app.mc.as_mut().unwrap();
+        assert!(mc.blender());
+        assert_eq!(mc.corner, "axes");
+        mc.act("toggle:collide").unwrap();
+        let v = app.settings_json();
+        assert_eq!(v["modelcraft"]["keys"], "blender");
+        assert_eq!(v["modelcraft"]["collide"], false);
+        let mut b = crate::UiApp::new(crate::Services::default());
+        b.load_settings(&v);
+        assert_eq!(b.mcset.corner, "axes");
+        assert!(!b.mcset.collide);
+        assert!(app.run("settings.set", &crate::Params { name: Some("mc.scroll=sideways".into()), ..Default::default() }).is_err());
+    }
 
     #[test]
     fn modeler_keys() {

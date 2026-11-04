@@ -73,6 +73,9 @@ pub fn tool_title(name: &str, blender: bool) -> String {
     if s == k { String::new() } else { s }
 }
 
+/// What the scene's lines were made for: (model version, model generation, open group, dark).
+type LinesKey = (f64, u64, Vec<f64>, bool);
+
 /// One open ModelCraft model and its tools.
 pub struct ModelView {
     pub tools: Tools,
@@ -144,6 +147,21 @@ pub struct ModelView {
     pub starter_dlg: bool,
     /// the key style: "sketchup" (push-pull keys) or "blender" (modeler keys) (mckeys.rs)
     pub keys: String,
+    /// Settings › ModelCraft: the corner indicator ("cube" | "axes" | "none"), scrolling ("auto" | "mouse" |
+    /// "trackpad"), what two fingers do ("pan" | "orbit") (mcset.rs)
+    pub corner: String,
+    pub scroll: String,
+    pub touch2: String,
+    /// the scene's lines (axes, guide lines) and what they were made for
+    lines3: Option<(LinesKey, Option<std::sync::Arc<cc_render::lines3::Lines3>>)>,
+    /// a trackpad's scrolling was seen until this time (ms; looksLikePad's padUntil)
+    pad_until: f64,
+    /// a press began on the view cube (it is the cube's until released)
+    cube_press: bool,
+    /// touch: the first finger held back (where, when), a long press done, two or more fingers on the camera
+    held_touch: Option<(egui::Pos2, f64)>,
+    long_done: bool,
+    multi: bool,
     /// a Ctrl + middle-drag zooming about this point (modeler keys)
     cam_zoom: Option<(f64, f64)>,
     /// imported pictures decoded for the view and renders (model3d.rs)
@@ -231,6 +249,15 @@ impl ModelView {
             terrain_dlg: None,
             starter_dlg: false,
             keys: "sketchup".into(),
+            corner: "cube".into(),
+            scroll: "auto".into(),
+            touch2: "pan".into(),
+            pad_until: 0.0,
+            lines3: None,
+            cube_press: false,
+            held_touch: None,
+            long_done: false,
+            multi: false,
             cam_zoom: None,
             img_cache,
             recording: None,
@@ -459,6 +486,15 @@ impl ModelView {
             let c = t.canvas_bg;
             style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
         }
+        // the axes and guide lines in the scene (made again when the model, the open group or the look change)
+        let bg = style.background;
+        let dark = bg[0] + bg[1] + bg[2] < 1.5;
+        let key = (self.tools.host.model.version(), self.tools.host.model_gen(), self.tools.host.path.clone(), dark);
+        let present = self.presenting || self.recording.is_some();
+        if self.lines3.as_ref().is_none_or(|(k, _)| *k != key) {
+            self.lines3 = Some((key, self.scene_lines(dark).map(std::sync::Arc::new)));
+        }
+        self.scene.lines = if present { None } else { self.lines3.as_ref().and_then(|(_, l)| l.clone()) };
         view3d::paint_capture(ui, rect, &self.scene, &cam, &style, self.recording.as_ref().map(|r| r.cap.clone()));
         // the model's marks (axes, guides, dimensions, section planes); presentation view (and a film being recorded,
         // as 0.5 records in it): the dimensions only, no tool marks, no selection
@@ -469,8 +505,194 @@ impl ModelView {
         if !self.presenting && self.recording.is_none() {
             self.overlay(ui, rect, t);
         }
+        self.corner_indicator(ui, rect, t);
         self.take_tool_message();
         self.dialogs(ui.ctx());
+    }
+
+    /// The wheel (modelcraft.js's wheel handler): a trackpad's two-finger swipe orbits (Shift pans) in trackpad mode,
+    /// or in "auto" while the scrolling looks like a trackpad's (sideways, or fine-grained); a pinch (or Ctrl + wheel)
+    /// zooms; otherwise the wheel zooms toward the face under the cursor (else the target plane).
+    fn wheel(&mut self, ui: &egui::Ui, rect: Rect, pos: Option<Pos2>, scroll: f32) {
+        let now = self.now();
+        let (wheels, pinch) = ui.input(|i| {
+            let w: Vec<(egui::MouseWheelUnit, egui::Vec2, bool)> = i
+                .events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::MouseWheel { unit, delta, modifiers, .. } => Some((*unit, *delta, modifiers.shift)),
+                    _ => None,
+                })
+                .collect();
+            (w, i.zoom_delta())
+        });
+        let p = pos.unwrap_or(rect.center()) - rect.min;
+        let (sx, sy) = (f64::from(p.x), f64::from(p.y));
+        if pinch != 1.0 && pinch.is_finite() && pinch > 0.0 {
+            self.tools.host.cam.zoom_at(1.0 / f64::from(pinch), Some(sx), Some(sy), None);
+            return;
+        }
+        // looksLikePad: the DOM's deltas are the other way round from egui's
+        // (the smoothed scrolling egui spreads over the next frames follows the last word)
+        let mut pad = match self.scroll.as_str() {
+            "trackpad" => true,
+            "mouse" => false,
+            _ => now < self.pad_until,
+        };
+        for (unit, d, shift) in &wheels {
+            pad = match self.scroll.as_str() {
+                "trackpad" => true,
+                "mouse" => false,
+                _ if *unit != egui::MouseWheelUnit::Point => false,
+                _ => {
+                    let dy = -f64::from(d.y);
+                    if d.x != 0.0 || (dy.fract() != 0.0 && dy.abs() < 50.0) {
+                        self.pad_until = now + 400.0;
+                    }
+                    now < self.pad_until
+                }
+            };
+            if pad {
+                let k = if *unit == egui::MouseWheelUnit::Line { 16.0 } else { 1.0 };
+                let (dx, dy) = (f64::from(d.x) * k, f64::from(d.y) * k);
+                if *shift {
+                    self.tools.host.cam.pan(dx, dy);
+                } else {
+                    self.tools.host.cam.orbit(dx * 0.6, dy * 0.6);
+                }
+            }
+        }
+        if pad || scroll == 0.0 {
+            return;
+        }
+        // zoom toward what is under the cursor (a face), else the target plane
+        let ray = self.tools.host.cam.ray(sx, sy);
+        let pivot = self.tools.host.scene().hit(&ray, None).map(|h| {
+            let d = ray.d;
+            [ray.o[0] + d[0] * h.t, ray.o[1] + d[1] * h.t, ray.o[2] + d[2] * h.t]
+        });
+        let factor = (-f64::from(scroll) * 0.002).exp();
+        self.tools.host.cam.zoom_at(factor, Some(sx), Some(sy), pivot);
+    }
+
+    /// Touch (modelcraft.js, S.8): two fingers pan and pinch-zoom, three orbit (Settings › ModelCraft › Touch screen
+    /// swaps them); one finger is the tool — a tap is a click, a drag a press–drag, holding still half a second
+    /// finishes what the tool is doing (as Enter). → true when touch took this frame.
+    fn touch_input(
+        &mut self,
+        ui: &egui::Ui,
+        rect: Rect,
+        pos: Option<Pos2>,
+        pressed: [bool; 3],
+        released: [bool; 3],
+        mods: egui::Modifiers,
+    ) -> bool {
+        let (touch, multi) = ui.input(|i| (i.any_touches(), i.multi_touch()));
+        let now = self.now();
+        if let Some(m) = multi.filter(|m| m.num_touches >= 2) {
+            if !self.multi {
+                self.multi = true;
+                self.held_touch = None;
+                // what a first finger began is cancelled
+                if self.tools.busy() {
+                    let _ = self.tools.escape();
+                }
+                self.held = None;
+            }
+            let (dx, dy) = (f64::from(m.translation_delta.x), f64::from(m.translation_delta.y));
+            let c = m.center_pos - rect.min;
+            let pan = (m.num_touches >= 3) == (self.touch2 == "orbit");
+            let cam = &mut self.tools.host.cam;
+            if dx != 0.0 || dy != 0.0 {
+                if pan {
+                    cam.pan(dx, dy);
+                } else {
+                    cam.orbit(dx, dy);
+                }
+            }
+            let z = f64::from(m.zoom_delta);
+            if m.num_touches == 2 && z > 0.0 && (z - 1.0).abs() > 1e-6 {
+                cam.zoom_at(1.0 / z, Some(f64::from(c.x)), Some(f64::from(c.y)), None);
+            }
+            return true;
+        }
+        if self.multi {
+            if !touch || released.iter().any(|r| *r) {
+                self.multi = false;
+            }
+            return true;
+        }
+        // one finger: the press waits; moving past 8 px makes it a press–drag, a lift is a tap, a long press is Enter
+        if let Some((p0, t0)) = self.held_touch {
+            let moved = pos.is_some_and(|p| p.distance(p0) > 8.0);
+            if moved {
+                self.held_touch = None;
+                self.place_guard();
+                self.held = Some(egui::PointerButton::Primary);
+                let e = self.ev(p0, rect, mods);
+                let _ = self.tools.down(&e);
+                return false;
+            }
+            if released[0] {
+                self.held_touch = None;
+                let e = self.ev(p0, rect, mods);
+                let _ = self.tools.down(&e);
+                let _ = self.tools.up(&e);
+                return true;
+            }
+            if now - t0 >= 500.0 {
+                self.held_touch = None;
+                self.long_done = true;
+                let _ = self.tools.call("finish", &[]);
+                return true;
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            return true;
+        }
+        if self.long_done {
+            if released[0] || !touch {
+                self.long_done = false;
+            }
+            return true;
+        }
+        if touch
+            && pressed[0]
+            && let Some(p) = pos.filter(|p| rect.contains(*p))
+            && !(self.corner == "cube" && crate::cad3dtab::in_cube(rect, p))
+        {
+            self.held_touch = Some((p, now));
+            let e = self.ev(p, rect, mods);
+            let _ = self.tools.mv(&e);
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
+            return true;
+        }
+        false
+    }
+
+    /// Settings › ModelCraft › Corner indicator (modelcraft.js applySettings): the view cube at the top right, the
+    /// X/Y/Z axis icon at the bottom left, or nothing.
+    fn corner_indicator(&mut self, ui: &mut egui::Ui, rect: Rect, t: &Tokens) {
+        let ax = self.tools.host.cam.axes();
+        match self.corner.as_str() {
+            "axes" => crate::cad3dtab::axis_icon(ui, rect, t, ax),
+            "none" => {}
+            _ => {
+                let tr = |k: &str, d: &str| {
+                    let w = mt(k, &[]);
+                    if w == k { d.to_string() } else { w }
+                };
+                let (act, on_cube_drag, delta) = crate::cad3dtab::cube_draw(ui, rect, t, ax, &tr, "mc_wcs");
+                if on_cube_drag {
+                    self.anim = None;
+                    self.tools.host.cam.orbit(f64::from(delta.x), f64::from(delta.y));
+                }
+                if let Some(a) = act
+                    && let Err(e) = self.act(&format!("cube:{a}"))
+                {
+                    self.message = e;
+                }
+            }
+        }
     }
 
     fn input(&mut self, ui: &mut egui::Ui, resp: &egui::Response, rect: Rect) {
@@ -487,6 +709,20 @@ impl ModelView {
             )
         });
         let inside = pos.is_some_and(|p| rect.contains(p));
+        if self.touch_input(ui, rect, pos, pressed, released, mods) {
+            return;
+        }
+        // a press on the view cube or its compass is the cube's (it sits above the view: the tools never see it)
+        let on_cube = self.corner == "cube" && pos.is_some_and(|p| crate::cad3dtab::in_cube(rect, p));
+        if on_cube && pressed.iter().any(|x| *x) {
+            self.cube_press = true;
+        }
+        if self.cube_press || (on_cube && self.held.is_none()) {
+            if released.iter().any(|r| *r) {
+                self.cube_press = false;
+            }
+            return;
+        }
         if inside && let Some(p) = pos {
             self.mouse = Some((f64::from(p.x - rect.min.x), f64::from(p.y - rect.min.y)));
         }
@@ -554,10 +790,8 @@ impl ModelView {
             }
             self.held = None;
         }
-        if inside && scroll != 0.0 {
-            let p = pos.unwrap_or(rect.center()) - rect.min;
-            let factor = (-f64::from(scroll) * 0.002).exp();
-            self.tools.host.cam.zoom_at(factor, Some(f64::from(p.x)), Some(f64::from(p.y)), None);
+        if inside {
+            self.wheel(ui, rect, pos, scroll);
         }
         if !(resp.hovered() || self.held.is_some()) || ui.ctx().egui_wants_keyboard_input() {
             return;

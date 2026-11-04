@@ -2,6 +2,50 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M6.34–M6.35 ModelCraft finished on main: work/model2 rebased, two m3d_tools fuzz finds, Settings › ModelCraft, view cube, touch, axes in the scene (agent, work/modelfin)
+
+- Rebased work/model2's M6.27–M6.33 (entry below, 2026-10-21) onto main b00a86c, keeping both sides: CivilCraft's
+  map drape and the imported pictures share the 64 texture layers (a drape layer forgets the picture there and the
+  other way round); CadCraft's 3D tab keeps its average-colour pictures; the view on 0.7's sheet colour, except while a
+  film records (exports keep the style's own); the marks on the sheet's dark / light. Moved onto the 0.7 shell: the
+  Views menu is a Camera-group tool after Section (bi-camera, as ui.inc), Edit › More gains terrain and the key style,
+  Snap / Collide are status-bar toggles (shell::toggle), the Starter library and Terrain grid are shell::Dialog with
+  shell::Btn / shell::field, the Components panel's link is shell::link; the old left palette's menus are gone.
+- M6.34, fuzz (both seeds in fuzz/seeds/m3d_tools, regression tests in fuzzdrive.rs): `timeout-follow.bin` — a
+  self-crossing, NaN-split face left an earcut ring that no longer passes its start and intersectsPolygon walked it
+  for ever (the JS would too): every ring walk in cc-m3d's earcut now spends one budget, 64 (n + 16)² steps a call
+  (spec gap noted; real faces need about n²). `oom-tools.bin` — the Place tool put a component inside its own open
+  context; the next pointer move made a scene of two million placements (the kernel's walk budget), 1.45 GB:
+  cc-m3d-tools' Scene keeps at most 300,000 placements (222 MB peak now). libFuzzer on both: 2.1 s / 0.4 s, under the
+  2 GB limit.
+- M6.35 (`mcset.rs`, `modelcraft.rs`, `mckeys.rs`, `mcmarks.rs`, cc-render `lines3.rs`): Settings › ModelCraft as
+  settings.inc (controls, scrolling, touch screen, snapping and solids, corner indicator; 0.5's words and hints), kept
+  as `modelcraft` in settings.json / the browser's storage as modelcraft.js keeps `modelcraft.settings`; the key
+  style, Snap and Collide changed in the model are the same settings (so the key style is kept between runs);
+  `settings.set mc.<key>=<value>`. The corner indicator: the view cube (cad3dtab's cube made a shared widget; a side,
+  a step, a compass letter, Home = stdView('iso'), a drag orbits; `model.edit=cube:<…>`) or the X/Y/Z axis icon. The
+  wheel as modelcraft.js: zoom toward the face under the cursor, a pinch zooms, trackpad scrolling orbits (Shift
+  pans) in trackpad mode or when "Work it out" sees sideways / fine-grained scrolling. Touch: two fingers pan and
+  pinch, three orbit (Two fingers orbit swaps them), one finger taps, drags, or finishes the tool when held 0.5 s. The
+  drawing axes and guide lines are lines in the 3D scene as in view3d.js buildExtras (dashes R / 60, R / 120 + R / 160,
+  0.8 / 0.6 / 0.75 alpha), drawn by a new depth-tested line pass after the solids, so the model hides them.
+- Parity (forks/tools/mcuidiff-modelfin.mjs = mcuidiff-m627.mjs + the shared one's --lang; should replace
+  mcuidiff.mjs at merge): `--edit --lights --play` 1320 / 1320 status lines, 1250 / 1250 files; with `--terrain
+  --starter --keys`, en and es-MX: 1320 / 1320, 1285 / 1285 files byte-identical. mdiff --cli (earcut budget) 640 / 640
+  records, cases 1247 / 1247; tdiff 19 / 19 sections; iodiff 801 / 801; texdiff 180 / 180; kdiff seeds 1 and 7, en
+  and es-MX, 5250 / 5250 each (the 3D tab's cube refactored, unchanged). Web build: `cargo xtask web`, loaded in
+  Chromium three times (`?model` twice), no panic.
+- Speed vs the 0.5 JS (best of runs, this workstation): open 45k-face model 136 / 90 ms (1.5×), coedge SKP 826 / 303
+  (2.7×), small files 0.4–0.6× (3–12 ms in the JS, 9–20 here); panel edits 3.2–7.8×; save 1.7–3.4×; 3D-print check
+  2.6–4.0×; intersect faces on 50k 1162 / 20 ms (58×); 3D text with depth 37.6 / 9.8 s (3.8×); undo 4.8–7.6×; scene
+  trees 2.3×, infer 3.1×, pick 2.7×; 2,000 push/pulls 6.6×, 49,928-face load 3.2×; exports 1.5–6.4×, imports 2.8–5.7×.
+- Screenshots (forks/lead/shots/modelfin/): mf-capilla.png (view cube, axes in the scene, Snap / Collide),
+  mf-views.png (Views menu), mf-settings.png (Settings › ModelCraft), mf-starter.png, mf-terrain-crop.png,
+  mf-axes-es.png (es-MX, axis icon), cad-3dtab.png (CadCraft's 3D tab, cube unchanged).
+- Plain English where 0.5 has no key: none new (the cube's words are viewcube.*, the settings set.*).
+- Left (gaps item 5): pictures as 256² layers, 34 a scene; numpad views from the keyboard (egui reports Key::Num7 for
+  both); no touch loupe; films are VP8 key frames only.
+
 ## 2026-10-21 — M6.27–M6.33 ModelCraft finished: WebM writer, render lamps and glass, entourage, pictures as textures, terrain / starter / keys / views, scene films, view marks (agent, work/model2)
 
 - Commits: M6.27 cc-video, M6.28 cc-render (lamps, glows, glass, 64 layers), M6.29 cc-m3d-tools (entourage, finish),

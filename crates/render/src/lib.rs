@@ -21,6 +21,7 @@
     clippy::indexing_slicing
 )]
 
+pub mod lines3;
 pub mod mesh3d;
 pub mod points3;
 pub mod pt;

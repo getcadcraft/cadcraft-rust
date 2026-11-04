@@ -667,7 +667,7 @@ fn cube_centre(rect: Rect) -> Pos2 {
     Pos2::new(rect.max.x - 78.0, rect.min.y + 74.0)
 }
 /// Is a point on the cube or its compass (the cube takes the pointer there)?
-fn in_cube(rect: Rect, p: Pos2) -> bool {
+pub fn in_cube(rect: Rect, p: Pos2) -> bool {
     p.distance(cube_centre(rect)) <= CUBE_S * (RING_LETTER + 0.6)
         || Rect::from_center_size(wcs_at(rect), egui::vec2(72.0, 20.0)).contains(p)
 }
@@ -702,7 +702,12 @@ pub fn on_cube2d(rect: Rect, p: Pos2) -> bool {
 fn axis_triad(app: &UiApp, ui: &egui::Ui, rect: Rect) {
     let Some(ed) = app.editor.as_ref() else { return };
     let Some(ax) = ed.eng.with_ws3d(|ws, _| ws.tools.host.cam.axes()) else { return };
-    let t = app.tokens;
+    axis_icon(ui, rect, &app.tokens, ax);
+}
+
+/// viewcube.js `mountAxisIcon` for camera axes `ax` (bottom left of `rect`). Shared with ModelCraft's view.
+pub fn axis_icon(ui: &egui::Ui, rect: Rect, t: &Tokens, ax: cc_m3d_tools::camera::Axes) {
+    let t = *t;
     let k = 64.0 / 100.0;
     let c = Pos2::new(rect.min.x + 8.0 + 32.0, rect.max.y - 8.0 - 32.0);
     let painter = ui.painter_at(rect);
@@ -728,6 +733,26 @@ fn axis_triad(app: &UiApp, ui: &egui::Ui, rect: Rect) {
 
 fn cube_at(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect, ax: cc_m3d_tools::camera::Axes, flat: bool) {
     let t = app.tokens;
+    let tr = |k: &str, d: &str| {
+        let w = crate::edit::lang_text(k, &[]);
+        if w == k { d.to_string() } else { w }
+    };
+    let (act, on_cube_drag, delta) = cube_draw(ui, rect, &t, ax, &tr, "tab3d_wcs");
+    apply_cube(app, ax, flat, act, on_cube_drag, delta);
+}
+
+/// The view cube drawn (viewcube.js) for camera axes `ax`, words through `tr(key, English)`: → what was clicked
+/// (a face name, `step:<dir>`, `letter:<n|e|s|w>`, `home`), whether a drag that began on the cube is going on, and
+/// the pointer's move this frame. Shared by CadCraft's 3D tab and ModelCraft's view.
+pub fn cube_draw(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    t: &Tokens,
+    ax: cc_m3d_tools::camera::Axes,
+    tr: &dyn Fn(&str, &str) -> String,
+    menu_id: &str,
+) -> (Option<String>, bool, egui::Vec2) {
+    let t = *t;
     let s = CUBE_S;
     let c = cube_centre(rect);
     // the screen position of a point in cube units (cube centred at the origin, half-size 1)
@@ -735,10 +760,6 @@ fn cube_at(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect, ax: cc_m3d_tools::cam
         let x = d[0] * ax.x[0] + d[1] * ax.x[1] + d[2] * ax.x[2];
         let y = d[0] * ax.y[0] + d[1] * ax.y[1] + d[2] * ax.y[2];
         Pos2::new(c.x + x as f32 * s, c.y - y as f32 * s)
-    };
-    let tr = |k: &str, d: &str| {
-        let w = crate::edit::lang_text(k, &[]);
-        if w == k { d.to_string() } else { w }
     };
     let painter = ui.painter_at(rect);
     let (pos, click, drag) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_clicked(), i.pointer.is_decidedly_dragging()));
@@ -914,7 +935,7 @@ fn cube_at(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect, ax: cc_m3d_tools::cam
     }
     let wcs = Rect::from_center_size(wcs_at(rect), egui::vec2(72.0, 20.0));
     let mut menu_ui = ui.new_child(egui::UiBuilder::new().max_rect(wcs));
-    egui::ComboBox::new("tab3d_wcs", "")
+    egui::ComboBox::new(menu_id, "")
         .selected_text(egui::RichText::new("WCS").small())
         .width(60.0)
         .wrap_mode(egui::TextWrapMode::Extend)
@@ -925,7 +946,13 @@ fn cube_at(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect, ax: cc_m3d_tools::cam
         .on_hover_text(tr("viewcube.menu", "Coordinate system"));
     // dragging the cube orbits (viewcube.js without onDrag turns the view itself)
     let (press, delta, down) = ui.input(|i| (i.pointer.press_origin(), i.pointer.delta(), i.pointer.primary_down()));
-    if !flat && down && drag && press.is_some_and(|p| p.distance(c) <= s * RING_R) {
+    let on_cube_drag = down && drag && press.is_some_and(|p| p.distance(c) <= s * RING_R);
+    (act, on_cube_drag, delta)
+}
+
+/// What the 3D tab's cube does with a click or a drag (the Model tab's cube opens the 3D tab first).
+fn apply_cube(app: &mut UiApp, ax: cc_m3d_tools::camera::Axes, flat: bool, act: Option<String>, on_cube_drag: bool, delta: egui::Vec2) {
+    if !flat && on_cube_drag {
         let (dx, dy) = (f64::from(delta.x), f64::from(delta.y));
         if let Some(ed) = app.editor.as_ref() {
             ed.eng.with_ws3d(|ws, _| ws.tools.host.cam.orbit(dx, dy));
@@ -934,7 +961,7 @@ fn cube_at(app: &mut UiApp, ui: &mut egui::Ui, rect: Rect, ax: cc_m3d_tools::cam
     // the Model tab's cube: the top stays here; anything else looks from there on the 3D tab (a drag orbits into it)
     if flat {
         let opens = match act.as_deref() {
-            None => down && drag && press.is_some_and(|p| p.distance(c) <= s * RING_R),
+            None => on_cube_drag,
             Some("top" | "step:cw" | "step:ccw") => false,
             Some(_) => true,
         };
