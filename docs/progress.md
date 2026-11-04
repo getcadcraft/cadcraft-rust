@@ -2,6 +2,25 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M16.11 DetailCraft co-editing in Studio Live (agent, work/detailfin)
+
+- `cc_live::doc` (live-client.js's document side without its socket): own steps go out at once (applied, pending),
+  commits come in order with the pending edits rolled back and rebased over them, refused edits are taken back and said,
+  undo / redo per person (an undo of a property someone wrote over since is skipped and says who), snapshots loaded (zlib
+  when deflated) and made for joiners, `revs`, holds, locks, peers, pings.
+- `detaillive.rs`: DetailCraft's adapter, 0.5 live.js ported: the state-diff core (members, connections, footings,
+  stairs, bolts, issues per item and field, profiles per name, the rest as values; a connection, bolt group or stair reads
+  the members it names), `seq` personal and each person's ids from their own range, the host's validation, snapshots
+  `{v, state}` as 0.5's. Every model change of the window goes out (`edit` / `change` call `live_local`), undo and redo are
+  the session's while live. Commands `detail.live.host` (the LAN on a free port, a short code), `.join`, `.approve`,
+  `.deny`, `.invite`, `.leave`, `.window`, `.pump` (headless); the bar's Live button and the Live window (plain English:
+  "Live", "Live session", "Host a session", "Address", "Code", "Join", "Let in", "View only", "Turn away", "End the
+  session", "Leave", "asks to join", the hosting line).
+- End to end (forks/tools/live-detailfin/dclive-interop.mjs, 3 rounds each, both sides editing at once, final models
+  identical by live.js's hash and every side's edits present): the 0.5 page hosts (on the fork's server) and the Rust window
+  joins by snapshot 3/3; the Rust window hosts (code + SPAKE2 + sealed frames) and the 0.5 page joins 3/3; two Rust windows
+  3/3. DetailCraft's harnesses unchanged (sweep 0 differences).
+
 ## 2026-11-04 — M16.10 the window's view_screenshot and DetailCraft's live tools (agent, work/detailfin)
 
 - `view_screenshot` (CadCraft and ModelCraft, 0.5 agents.js): the control channel asks egui for the window's next frame,

@@ -24,6 +24,8 @@ hkdf = "=0.12.4"
 hmac = "=0.12.1"
 sha2 = "0.10"
 rand_core = { version = "=0.6.4", default-features = false }
+# snapshots over 64 KB travel deflated (zlib, as CompressionStream("deflate") in live-client.js)
+miniz_oxide = "0.8"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # the LAN WebSocket's accept key (ws.rs) and the OS's randomness (keys, tokens, codes)

@@ -6,6 +6,8 @@
 //!   as Studio's session server does (the shared vectors' scenarios pass on it).
 //! - [`client`]: a client core usable without a screen: numbered pending edits as op records, commits applied in order,
 //!   key versions learned, refusals, rejoin (`hello {resume}`).
+//! - [`doc`]: a client's document side (live-client.js without its socket): pending edits rebased over commits, refusals
+//!   taken back, per-person undo / redo, snapshots loaded and made.
 //! - [`crypto`]: the PAKE handshake and sealed frames (LIVE-CRYPTO.md), byte for byte 0.5's crypto.rs and live-crypto.js.
 //! - [`server`] (desktop): the session server's whole core as 0.5 Studio's `live/session.rs` — joining with codes and
 //!   tickets, approval, catch-up from the log or a snapshot, holds, locks, presence, pings, the replica, assistants,
@@ -30,6 +32,7 @@
 
 pub mod client;
 pub mod crypto;
+pub mod doc;
 pub mod envelope;
 pub mod msgpack;
 #[cfg(not(target_arch = "wasm32"))]

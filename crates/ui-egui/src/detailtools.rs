@@ -454,7 +454,9 @@ impl DetailView {
     /// detailcraft.js `edit(label, fn)`: one undo step; a refused edit is said and nothing changes (None).
     pub fn edit<T>(&mut self, label: &str, f: impl FnOnce(&mut cc_detail::model::Tx) -> cc_detail::js::Res<T>) -> Option<T> {
         let t1 = web_time::Instant::now();
+        let v0 = self.model.version;
         let r = self.model.change(label, f);
+        self.live_local(label, v0);
         self.set_timing("edit", t1.elapsed().as_secs_f64() * 1000.0);
         self.recompute();
         match r {

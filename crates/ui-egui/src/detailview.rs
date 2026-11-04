@@ -133,6 +133,19 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "",
         "{name: open | close | sheet:<i> | note:<text> | paper:<size> | issue:one[@ms] | issue:all[@ms]} the Drawings dialog and its issue log",
     ),
+    (
+        "detail.live.host",
+        "Host a live session",
+        "",
+        "{name: \"[bind host:port]\"} (the LAN on a free port by default) → a short code for joiners",
+    ),
+    ("detail.live.join", "Join a live session", "", "{name: \"<host:port> <code>\"}"),
+    ("detail.live.approve", "Let a joiner in", "", "{name: \"<client> [editor|viewer]\"}"),
+    ("detail.live.deny", "Turn a joiner away", "", "{name: \"<client>\"}"),
+    ("detail.live.invite", "A new session code", "", "{}"),
+    ("detail.live.window", "Live window", "", "{name: open | close}"),
+    ("detail.live.leave", "Leave the live session", "", "{} (the host ends it)"),
+    ("detail.live.pump", "Carry live messages", "", "{name: \"<ms> [wait] [approve]\"} headless runs"),
     ("detail.longpress", "Long press", "", "{name: \"<kind:id>\"} a finger held on a part: adds it to the selection or takes it out"),
     ("detail.settings", "Settings window", "", "{name: open | close}"),
 ];
@@ -227,6 +240,10 @@ pub struct DetailView {
     pub long: Option<crate::detaildrag::LongPress>,
     /// the Drawings dialog (detaildwg.rs)
     pub dwg: Option<crate::detaildwg::DwgDlg>,
+    /// a Studio Live session this window is in (detaillive.rs)
+    pub live: Option<crate::detaillive::LiveSession>,
+    /// the Live window is open
+    pub live_window: bool,
 }
 
 /// The view's mode (detailcraft.js `viewMode`).
@@ -304,6 +321,8 @@ impl DetailView {
             drag: None,
             long: None,
             dwg: None,
+            live: None,
+            live_window: false,
         };
         v.tools.cur_phase =
             cc_detail::js::arr(v.model.state.get("phases")).first().and_then(|p| p.get("n")).and_then(Value::as_f64).unwrap_or(1.0);
@@ -580,12 +599,22 @@ impl DetailView {
 
     /// detailcraft.js `edit(label, fn)`: one undo step; a refused edit is said and nothing changes.
     fn change(&mut self, label: &str, f: impl FnOnce(&mut cc_detail::model::Tx) -> cc_detail::js::Res<()>) -> Result<(), String> {
+        let v0 = self.model.version;
         let r = self.model.change(label, f);
+        self.live_local(label, v0);
         self.recompute();
         r
     }
 
     pub fn undo(&mut self) {
+        if let Some(l) = self.live_reverse(true) {
+            self.message = match l {
+                Some(l) => t("app.undo.done", &[("label", F::S(l))]),
+                None if self.message.is_empty() => t0("app.undo.nothing"),
+                None => std::mem::take(&mut self.message),
+            };
+            return;
+        }
         self.message = match self.model.undo() {
             Some(l) => t("app.undo.done", &[("label", F::S(l))]),
             None => t0("app.undo.nothing"),
@@ -594,6 +623,13 @@ impl DetailView {
     }
 
     pub fn redo(&mut self) {
+        if let Some(l) = self.live_reverse(false) {
+            self.message = match l {
+                Some(l) => t("app.redo.done", &[("label", F::S(l))]),
+                None => t0("app.redo.nothing"),
+            };
+            return;
+        }
         self.message = match self.model.redo() {
             Some(l) => t("app.redo.done", &[("label", F::S(l))]),
             None => t0("app.redo.nothing"),
@@ -1465,6 +1501,7 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "detail.drag" => dv.drag_cmd(&name)?,
         "detail.cube" => dv.cube_act(&name)?,
         "detail.drawings" => dv.drawings_cmd(&name, now_ms())?,
+        x if x.starts_with("detail.live.") => crate::detaillive::run(dv, x, &name)?,
         "detail.longpress" => {
             let r = Ref::parse(&name).ok_or_else(|| format!("detail.longpress: kind:id expected, not {name}"))?;
             dv.long_press(dv.exists(&r).then_some(r));
@@ -1661,6 +1698,12 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         });
         crate::detailprops::settings_window(dv, ui.ctx(), &tok, &mut acts);
         crate::detaildwg::window(dv, ui.ctx(), &tok, &mut acts);
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::detaillive::window(dv, ui.ctx(), &tok, &mut acts);
+        dv.live_poll();
+        if dv.live.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
+        }
         if let Some(text) = dv.tools.clip_out.take() {
             ui.ctx().copy_text(text);
         }

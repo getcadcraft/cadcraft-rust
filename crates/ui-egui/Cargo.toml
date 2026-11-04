@@ -32,6 +32,7 @@ cc-part.workspace = true
 cc-gcons.workspace = true
 cc-markup.workspace = true
 cc-io-markup.workspace = true
+cc-live.workspace = true
 cc-m3d.workspace = true
 cc-io-m3d.workspace = true
 cc-drawing.workspace = true

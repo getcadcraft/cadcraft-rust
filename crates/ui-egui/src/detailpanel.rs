@@ -64,6 +64,9 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
             label: t0("page.group.file"),
             tools: vec![
                 Tool::new("save", "download", t0("page.tool.save")).tip(t("page.tool.save.title", &[("key", F::S("Ctrl+S".into()))])),
+                Tool::new("live", "globe", "Live".to_string())
+                    .tip("Work on this model together (Studio Live)".to_string())
+                    .on(dv.live.is_some()),
             ],
         },
         ToolGroup {
@@ -92,8 +95,8 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
         ToolGroup {
             label: t0("page.group.edit"),
             tools: vec![
-                Tool::new("undo", "arrow-counterclockwise", t0("page.tool.undo")).tip(undo_tip).enabled(dv.model.can_undo()),
-                Tool::new("redo", "arrow-clockwise", t0("page.tool.redo")).tip(redo_tip).enabled(dv.model.can_redo()),
+                Tool::new("undo", "arrow-counterclockwise", t0("page.tool.undo")).tip(undo_tip).enabled(dv.can_undo_now()),
+                Tool::new("redo", "arrow-clockwise", t0("page.tool.redo")).tip(redo_tip).enabled(dv.can_redo_now()),
                 Tool::new("act:copy", "copy", t0("page.tool.copy"))
                     .tip(t("page.tool.copy.title", &[("key", F::S("Ctrl+C".into()))]))
                     .enabled(copyable),
@@ -213,6 +216,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
             "redo" => run(acts, "detail.redo", String::new()),
             "shop" => run(acts, "detail.export", "shop".into()),
             "drawings" => run(acts, "detail.drawings", "open".into()),
+            "live" => run(acts, "detail.live.window", "open".into()),
             "bolts" => run(acts, "detail.setting", format!("bolts={}", !dv.settings.bolts)),
             "settings" => run(acts, "detail.settings", "open".into()),
             x => {

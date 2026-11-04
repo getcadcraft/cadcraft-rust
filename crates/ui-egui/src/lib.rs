@@ -64,6 +64,7 @@ pub mod detailcorner;
 pub mod detaildrag;
 pub mod detaildwg;
 pub mod detailexport;
+pub mod detaillive;
 pub mod detailpanel;
 pub mod detailprops;
 pub mod detailtools;
