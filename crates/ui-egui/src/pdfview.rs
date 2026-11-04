@@ -37,6 +37,10 @@ pub struct PdfFile {
     pub(crate) recs: Vec<cc_io_markup::read::PageRec>,
     /// a blank set's paper and grid (blank.js), so an added blank page matches
     pub(crate) blank: Option<serde_json::Value>,
+    /// the file's bookmarks (its outline, as read; edited in the Bookmarks panel) and whether they were edited (then
+    /// Save writes them)
+    pub bookmarks: Vec<cc_io_markup::read::Bookmark>,
+    pub bookmarks_edited: bool,
 }
 
 impl PdfFile {
@@ -51,7 +55,7 @@ impl PdfFile {
         // MarkupCraft's reading of the same file (a file it cannot read still shows as a plan set)
         // the title block's text too (sheet numbers and names, as 0.5's openPdf reads them)
         let opts = cc_io_markup::read::OpenOpts { file_id: id.into(), name: name.to_string(), read_text: true };
-        let (page_keys, annots_drawn, page_views, remove_refs, recs, blank) =
+        let (page_keys, annots_drawn, page_views, remove_refs, recs, blank, bookmarks) =
             match cc_io_markup::read::open_pdf(&mut store.env, bytes, &opts) {
                 Ok(r) => {
                     let names = r
@@ -67,9 +71,10 @@ impl PdfFile {
                         r.remove_refs.clone(),
                         r.pages.clone(),
                         r.blank.clone(),
+                        r.bookmarks.clone(),
                     )
                 }
-                Err(_) => (Vec::new(), Vec::new(), Vec::new(), indexmap::IndexSet::new(), Vec::new(), None),
+                Err(_) => (Vec::new(), Vec::new(), Vec::new(), indexmap::IndexSet::new(), Vec::new(), None, Vec::new()),
             };
         Ok(PdfFile {
             id: id.to_string(),
@@ -83,6 +88,8 @@ impl PdfFile {
             remove_refs,
             recs,
             blank,
+            bookmarks,
+            bookmarks_edited: false,
         })
     }
 
@@ -121,6 +128,19 @@ impl PdfFile {
         rot: Option<(usize, f64)>,
         links: &[(cc_markup::link::LinkSheet, String, usize)],
     ) -> Result<(String, Vec<u8>), String> {
+        self.bake_with(store, now, rot, links, cc_io_markup::write::Flatten::None).map(|(n, b, _)| (n, b))
+    }
+
+    /// `bake(f, lib, {flatten, rot})`: as [`PdfFile::bake`], with the markups `flatten` names drawn into the pages; the
+    /// writer's report too.
+    pub(crate) fn bake_with(
+        &self,
+        store: &cc_markup::model::Store,
+        now: f64,
+        rot: Option<(usize, f64)>,
+        links: &[(cc_markup::link::LinkSheet, String, usize)],
+        flatten: cc_io_markup::write::Flatten,
+    ) -> Result<(String, Vec<u8>, cc_io_markup::write::Report), String> {
         let list: Vec<cc_markup::link::LinkSheet> = links.iter().map(|l| l.0.clone()).collect();
         let mut link_pages: Vec<(String, f64)> = Vec::new();
         let sheet_name = |k: &str| store.sheet_names.get(k).map(|n| serde_json::json!({ "number": n.number, "title": n.title }));
@@ -194,11 +214,12 @@ impl PdfFile {
             columns: Some(cc_markup::columns::columns_to_value(&store.columns)),
             link_pages,
             now_ms: now,
-            ..Default::default()
+            flatten,
+            bookmarks: self.bookmarks_edited.then(|| self.bookmarks.clone()),
         };
-        let (pdf, _report) = cc_io_markup::write::write_marked_up(&self.bytes, &opts)?;
+        let (pdf, report) = cc_io_markup::write::write_marked_up(&self.bytes, &opts)?;
         let stem = self.name.rsplit_once('.').map_or(self.name.as_str(), |(a, _)| a);
-        Ok((format!("{stem}-marked.pdf"), pdf))
+        Ok((format!("{stem}-marked.pdf"), pdf, report))
     }
 }
 
@@ -271,6 +292,11 @@ pub struct PdfView {
     pub(crate) tk_scale_ask: Option<(String, String)>,
     /// TakeoffCraft's 3D check view (in place of the sheet while open)
     pub d3: Option<crate::takeoff3d::D3>,
+    /// MarkupCraft's Find panel and the text read from the sheets; the Find / bookmark / columns windows
+    pub find: crate::markupfind::FindState,
+    pub fdlg: Option<crate::markupfind::FDialog>,
+    /// what a panel or window says after the last command (the Find count line, a window's text): for the trace
+    pub note: String,
 }
 
 impl std::fmt::Debug for PdfView {
@@ -284,7 +310,9 @@ pub fn render_scale(zoom_px: f64, page_w: f64, page_h: f64) -> f64 {
     let step = (zoom_px.max(1e-3).log2() * 2.0).ceil() / 2.0;
     let s = 2f64.powf(step);
     let cap = MAX_SIDE / page_w.max(page_h).max(1.0);
-    s.min(cap).max(0.05)
+    // and the renderer's pixel budget (a large sheet zoomed in on a few words would be refused)
+    let budget = (cc_takeoff::matcher::MAX_PIXELS as f64 * 0.98 / (page_w.max(1.0) * page_h.max(1.0))).sqrt();
+    s.min(cap).min(budget).max(0.05)
 }
 
 impl PdfView {
@@ -326,6 +354,9 @@ impl PdfView {
             tk_mask: None,
             tk_scale_ask: None,
             d3: None,
+            find: crate::markupfind::FindState::default(),
+            fdlg: None,
+            note: String::new(),
             page: 0,
             zoom: 1.0,
             pan: Vec2::ZERO,
@@ -558,6 +589,11 @@ impl PdfView {
 
     /// The sheet list with the Spaces under it.
     pub fn sheets_and_spaces(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        if self.mode != "takeoff" {
+            // MarkupCraft's Find text and Bookmarks over the sheets (ui.inc's left panel)
+            self.find_panels(ui, t);
+            ui.separator();
+        }
         let h = ui.available_height();
         ui.allocate_ui(egui::vec2(ui.available_width(), (h * 0.62).max(80.0)), |ui| self.sheets(ui, t));
         ui.separator();
@@ -876,6 +912,7 @@ impl PdfView {
                 o + Vec2::new((vx * z) as f32, (vy * z) as f32)
             };
             self.draw_compare(&painter, &at, ui.visuals().error_fg_color, t.accent);
+            self.draw_found(&painter, &at);
         }
         if self.mode != "takeoff" {
             if let Some((a, b)) = self.tools.window() {
@@ -1580,8 +1617,11 @@ mod tests {
     fn render_scale_steps_and_caps() {
         assert_eq!(render_scale(1.0, 612.0, 792.0), 1.0);
         assert_eq!(render_scale(1.1, 612.0, 792.0), 2f64.sqrt());
-        // a huge zoom on an A0 sheet stops at the side cap
+        // a huge zoom on a long strip stops at the side cap
+        let s = render_scale(40.0, 2000.0, 200.0);
+        assert!((2000.0 * s - MAX_SIDE).abs() < 1e-6, "{s}");
+        // on an A0 sheet at the renderer's pixel budget first (it refuses bigger rasters: "raster too large")
         let s = render_scale(40.0, 3370.0, 2384.0);
-        assert!((3370.0 * s - MAX_SIDE).abs() < 1e-6, "{s}");
+        assert!(3370.0 * s <= MAX_SIDE && (3370.0 * s).ceil() * (2384.0 * s).ceil() <= cc_takeoff::matcher::MAX_PIXELS as f64, "{s}");
     }
 }

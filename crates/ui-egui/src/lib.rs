@@ -84,6 +84,7 @@ pub mod markupbcf;
 pub mod markupchest;
 pub mod markupcompare;
 pub mod markupedit;
+pub mod markupfind;
 pub mod markupplus;
 pub mod markupprops;
 pub mod markuptools;
@@ -1410,6 +1411,12 @@ impl UiApp {
     }
 
     /// The single entry for every action.
+    /// What a panel or window of the sheet view says after the last command (the Find count line, a window's text),
+    /// taken once: headless traces print it next to the status line.
+    pub fn trace_note(&mut self) -> String {
+        self.pdf.as_mut().map(|p| std::mem::take(&mut p.note)).unwrap_or_default()
+    }
+
     pub fn run(&mut self, id: &str, params: &Params) -> Result<(), String> {
         detailview::before_run(self, id);
         match id {
@@ -2302,6 +2309,7 @@ impl UiApp {
             });
             pdf.take_space();
             pdf.dialogs(ui.ctx(), &t);
+            pdf.find_dialogs(ui.ctx(), &t);
             if let Some(what) = pdf.want_pick.take() {
                 // a file for an action: Insert pages from a PDF, a picture for the stamp, a photo, a tool chest
                 match self.services.pick_open.as_mut().and_then(|f| f()) {

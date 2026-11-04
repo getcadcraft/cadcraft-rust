@@ -56,6 +56,12 @@
 //!   extract:PAGES (saved) | insert-pdf:PATH (PAGES as "1-3, 5").
 //! - `markup.filter` name = `key=value` (sheet: "" | current | a sheet key; author, status, type, layer, space, field,
 //!   sort); `markup.jump` name = a row of the list (0-based) or a markup id; `markup.export` name = csv | xlsx | pdf.
+//! - `markup.prop` name = `field:<column key>=value`: the selected markup's value in a custom column.
+//! - `markup.find` name = go=TEXT (Find) | scope=all|sheet | case=on|off | word=on|off | show=I (the hit's sheet,
+//!   zoomed) | cloud (Cloud all); `markup.autolink` (look for sheet callouts: the review opens) | ok | ok:I,J… (only
+//!   those rows ticked) | cancel; `markup.bookmarks` name = build | add:TITLE | rename:I:TITLE | remove:I | go:I (the
+//!   open file's bookmarks, I = the panel's row); `markup.columns` (the editor) or name = a JSON list of columns
+//!   [{key?, name, type: text|choice|number|date, choices}] (Save columns).
 
 use crate::{Params, UiApp};
 
@@ -361,8 +367,12 @@ fn run_pdf(app: &mut UiApp, id: &str, params: &Params, name: &str) -> Result<(),
         }
         "markup.prop" => {
             let (k, v) = name.split_once('=').ok_or("markup.prop: name = field=value")?;
-            p.prop(k, v)
+            match k.strip_prefix("field:") {
+                Some(col) => p.field_edit(col, v),
+                None => p.prop(k, v),
+            }
         }
+        "markup.find" | "markup.autolink" | "markup.bookmarks" | "markup.columns" => crate::markupfind::run(p, id, &name),
         "markup.cal" => {
             // the calibrate line's real distance (in the sheet's unit, else feet-and-inches), then Set scale
             let key = p.sheet_key();

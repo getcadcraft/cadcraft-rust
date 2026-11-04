@@ -342,6 +342,8 @@ impl crate::pdfview::PdfView {
         let sel: Vec<_> = self.tools.sel.iter().filter_map(|id| self.store.get(id).cloned()).collect();
         let mut style_set: Vec<(&str, String)> = Vec::new();
         let mut prop_set: Vec<(&str, String)> = Vec::new();
+        // custom columns' fields (setField): column key, value
+        let mut field_set: Vec<(String, String)> = Vec::new();
         let head = |ui: &mut egui::Ui, s: String| {
             ui.label(RichText::new(s).strong().color(tok.text_strong));
         };
@@ -440,6 +442,28 @@ impl crate::pdfview::PdfView {
                 .labelled_by(l.id);
             if let Some(v) = field(&mut self.edits, ui, &format!("{}:subject", m.id), &m.subject, &t0("props.subject"), false) {
                 prop_set.push(("subject", v));
+            }
+            for c in self.store.columns.clone() {
+                let v = m.fields.get(&c.key).cloned().unwrap_or_default();
+                if c.kind == "choice" {
+                    let l = ui.label(RichText::new(&c.name).small());
+                    egui::ComboBox::new(("mc-p-col", c.key.as_str()), "")
+                        .selected_text(if v.is_empty() { "—".to_string() } else { v.clone() })
+                        .show_ui(ui, |ui| {
+                            if ui.selectable_label(v.is_empty(), "—").clicked() && !v.is_empty() {
+                                field_set.push((c.key.clone(), String::new()));
+                            }
+                            for ch in &c.choices {
+                                if ui.selectable_label(v == *ch, ch).clicked() && v != *ch {
+                                    field_set.push((c.key.clone(), ch.clone()));
+                                }
+                            }
+                        })
+                        .response
+                        .labelled_by(l.id);
+                } else if let Some(nv) = field(&mut self.edits, ui, &format!("{}:col:{}", m.id, c.key), &v, &c.name, false) {
+                    field_set.push((c.key.clone(), nv));
+                }
             }
             let l = ui.label(RichText::new(t0("props.layer")).small());
             let shown = if m.layer.is_empty() { t0("layer.none") } else { m.layer.clone() };
@@ -649,6 +673,11 @@ impl crate::pdfview::PdfView {
         }
         for (k, v) in prop_set {
             if let Err(e) = self.prop(k, &v) {
+                self.tools.message = e;
+            }
+        }
+        for (k, v) in field_set {
+            if let Err(e) = self.field_edit(&k, &v) {
                 self.tools.message = e;
             }
         }

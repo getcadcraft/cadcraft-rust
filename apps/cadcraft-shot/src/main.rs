@@ -326,6 +326,10 @@ fn shot(args: &[String]) -> Result<(), String> {
                 if trace {
                     // one line per command: what the status line says after it (harnesses compare these)
                     println!("trace\t{id}\t{}", hs.state().message.replace('\n', " "));
+                    let note = hs.state_mut().trace_note();
+                    if !note.is_empty() {
+                        println!("note\t{id}\t{}", note.replace('\n', " "));
+                    }
                 }
             }
             "--mouse-click" => {

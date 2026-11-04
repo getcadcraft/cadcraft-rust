@@ -252,7 +252,7 @@ impl PdfView {
     }
 
     /// `commitEdit(); cancelOps()`.
-    fn settle(&mut self) {
+    pub(crate) fn settle(&mut self) {
         let key = self.sheet_key();
         self.tick();
         self.tools.commit_edit(&mut self.store, &key);
@@ -610,6 +610,7 @@ impl PdfView {
         self.store.dirty_sheets.retain(|k| !k.starts_with(&pre));
         self.store.drop_sheets(&pre);
         self.cmp.segs.retain(|k, _| !k.starts_with(&pre));
+        self.find.forget(&pre);
         let name = self.files().into_iter().find(|f| f.id == id).map(|f| f.name.clone()).unwrap_or_default();
         let f = PdfFile::read(id, &name, bytes, &mut self.store)?;
         for k in &f.page_keys {
@@ -949,7 +950,9 @@ impl PdfView {
         });
         self.list = f;
         let mut export: Option<&str> = None;
+        let mut columns = false;
         ui.horizontal_wrapped(|ui| {
+            columns = ui.add(crate::shell::Btn::new(t0("col.button"))).on_hover_text(t0("col.button.title")).clicked();
             for (k, label) in [("csv", "list.csv"), ("xlsx", "list.xlsx"), ("pdf", "list.pdf"), ("bcf", "list.bcf")] {
                 if ui.add(crate::shell::Btn::new(t0(label))).clicked() {
                     export = Some(k);
@@ -959,6 +962,9 @@ impl PdfView {
                 self.want_pick = Some("bcf-import");
             }
         });
+        if columns {
+            self.edit_columns();
+        }
         match export {
             Some("bcf") => self.export_bcf(),
             Some(k) => self.export_to_outbox(k),
