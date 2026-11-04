@@ -1230,8 +1230,10 @@ impl Surface {
             let n = max(1.0, round((self.n_t as f64 / 2.0).sqrt()));
             let w = max(b.max_x - b.min_x, 1e-9);
             let h = max(b.max_y - b.min_y, 1e-9);
-            let nx = max(1.0, round(n * (w / h).sqrt()));
-            let ny = max(1.0, round(n * (h / w).sqrt()));
+            // a sliver (one side near zero) would ask for millions of cells along the other: at most 16 n a side
+            // (the grid only speeds up locate; any size finds the same triangle)
+            let nx = min(max(1.0, round(n * (w / h).sqrt())), 16.0 * n);
+            let ny = min(max(1.0, round(n * (h / w).sqrt())), 16.0 * n);
             // a NaN size (no finite vertex) leaves one cell
             let nx = if nx.is_finite() { nx as usize } else { 1 };
             let ny = if ny.is_finite() { ny as usize } else { 1 };

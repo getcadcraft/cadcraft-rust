@@ -771,6 +771,7 @@ impl Run {
                 let p3 = |v: &[cc_civil::geo::P3]| v.iter().map(|p| json!([jn(p.x), jn(p.y), jn(p.z)])).collect::<Vec<_>>();
                 json!({ "points": p3(&g), "offset": [jn(off[0]), jn(off[1])], "model": p3(&crate::draw::resground::to_model(&g, k, off, 0.0)), "thin": p3(&thin) })
             }
+            "sheets" => crate::draw::sheetjob::sheets_step(&J::Object(o.clone())),
             "landXml" | "contours" => match crate::draw::writer::W::new(&mut ed.api).and_then(|mut w| {
                 let Some(trn) = crate::draw::resterrain::read_terrain(&mut w)? else { return Ok(json!(null)) };
                 let ex = crate::draw::resterrain::existing_surface(&trn);

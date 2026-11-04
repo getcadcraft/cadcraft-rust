@@ -259,7 +259,7 @@ pub struct Draw {
     pub scene: Scene,
     /// the plan cut of the model shown: (the bytes it was cut from, the level) → (cut, below)
     cut: Option<CutCache>,
-    model: Option<(usize, cc_bim::model::Model)>,
+    pub(crate) model: Option<(usize, cc_bim::model::Model)>,
     pub view: PView,
     pub typed: String,
     pub hover_key: Option<f64>,
@@ -1430,6 +1430,10 @@ fn schedule_data(app: &mut UiApp) -> Option<cc_bim::draw::schedule::Schedules> {
     Some(cc_bim::draw::schedule::schedules(&sn, &loops, &units))
 }
 
+pub(crate) fn schedule_data_pub(app: &mut UiApp) -> Option<cc_bim::draw::schedule::Schedules> {
+    schedule_data(app)
+}
+
 fn schedule_csv(app: &mut UiApp) -> Result<(), String> {
     let all = schedule_data(app).ok_or("Draw is off")?;
     let which = app.bimh.draw.sched.clone();
@@ -1878,7 +1882,7 @@ fn paint(ui: &egui::Ui, rect: Rect, dr: &Draw, sel: Option<f64>, t: &crate::them
     }
 }
 
-fn fill_poly(painter: &egui::Painter, pts: &[Pos2], c: Color32) {
+pub(crate) fn fill_poly(painter: &egui::Painter, pts: &[Pos2], c: Color32) {
     if pts.len() < 3 {
         return;
     }
@@ -2253,6 +2257,10 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         if ui.add(crate::shell::Btn::new(bt("model.print", &[]))).on_hover_text(bt("model.print.title", &[])).clicked() {
             run.push(("bim.print", String::new()));
+        }
+        // the model bar's Sheets (res-ui.js openSheets)
+        if ui.add(crate::shell::Btn::new(bt("res.sh.title", &[]))).on_hover_text(bt("res.sh.open.title", &[])).clicked() {
+            run.push(("bim.res", "sheets".into()));
         }
         if ui.add(egui::Button::new(bt("model.sch.title", &[])).selected(dr.show_sched)).clicked() {
             sched_toggle = true;

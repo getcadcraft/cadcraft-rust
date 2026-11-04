@@ -24,6 +24,7 @@ pub mod bimlibnet;
 pub mod bimplace;
 pub mod bimplan;
 pub mod bimres;
+pub mod bimsheets;
 pub mod bimtools;
 pub mod cad3dtab;
 pub mod cadprops;
@@ -2296,6 +2297,7 @@ impl UiApp {
         bimlib::sync(self);
         bimres::sync(self);
         bimlib::window(self, &ctx);
+        bimsheets::dialog(self, &ctx);
         parpanel::window(self, &ctx);
         qsdlg::window(self, &ctx);
         help::panel(self, ui);

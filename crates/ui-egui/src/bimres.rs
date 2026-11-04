@@ -107,6 +107,8 @@ pub struct FrameView {
     pub bf: f64,
     pub notes: String,
     pub studs: Vec<Vec<V2>>,
+    /// a wall's pieces as its framing elevation draws them (Sheets)
+    pub boxes: Vec<cc_bim::draw::ressheets::FrameBox>,
 }
 
 /// The roof plane tool.
@@ -214,6 +216,8 @@ pub struct Res {
     pub hard_at: Option<Snap>,
     /// web: a survey file being picked
     pub ground_reading: bool,
+    /// the Sheets dialog (bimsheets.rs)
+    pub sheets: Option<crate::bimsheets::SheetsDlg>,
 }
 
 /// A building pad and what the plan and Properties show of it.
@@ -275,6 +279,7 @@ impl Default for Res {
             hard_pts: None,
             hard_at: None,
             ground_reading: false,
+            sheets: None,
         }
     }
 }
@@ -429,6 +434,7 @@ pub fn refresh(app: &mut UiApp) {
             .unwrap_or_else(|| "ok".into());
         let num = |k: &str| qty.get(k).map_or(f64::NAN, cc_bim::wapi::P::number);
         let mut studs = Vec::new();
+        let mut boxes = Vec::new();
         if f.kind == "wall"
             && let Some(wall) = sn.walls.iter().find(|x| x.guid == f.host)
         {
@@ -441,6 +447,7 @@ pub fn refresh(app: &mut UiApp) {
                 bearing: wall_type(&wall.type_key).is_none_or(|t| t.exterior),
             };
             let fr = frame_wall(wall, &ctx);
+            boxes = cc_bim::draw::ressheets::frame_boxes(&fr.pieces);
             let l = if wall.len > 0.0 { wall.len } else { 1.0 };
             let u = [(wall.b[0] - wall.a[0]) / l, (wall.b[1] - wall.a[1]) / l];
             let n = [-u[1], u[0]];
@@ -457,7 +464,7 @@ pub fn refresh(app: &mut UiApp) {
         }
         let pieces = if num("Pieces").is_finite() { num("Pieces") } else { f.parts.len() as f64 };
         let bf = if num("BoardFeet").is_finite() { num("BoardFeet") } else { 0.0 };
-        frames.push(FrameView { f, pieces, bf, notes, studs });
+        frames.push(FrameView { f, pieces, bf, notes, studs, boxes });
     }
     res.frames = frames;
     res.secs = read_sections(&mut w).unwrap_or_default();
@@ -1962,6 +1969,7 @@ pub fn run(app: &mut UiApp, name: &str) -> Result<(), String> {
         "groundmake" => make_from_spots(app),
         "groundclear" => r(app).spots.clear(),
         "landxml" => land_xml(app)?,
+        n if n == "sheets" || n.starts_with("sheets.") => crate::bimsheets::run(app, n)?,
         "link" => {
             let p = pick(app).ok_or_else(|| bt("edit.nothing.picked", &[]))?;
             let d = app
@@ -2519,6 +2527,12 @@ pub fn props(app: &mut UiApp, ui: &mut egui::Ui) -> bool {
             });
             out = out.take().or(row(app, ui, "depth", &bt("res.sec.depth", &[]), fmt_len(sl.depth, &u)));
             note(ui, bt("res.sec.depth.note", &[]));
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(bt("res.sh.title", &[])).small().color(t.text_dim));
+                if ui.add(crate::shell::Btn::new(bt("res.sh.open", &[]))).clicked() {
+                    out = Some("sheets".into());
+                }
+            });
         }
         "terrain" => {
             let Some(tr) = &res.terrain else { return };
