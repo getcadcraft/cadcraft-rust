@@ -120,6 +120,20 @@ Last updated 2026-11-04 · Change: ModelCraft finished on main (M6.27–M6.35: f
    parameters, undo, rollback, suppress, Save, STL / 3MF / STEP / IFC at byte parity; the sketcher (every 0.5 sketch
    tool, relations, dimensions, live drag) and the feature tools (extrude … shell, edge / face picking, edit, delete, move,
    rename) at byte parity (M13.3); rebuilds over 60 ms run on a thread and a parameter edit follows `configs` (M13.4).
+   Measure, Mass properties and the Section view (M13.5); the More menu, reference geometry, draft, thread and the
+   design extras (M13.6); the Edit menu with copy / paste between parts and sketch Project (M13.7); DXF of a sketch or
+   face, design-table CSV import (M13.8); es-MX at parity in every scenario. Missing: assemblies, drawings (PDF), the
+   Views menu's draft / zebra / curvature analysis, base planes drawn in the view; the exact kernel's features (sweep,
+   loft, surfaces, bodies, sheet metal, rib) say "not built", as 0.5's mesh build does.
+   **Studio** (M16): the local control channel (M16.1) and the headless MCP server with 0.5's 22 tools (M16.2) are in; LISP scripts are in (M4.40; `drawing_plot` since M4.12, plot.js ported). The window's live tools are in (M16.3, drawing_plot M4.12) except view_screenshot and DetailCraft's (app_info only). Studio Live's protocol core passes the shared vectors (M16.4); its network side (WebSocket to a host or the relay, the PAKE handshake, sealed frames, snapshots, host handoff) and the app adapters are not built. The start screen is in (M16.5); Studio's suite parts (installs, updates, licence, assistants page, Live hosting UI) are not.
+   **DetailCraft** (M14.1, M14.3): view, properties, reports, clash, every 0.5 export, and the modelling tools (placing on
+   grid intersections with snapping and Add by grid, connections and their parameters with Apply to similar, copy / cut /
+   paste / duplicate, move / rotate / mirror, Change on all of them, window / crossing / lasso selection, grids, levels,
+   phases, holes, copes, custom profiles, Settings, plan and elevation views) at parity with the frozen JS doing the same.
+   Missing: dragging selected parts to move them (D2), the view cube and axis icon, a plan / elevation that clips parts
+   crossing its band exactly (one section plane; parts wholly outside are hidden), the drawings dialog's preview and issue
+   log, the clipboard between windows only through the system clipboard (no localStorage), settings kept between runs,
+   touch long-press, es-MX labels; the bar's view buttons (Iso, Top, Front, Right) are plain English.
    Missing: sketch Project (needs exact edges), sketch copy / paste between parts, the reference-geometry / sweep / loft /
    surface / body / sheet-metal / rib / thread tools of the More menu, assemblies, drawings (PDF), DXF of a sketch or
    face, measure / mass / section, design-table CSV import, the exact kernel's features (they say "not built", as 0.5's

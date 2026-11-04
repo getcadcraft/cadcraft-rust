@@ -230,6 +230,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
                         ("step", "ui.tb.export.step_faceted"),
                         ("step214", "ui.tb.export.step214_faceted"),
                         ("ifc", "ui.tb.export.ifc"),
+                        ("dxf", "ui.tb.export.dxf"),
                     ] {
                         if ui.add(crate::shell::Btn::new(tr(key))).clicked() {
                             *act = cmd("part.export", k);
@@ -577,9 +578,14 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
                     ui.end_row();
                 }
             });
-            if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.edit_sketch")).strong())).clicked() {
-                *act = cmd("part.sketch", id.clone());
-            }
+            ui.horizontal(|ui| {
+                if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.edit_sketch")).strong())).clicked() {
+                    *act = cmd("part.sketch", id.clone());
+                }
+                if ui.add(crate::shell::Btn::new(tr("app.btn.export_dxf"))).clicked() {
+                    *act = cmd("part.export", format!("dxf:{id}"));
+                }
+            });
             dims_block(ui, pv, &id, "app.dims.driving", t, act);
         }
         "extrude" | "revolve" | "hole" | "lpattern" | "cpattern" | "mirror" | "fillet" | "chamfer" | "shell" => {
@@ -1154,9 +1160,14 @@ fn configurations(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
             pv.edits.remove(&key);
         }
     });
-    if ui.add(crate::shell::Btn::new(tr("configs.export"))).clicked() {
-        *act = cmd("part.config", "export");
-    }
+    ui.horizontal(|ui| {
+        if ui.add(crate::shell::Btn::new(tr("configs.import"))).on_hover_text(tr("configs.import_title")).clicked() {
+            *act = cmd("part.config", "import");
+        }
+        if ui.add(crate::shell::Btn::new(tr("configs.export"))).clicked() {
+            *act = cmd("part.config", "export");
+        }
+    });
 }
 
 /// The 3D view: orbit / pan / zoom (view3d), hover names a face, a click selects it.

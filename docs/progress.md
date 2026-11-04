@@ -2,6 +2,74 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-10-22 — M13.8 PartCraft DXF of a sketch or face, design-table import (agent, work/part)
+
+- `crates/ui-egui/src/partfiles.rs`: partcraft.js `exportDxf` — Export › DXF takes the open sketch, else the selected
+  sketch, else the flat face picked in the view (faces.js `faceLoops2D` → export.js `dxfLoops`); a sketch panel's
+  Export DXF button; 0.5's file names and status lines. params-panel.js `importTable`: Configurations › Import reads a
+  CSV design table (configs.js `rowsFromTable`, first 4 MB) through the platform's picker, every row saved as a
+  configuration in one undo step; a CSV dropped on an open part does the same (the web picker's way back).
+- Parity: `pcuidiff-m135.mjs --scenario dxf-table` (pchost-m135.mjs: exportDxf / importTable with the real export.js,
+  faces.js, configs.js; the harness compares every file an op writes, and hands both sides the same picked files):
+  22 steps, 5 files (4 DXF + the save) byte-identical; all 11 scenarios 601 steps, 43 files, 0 differences.
+
+## 2026-10-21 — M13.7 PartCraft Edit menu (copy / paste between parts), sketch Project (agent, work/part)
+
+- `crates/ui-egui/src/partedit.rs`: partcraft.js `editState` / `editAct` over clipboard.rs — Cut, Copy, Paste, Paste
+  in place, Duplicate, Delete, Select all / none on sketch geometry (with the relations among it; Paste and Duplicate
+  follow the pointer) and on sketch-based features (with their sketch); each item enabled with 0.5's reason when not.
+  The clip lives in the window (`UiApp::part_clip`), so features and geometry go from one part to the next (a new or
+  opened part); Ctrl+X / C / V / Shift+V / D; the Edit group's More menu in the model and sketch tool bars.
+- The sketcher's Project tool (sketch-tools.js `projectEdge`): the mesh kernel names its edges, so 0.5's mesh build
+  projects them (M13.3 had it as exact-only). The edge under the pointer is picked as view3d.js `pickAt` does with the
+  camera square to the sketch: the nearest edge within 5 px, unless a face is in front. Lines and circles / arcs
+  square to the sketch become fixed geometry; the rest say 0.5's words.
+- Parity: `pcuidiff-m135.mjs --scenario edit-clip` (pchost-m135.mjs: partcraft.js's editState / sketchEdit /
+  modelEdit with the real clipboard.js; pickEdge with the same arithmetic): 86 steps (lines, circles, misses, the
+  Edit menu in a sketch and in the history, paste into a new part twice) and the file byte-identical, 0 differences.
+
+## 2026-10-21 — M13.6 PartCraft More menu, reference geometry, draft, thread, design extras (agent, work/part)
+
+- `crates/ui-egui/src/partdesign.rs`: the More menu with 0.5's headings and every entry, run as 0.5's mesh build runs
+  them: reference plane / axis / point made from the selection (design-ui.js `create`), draft and thread picked on the
+  mesh, sweep / loft / surfaces / body tools say "not built yet" (kernel.not_built), sheet metal and rib say 0.5's
+  "needs the exact kernel". design-ui.js's panels: plane (8 modes), axis (5), point (6) with their plane / direction
+  selects, the Pick slots (`arm` / `onPick`: plane, point, face, edge, axis, extrude regions; Esc cancels), Flip,
+  Sketch on it, the resolved normal / direction / point; draft (angle, neutral plane, pull); the extra rows of extrude
+  (up to / offset / vertex / second direction / taper / regions), hole (countersink, tapped size and depth, the
+  callout), chamfer (equal / two distances / distance-angle, flip), fillet (variable radius, swap ends); thread-ui.js
+  (form, size, length, start at the other end, hand, modelled + clearance, callouts) and a tapped hole's modelled
+  thread; bodies-ui.js's "copy bodies" row of patterns. Reference geometry and cosmetic threads drawn over the view;
+  a click on a plane / axis / point selects it (or fills a slot, or starts a pending sketch on a plane).
+- Fixes: the Remove buttons of edge / face lists sent `fid:drop:<i>` with no `=` and were refused (both sides); a
+  number field that is no parameter target yet takes nothing (params-panel.js `typed`), a bad number is a status
+  line, not an error; measure picks by name take the point after `|` (face names hold `~`).
+- Commands: `part.feature=<any More entry>`, `part.set` design fields, `part.slot=fid:key[:i]:kind|cancel`,
+  `part.ref=<fid>`, `part.region=u,v`, `part.sketch.on=<fid>`; `part.face=name|x,y,z`, `part.edge=#i|k` (the point /
+  segment clicked).
+- Parity: `pcuidiff-m135.mjs --scenario more-menu` (pchost-m135.mjs runs the real design-ui.js / surface-ui.js /
+  bodies-ui.js / sheet-ui.js / rib-ui.js / thread-ui.js on a fake DOM: each part.set is the panel widget's own
+  onchange): 169 steps and 5 files byte-identical; all 9 scenarios 493 steps, 37 files, 0 differences. The scenario's
+  112 rebuilds: 2.1 s in the app vs 4.1 s in the JS (2.0×).
+
+## 2026-10-21 — M13.5 PartCraft Measure, Mass properties, Section view (agent, work/part)
+
+- `crates/ui-egui/src/partmeasure.rs`: measure-ui.js and section-ui.js over cc-part's measure.rs / analysis.rs. The tool
+  bar's Views menu (Measure `M`, Mass properties, Section view `X`). Measure: a click snaps to a vertex, edge midpoint or
+  circle centre within 10 px, else an edge within 6 px, else the face under the pointer (Shift+click: the body); two
+  picks give the distance (facets), ΔXYZ, closest points, angle, plane gap, axis gap; a third starts again; Esc clears,
+  Esc again closes; a rebuild drops the picks; tools close it (partcraft.js `run`). The card: rows, the material (the
+  part's own, or bom.js's list: mass from the density), Copy (tab-separated), Mass properties, Clear; the picks, the
+  snap under the pointer and the closest points drawn over the view. Section view: front / top / right or a picked flat
+  face, the position slider and field, Cut away the other side, Fill the cut faces (the view's back faces), display only.
+  Commands `part.measure` (toggle / on / off / mass / clear / copy / escape / rows / density:<g/cm³>),
+  `part.measure.at` (snap:<i>, edge:<i>, face:<name>[~x,y,z], body~x,y,z), `part.measure.click` (view pixels),
+  `part.section` (toggle / off / front / top / right / face / at:<mm> / flip / caps / pick / click:x,y / facename:<n> / escape).
+- Parity: `forks/tools/pcuidiff-m135.mjs --scenario measure` (pchost-m135.mjs: measure-ui.js's compute / mass / rows and
+  section-ui.js's statuses over the frozen measure.js / section.js): 67 steps (every card read back as its rows) and
+  5 files byte-identical, 0 differences; the earlier scenarios unchanged.
+- Timings (`forks/tools/pcmeasurebench.mjs`, plate-15: 58,512 triangles, ms JS / Rust): mass properties 12.8 / 4.3
+  (3.0×), snap points 37.9 / 13.5 (2.8×), a face-to-hole distance 2.9 / 0.4 (7.2×).
 ## 2026-11-04 — M9.24–M9.28 MarkupCraft and TakeoffCraft done for 0.5 (agent, work/markfin)
 
 - M9.24 `markupfind.rs`: Find text (each sheet's own text as pdf.js `getTextContent` gives it, cc-markup textsearch;

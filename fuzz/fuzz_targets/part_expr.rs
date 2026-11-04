@@ -22,4 +22,6 @@ fuzz_target!(|data: &[u8]| {
     let _ = cc_part::params::evaluate_vars(&p, None);
     let _ = cc_part::params::drive_var(&mut p, "b", 3.0, None);
     let _ = cc_part::params::read_design_table(&src, &p);
+    // a design table imported onto a part (params-panel.js Import: configs.js rowsFromTable)
+    let _ = cc_part::configs::rows_from_table(&src, &p);
 });

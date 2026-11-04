@@ -113,6 +113,7 @@ pub mod parpanel;
 pub mod partdesign;
 pub mod partedit;
 pub mod partfeat;
+pub mod partfiles;
 pub mod partmeasure;
 pub mod partpanel;
 pub mod partsketch;
@@ -599,6 +600,11 @@ impl UiApp {
     pub fn open_file(&mut self, f: &ImportedFile) {
         // a library item onto the model being edited: placing starts (the model stays)
         if self.bimh.ed.is_some() && bimplace::open_item(self, f) {
+            return;
+        }
+        // a CSV onto an open part: its design table (params-panel.js Import; the web picker's file arrives here)
+        if let Some(pv) = self.part.as_mut().filter(|_| f.name.to_ascii_lowercase().ends_with(".csv")) {
+            pv.import_table(&f.name, &f.bytes);
             return;
         }
         // a .lsp / .dcl dropped on the drawing being edited loads (appload.js); compiled files are refused with why

@@ -1323,7 +1323,7 @@ impl PartView {
     /// params-panel.js `edit(label, op)` with configurations: `op` may hand back a new configuration list
     /// (`Some(None)` = none left); either way the list follows renamed and deleted parameters (configs.js `followParams`).
     /// Returns whether the parameters' numbers all applied.
-    fn param_edit_cfg(
+    pub(crate) fn param_edit_cfg(
         &mut self,
         label: &str,
         op: impl FnOnce(&mut params::Params, &Value) -> Result<Option<Option<cfg::Configs>>, String>,
@@ -2193,6 +2193,12 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
                 Some((k, ms)) => (k.to_string(), ms.trim().parse::<f64>().ok().filter(|x| x.is_finite())),
                 None => (name.clone(), None),
             };
+            if kind == "dxf" || kind.starts_with("dxf:") {
+                if let Some((file, bytes, words)) = pv.export_dxf(kind.strip_prefix("dxf:"))? {
+                    save_out(app, &file, bytes, words)?;
+                }
+                return Ok(());
+            }
             let (file, bytes, words) = pv.export(&kind, at.unwrap_or_else(now_ms))?;
             save_out(app, &file, bytes, words)?;
         }
@@ -2311,6 +2317,23 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         "part.pick.done" => pv.end_pick(),
         "part.config" => {
+            if name == "import" {
+                // the platform's picker (desktop: at once; web: the file comes back through the inbox as a .csv)
+                match app.services.pick_files.as_mut().map(|f| f("table", false)) {
+                    Some(Some(files)) => {
+                        if let (Some(f), Some(pv)) = (files.first(), app.part.as_mut()) {
+                            pv.import_table(&f.name, &f.bytes);
+                        }
+                    }
+                    Some(None) => {}
+                    None => {
+                        if let Some(f) = app.services.open_async.as_mut() {
+                            f();
+                        }
+                    }
+                }
+                return Ok(());
+            }
             if name == "export" {
                 match pv.configs_csv() {
                     Ok((file, bytes, words)) => {
