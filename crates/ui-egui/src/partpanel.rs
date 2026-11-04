@@ -90,6 +90,14 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     if pv.poll_rebuild() {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(30));
     }
+    // the analyses' colours follow the theme (draft-ui.js refresh on a theme change)
+    let pal = crate::partanalysis::palette(&t);
+    if pv.analysis.palette != pal {
+        pv.analysis.palette = pal;
+        if pv.analysis.active {
+            pv.analysis_apply();
+        }
+    }
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
     let c = t.canvas_bg;
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
@@ -199,7 +207,11 @@ fn tool_groups(pv: &PartView) -> Vec<crate::shell::ToolGroup> {
         view.push(Tool::new(format!("view:{v}"), ic, tr(&format!("ui.tb.view.{v}"))));
     }
     view.push(Tool::new("edges", "bounding-box", cc_part::i18n::t0("app.fillet.edges")).on(pv.view.style.edges));
-    view.push(Tool::new("menu:views", "box", tr("ui.tb.views")).tip(tr("views.menu.title")).on(pv.measure.active || pv.section.active));
+    view.push(
+        Tool::new("menu:views", "box", tr("ui.tb.views"))
+            .tip(tr("views.menu.title"))
+            .on(pv.measure.active || pv.section.active || pv.analysis.active),
+    );
     let drawing = match pv.drawing.as_ref() {
         // ui.inc's Drawing group: the sheet's tools while it is open, else the button that opens it
         Some(st) => {
@@ -1240,7 +1252,20 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
         crate::partmeasure::hover(pv, px, shift);
     }
     let shift_now = ui.input(|i| i.modifiers.shift);
-    if resp.clicked_by(egui::PointerButton::Primary) && pv.section.active && pv.section.picking {
+    // zebra stripes follow the view once it stops moving (draft-ui.js watchCamera)
+    if pv.analysis.active && pv.analysis.mode == "zebra" && !ui.input(|i| i.pointer.any_down()) {
+        let (e, g) = (pv.view.cam.eye, pv.view.cam.target);
+        let d = [g[0] - e[0], g[1] - e[1], g[2] - e[2]];
+        let l = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+        if l > 0.0 {
+            pv.analysis_follow_view([d[0] / l, d[2] / l, -d[1] / l]);
+        }
+    }
+    if resp.clicked_by(egui::PointerButton::Primary) && pv.analysis.active && pv.analysis.picking {
+        let hit = px.and_then(|(x, y)| pv.face_hit(x, y));
+        let f = hit.and_then(|(f, _, _)| f).and_then(|f| pv.face(f)).map(|r| jv::s(r, "name").to_string()).unwrap_or_default();
+        *act = cmd("part.analysis", format!("face:{f}"));
+    } else if resp.clicked_by(egui::PointerButton::Primary) && pv.section.active && pv.section.picking {
         if let Some((x, y)) = px {
             *act = cmd("part.section", format!("click:{x},{y}"));
         }
@@ -1289,6 +1314,8 @@ fn stage(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: &mut
         *act = cmd("part.slot", "cancel");
     } else if !typing && (pv.measure.active || pv.section.active) && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         *act = if pv.measure.active { cmd("part.measure", "escape") } else { cmd("part.section", "escape") };
+    } else if !typing && pv.analysis.active && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        *act = cmd("part.analysis", "escape");
     } else if resp.hovered() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
         if pv.mode == Mode::Pick {
             *act = cmd("part.pick.done", "");

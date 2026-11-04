@@ -110,6 +110,7 @@ pub mod mytoolsdlg;
 pub mod panes;
 pub mod paneview;
 pub mod parpanel;
+pub mod partanalysis;
 pub mod partdesign;
 pub mod partdraw;
 pub mod partedit;

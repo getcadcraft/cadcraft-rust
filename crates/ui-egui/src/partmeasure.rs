@@ -781,6 +781,13 @@ pub fn views_menu(ui: &mut egui::Ui, pv: &PartView, act: &mut Cmd) {
         *act = cmd("part.section", "toggle");
         ui.close();
     }
+    for (m, key) in [("draft", "draft.menu"), ("zebra", "analysis.menu.zebra"), ("curvature", "analysis.menu.curvature")] {
+        let on = pv.analysis.active && pv.analysis.mode == m;
+        if ui.add(egui::Button::selectable(on, tr(key))).on_hover_text(tr(&format!("{key}.title"))).clicked() {
+            *act = cmd("part.analysis", format!("toggle:{m}"));
+            ui.close();
+        }
+    }
 }
 
 /// What the measure overlay draws: picked points, the snap under the pointer, the closest points and their line.
@@ -846,12 +853,24 @@ pub fn cards(ui: &mut egui::Ui, rect: Rect, pv: &mut PartView, t: &Tokens, act: 
         y = r.response.rect.max.y + 8.0;
     }
     if pv.section.active {
-        egui::Area::new(egui::Id::unique("pc-section")).order(egui::Order::Foreground).fixed_pos(egui::pos2(rect.max.x - 300.0, y)).show(
+        let r = egui::Area::new(egui::Id::unique("pc-section"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(egui::pos2(rect.max.x - 300.0, y))
+            .show(ui.ctx(), |ui| {
+                card_frame(t).show(ui, |ui| {
+                    ui.set_width(280.0);
+                    section_card(ui, pv, t, act);
+                });
+            });
+        y = r.response.rect.max.y + 8.0;
+    }
+    if pv.analysis.active {
+        egui::Area::new(egui::Id::unique("pc-analysis")).order(egui::Order::Foreground).fixed_pos(egui::pos2(rect.max.x - 300.0, y)).show(
             ui.ctx(),
             |ui| {
                 card_frame(t).show(ui, |ui| {
                     ui.set_width(280.0);
-                    section_card(ui, pv, t, act);
+                    crate::partanalysis::card(ui, pv, t, act);
                 });
             },
         );

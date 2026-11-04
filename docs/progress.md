@@ -2,6 +2,16 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-04 — M13.10 PartCraft surface analyses: draft, zebra, curvature (agent, work/partfin)
+
+- `crates/ui-egui/src/partanalysis.rs`: draft-ui.js — Views › Draft analysis / Zebra stripes / Curvature, one card over
+  the view (Show, pull ±X ±Y ±Z or square to a picked flat face, Reverse, minimum draft with each class's share of
+  the area; stripes; the curvature bar and its limit), the part coloured per triangle corner (analysis.rs), zebra
+  redrawn when the view stops turning, colours from the theme's layer colours, a rebuild recolours, a sketch or the
+  drawing sheet closes it, Esc cancels the pick then closes. Command `part.analysis`.
+- Parity: `pcuidiff-partfin.mjs --scenario analysis` (pchost-partfin.mjs: draft-ui.js with the real analysis.js): 48
+  steps + the save identical in en and es-MX.
+
 ## 2026-11-04 — M13.9 PartCraft drawings (PDF) (agent, work/partfin)
 
 - `crates/ui-egui/src/partdraw.rs`: partcraft.js drawing mode on the mesh kernel — the toolbar's Drawing group

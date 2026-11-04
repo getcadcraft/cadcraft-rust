@@ -54,6 +54,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
         "{name: toggle|on|off|mass|clear|copy|escape|rows|density:<g/cm³>} → measure-ui.js (rows: the card in the status line)",
     ),
     (
+        "part.analysis",
+        "Surface analysis",
+        "",
+        "{name: toggle[:draft|zebra|curvature]|mode:<m>|close|pull:+x…-z|face|reverse:on/off|min:<deg>|stripes:<n>|pick|face:<name>|escape|rows} → draft-ui.js",
+    ),
+    (
         "part.drawing",
         "Drawing sheet",
         "",
@@ -184,6 +190,8 @@ pub struct PartView {
     pub drawing: Option<crate::partdraw::DrawSt>,
     /// the clock the sheet's dates use (None = today; `part.drawing=clock:<ms>` pins it)
     pub clock_ms: Option<f64>,
+    /// the surface analyses' card and colours (draft-ui.js)
+    pub analysis: crate::partanalysis::Analysis,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -274,6 +282,7 @@ impl PartView {
             slot: None,
             drawing: None,
             clock_ms: None,
+            analysis: crate::partanalysis::Analysis::default(),
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));
@@ -439,6 +448,7 @@ impl PartView {
             }
         }
         self.regen = r;
+        self.analysis_refresh();
         let nfaces = self.faces().len();
         if self.hover.is_some_and(|h| h >= nfaces) {
             self.hover = None;
@@ -496,6 +506,11 @@ impl PartView {
         jv::arr(self.regen.faces.as_ref())
     }
 
+    /// The scene from the part's mesh (and the analyses' colours) as it stands.
+    pub(crate) fn build_scene_now(&mut self) {
+        self.build_scene();
+    }
+
     fn build_scene(&mut self) {
         self.scene_seq = self.scene_seq.wrapping_add(1);
         let mut meshes: Vec<MeshData> = Vec::new();
@@ -509,6 +524,7 @@ impl PartView {
             let per_face = nfaces > 0 && nfaces <= MAX_FACE_MESHES && tri_face.is_some_and(|tf| tf.len() == nt && !tf.contains(&-1));
             let groups = if per_face { nfaces } else { 1 };
             let mut tris: Vec<Vec<f64>> = vec![Vec::new(); groups];
+            let mut tri_ids: Vec<Vec<usize>> = vec![Vec::new(); groups];
             for t in 0..nt {
                 let g = if per_face {
                     tri_face.and_then(|tf| tf.get(t)).and_then(|&f| usize::try_from(f).ok()).filter(|&f| f < groups).unwrap_or(0)
@@ -516,6 +532,9 @@ impl PartView {
                     0
                 };
                 let Some(out) = tris.get_mut(g) else { continue };
+                if let Some(ids) = tri_ids.get_mut(g) {
+                    ids.push(t);
+                }
                 for k in 0..3 {
                     let vi = m.indices.get(t * 3 + k).copied().unwrap_or(0) as usize;
                     let p = [
@@ -533,9 +552,21 @@ impl PartView {
                     out.extend_from_slice(&w);
                 }
             }
+            let colors = self.analysis.colors.as_ref().filter(|c| c.len() == nt * 3);
             for (g, t) in tris.iter().enumerate() {
                 let n = t.len() / 9;
-                meshes.push(MeshData::from_triangles(t, &vec![BODY; n], &[]));
+                let mut md = MeshData::from_triangles(t, &vec![BODY; n], &[]);
+                // the analyses colour each triangle's corners (draft-ui.js setFaceColors)
+                if let (Some(c), Some(ids)) = (colors, tri_ids.get(g)) {
+                    for (j, &ti) in ids.iter().enumerate() {
+                        for k in 0..3 {
+                            if let (Some(dst), Some(src)) = (md.colors.get_mut(j * 3 + k), c.get(ti * 3 + k)) {
+                                *dst = *src;
+                            }
+                        }
+                    }
+                }
+                meshes.push(md);
                 inst_face.push(per_face.then_some(g));
             }
             // the solid's edges (meshfaces.js edgeSegs), one mesh with no faces
@@ -2425,6 +2456,7 @@ fn run_cmd(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             }
         }
         "part.drawing.set" => pv.drawing_set(&name)?,
+        "part.analysis" => pv.analysis_cmd(&name)?,
         id if id.starts_with("part.sk.") => sketch_cmd(pv, id, &name)?,
         other => return Err(format!("unknown command {other}")),
     }
