@@ -332,6 +332,22 @@ mod tests {
         super::run(&rev);
     }
 
+    /// A libFuzzer out-of-memory: the Place tool put a component inside its own open context, and the next pointer
+    /// move made a scene of two million placements (the kernel's walk budget; 1.45 GB). Now scene::MAX_PLACED.
+    #[test]
+    fn placed_in_itself_oom() {
+        super::run(include_bytes!("../../../fuzz/seeds/m3d_tools/oom-tools.bin"));
+    }
+
+    /// A libFuzzer timeout: rectangles drawn over a NaN-split, self-crossing face left an earcut ring that no longer
+    /// passes its start, and earcut's intersectsPolygon walked it for ever (as the JS would). Now earcut's work budget.
+    #[test]
+    fn earcut_lost_ring_timeout() {
+        let t = std::time::Instant::now();
+        super::run(include_bytes!("../../../fuzz/seeds/m3d_tools/timeout-follow.bin"));
+        assert!(t.elapsed().as_secs() < 120, "{:?}", t.elapsed());
+    }
+
     /// M6.18: a libFuzzer timeout in cc_m3d::edges::add_edge (rectangles drawn over a NaN corner made the NaN-split
     /// edges double with every edge; 9.5 s for one step, then hours). Now capped (edges::MAX_NAN_EDGES).
     #[test]

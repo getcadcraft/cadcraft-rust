@@ -200,6 +200,12 @@ pub struct ObjRef<'a> {
     pub id: f64,
 }
 
+/// Most placements a scene keeps (about 0.7 kB each before any face is made). Spec gap: the JS lists every one the walk
+/// reaches; a definition placed inside itself (the Place tool in its own open context) reaches the kernel's walk
+/// budget, two million placements and about 1.5 GB here (fuzz m3d_tools `oom-tools.bin`). Past this many, later ones
+/// cannot be picked or snapped to.
+pub const MAX_PLACED: usize = 300_000;
+
 /// One placement of a definition.
 #[derive(Debug)]
 pub struct Placed {
@@ -327,6 +333,9 @@ impl Scene {
                     l
                 }
             };
+            if insts.len() >= MAX_PLACED {
+                return false;
+            }
             if !l.faces.is_empty() || !l.edges.is_empty() {
                 insts.push(Placed::new(&def.id, *m, path, l, keep));
             }

@@ -33,9 +33,21 @@ struct E<'a> {
     n: Vec<Node>,
     data: &'a [f64],
     tris: Vec<usize>,
+    /// ring steps left (see [`work_budget`])
+    left: std::cell::Cell<u64>,
 }
 
 impl E<'_> {
+    /// One step of a walk round a ring; false once the call's budget is spent.
+    #[inline]
+    fn tick(&self) -> bool {
+        let l = self.left.get();
+        if l == 0 {
+            return false;
+        }
+        self.left.set(l.saturating_sub(1));
+        true
+    }
     #[inline]
     fn nd(&self, p: usize) -> Node {
         self.n.get(p).copied().unwrap_or(Node { i: 0, x: f64::NAN, y: f64::NAN, prev: p, next: p, steiner: false })
@@ -143,6 +155,9 @@ impl E<'_> {
         let mut end = end.unwrap_or(start);
         let mut p = start;
         loop {
+            if !self.tick() {
+                break;
+            }
             let mut again = false;
             let np = self.nd(p);
             if !np.steiner && (self.equals(p, np.next) || self.area(np.prev, p, np.next) == 0.0) {
@@ -170,6 +185,9 @@ impl E<'_> {
         }
         let mut stop = ear;
         while self.prev(ear) != self.next(ear) {
+            if !self.tick() {
+                return;
+            }
             let prev = self.prev(ear);
             let next = self.next(ear);
             if self.is_ear(ear) {
@@ -214,6 +232,9 @@ impl E<'_> {
         let mut p = c.next;
         let mut guard = 0usize;
         while p != b.prev {
+            if !self.tick() {
+                return false;
+            }
             let pn = self.nd(p);
             if pn.x >= x0
                 && pn.x <= x1
@@ -237,6 +258,9 @@ impl E<'_> {
         let mut start = start?;
         let mut p = start;
         loop {
+            if !self.tick() {
+                break;
+            }
             let a = self.prev(p);
             let b = self.next(self.next(p));
             if !self.equals(a, b) && self.intersects(a, p, self.next(p), b) && self.locally_inside(a, b) && self.locally_inside(b, a) {
@@ -261,8 +285,14 @@ impl E<'_> {
     fn split_earcut(&mut self, start: usize, dim: usize, depth: u32) {
         let mut a = start;
         loop {
+            if !self.tick() {
+                return;
+            }
             let mut b = self.next(self.next(a));
             while b != self.prev(a) {
+                if !self.tick() {
+                    return;
+                }
                 if self.nd(a).i != self.nd(b).i && self.is_valid_diagonal(a, b) {
                     let c = self.split_polygon(a, b);
                     let an = self.next(a);
@@ -328,6 +358,9 @@ impl E<'_> {
             return Some(p);
         }
         loop {
+            if !self.tick() {
+                return None;
+            }
             let pn = self.nd(p);
             if self.equals(hole, pn.next) {
                 return Some(pn.next);
@@ -356,6 +389,9 @@ impl E<'_> {
         let mut tan_min = f64::INFINITY;
         p = m;
         loop {
+            if !self.tick() {
+                break;
+            }
             let pn = self.nd(p);
             if hx >= pn.x
                 && pn.x >= mx
@@ -387,6 +423,9 @@ impl E<'_> {
         let mut p = start;
         let mut left = start;
         loop {
+            if !self.tick() {
+                break;
+            }
             let (pn, ln) = (self.nd(p), self.nd(left));
             if pn.x < ln.x || (pn.x == ln.x && pn.y < ln.y) {
                 left = p;
@@ -441,6 +480,9 @@ impl E<'_> {
         let (ai, bi) = (self.nd(a).i, self.nd(b).i);
         let mut p = a;
         loop {
+            if !self.tick() {
+                return true;
+            }
             let pn = self.nd(p);
             let ni = self.nd(pn.next).i;
             if pn.i != ai && ni != ai && pn.i != bi && ni != bi && self.intersects(p, pn.next, a, b) {
@@ -468,6 +510,9 @@ impl E<'_> {
         let px = (an.x + bn.x) / 2.0;
         let py = (an.y + bn.y) / 2.0;
         loop {
+            if !self.tick() {
+                break;
+            }
             let pn = self.nd(p);
             let nx = self.nd(pn.next);
             if ((pn.y > py) != (nx.y > py)) && nx.y != pn.y && (px < (nx.x - pn.x) * (py - pn.y) / (nx.y - pn.y) + pn.x) {
@@ -520,10 +565,24 @@ fn point_in_triangle_except_first(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, c
     !(ax == px && ay == py) && point_in_triangle(ax, ay, bx, by, cx, cy, px, py)
 }
 
+/// Ring steps one call may take: 64 (n + 16)², far above what clipping a real face takes (at most about n² steps).
+/// Spec gap: a self-crossing face with NaN-split corners can leave a ring that no longer passes its start (the JS
+/// spins there forever, as did the port: fuzz m3d_tools `timeout-follow.bin`); here every walk stops once the budget
+/// is spent and the face keeps the triangles made so far.
+fn work_budget(n: usize) -> u64 {
+    let n = u64::try_from(n).unwrap_or(u64::MAX).saturating_add(16);
+    n.saturating_mul(n).saturating_mul(64)
+}
+
 /// `earcut(flat, holeIndices)` → triangle corner indices (dim 2).
 pub fn earcut(data: &[f64], holes: &[usize]) -> Vec<usize> {
     let dim = 2usize;
-    let mut e = E { n: Vec::with_capacity(data.len() / dim + 8), data, tris: Vec::new() };
+    let mut e = E {
+        n: Vec::with_capacity(data.len() / dim + 8),
+        data,
+        tris: Vec::new(),
+        left: std::cell::Cell::new(work_budget(data.len() / dim)),
+    };
     let outer_len = match holes.first() {
         Some(&h) => h.saturating_mul(dim),
         None => data.len(),
