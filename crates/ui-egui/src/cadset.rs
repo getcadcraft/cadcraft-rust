@@ -32,8 +32,64 @@ pub struct CadSet {
     pub tabs_number: bool,
     /// the corner indicator: "auto" | "cube" | "axes" | "none"
     pub corner: String,
+    /// the drafting toggles and the object snap kinds (cadcraft.js `settings.grid / ortho / osnap / polar / lwt /
+    /// polarInc / kinds`): kept between runs and carried to every drawing opened, as 0.5 keeps them app-wide
+    pub draft: Draft,
     /// the lasso setting last handed to the editor (LASSOMODE changes it there)
     pushed_lasso: Option<bool>,
+}
+
+/// The drafting toggles 0.5 keeps in `cadcraft.settings` (the status bar's Grid, Ortho, Snap, Polar, LWT and the
+/// object snap kinds' list).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Draft {
+    pub grid: bool,
+    pub ortho: bool,
+    pub osnap: bool,
+    pub polar: bool,
+    pub lwt: bool,
+    /// POLARANG's step in degrees (0 < x ≤ 180)
+    pub polar_inc: f64,
+    /// the kinds on, in the order they were turned on (a JS Set's order)
+    pub kinds: Vec<&'static str>,
+}
+
+impl Default for Draft {
+    fn default() -> Self {
+        Draft { grid: true, ortho: false, osnap: true, polar: false, lwt: false, polar_inc: 90.0, kinds: crate::edit::SNAP_KINDS.to_vec() }
+    }
+}
+
+impl Draft {
+    /// Read back as cadcraft.js does (`saved.x ?? default`; `new Set(saved.kinds || default)`), unknown kinds dropped.
+    fn load(v: &Value) -> Draft {
+        let d = Draft::default();
+        let b = |k: &str, def: bool| v.get(k).and_then(Value::as_bool).unwrap_or(def);
+        let kinds = match v.get("kinds").and_then(Value::as_array) {
+            Some(a) => {
+                let mut out: Vec<&'static str> = Vec::new();
+                for k in a.iter().take(64).filter_map(Value::as_str) {
+                    if let Some(kk) = cc_cad_geom::pick::SNAP_KINDS.iter().copied().find(|x| *x == k)
+                        && !out.contains(&kk)
+                    {
+                        out.push(kk);
+                    }
+                }
+                out
+            }
+            None => d.kinds.clone(),
+        };
+        let inc = v.get("polarInc").and_then(Value::as_f64).filter(|x| *x > 0.0 && *x <= 180.0).unwrap_or(90.0);
+        Draft {
+            grid: b("grid", d.grid),
+            ortho: b("ortho", d.ortho),
+            osnap: b("osnap", d.osnap),
+            polar: b("polar", d.polar),
+            lwt: b("lwt", d.lwt),
+            polar_inc: inc,
+            kinds,
+        }
+    }
 }
 
 impl Default for CadSet {
@@ -45,6 +101,7 @@ impl Default for CadSet {
             lasso_box: false,
             tabs_number: false,
             corner: "auto".into(),
+            draft: Draft::default(),
             pushed_lasso: None,
         }
     }
@@ -64,6 +121,13 @@ impl CadSet {
             "lasso": if self.lasso_box { "box" } else { "lasso" },
             "tabs": if self.tabs_number { "number" } else { "full" },
             "corner": self.corner,
+            "grid": self.draft.grid,
+            "ortho": self.draft.ortho,
+            "osnap": self.draft.osnap,
+            "polar": self.draft.polar,
+            "lwt": self.draft.lwt,
+            "polarInc": self.draft.polar_inc,
+            "kinds": self.draft.kinds,
         })
     }
     /// Read back (cadcraft.js's checks: anything else keeps the default).
@@ -77,6 +141,7 @@ impl CadSet {
         self.tabs_number = s("tabs") == "number";
         let c = s("corner");
         self.corner = if CORNERS.contains(&c) { c.to_string() } else { "auto".into() };
+        self.draft = Draft::load(v);
         self.pushed_lasso = None;
     }
     /// `settings.set {name: "cad.<key>=<value>"}`.
@@ -120,6 +185,30 @@ fn choose(v: &str, yes: &str, no: &str) -> Option<bool> {
 /// Hand the settings to the open drawing (every frame): what a click does, the paste point, the pick reach; the
 /// lasso setting goes both ways (LASSOMODE sets it in the editor).
 pub fn push(app: &mut UiApp) {
+    // the drafting toggles: a drawing just opened takes the kept ones; after that what it changes is kept
+    app.look.grid = app.cadset.draft.grid;
+    if let Some(ed) = app.editor.as_mut() {
+        let d = &mut app.cadset.draft;
+        if ed.draft_seeded {
+            let h = ed.hs.borrow();
+            d.osnap = ed.osnap;
+            d.ortho = ed.ortho;
+            d.polar = ed.polar;
+            d.lwt = h.lwt;
+            d.polar_inc = h.polar_inc;
+            d.kinds.clone_from(&ed.kinds);
+        } else {
+            ed.osnap = d.osnap;
+            ed.ortho = d.ortho;
+            ed.polar = d.polar;
+            ed.kinds.clone_from(&d.kinds);
+            let mut h = ed.hs.borrow_mut();
+            h.lwt = d.lwt;
+            h.polar_inc = d.polar_inc;
+            drop(h);
+            ed.draft_seeded = true;
+        }
+    }
     let Some(ed) = app.editor.as_ref() else { return };
     let (_, _, reach) = app.cadset.cursor_spec();
     let mut h = ed.hs.borrow_mut();

@@ -576,6 +576,7 @@ fn open_recovered(app: &mut UiApp, rec: &Rec, data: &[u8]) -> Result<(), String>
     app.model3 = None;
     app.pdf = None;
     app.source = None;
+    crate::edit::carry_history(&ed, app.editor.as_ref());
     app.editor = Some(ed);
     app.doc = None;
     app.sync_editor();

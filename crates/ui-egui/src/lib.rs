@@ -1333,7 +1333,9 @@ impl UiApp {
         let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(a, _)| a).to_string();
         let keep_space = self.space;
         let hidden = std::mem::take(&mut self.hidden);
-        self.editor = Some(edit::Editor::new(doc, &stem));
+        let ed = edit::Editor::new(doc, &stem);
+        edit::carry_history(&ed, self.editor.as_ref());
+        self.editor = Some(ed);
         self.doc = None;
         self.sync_editor();
         // Studio Live's same-file join (live.js stampFileHash): the hash of the bytes opened, while unchanged since
@@ -1809,7 +1811,9 @@ impl UiApp {
                 self.model3 = None;
                 self.model3 = None;
                 self.source = None;
-                self.editor = Some(edit::Editor::new(cc_cad::Doc::new(), "Drawing1"));
+                let ed = edit::Editor::new(cc_cad::Doc::new(), "Drawing1");
+                edit::carry_history(&ed, self.editor.as_ref());
+                self.editor = Some(ed);
                 self.doc = None;
                 self.views = vec![None];
                 self.space = 0;
@@ -1916,6 +1920,7 @@ impl UiApp {
                     return Err("edit.grid: no drawing is open for editing".into());
                 }
                 self.look.grid = !self.look.grid;
+                self.cadset.draft.grid = self.look.grid;
                 // cadcraft.js toggle(): the word is not in the catalog ("Grid on" / "Grid off")
                 self.message = format!("Grid {}", if self.look.grid { "on" } else { "off" });
             }
@@ -4244,6 +4249,41 @@ mod tests {
             let k = &app.editor.as_ref().unwrap().kinds;
             assert!(k.contains(&"tan") && !k.contains(&"end"));
             assert!(run(&mut app, "edit.snapkind", "bogus").is_err());
+            // kept between runs and carried to the next drawing (0.5's cadcraft.settings kinds / ortho / grid)
+            app.run("edit.ortho", &Params::default()).unwrap();
+            app.run("edit.grid", &Params::default()).unwrap();
+            app.sync_editor();
+            let v = app.settings_json();
+            let kinds = v["cadcraft"]["kinds"].as_array().unwrap();
+            assert!(kinds.iter().any(|k| k == "tan") && !kinds.iter().any(|k| k == "end"));
+            assert_eq!((v["cadcraft"]["ortho"].as_bool(), v["cadcraft"]["grid"].as_bool()), (Some(true), Some(false)));
+            let mut b = UiApp::default();
+            b.load_settings(&v);
+            b.run("file.new", &Params::default()).unwrap();
+            let ed = b.editor.as_ref().unwrap();
+            assert!(ed.kinds.contains(&"tan") && !ed.kinds.contains(&"end") && ed.ortho && !b.look.grid);
+            // a damaged list keeps only the kinds it knows; none at all is the default set
+            b.load_settings(&serde_json::json!({"cadcraft": {"kinds": ["mid", 3, "zap", "mid"], "polarInc": 400}}));
+            assert_eq!((b.cadset.draft.kinds.clone(), b.cadset.draft.polar_inc), (vec!["mid"], 90.0));
+            b.load_settings(&serde_json::json!({"cadcraft": {}}));
+            assert_eq!(b.cadset.draft.kinds, crate::edit::SNAP_KINDS.to_vec());
+        });
+    }
+
+    #[test]
+    fn the_history_opens_as_cadcraft_js_prints_it() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let mut app = UiApp::default();
+            app.run("file.new", &Params::default()).unwrap();
+            let first = |app: &UiApp| app.editor.as_ref().unwrap().hs.borrow().log.front().cloned();
+            let ready = "CadCraft is ready. Type a command (L for line, HELP for the list) or open a drawing.";
+            assert_eq!(first(&app).as_deref(), Some(ready));
+            // one history for the window: a new drawing keeps the lines (0.5's print() on one list)
+            app.run("cmd.line", &Params { name: Some("LINE".into()), ..Default::default() }).unwrap();
+            app.run("file.new", &Params::default()).unwrap();
+            let log = app.editor.as_ref().unwrap().hs.borrow().log.clone();
+            assert_eq!(log.iter().filter(|l| *l == ready).count(), 1);
+            assert!(log.len() > 1);
         });
     }
 

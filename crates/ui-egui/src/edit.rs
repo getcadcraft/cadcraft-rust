@@ -621,6 +621,28 @@ pub struct Editor {
     /// the hash of the bytes this drawing was opened from and the drawing's version then (live.js `stampFileHash`):
     /// a Studio Live join with the same file skips the snapshot while the drawing is unchanged
     pub file_hash: Option<(String, u64)>,
+    /// the app's kept drafting toggles have been handed to this drawing (cadset.rs `push`)
+    pub draft_seeded: bool,
+}
+
+/// The command history a new drawing starts with: 0.5 has one history for the page, so the lines of the drawing it
+/// replaces stay; the first drawing of a window starts with cadcraft.js's opening line ("CadCraft is ready. …").
+pub fn carry_history(new: &Editor, old: Option<&Editor>) {
+    let mut h = new.hs.borrow_mut();
+    match old {
+        Some(o) => {
+            let mut lines = o.hs.borrow().log.clone();
+            lines.extend(h.log.drain(..));
+            h.log = lines;
+            while h.log.len() > LOG_LINES {
+                h.log.pop_front();
+            }
+        }
+        None => {
+            let ready = lang_text("app.cadcraft_ready_type_command", &[]);
+            h.log.push_front(ready);
+        }
+    }
 }
 
 impl Editor {
@@ -639,6 +661,7 @@ impl Editor {
             snap: None,
             pending_box: None,
             file_hash: None,
+            draft_seeded: false,
             lasso: None,
             seen: None,
             seen_space: None,

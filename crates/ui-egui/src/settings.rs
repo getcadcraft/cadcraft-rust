@@ -125,6 +125,10 @@ impl UiApp {
         }
         if let Some(c) = v.get("cadcraft") {
             self.cadset.load(c);
+            // the open drawing takes the kept drafting toggles at the next frame
+            if let Some(ed) = self.editor.as_mut() {
+                ed.draft_seeded = false;
+            }
         }
         if let Some(m) = v.get("modelcraft") {
             self.mcset.load(m);
