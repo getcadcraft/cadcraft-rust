@@ -290,13 +290,13 @@ impl Walker<'_> {
         {
             return false;
         }
-        match name.and_then(|n| self.layers.get(&n.to_string())) {
+        match name.and_then(|n| self.layers.get(n)) {
             None => true,
             Some(l) => l.on && !l.frozen && (!self.plot || l.plot),
         }
     }
     fn resolve_color(&self, e: &Entity, by_block: Option<&Color>, parent_layer: Option<&str>) -> String {
-        cc_cad::color::resolve_color(e, by_block, parent_layer, &|n| self.layers.get(&n.to_string()).map(|l| l.color.clone()))
+        cc_cad::color::resolve_color(e, by_block, parent_layer, &|n| self.layers.get(n).map(|l| l.color.clone()))
     }
     fn pattern(&mut self, name: &str) -> Option<Vec<f64>> {
         if let Some((_, p)) = self.patterns.iter().find(|(n, _)| n == name) {
@@ -348,7 +348,7 @@ impl Walker<'_> {
             (Some("0"), Some(p)) if !p.is_empty() => p,
             (l, _) => l.unwrap_or(""),
         };
-        self.layers.get(&ln.to_string()).and_then(|l| js::finite(l.extra.get("tr")))
+        self.layers.get(ln).and_then(|l| js::finite(l.extra.get("tr")))
     }
 
     #[allow(clippy::too_many_arguments)]

@@ -729,7 +729,7 @@ impl Doc {
     }
     /// The layer, made (with the defaults) when it does not exist.
     pub fn layer(&mut self, name: &str) -> Layer {
-        if let Some(l) = self.layers.get(&name.to_string()) {
+        if let Some(l) = self.layers.get(name) {
             return l.clone();
         }
         self.add_layer(&serde_json::json!({ "name": name }))
@@ -866,7 +866,7 @@ impl Doc {
     }
     /// `resolveColor(doc, e, byBlock, parentLayer)`.
     pub fn resolve_color(&self, e: &Entity, by_block: Option<&Color>, parent_layer: Option<&str>) -> String {
-        crate::color::resolve_color(e, by_block, parent_layer, &|n| self.layers.get(&n.to_string()).map(|l| l.color.clone()))
+        crate::color::resolve_color(e, by_block, parent_layer, &|n| self.layers.get(n).map(|l| l.color.clone()))
     }
 
     // ---- reading

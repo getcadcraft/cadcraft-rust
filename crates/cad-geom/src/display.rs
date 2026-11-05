@@ -8,6 +8,9 @@
 
 use std::collections::HashMap;
 
+/// Maps keyed by (space, entity id): ids the document mints itself, hashed with one multiply (cc_cad::omap::IdHasher).
+type IdMap<V> = HashMap<(SpaceId, u64), V, cc_cad::omap::IdBuild>;
+
 use cc_cad::entity::{Entity, Geo};
 use cc_cad::omap::OMap;
 use cc_cad::{Doc, SpaceId, js};
@@ -351,6 +354,23 @@ fn same_map<K: PartialEq + Eq + std::hash::Hash + Clone, V: PartialEq>(a: &OMap<
     a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| x == y)
 }
 
+/// [`same_map`] for blocks: a definition whose object list is the one the cache saw (shared, copy-on-write) is not
+/// compared object by object.
+fn same_blocks(a: &OMap<String, cc_cad::Block>, b: &OMap<String, cc_cad::Block>) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b.iter()).all(|((ka, x), (kb, y))| {
+            // every field named, so a new one cannot be missed
+            let cc_cad::Block { name, base, entities, attdefs, xref, dyn_ } = x;
+            ka == kb
+                && *name == y.name
+                && *base == y.base
+                && (cc_cad::Ents::ptr_eq(entities, &y.entities) || *entities == y.entities)
+                && *attdefs == y.attdefs
+                && *xref == y.xref
+                && *dyn_ == y.dyn_
+        })
+}
+
 /// What a walk reads from the document besides the entity itself: when any of it changes, every entity is walked
 /// again.
 #[derive(Clone)]
@@ -382,7 +402,7 @@ impl Ctx {
             && same_map(&self.linetypes, &doc.linetypes)
             && same_map(&self.text_styles, &doc.text_styles)
             && same_map(&self.dim_styles, &doc.dim_styles)
-            && same_map(&self.blocks, &doc.blocks)
+            && same_blocks(&self.blocks, &doc.blocks)
             && self.meta == doc.meta
             && self.pictures == doc.picture_version
     }
@@ -394,7 +414,7 @@ impl Ctx {
 #[derive(Default)]
 pub struct DisplayCache {
     ctx: Option<Ctx>,
-    ents: HashMap<(SpaceId, u64), (Entity, Piece)>,
+    ents: IdMap<(Entity, Piece)>,
     /// entities walked / reused by the last call
     pub walked: usize,
     pub reused: usize,
@@ -423,7 +443,7 @@ impl DisplayCache {
         }
         self.walked = 0;
         self.reused = 0;
-        let mut seen: HashMap<(SpaceId, u64), ()> = HashMap::with_capacity(self.ents.len());
+        let mut seen: IdMap<()> = IdMap::with_capacity_and_hasher(self.ents.len(), Default::default());
         // the block editor (BEDIT) opens a space of its own: it shows in the model's place while it is open
         let loose = doc.space != cc_cad::MODEL && !doc.layouts.iter().any(|l| l.space == doc.space);
         let first = if loose { doc.space } else { cc_cad::MODEL };
@@ -452,86 +472,215 @@ impl DisplayCache {
         name: String,
         kind: SpaceKind,
         paper: Option<Bounds>,
-        seen: &mut HashMap<(SpaceId, u64), ()>,
+        seen: &mut IdMap<()>,
     ) -> Space {
         // top-level objects grouped by layer (first-seen order), as space_of walks them
         let mut groups: Vec<(&str, Vec<&Entity>)> = Vec::new();
         let mut at: HashMap<&str, usize> = HashMap::new();
+        // (the layer of the entity before: runs of one layer skip the hashing)
+        let mut prev: Option<(&str, usize)> = None;
         for e in doc.space_entities(space).filter(|e| !matches!(e.geo, Geo::Xline(_) | Geo::Ray(_))) {
             let l = e.layer.as_deref().unwrap_or("0");
-            let i = *at.entry(l).or_insert_with(|| {
-                groups.push((l, Vec::new()));
-                groups.len().saturating_sub(1)
-            });
+            let i = match prev {
+                Some((pl, pi)) if pl == l => pi,
+                _ => *at.entry(l).or_insert_with(|| {
+                    groups.push((l, Vec::new()));
+                    groups.len().saturating_sub(1)
+                }),
+            };
+            prev = Some((l, i));
             if let Some((_, g)) = groups.get_mut(i) {
                 g.push(e);
             }
         }
         let opts = display_opts();
+        // every entity of the space in walk order, with its layer group; which are new or changed (an entity without
+        // an id is walked every time)
+        let all: Vec<(usize, &Entity)> = groups.iter().enumerate().flat_map(|(g, (_, es))| es.iter().map(move |e| (g, *e))).collect();
+        let cached = &self.ents;
+        let is_stale = |e: &Entity| match e.id {
+            Some(id) => cached.get(&(space, id)).is_none_or(|(old, _)| old != e),
+            None => true,
+        };
+        let stale: Vec<bool> = par_map(&all, |(_, e)| is_stale(e));
+        // the stale ones walked (in runs of one layer), each piece twice: one for the cache, one for the space
+        let mut work: Vec<(&str, Vec<&Entity>)> = Vec::new();
+        let mut last = usize::MAX;
+        for ((g, e), st) in all.iter().zip(&stale) {
+            if !*st {
+                continue;
+            }
+            match work.last_mut() {
+                Some((_, v)) if last == *g => v.push(e),
+                _ => work.push((groups.get(*g).map_or("0", |x| x.0), vec![*e])),
+            }
+            last = *g;
+        }
+        let walked: usize = work.iter().map(|(_, v)| v.len()).sum();
+        self.walked = self.walked.saturating_add(walked);
+        let mut fresh = walk_pieces(doc, &work, &opts).into_iter().flatten();
+        self.ents.reserve(walked);
+        // the fresh pieces go into the cache (with the entity they show) and into the space
+        let mut owned: Vec<Option<Piece>> = Vec::with_capacity(all.len());
+        for ((_, e), st) in all.iter().zip(&stale) {
+            let key = e.id.map(|id| (space, id));
+            if let Some(k) = key {
+                seen.insert(k, ());
+            }
+            if *st {
+                let Some((ent, keep, show)) = fresh.next() else {
+                    owned.push(None);
+                    continue;
+                };
+                if let Some(k) = key {
+                    self.ents.insert(k, (ent, keep));
+                }
+                owned.push(Some(show));
+            } else {
+                self.reused = self.reused.saturating_add(1);
+                owned.push(None);
+            }
+        }
+        // the kept pieces copied from the cache (in parallel), then each layer group's batches made on its own (in
+        // parallel too: a group's batches take only its entities')
+        let cached = &self.ents;
+        let pairs: Vec<(&Entity, &mut Option<Piece>)> = all.iter().map(|(_, e)| *e).zip(owned.iter_mut()).collect();
+        let mut owned: Vec<Option<Piece>> = par_map_owned(pairs, |(e, o)| match o.take() {
+            Some(p) => Some(p),
+            None => e.id.and_then(|id| cached.get(&(space, id))).map(|(_, p)| p.clone()),
+        });
+        let mut spans: Vec<&mut [Option<Piece>]> = Vec::with_capacity(groups.len());
+        let mut rest = owned.as_mut_slice();
+        for (_, es) in &groups {
+            let tmp = std::mem::take(&mut rest);
+            let k = es.len().min(tmp.len());
+            let (g, r) = tmp.split_at_mut(k);
+            spans.push(g);
+            rest = r;
+        }
+        let parallel = all.len() >= PAR_MIN;
+        let parts = par_map_mut(&mut spans, parallel, |own| {
+            let mut out = Collected::default();
+            for piece in own.iter_mut().filter_map(Option::take) {
+                merge_piece(&mut out.batches, 0, &mut out.bounds, &mut out.viewports, &mut out.images, piece);
+            }
+            out
+        });
         let mut batches: Vec<Batch> = Vec::new();
         let mut bounds = Bounds::default();
         let mut viewports: Vec<Viewport> = Vec::new();
         let mut images: Vec<SpaceImage> = Vec::new();
-        for (layer, ents) in &groups {
-            // walk the entities that are new or changed (an entity without an id is walked every time)
-            let stale: Vec<&Entity> = ents
-                .iter()
-                .copied()
-                .filter(|e| match e.id {
-                    Some(id) => self.ents.get(&(space, id)).is_none_or(|(old, _)| old != *e),
-                    None => true,
-                })
-                .collect();
-            let mut fresh: Vec<Piece> = Vec::new();
-            if !stale.is_empty() {
-                let list: Vec<Entity> = stale.iter().map(|e| (*e).clone()).collect();
-                let mut pc =
-                    PieceCollect { layer: (*layer).to_string(), pieces: Vec::with_capacity(list.len()), cur: Collect::joined(layer) };
-                walk(doc, &list, &mut pc, &opts);
-                pc.flush();
-                fresh = pc.pieces;
-                self.walked = self.walked.saturating_add(list.len());
+        for p in parts {
+            batches.extend(p.batches);
+            if !p.bounds.is_empty() {
+                bounds.grow(&[p.bounds.min_x, p.bounds.min_y, p.bounds.max_x, p.bounds.max_y]);
             }
-            let mut fresh = fresh.into_iter();
-            let start = batches.len();
-            for e in ents {
-                let piece = match e.id {
-                    Some(id) if !stale.iter().any(|s| std::ptr::eq(*s, *e)) => {
-                        self.reused = self.reused.saturating_add(1);
-                        seen.insert((space, id), ());
-                        self.ents.get(&(space, id)).map(|(_, p)| p.clone()).unwrap_or_default()
-                    }
-                    id => {
-                        let p = fresh.next().unwrap_or_default();
-                        if let Some(id) = id {
-                            seen.insert((space, id), ());
-                            self.ents.insert((space, id), ((*e).clone(), p.clone()));
-                        }
-                        p
-                    }
-                };
-                for pb in piece.batches {
-                    let slot = batches.iter_mut().skip(start).find(|b| b.color == pb.color && b.lw == pb.lw && b.layer == pb.layer);
-                    match slot {
-                        Some(b) => {
-                            b.lines.extend(pb.lines);
-                            b.fills.extend(pb.fills);
-                            b.texts.extend(pb.texts);
-                        }
-                        None => batches.push(pb),
-                    }
-                }
-                if !piece.bounds.is_empty() {
-                    bounds.grow(&[piece.bounds.min_x, piece.bounds.min_y, piece.bounds.max_x, piece.bounds.max_y]);
-                }
-                viewports.extend(piece.viewports);
-                images.extend(piece.images);
-            }
+            viewports.extend(p.viewports);
+            images.extend(p.images);
         }
         batches.retain(|b| !(b.lines.is_empty() && b.fills.is_empty() && b.texts.is_empty()));
         let paper_unit = paper.map(|_| "mm".to_string());
         Space { key, name, kind, batches, bounds, paper, paper_unit, viewports, images }
     }
+}
+
+/// Below this many items a step stays on the calling thread (a thread hand-off costs more than it saves).
+const PAR_MIN: usize = 1024;
+
+/// Walking is spread over threads from this many entities (one can take milliseconds: an insert of a big block).
+const WALK_PAR_MIN: usize = 64;
+
+/// What one layer group's entities add to their space.
+#[derive(Default)]
+struct Collected {
+    batches: Vec<Batch>,
+    bounds: Bounds,
+    viewports: Vec<Viewport>,
+    images: Vec<SpaceImage>,
+}
+
+/// `f` over `items` (each taken mutably), in order: on Rayon's threads when there are several on the desktop.
+fn par_map_mut<T: Send, R: Send>(items: &mut [T], parallel: bool, f: impl Fn(&mut T) -> R + Sync + Send) -> Vec<R> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if parallel && items.len() > 1 {
+        use rayon::prelude::*;
+        return items.par_iter_mut().map(f).collect();
+    }
+    items.iter_mut().map(f).collect()
+}
+
+/// `f` over `items` (taken by value), in order: on Rayon's threads for a long list on the desktop.
+fn par_map_owned<T: Send, R: Send>(items: Vec<T>, f: impl Fn(T) -> R + Sync + Send) -> Vec<R> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if items.len() >= PAR_MIN {
+        use rayon::prelude::*;
+        return items.into_par_iter().with_min_len(64).map(f).collect();
+    }
+    items.into_iter().map(f).collect()
+}
+
+/// `f` over `items`, in order: on Rayon's threads for a long list on the desktop, else on the calling thread.
+fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
+    #[cfg(not(target_arch = "wasm32"))]
+    if items.len() >= PAR_MIN {
+        use rayon::prelude::*;
+        return items.par_iter().with_min_len(64).map(f).collect();
+    }
+    items.iter().map(f).collect()
+}
+
+/// The display of each entity of `work` (runs of one layer's entities), in order, with a copy of the entity and of
+/// its display for the cache: walked on the calling thread, or in chunks on Rayon's threads for many entities on the desktop (each
+/// chunk with its own walker; an entity's display depends only on the document and the entity).
+fn walk_pieces(doc: &Doc, work: &[(&str, Vec<&Entity>)], opts: &WalkOpts) -> Vec<Vec<(Entity, Piece, Piece)>> {
+    let one = |layer: &str, chunk: &[&Entity]| -> Vec<(Entity, Piece, Piece)> {
+        if chunk.is_empty() {
+            return Vec::new();
+        }
+        let mut pc = PieceCollect { layer: layer.to_string(), pieces: Vec::with_capacity(chunk.len()), cur: Collect::joined(layer) };
+        walk(doc, chunk, &mut pc, opts);
+        pc.flush();
+        pc.pieces.into_iter().zip(chunk).map(|(p, e)| ((*e).clone(), p.clone(), p)).collect()
+    };
+    let total: usize = work.iter().map(|(_, v)| v.len()).sum();
+    #[cfg(not(target_arch = "wasm32"))]
+    if total >= WALK_PAR_MIN {
+        use rayon::prelude::*;
+        // runs of 32 entities (an insert of a big block can take milliseconds alone)
+        let chunk = 32usize;
+        let jobs: Vec<(&str, &[&Entity])> = work.iter().flat_map(|(l, v)| v.chunks(chunk).map(move |c| (*l, c))).collect();
+        // the runs as they came (in order; taken one after another, not copied into one list)
+        return jobs.par_iter().map(|(l, c)| one(l, c)).collect();
+    }
+    let _ = total;
+    work.iter().map(|(l, v)| one(l, v)).collect()
+}
+
+/// One entity's display added to its space's batches (those of its layer group start at `start`).
+fn merge_piece(
+    batches: &mut Vec<Batch>,
+    start: usize,
+    bounds: &mut Bounds,
+    viewports: &mut Vec<Viewport>,
+    images: &mut Vec<SpaceImage>,
+    piece: Piece,
+) {
+    for pb in piece.batches {
+        let slot = batches.iter_mut().skip(start).find(|b| b.color == pb.color && b.lw == pb.lw && b.layer == pb.layer);
+        match slot {
+            Some(b) => {
+                b.lines.extend(pb.lines);
+                b.fills.extend(pb.fills);
+                b.texts.extend(pb.texts);
+            }
+            None => batches.push(pb),
+        }
+    }
+    if !piece.bounds.is_empty() {
+        bounds.grow(&[piece.bounds.min_x, piece.bounds.min_y, piece.bounds.max_x, piece.bounds.max_y]);
+    }
+    viewports.extend(piece.viewports);
+    images.extend(piece.images);
 }
 
 fn drawing_of(doc: &Doc, spaces: Vec<Space>) -> Drawing {
@@ -688,5 +837,54 @@ mod tests {
         check(&mut cache, &d, "a block redefined");
         d.set_space(Some("Layout1"));
         check(&mut cache, &d, "other space");
+    }
+
+    /// S.9: a drawing big enough for the threaded walk and merge (several layers, runs of one layer, inserts, texts,
+    /// entities on paper) draws what the plain walk draws, first and after edits.
+    #[test]
+    fn the_threaded_cache_draws_what_a_full_walk_draws() {
+        let mut ents = Vec::new();
+        for i in 0..3000 {
+            let f = f64::from(i);
+            let layer = ["0", "A", "B", "C"][(i / 7 + i % 3) as usize % 4];
+            ents.push(match i % 5 {
+                0 => json!({ "type": "line", "x1": f, "y1": 0, "x2": f + 3.0, "y2": 2, "layer": layer }),
+                1 => json!({ "type": "circle", "cx": f, "cy": 5, "r": 1.5, "color": i % 7, "layer": layer }),
+                2 => json!({ "type": "insert", "block": "B", "x": f, "y": 9, "color": 5, "layer": layer }),
+                3 => json!({ "type": "text", "x": f, "y": 20, "h": 2, "s": format!("T{i}"), "layer": layer }),
+                _ => json!({ "type": "poly", "closed": true, "pts": [{ "x": f, "y": 0 }, { "x": f + 4.0, "y": 0, "b": 0.5 }, { "x": f, "y": 4 }], "layer": layer }),
+            });
+        }
+        let mut d = Doc::new();
+        d.load(&json!({
+            "layers": [{ "name": "0" }, { "name": "A", "color": 3, "linetype": "DASHED" }, { "name": "B" }, { "name": "C", "color": 1 }],
+            "linetypes": [{ "name": "DASHED", "pattern": [0.5, -0.25] }],
+            "blocks": [{ "name": "B", "base": { "x": 0, "y": 0 }, "entities": [
+                { "type": "line", "x1": 0, "y1": 0, "x2": 1, "y2": 1 }, { "type": "circle", "cx": 0, "cy": 0, "r": 0.5, "color": 0 } ] }],
+            "entities": ents
+        }));
+        let mut cache = DisplayCache::new();
+        let check = |cache: &mut DisplayCache, d: &Doc, what: &str| {
+            assert_eq!(format!("{:?}", cache.drawing(d)), format!("{:?}", doc_drawing(d)), "{what}");
+        };
+        check(&mut cache, &d, "first build");
+        assert_eq!(cache.walked, 3000);
+        let ids: Vec<u64> = d.model().filter_map(|e| e.id).step_by(97).collect();
+        d.change("move", |d| {
+            for id in &ids {
+                let mut e = d.get(*id).cloned().unwrap();
+                e.layer = Some("C".into());
+                d.update(*id, e)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+        check(&mut cache, &d, "some moved to another layer");
+        assert!(cache.walked > 0 && cache.walked <= ids.len(), "{cache:?}");
+        d.change("erase", |d| d.remove(ids[3])).unwrap();
+        check(&mut cache, &d, "erased");
+        d.undo();
+        d.undo();
+        check(&mut cache, &d, "undone");
     }
 }

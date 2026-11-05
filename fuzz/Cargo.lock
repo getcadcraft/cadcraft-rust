@@ -237,6 +237,7 @@ dependencies = [
  "cc-drawing",
  "cc-geom",
  "libm",
+ "rayon",
  "serde_json",
 ]
 

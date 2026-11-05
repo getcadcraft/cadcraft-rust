@@ -22,3 +22,7 @@ cc-geom.workspace = true
 serde_json.workspace = true
 # FreeBSD msun (fdlibm) in Rust: the same sin / cos / tan / atan / atan2 / acos / pow V8 uses, bit for bit (already in Cargo.lock via num-traits)
 libm = "0.2.16"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# the display of a big drawing walked on several threads (S.9)
+rayon = "1"

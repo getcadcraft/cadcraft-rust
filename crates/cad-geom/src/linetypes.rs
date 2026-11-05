@@ -68,7 +68,7 @@ pub fn pattern_of(doc: &Doc, name: Option<&str>) -> Option<Vec<f64>> {
     }
     let name = name.unwrap_or("");
     let up = name.to_uppercase();
-    let own = doc.linetypes.get(&name.to_string()).or_else(|| doc.linetypes.values().find(|l| l.name.to_uppercase() == up));
+    let own = doc.linetypes.get(name).or_else(|| doc.linetypes.values().find(|l| l.name.to_uppercase() == up));
     if let Some(o) = own {
         return usable(&o.pattern).then(|| o.pattern.clone());
     }
@@ -87,9 +87,7 @@ pub fn resolve_lt(layers: &Layers, e: &Entity, by_block: Option<&str>, parent_la
             (Some("0"), Some(p)) if !p.is_empty() => p,
             (l, _) => l.unwrap_or(""),
         };
-        n = Some(
-            layers.get(&ln.to_string()).and_then(|l| l.linetype.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Continuous".into()),
-        );
+        n = Some(layers.get(ln).and_then(|l| l.linetype.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Continuous".into()));
     }
     n.unwrap_or_else(|| "Continuous".into())
 }
@@ -105,7 +103,7 @@ pub fn resolve_lw(layers: &Layers, e: &Entity, by_block: Option<f64>, parent_lay
             (Some("0"), Some(p)) if !p.is_empty() => p,
             (l, _) => l.unwrap_or(""),
         };
-        w = Some(layers.get(&ln.to_string()).and_then(|l| l.lineweight).unwrap_or(-3.0));
+        w = Some(layers.get(ln).and_then(|l| l.lineweight).unwrap_or(-3.0));
     }
     w.filter(|x| x.is_finite()).unwrap_or(-3.0)
 }
