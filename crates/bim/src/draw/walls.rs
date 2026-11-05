@@ -818,7 +818,7 @@ fn set_usage(w: &mut W<'_>, wall_id: Id, set: Option<Id>, th: f64, ext_side: &st
                 && let Some(old) = w.line(d)?
                 && old.class.to_ascii_uppercase().ends_with("USAGE")
             {
-                w.touch(d)?;
+                w.touch_only(d)?;
                 w.api.delete(d);
             }
         }

@@ -303,16 +303,16 @@ impl Placer<'_> {
                     }
                 }
                 if dead {
-                    self.w.touch(rid)?;
+                    self.w.touch_only(rid)?;
                     self.w.api.delete(rid);
                 } else if changed {
-                    self.w.touch(rid)?;
+                    self.w.touch_only(rid)?;
                     self.w.api.retype(&mut line);
                     self.w.write(&mut line)?;
                 }
             }
             for &id in &targets.v {
-                self.w.touch(id)?;
+                self.w.touch_only(id)?;
                 self.w.api.delete(id);
             }
             Ok(())

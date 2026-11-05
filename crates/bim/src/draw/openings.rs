@@ -643,7 +643,7 @@ fn move_containment(w: &mut W<'_>, id: Id, storey: Id) -> R<()> {
 }
 
 fn drop_rel(w: &mut W<'_>, rid: Id) -> R<()> {
-    w.touch(rid)?;
+    w.touch_only(rid)?;
     w.api.delete(rid);
     Ok(())
 }

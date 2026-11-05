@@ -58,7 +58,7 @@ pub fn bim(rest: &[&str]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `cadcraft-cli bimdraw <job.json> [--bench N]`: the building tools and the IFC editor on a parity job
+/// `cadcraft-cli bimdraw <job.json> [--bench N] [--time]`: the building tools and the IFC editor on a parity job
 /// (forks/tools/bmuidiff.mjs): `{ seed, now, steps: [...] }` → `{ results: [...] }` on stdout.
 pub fn bimdraw(rest: &[&str]) -> ExitCode {
     let Some(path) = rest.first() else {
@@ -83,6 +83,15 @@ pub fn bimdraw(rest: &[&str]) -> ExitCode {
             }
         }
         eprintln!("{{\"job_ms\":{best:.3}}}");
+    }
+    // `--time`: each step's milliseconds as well (`ms`), from a second run in this process (the first one warms what
+    // is made on first use — the language catalogs, the IFC tables — as the harness's JS process is warm)
+    if rest.contains(&"--time") {
+        let t0 = Instant::now();
+        let clock = move || t0.elapsed().as_secs_f64() * 1000.0;
+        std::hint::black_box(cc_bim::draw::job::run(&job));
+        println!("{}", cc_bim::draw::job::run_timed(&job, Some(&clock)));
+        return ExitCode::SUCCESS;
     }
     println!("{}", cc_bim::draw::job::run(&job));
     ExitCode::SUCCESS

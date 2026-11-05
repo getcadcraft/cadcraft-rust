@@ -926,11 +926,31 @@ impl Run {
 
 /// Run a whole job → `{ results: [...] }`.
 pub fn run(job: &J) -> J {
+    run_timed(job, None)
+}
+
+/// [`run`]; with `clock` (milliseconds), each step's time too (`"ms"`, bmrestooldiff's timing mode, S.15).
+pub fn run_timed(job: &J, clock: Option<&dyn Fn() -> f64>) -> J {
     let seed = job.get("seed").and_then(J::as_u64).and_then(|x| u32::try_from(x).ok()).unwrap_or(1);
     let now = job.get("now").and_then(J::as_f64).unwrap_or(0.0);
     let mut r = Run::new(seed, now);
     let steps = job.get("steps").and_then(J::as_array).cloned().unwrap_or_default();
-    let results: Vec<J> = steps.iter().map(|s| r.step(s)).collect();
+    let mut ms: Vec<f64> = Vec::new();
+    let results: Vec<J> = steps
+        .iter()
+        .map(|s| match clock {
+            Some(c) => {
+                let t = c();
+                let out = r.step(s);
+                ms.push(c() - t);
+                out
+            }
+            None => r.step(s),
+        })
+        .collect();
+    if clock.is_some() {
+        return json!({ "results": results, "ms": ms });
+    }
     json!({ "results": results })
 }
 

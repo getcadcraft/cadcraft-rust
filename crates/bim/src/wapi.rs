@@ -553,6 +553,40 @@ impl Api {
         }))
     }
 
+    /// What dropTree reads of `GetLine(id)` (S.15): the line's class and the lines its attributes point at (handles
+    /// in the attributes and their lists, in order), without making the attribute values (a mesh's point list is
+    /// thousands of them). The same as [`Api::line`]'s class and the handles a walk of its attributes finds.
+    pub fn line_refs(&self, id: Id) -> R<Option<(Box<str>, Vec<Id>)>> {
+        let Some(up) = self.f.ty(id) else { return Ok(None) };
+        if up.is_empty() {
+            return Ok(None);
+        }
+        let params = self.f.params(id).map_err(|e| JsErr(e.0))?.unwrap_or(&[]);
+        fn walk(v: &Value, out: &mut Vec<Id>) {
+            match v {
+                Value::List(l) => l.iter().for_each(|x| walk(x, out)),
+                Value::Ref(n) => out.push(*n),
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        let (class, used): (Box<str>, &[Value]) = match self.f.schema.entity(up) {
+            Some(ent) => (ent.name.clone(), params.get(..ent.attrs.len().min(params.len())).unwrap_or(&[])),
+            None => (up.into(), params),
+        };
+        for v in used {
+            walk(v, &mut out);
+        }
+        Ok(Some((class, out)))
+    }
+
+    /// [`Api::must`] when the line itself is not wanted: the same error for a missing line, nothing made (S.15).
+    pub fn must_exist(&self, id: Id) -> R<()> {
+        match self.line_refs(id)? {
+            Some(_) => Ok(()),
+            None => Err(JsErr(format!("TypeError: Cannot read properties of null (line #{})", num_str(id)))),
+        }
+    }
     /// `GetLine`, a missing line as a TypeError (the JS reads an attribute of `null`).
     pub fn must(&self, id: Id) -> R<Line> {
         self.line(id)?.ok_or_else(|| JsErr(format!("TypeError: Cannot read properties of null (line #{})", num_str(id))))

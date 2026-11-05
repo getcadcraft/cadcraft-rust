@@ -221,6 +221,18 @@ impl<'a> W<'a> {
         }
         self.api.must(id)
     }
+    /// [`W::touch`] when the line is not wanted back (it is about to go): journaled the same, not made twice (S.15).
+    pub fn touch_only(&mut self, id: Id) -> R<()> {
+        let j = self.journal.as_ref().ok_or_else(|| JsErr("TypeError: no journal".into()))?;
+        if !j.has(id) {
+            let before = self.api.line(id)?;
+            if let Some(j) = self.journal.as_mut() {
+                j.before_set.insert(id_key(id));
+                j.before.push((id, before));
+            }
+        }
+        self.api.must_exist(id)
+    }
     pub fn write(&mut self, line: &mut Line) -> R<()> {
         self.api.write(line).map(|_| ())
     }
@@ -595,32 +607,19 @@ impl<'a> W<'a> {
         if !seen.insert(id_key(id)) || depth > 4096 {
             return Ok(());
         }
-        let line = match self.api.line(id) {
+        // the line's class and the lines it points at (its attributes are not made: S.15)
+        let (class, kids) = match self.api.line_refs(id) {
             Ok(Some(l)) => l,
             _ => return Ok(()),
         };
-        if keep_class(&line.class.to_ascii_uppercase()) {
+        if keep_class(&class.to_ascii_uppercase()) {
             return Ok(());
         }
-        let mut kids = Vec::new();
-        fn walk(v: &JV, kids: &mut Vec<Id>) {
-            match v {
-                JV::L(l) => l.iter().for_each(|x| walk(x, kids)),
-                other => {
-                    if let Some(h) = is_h(other) {
-                        kids.push(h);
-                    }
-                }
-            }
-        }
-        for (_, v) in &line.attrs {
-            walk(v, &mut kids);
-        }
-        self.touch(id)?;
+        self.touch_only(id)?;
         self.api.delete(id);
         for st in self.styled_of(id)? {
             if seen.insert(id_key(st)) {
-                self.touch(st)?;
+                self.touch_only(st)?;
                 self.api.delete(st);
             }
         }
@@ -937,6 +936,12 @@ impl<'a> W<'a> {
             }
         }
         for rid in self.api.ids("IFCRELATIONSHIP", true) {
+            // a relationship that points at none of them is left as it is: looked at without making its line (S.15)
+            if let Ok(Some((_, refs))) = self.api.line_refs(rid)
+                && !refs.iter().any(|h| gone.contains(&id_key(*h)))
+            {
+                continue;
+            }
             let mut line = self.must(rid)?;
             let mut dead = false;
             let mut changed = false;
@@ -966,11 +971,11 @@ impl<'a> W<'a> {
                     && let Some(ml) = self.line(m)?
                     && ml.class.to_ascii_uppercase().ends_with("USAGE")
                 {
-                    self.touch(m)?;
+                    self.touch_only(m)?;
                     self.api.delete(m);
                 }
             } else if changed {
-                self.touch(rid)?;
+                self.touch_only(rid)?;
                 self.write(&mut line)?;
             }
         }
@@ -981,14 +986,14 @@ impl<'a> W<'a> {
             let Some(l) = self.line(id)? else { continue };
             let shape = l.a("Representation").href();
             let lp = l.a("ObjectPlacement").href();
-            self.touch(id)?;
+            self.touch_only(id)?;
             self.api.delete(id);
             if let Some(s) = shape {
                 self.drop_tree(s)?;
             }
             if let Some(lp) = lp {
                 let pl = self.line(lp)?;
-                self.touch(lp)?;
+                self.touch_only(lp)?;
                 self.api.delete(lp);
                 if let Some(rp) = pl.and_then(|p| p.a("RelativePlacement").href()) {
                     self.drop_tree(rp)?;
