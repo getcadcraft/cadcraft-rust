@@ -94,7 +94,21 @@ mod tests {
         let rgba: Vec<u8> = (0..w * h).flat_map(|i| [(i % 251) as u8, (i / w % 255) as u8, 120, 255]).collect();
         let t = std::time::Instant::now();
         let f = vp8::key_frame(&rgba, w, h, 16).unwrap();
-        eprintln!("1280x720: {} ms, {} KB", t.elapsed().as_millis(), f.len() / 1024);
+        eprintln!("1280x720 key frame: {} ms, {} KB", t.elapsed().as_millis(), f.len() / 1024);
+        // inter frames of a moving scene (M6.40): best of 30
+        let mut e = vp8::Encoder::new(w, h, 16, 1000).unwrap();
+        let mut best = f64::INFINITY;
+        let mut bytes = 0;
+        for k in 0..31u32 {
+            let rgba = scene(w, h, k);
+            let t = std::time::Instant::now();
+            let (f, _) = e.frame(&rgba).unwrap();
+            if k > 0 {
+                best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+                bytes += f.len();
+            }
+        }
+        eprintln!("1280x720 inter frame: best {best:.1} ms, {} KB a frame", bytes / 30 / 1024);
     }
 
     /// A frame of a scene that moves: a textured ground panning right and down, a disc crossing it.
@@ -115,7 +129,7 @@ mod tests {
             .collect()
     }
 
-    /// M6.38: inter frames decode to the encoder's own reconstruction, byte for byte (ffmpeg's VP8 decoder, an oracle
+    /// M6.40: inter frames decode to the encoder's own reconstruction, byte for byte (ffmpeg's VP8 decoder, an oracle
     /// run as a program; `CC_VIDEO_FFMPEG=1`), and a film of a moving scene is several times smaller than key frames.
     #[test]
     fn inter_frames_decode_as_the_encoder_reconstructs_them() {

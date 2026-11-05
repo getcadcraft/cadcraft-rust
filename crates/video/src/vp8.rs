@@ -1,5 +1,5 @@
 //! A VP8 encoder (RFC 6386). Key frames: every macroblock predicted by DC_PRED from the pixels already reconstructed
-//! (Y 16 × 16, U and V 8 × 8). Inter frames (M6.38): every macroblock predicted from the last frame at a whole-pixel
+//! (Y 16 × 16, U and V 8 × 8). Inter frames (M6.40): every macroblock predicted from the last frame at a whole-pixel
 //! motion vector of even length (a diamond search from the neighbours' and the last frame's vectors; chroma then moves
 //! by whole pixels too, so no sub-pixel filter is needed), coded as ZEROMV, NEARESTMV, NEARMV or NEWMV against the
 //! decoder's own census of the neighbours (find_near_mvs), and skipped when its residue quantizes to nothing. The
@@ -434,7 +434,7 @@ fn yuv(rgba: &[u8], w: usize, h: usize, mbw: usize, mbh: usize) -> (Plane, Plane
     (yp, up, vp)
 }
 
-// ------------------------------------------------------------------------------------------- inter frames (M6.38)
+// ------------------------------------------------------------------------------------------- inter frames (M6.40)
 
 /// Inter frames round coefficients up from a third of their step (see [`quant_at`]).
 const INTER_ROUND: i32 = 3;
