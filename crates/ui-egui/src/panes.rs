@@ -149,6 +149,8 @@ pub struct Pane {
     pub space: usize,
     pub vs: Vs,
     pub rect: Option<Rect>,
+    /// the open drawing it shows (doctabs.js `p.docId`: Tile); None = the window's open one
+    pub doc: Option<u32>,
 }
 
 /// view.js `panes`.
@@ -235,7 +237,7 @@ impl Split {
             Some(p) => p.list.get(p.active).copied(),
             None => None,
         }
-        .unwrap_or(Pane { space: live.space, vs: live.vs, rect: None });
+        .unwrap_or(Pane { space: live.space, vs: live.vs, rect: None, doc: None });
         let old: Vec<Pane> = self.panes.as_ref().map(|p| p.list.clone()).unwrap_or_default();
         let list: Vec<Pane> = (0..n)
             .map(|i| {
@@ -272,11 +274,17 @@ impl Split {
     /// `activatePane(i)` → the space the window must open (Some) when pane i became the active one. `sheets` = how many
     /// sheets the drawing has (a pane on a sheet that is gone shows the model).
     pub fn activate(&mut self, i: usize, sheets: usize, live: &mut Live) -> Option<usize> {
+        self.activate_with(i, sheets, live, true)
+    }
+    /// [`Split::activate`]; `sync` false after doctabs.js traded the drawing (it synced the pane before).
+    pub fn activate_with(&mut self, i: usize, sheets: usize, live: &mut Live, sync: bool) -> Option<usize> {
         let p = self.panes.as_ref()?;
         if i == p.active || i >= p.list.len() {
             return None;
         }
-        self.sync(live);
+        if sync {
+            self.sync(live);
+        }
         let p = self.panes.as_mut()?;
         p.active = i;
         let q = p.list.get_mut(i)?;
@@ -357,9 +365,9 @@ impl Split {
                     Some(q) => {
                         let space = q.sheet.and_then(|k| st.names.get(k)).and_then(sheet_of).unwrap_or(0);
                         let rh = rects.get(i).map_or(1.0, |r| r.h);
-                        Pane { space, vs: Vs { cx: q.cx, cy: q.cy, zoom: rh / q.h, tw: q.tw }, rect: None }
+                        Pane { space, vs: Vs { cx: q.cx, cy: q.cy, zoom: rh / q.h, tw: q.tw }, rect: None, doc: None }
                     }
-                    None => Pane { space: 0, vs: live.vs, rect: None },
+                    None => Pane { space: 0, vs: live.vs, rect: None, doc: None },
                 })
             })
             .collect();
@@ -372,11 +380,7 @@ impl Split {
     /// The pane records with the live view in the active one (for drawing them).
     pub fn shown(&self, live: &Live) -> Vec<Pane> {
         let Some(p) = self.panes.as_ref() else { return Vec::new() };
-        p.list
-            .iter()
-            .enumerate()
-            .map(|(i, q)| if i == p.active { Pane { space: live.space, vs: live.vs, rect: q.rect } } else { *q })
-            .collect()
+        p.list.iter().enumerate().map(|(i, q)| if i == p.active { Pane { space: live.space, vs: live.vs, ..*q } } else { *q }).collect()
     }
 }
 

@@ -78,6 +78,7 @@ pub mod detailpanel;
 pub mod detailprops;
 pub mod detailtools;
 pub mod detailview;
+pub mod doctabs;
 pub mod document;
 pub mod dwg3d;
 pub mod dwgequip;
@@ -652,6 +653,8 @@ pub struct UiApp {
     pub help: help::Help,
     /// the drafting editor's split screen (SPLIT / VPORTS in the model, LINKVIEWS: paneview.rs)
     pub panes: paneview::PaneUi,
+    /// the drawings open in the window (doctabs.js: tabs over the drawing, Tile)
+    pub doctabs: doctabs::DocTabs,
     /// My tools: buttons of one's own, their keys and macros (mytoolsdlg.rs)
     pub mytools: mytoolsdlg::MyToolsUi,
     /// the 0.7 shell's view state (shell.rs: the drafting grid)
@@ -747,6 +750,7 @@ impl Default for UiApp {
             viewer: viewer::Viewer::default(),
             help: help::Help::default(),
             panes: paneview::PaneUi::default(),
+            doctabs: doctabs::DocTabs::default(),
             mytools: mytoolsdlg::MyToolsUi::default(),
             look: shell::Look::default(),
         }
@@ -884,6 +888,18 @@ impl UiApp {
         }
         if let Some(fmt) = cc_m3d_files::import_format(&lower).filter(|x| !matches!(x.as_str(), "dxf" | "dwg")) {
             self.import_model(f, &fmt);
+            return;
+        }
+        // a drawing opened while one is edited: edited too, in a tab of its own unless the open one is untouched
+        // (cadcraft.js openLocal, doctabs.js)
+        if self.editor.is_some() && (lower.ends_with(".dwg") || lower.ends_with(".dxf")) {
+            doctabs::before_open(self, &f.name);
+            viewer::open_drawing(self, f);
+            if self.error.is_none()
+                && let Err(e) = self.edit_source()
+            {
+                self.error = Some(e);
+            }
             return;
         }
         // the drawing viewer: linked drawings and pictures from the files added by hand and the project folder
@@ -1981,6 +1997,11 @@ impl UiApp {
                     n * n
                 );
             }
+            "file.new" if self.editor.is_some() => {
+                // cadcraft.js newDrawing: a new drawing in its own tab, unless the open one is untouched
+                doctabs::new_drawing(self);
+                self.sync_editor();
+            }
             "file.new" => {
                 self.civil = None;
                 self.part = None;
@@ -2174,6 +2195,7 @@ impl UiApp {
             id if id.starts_with("keys.") || id.starts_with("cmp.") => return winsetdlg::run(self, id, params),
             id if id.starts_with("ss.") => return sheetsetdlg::run(self, id, params),
             id if id.starts_with("panes.") => return paneview::run(self, id, params),
+            id if id.starts_with("doctabs.") => return doctabs::run(self, id, params),
             id if id.starts_with("mytools.") => return mytoolsdlg::run(self, id, params),
             id if id.starts_with("qs.") || id.starts_with("find.") => return qsdlg::run(self, id, params),
             id if id.starts_with("input.") => return ribbon::run(self, id, params),
@@ -2776,14 +2798,19 @@ impl UiApp {
             civilview::ui(self, ui);
         } else if self.doc.is_none() && self.editor.is_none() {
             hub::ui(self, ui);
-        } else if cad3dtab::showing(self) {
-            egui::CentralPanel::no_frame().show(ui, |ui| cad3dtab::show(self, ui));
-        } else if dwgequip::showing(self) {
-            egui::CentralPanel::no_frame().show(ui, |ui| dwgequip::show(self, ui));
-        } else if dwg3d::showing(self) {
-            egui::CentralPanel::no_frame().show(ui, |ui| dwg3d::show(self, ui));
         } else {
-            egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+            // the open drawings' tabs over the drawing (doctabs.js), while two or more are open
+            doctabs::strip(self, ui);
+            doctabs::close_dialog(self, ui.ctx());
+            if cad3dtab::showing(self) {
+                egui::CentralPanel::no_frame().show(ui, |ui| cad3dtab::show(self, ui));
+            } else if dwgequip::showing(self) {
+                egui::CentralPanel::no_frame().show(ui, |ui| dwgequip::show(self, ui));
+            } else if dwg3d::showing(self) {
+                egui::CentralPanel::no_frame().show(ui, |ui| dwg3d::show(self, ui));
+            } else {
+                egui::CentralPanel::no_frame().show(ui, |ui| self.canvas(ui));
+            }
         }
         // what the sheet view asked of the host this frame (Print, Close the set)
         if let Err(e) = pdfcmd::host(self) {

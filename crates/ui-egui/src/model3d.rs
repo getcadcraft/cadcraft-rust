@@ -633,7 +633,7 @@ mod tests {
         model
     }
 
-    /// M6.37: more pictures than the 34 the shared array had room for, each its own layer of the picture array, the
+    /// M6.39: more pictures than the 34 the shared array had room for, each its own layer of the picture array, the
     /// layers larger when there are few (0.5 shows each picture at its own size); a small picture magnified smoothly.
     /// `CC_PICTURES_OUT=<file>` keeps a 60-picture model (the screenshot's fixture).
     #[test]

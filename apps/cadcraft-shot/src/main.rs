@@ -147,6 +147,17 @@ fn main() -> ExitCode {
             println!("{}", serde_json::Value::Array(out));
             Ok(())
         })(),
+        Some("doctabcases") => (|| -> Result<(), String> {
+            // the window's open drawings and Tile on a list of cases (forks/tools/doctabsdiff.mjs)
+            let file = args.get(1).cloned().unwrap_or_default();
+            let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
+            let cases: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
+            let out: Vec<serde_json::Value> = cases.as_array().into_iter().flatten().map(cc_ui_egui::doctabs::run_case).collect();
+            println!("{}", serde_json::Value::Array(out));
+            let ns = cc_ui_egui::doctabs::TAB_OPS_NS.load(std::sync::atomic::Ordering::Relaxed);
+            eprintln!("tab ops {:.2} ms", ns as f64 / 1e6);
+            Ok(())
+        })(),
         Some("mytoolscases") => (|| -> Result<(), String> {
             // My tools' data, macros and CUIx reader on a list of cases (forks/tools/mytoolsdiff-cadpanes.mjs)
             let file = args.get(1).cloned().unwrap_or_default();

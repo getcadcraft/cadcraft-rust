@@ -16,12 +16,17 @@ pub struct GpuState {
     pub renderer: Renderer,
     /// (load id, space index) → mesh
     pub meshes: HashMap<(u64, usize), SpaceMesh>,
+    /// the drawings drawn lately, newest first: their meshes stay (Tile shows up to four open drawings at once)
+    pub recent: Vec<u64>,
 }
+
+/// Drawings whose meshes the GPU keeps (Tile's four panes).
+const KEEP_DRAWINGS: usize = 4;
 
 /// Install the renderer once the wgpu render state exists (desktop and web hosts call this at start-up).
 pub fn install_gpu(rs: &egui_wgpu::RenderState) {
     let renderer = Renderer::new(&rs.device, rs.target_format, 1);
-    rs.renderer.write().callback_resources.insert(GpuState { renderer, meshes: HashMap::new() });
+    rs.renderer.write().callback_resources.insert(GpuState { renderer, meshes: HashMap::new(), recent: Vec::new() });
     crate::view3d::install(rs);
 }
 
@@ -54,8 +59,14 @@ impl egui_wgpu::CallbackTrait for CanvasCallback {
         res: &mut egui_wgpu::CallbackResources,
     ) -> Vec<egui_wgpu::wgpu::CommandBuffer> {
         let Some(gpu) = res.get_mut::<GpuState>() else { return Vec::new() };
-        // keep only this drawing's meshes
-        gpu.meshes.retain(|(id, _), _| *id == self.id);
+        // keep the meshes of the drawings drawn lately (another open drawing in a pane), drop the others'
+        if gpu.recent.first() != Some(&self.id) {
+            gpu.recent.retain(|x| *x != self.id);
+            gpu.recent.insert(0, self.id);
+            gpu.recent.truncate(KEEP_DRAWINGS);
+            let keep = gpu.recent.clone();
+            gpu.meshes.retain(|(id, _), _| keep.contains(id));
+        }
         for d in &self.draws {
             if !gpu.meshes.contains_key(&(self.id, d.space))
                 && let Some(g) = self.geometry.get(d.space)

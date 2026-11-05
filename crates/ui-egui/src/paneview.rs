@@ -42,12 +42,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
-fn ppp(app: &UiApp) -> f64 {
+pub(crate) fn ppp(app: &UiApp) -> f64 {
     if app.panes.ppp > 0.0 { app.panes.ppp } else { 1.0 }
 }
 
 /// The window's view as view.js keeps it (CSS px).
-fn vs_of(v: &View2D, ppp: f64) -> Vs {
+pub(crate) fn vs_of(v: &View2D, ppp: f64) -> Vs {
     Vs { cx: v.cx, cy: v.cy, zoom: v.zoom / ppp, tw: -v.twist }
 }
 fn view_of(vs: &Vs, r: &panes::Rect, ppp: f64) -> View2D {
@@ -55,7 +55,7 @@ fn view_of(vs: &Vs, r: &panes::Rect, ppp: f64) -> View2D {
 }
 
 /// The live view (the active pane): the open space, its view, its rectangle.
-fn live(app: &UiApp) -> Live {
+pub(crate) fn live(app: &UiApp) -> Live {
     let p = ppp(app);
     let s = &app.panes.split;
     let rect =
@@ -180,10 +180,53 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
     Ok(())
 }
 
-fn activate(app: &mut UiApp, i: usize) {
+pub(crate) fn activate(app: &mut UiApp, i: usize) {
+    // a pane showing another open drawing (Tile): that drawing opens, the pane keeping its view
+    if crate::doctabs::pane_pressed(app, i) {
+        return;
+    }
     let n = sheets(app);
     with_live(app, |s, l| {
         s.activate(i, n, l);
+    });
+}
+
+/// view.js `activatePane(i, { sync: false })`: after doctabs.js traded the drawing for the pane's.
+pub(crate) fn activate_nosync(app: &mut UiApp, i: usize) {
+    let n = sheets(app);
+    let mut l = live(app);
+    if app.panes.split.activate_with(i, n, &mut l, false).is_none() {
+        return;
+    }
+    if l.space != app.space {
+        app.run_ui("space.select", &Params { index: Some(l.space), ..Default::default() });
+    }
+    // the pane brings its own view (doctabs.js keepView): it is the window's now, not a fit
+    let v = view_of(&l.vs, &l.rect, ppp(app));
+    if let Some(slot) = app.views.get_mut(l.space) {
+        *slot = Some(v);
+    }
+    app.pending_fit = false;
+}
+
+/// `setPanes('single')`.
+pub(crate) fn set_single(app: &mut UiApp) {
+    with_live(app, |s, l| s.set("single", 0.5, 0.5, None, 0, l));
+}
+
+/// `setPanes(layout, { active })` (dividers in the middle).
+pub(crate) fn set_panes(app: &mut UiApp, layout: &str, active: usize) {
+    with_live(app, |s, l| s.set(layout, 0.5, 0.5, None, active, l));
+}
+
+/// `loadPane(active)`: the active pane's record becomes the window's view.
+pub(crate) fn load_active(app: &mut UiApp) {
+    let Some(q) = app.panes.split.panes.as_ref().and_then(|p| p.list.get(p.active).copied()) else { return };
+    with_live(app, |_, l| {
+        l.vs = q.vs;
+        if let Some(r) = q.rect {
+            l.rect = r;
+        }
     });
 }
 
@@ -295,10 +338,17 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
         k = k.saturating_add(1);
         let rect = abs(full, &r);
         let view = view_of(&q.vs, &r, p);
-        let (Some(doc), Some(ed)) = (app.doc.as_ref(), app.editor.as_ref()) else { return };
+        // the pane's own drawing (Tile: another open one waits in its tab)
+        let other = q.doc.filter(|d| *d != app.doctabs.active).and_then(|d| app.doctabs.slot(d)).map(crate::doctabs::Slot::parts);
+        let (doc, ed, hidden) = match other {
+            Some((d, e, h)) => (d, e, h),
+            None => (app.doc.as_ref(), app.editor.as_ref(), &app.hidden),
+        };
+        let (Some(doc), Some(ed)) = (doc, ed) else { continue };
         if doc.drawing.spaces.get(q.space).is_none() {
             continue;
         }
+        let mine = other.is_none();
         let underlay = cloudview::underlay_slot(ui.ctx(), ed, rect, p, &doc.drawing, q.space, &view, k as usize);
         let frame = canvas::Frame {
             underlay: &underlay,
@@ -308,7 +358,7 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
             id: doc.id,
             space: q.space,
             view,
-            hidden: &app.hidden,
+            hidden,
             tokens: &app.tokens,
             line_px: p as f32,
             print: false,
@@ -319,7 +369,7 @@ pub fn end(app: &mut UiApp, ui: &egui::Ui, full: Rect) {
             grid: app.look.grid,
         };
         canvas::paint(ui, rect, &frame);
-        if q.space == app.space {
+        if mine && q.space == app.space {
             app.edit_overlays(ui, rect, &view, p, false);
         }
         corner_icon(app, ui, rect, &view, q.space);

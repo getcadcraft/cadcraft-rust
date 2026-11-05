@@ -134,6 +134,8 @@ pub struct Recovery {
     /// the store said it cannot be used, or there is none
     pub off: bool,
     tab: Option<Tab>,
+    /// the drawings waiting in other tabs of the window (doctabs.rs): their copies kept up as the open one's
+    parked: Vec<Tab>,
     next_tab: u32,
     /// a fixed clock (tests and the parity harness), else the machine's
     pub clock: Option<f64>,
@@ -157,6 +159,7 @@ impl Default for Recovery {
             session: None,
             off: false,
             tab: None,
+            parked: Vec::new(),
             next_tab: 1,
             clock: None,
             guid_seq: false,
@@ -265,9 +268,36 @@ fn editor_key(ed: &edit::Editor) -> usize {
 /// Follow the editor: a new one is a new document; an edit asks for a copy; saved / closed drops it (the sweep).
 fn track(app: &mut UiApp, t: f64) {
     let cur = app.editor.as_ref().map(editor_key);
+    let waiting: Vec<usize> = crate::doctabs::waiting_editors(app).map(editor_key).collect();
+    // the drawing that was tracked went to another tab (doctabs.rs): its copy is kept up there
+    if let Some(tab) = app.recovery.tab.as_ref()
+        && Some(tab.key) != cur
+        && waiting.contains(&tab.key)
+        && let Some(t) = app.recovery.tab.take()
+    {
+        app.recovery.parked.push(t);
+    }
+    // … and back
+    if app.recovery.tab.is_none()
+        && let Some(c) = cur
+        && let Some(i) = app.recovery.parked.iter().position(|t| t.key == c)
+    {
+        app.recovery.tab = Some(app.recovery.parked.remove(i));
+    }
+    // a waiting tab closed (discarded or saved first): its copy goes, as 0.5's closed tab's
+    let closed: Vec<Tab> = {
+        let (keep, gone): (Vec<Tab>, Vec<Tab>) =
+            std::mem::take(&mut app.recovery.parked).into_iter().partition(|t| waiting.contains(&t.key));
+        app.recovery.parked = keep;
+        gone
+    };
+    for t in closed {
+        if let Some(a) = app.recovery.auto.as_mut() {
+            a.close(&t.id);
+        }
+    }
     // the drawing that was tracked is gone (another opened, or none). Saved: its copy goes (0.5: a closed tab).
-    // Unsaved: this window has one drawing, not tabs, so the copy stays and is offered back once the window ends
-    // (0.5 keeps the drawing open in its other tab).
+    // Unsaved: the copy stays and is offered back once the window ends.
     if let Some(tab) = app.recovery.tab.as_ref()
         && Some(tab.key) != cur
     {
@@ -319,6 +349,12 @@ fn track(app: &mut UiApp, t: f64) {
 /// The copy of the drawing open for editing: DWG 2018 + its meta (None: nothing to keep).
 fn snapshot(app: &UiApp, t: f64) -> Option<(Vec<u8>, Value)> {
     let ed = app.editor.as_ref()?;
+    let meta = app.recovery.tab.as_ref().map(|t| t.meta.to_json()).unwrap_or(Value::Null);
+    snapshot_of(app, ed, meta, t)
+}
+
+/// The copy of an editor's drawing: DWG 2018 + `meta` (None: nothing to keep).
+fn snapshot_of(app: &UiApp, ed: &edit::Editor, meta: Value, t: f64) -> Option<(Vec<u8>, Value)> {
     if !ed.eng.doc().dirty() {
         return None;
     }
@@ -329,7 +365,6 @@ fn snapshot(app: &UiApp, t: f64) -> Option<(Vec<u8>, Value)> {
         ..Default::default()
     };
     let bytes = cc_io_cad::dwg_save::save_dwg(&ed.eng.doc(), &opts).ok()?.bytes;
-    let meta = app.recovery.tab.as_ref().map(|t| t.meta.to_json()).unwrap_or(Value::Null);
     Some((bytes, meta))
 }
 
@@ -346,7 +381,15 @@ fn write_due(app: &mut UiApp, t: f64) {
 
 fn write_one(app: &mut UiApp, id: &str, t: f64) {
     let t0 = web_time::Instant::now();
-    let snap = if app.recovery.tab_id() == Some(id) { snapshot(app, t) } else { None };
+    let snap = if app.recovery.tab_id() == Some(id) {
+        snapshot(app, t)
+    } else if let Some(p) = app.recovery.parked.iter().find(|p| p.id == id) {
+        // a drawing waiting in another tab: its own editor's copy
+        let (key, meta) = (p.key, p.meta.to_json());
+        crate::doctabs::waiting_editors(app).find(|e| editor_key(e) == key).and_then(|e| snapshot_of(app, e, meta, t))
+    } else {
+        None
+    };
     if let Some(a) = app.recovery.auto.as_mut() {
         a.save(id, snap, t);
     }
@@ -854,6 +897,46 @@ mod tests {
         a.run("file.new", &Params::default()).unwrap();
         frame(&mut a);
         assert!(!store.borrow().items.iter().any(|(k, _)| k.contains("tab2")));
+    }
+
+    /// M4.63: the drawings waiting in other tabs keep their copies; a tab closed without saving drops its copy.
+    #[test]
+    fn copies_follow_the_open_drawings_tabs() {
+        let store: Rc<RefCell<cc_recovery::MemState>> = Rc::default();
+        let t0 = 2_000_000.0;
+        let mut a = window(&store, "s1", t0);
+        a.run("file.new", &Params::default()).unwrap();
+        for l in ["CIRCLE", "0,0", "5"] {
+            a.run("cmd.line", &Params { name: Some(l.into()), ..Default::default() }).unwrap();
+        }
+        frame(&mut a);
+        // a new drawing in its own tab, edited too
+        a.run("file.new", &Params::default()).unwrap();
+        assert_eq!(a.doctabs.list.len(), 2);
+        frame(&mut a);
+        for l in ["LINE", "0,0", "9,9", ""] {
+            a.run("cmd.line", &Params { name: Some(l.into()), ..Default::default() }).unwrap();
+        }
+        frame(&mut a);
+        // back to the first, edited again: still its own copy (tab1), the second's (tab2) kept
+        a.run("doctabs.switch", &Params { index: Some(0), ..Default::default() }).unwrap();
+        frame(&mut a);
+        assert_eq!(a.recovery.tab_id(), Some("tab1"));
+        for l in ["CIRCLE", "20,0", "5"] {
+            a.run("cmd.line", &Params { name: Some(l.into()), ..Default::default() }).unwrap();
+        }
+        a.recovery.clock = Some(t0 + 5000.0);
+        frame(&mut a);
+        let keys = || {
+            let mut k: Vec<String> = store.borrow().items.iter().map(|(k, _)| k.clone()).filter(|k| !k.starts_with("b:")).collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(), vec!["d:cadcraft:s1:tab1", "d:cadcraft:s1:tab2", "i:cadcraft:s1:tab1", "i:cadcraft:s1:tab2"]);
+        // the second closed without saving: its copy goes; the first's stays
+        a.run("doctabs.close", &Params { index: Some(1), name: Some("discard".into()), ..Default::default() }).unwrap();
+        frame(&mut a);
+        assert_eq!(keys(), vec!["d:cadcraft:s1:tab1", "i:cadcraft:s1:tab1"]);
     }
 
     #[test]
