@@ -540,7 +540,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     egui::Grid::new("cv_cad_layers").num_columns(5).spacing([10.0, 3.0]).striped(true).show(ui, |ui| {
                         ui.label("");
                         for h in ["cad.ui.col.layer", "cad.ui.col.holds", "cad.ui.col.z", "cad.ui.col.use"] {
-                            ui.label(RichText::new(t0(h)).small().strong().color(tk.text_dim));
+                            ui.label(RichText::new(t0(h)).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
                         }
                         ui.end_row();
                         for cl in &d.r.cad_layers {
@@ -588,7 +588,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                     );
                                 }
                                 if !any {
-                                    ui.label(RichText::new(t0("cad.ui.use.nothing")).small().color(tk.text_dim));
+                                    crate::shell::note(ui, tk, &t0("cad.ui.use.nothing"));
                                 }
                             });
                             ui.end_row();
@@ -624,12 +624,12 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     }
                     if !d.br.refs.is_empty() {
                         ui.separator();
-                        ui.label(RichText::new(t0("cad.blk.head")).strong().color(tk.text_strong));
+                        ui.label(RichText::new(t0("cad.blk.head")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                         dim(ui, &t0("cad.blk.lede"));
                         egui::Grid::new("cv_cad_blocks").num_columns(5).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
                             ui.label("");
                             for h in ["cad.blk.col.block", "cad.blk.col.count", "cad.blk.col.layers", "cad.blk.col.tags"] {
-                                ui.label(RichText::new(t0(h)).small().strong().color(tk.text_dim));
+                                ui.label(RichText::new(t0(h)).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
                             }
                             ui.end_row();
                             for (name, count, layers, tags) in &d.br.blocks {
@@ -695,14 +695,14 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                         let n = d.chosen_refs();
                         dim(ui, &if n > 0 { tr!("cad.blk.what", n = n) } else { t0("cad.blk.what.none") });
                     }
-                    ui.label(RichText::new(t0("cad.ui.what.head")).strong().color(tk.text_strong));
+                    ui.label(RichText::new(t0("cad.ui.what.head")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                     dim(ui, &d.what());
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(t0("cad.ui.cancel"))).clicked() {
                             acts.push(("civil.cad", "cancel".into()));
                         }
                         let can = !d.chosen().is_empty() || d.chosen_refs() > 0;
-                        if ui.add_enabled(can, crate::shell::Btn::new(t0("cad.ui.add"))).clicked() {
+                        if ui.add_enabled(can, crate::shell::Btn::primary(t0("cad.ui.add"))).clicked() {
                             acts.push(("civil.cad", "go".into()));
                         }
                     });

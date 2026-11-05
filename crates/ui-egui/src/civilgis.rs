@@ -972,13 +972,13 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                     acts.push(("civil.gis.import", format!("pickunknown={si}")));
                 }
             }
-            ui.label(RichText::new(t0("vec.import.what")).strong().color(tk.text_strong));
+            ui.label(RichText::new(t0("vec.import.what")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             ui.add(egui::Label::new(RichText::new(&what).small().color(tk.text)).wrap());
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t0("vec.cancel"))).clicked() {
                     acts.push(("civil.gis.import", "cancel".into()));
                 }
-                if ui.add_enabled(!disabled, crate::shell::Btn::new(t0("vec.import.go"))).clicked() {
+                if ui.add_enabled(!disabled, crate::shell::Btn::primary(t0("vec.import.go"))).clicked() {
                     acts.push(("civil.gis.import", "ok".into()));
                 }
             });

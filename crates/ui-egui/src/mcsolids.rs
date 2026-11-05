@@ -374,11 +374,11 @@ impl ModelView {
                             a = Some("storeys-guess".into());
                         }
                     });
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(mt("app.btn.cancel", &[]))).clicked() {
                             a = Some("storeys-cancel".into());
                         }
-                        if ui.add(crate::shell::Btn::new(mt("app.btn.save", &[]))).clicked() {
+                        if ui.add(crate::shell::Btn::primary(mt("app.btn.save", &[]))).clicked() {
                             a = Some("storeys-ok".into());
                         }
                     });

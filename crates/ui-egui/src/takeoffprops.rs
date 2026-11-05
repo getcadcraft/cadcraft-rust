@@ -577,11 +577,11 @@ impl TakeoffMode {
                 let l = ui.label(t("area.name"));
                 let r = ui.add(crate::shell::field(&mut name).hint_text(t("area.name.placeholder"))).labelled_by(l.id);
                 let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                         done = Some(false);
                     }
-                    if ui.add(crate::shell::Btn::new(t("btn.create"))).clicked() || enter {
+                    if ui.add(crate::shell::Btn::primary(t("btn.create"))).clicked() || enter {
                         done = Some(true);
                     }
                 });
@@ -641,8 +641,7 @@ impl TakeoffMode {
                         }
                     });
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     let r = ui.add(crate::shell::field(&mut self.new_area).hint_text(t("area.name.placeholder")).desired_width(180.0));
                     let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                     if (ui.add(crate::shell::Btn::new(t("area.add"))).clicked() || enter) && !self.new_area.trim().is_empty() {

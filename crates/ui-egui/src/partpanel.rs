@@ -1047,11 +1047,11 @@ fn confirm_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         ui.ctx(),
         |ui| {
             ui.label(RichText::new(text).color(t.text));
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(tr("app.btn.cancel"))).clicked() {
                     pv.confirm = None;
                 }
-                if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.delete_all")).strong())).clicked() {
+                if ui.add(crate::shell::Btn::primary(tr("app.btn.delete_all"))).clicked() {
                     *act = cmd("part.delete", "yes");
                 }
             });

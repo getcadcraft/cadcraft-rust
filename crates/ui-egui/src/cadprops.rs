@@ -1356,20 +1356,25 @@ pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                 });
             });
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                if ui.link(l.s("props.custom.reset")).clicked() {
-                    run.push(("props.custom.reset", None));
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(crate::shell::Btn::primary(l.s("props.custom.ok"))).clicked() {
-                        run.push(("props.custom.ok", None));
-                    }
-                    if ui.add(crate::shell::Btn::new(l.s("props.custom.cancel"))).clicked() {
-                        run.push(("props.custom.cancel", None));
-                    }
-                });
-            });
+            let mut reset = false;
+            let (mut ok, mut cancel) = (false, false);
+            crate::shell::foot_split(
+                ui,
+                |ui| reset = ui.link(l.s("props.custom.reset")).clicked(),
+                |ui| {
+                    cancel = ui.add(crate::shell::Btn::new(l.s("props.custom.cancel"))).clicked();
+                    ok = ui.add(crate::shell::Btn::primary(l.s("props.custom.ok"))).clicked();
+                },
+            );
+            if reset {
+                run.push(("props.custom.reset", None));
+            }
+            if cancel {
+                run.push(("props.custom.cancel", None));
+            }
+            if ok {
+                run.push(("props.custom.ok", None));
+            }
         });
     if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         run.push(("props.custom.cancel", None));

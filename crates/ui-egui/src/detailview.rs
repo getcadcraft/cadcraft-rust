@@ -1752,22 +1752,24 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
         if !dv.report.is_empty() {
             let mut open = true;
-            crate::shell::Dialog::new(RichText::new(t("app.ifc.rep.title", &[("file", F::S(dv.name.clone()))])).strong())
-                .collapsible(false)
-                .resizable(true)
-                .default_width(420.0)
-                .open(&mut open)
-                .show(ui.ctx(), |ui| {
-                    egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-                        for l in &dv.report {
-                            ui.label(l);
-                        }
-                        ui.label(RichText::new(t0("app.ifc.rep.note")).color(tok.text_dim));
-                    });
-                    if ui.add(crate::shell::Btn::primary(t0("app.ok"))).clicked() {
-                        acts.push(crate::detailpanel::Act::CloseReport);
+            crate::shell::Dialog::new(
+                RichText::new(t("app.ifc.rep.title", &[("file", F::S(dv.name.clone()))])).strong().family(crate::theme::bold_family()),
+            )
+            .collapsible(false)
+            .resizable(true)
+            .default_width(420.0)
+            .open(&mut open)
+            .show(ui.ctx(), |ui| {
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for l in &dv.report {
+                        ui.label(l);
                     }
+                    ui.label(RichText::new(t0("app.ifc.rep.note")).color(tok.text_dim));
                 });
+                if ui.add(crate::shell::Btn::primary(t0("app.ok"))).clicked() {
+                    acts.push(crate::detailpanel::Act::CloseReport);
+                }
+            });
             if !open {
                 acts.push(crate::detailpanel::Act::CloseReport);
             }

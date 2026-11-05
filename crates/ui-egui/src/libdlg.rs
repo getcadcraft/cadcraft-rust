@@ -405,12 +405,11 @@ fn choose_window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                         }
                     });
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(t("opt.cancel"))).clicked() {
                             act = Some(("answer", "cancel".into()));
                         }
-                        if ui.add(crate::shell::Btn::new(t("app.insertf.insert"))).clicked()
+                        if ui.add(crate::shell::Btn::primary(t("app.insertf.insert"))).clicked()
                             || ui.input(|i| i.key_pressed(egui::Key::Enter))
                         {
                             act = Some(("answer", dlg.sel.clone().unwrap_or_else(|| "whole".into())));
@@ -503,14 +502,18 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
             });
             ui.separator();
             if lib.view == "credits" {
-                ui.label(RichText::new(t("lib.panel.library_credits")).strong());
+                ui.label(RichText::new(t("lib.panel.library_credits")).strong().family(crate::theme::bold_family()));
                 if uses.is_empty() {
                     ui.label(t("lib.panel.drawing_has_no_library"));
                 } else {
                     egui::ScrollArea::vertical().max_height(280.0).show(ui, |ui| {
                         for u in &uses {
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(RichText::new(if u.numbers.is_empty() { "–".to_string() } else { u.numbers.join(", ") }).strong());
+                                ui.label(
+                                    RichText::new(if u.numbers.is_empty() { "–".to_string() } else { u.numbers.join(", ") })
+                                        .strong()
+                                        .family(crate::theme::bold_family()),
+                                );
                                 ui.label(format!("{}  {}", u.name, u.license));
                                 if ui.link(t("lib.panel.copy_attribution")).clicked() {
                                     copy = Some(u.attribution.clone());
@@ -564,7 +567,7 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
                             egui::Frame::new().stroke(egui::Stroke::new(1.0, tok.divider)).inner_margin(6.0).show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.vertical(|ui| {
-                                        ui.label(RichText::new(&c.name).strong());
+                                        ui.label(RichText::new(&c.name).strong().family(crate::theme::bold_family()));
                                         let mm = [c.maker.as_str(), c.model.as_str()]
                                             .iter()
                                             .filter(|s| !s.is_empty())

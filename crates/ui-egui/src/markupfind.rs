@@ -753,7 +753,7 @@ impl PdfView {
                             ui.checkbox(c, RichText::new(format!("{}  {}", r.label, autolink_row(r))).color(tok.text));
                         }
                     });
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("autolink.ok"))).clicked();
                     });
@@ -773,7 +773,7 @@ impl PdfView {
                 let mut ok = false;
                 crate::shell::Dialog::new(t0("bm.build.title")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t("bm.build.replace", &[("n", Fill::N(n as f64))]));
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("bm.build.ok"))).clicked();
                     });
@@ -792,7 +792,7 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("dlg.ok"))).clicked();
                     });
@@ -853,7 +853,7 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("col.ok"))).clicked();
                     });

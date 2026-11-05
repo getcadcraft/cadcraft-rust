@@ -769,103 +769,120 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut q = app.help.query.clone();
     let view = app.help.view.clone();
     let frame = egui::Frame::new().fill(t.panel).inner_margin(10);
-    egui::Panel::right("help_panel").default_size(380.0).size_range(260.0..=640.0).resizable(true).frame(frame).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(s("shell.help.title")).strong().size(15.0).color(t.text_strong));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("×").on_hover_text(s("shell.help.close.title")).clicked() {
-                    act = Some(("help.close", Params::default()));
-                }
-                if ui.small_button("≡").on_hover_text(s("shell.help.all_topics")).clicked() {
-                    act = Some(("help.search", Params::default()));
-                }
-                if ui.small_button("←").on_hover_text(s("shell.help.back")).clicked() {
-                    act = Some(("help.back", Params::default()));
-                }
-            });
-        });
-        let r = ui.add(crate::shell::field(&mut q).hint_text(s("shell.help.search")).desired_width(f32::INFINITY));
-        if r.changed() {
-            act = Some(("help.search", Params { name: Some(q.clone()), ..Default::default() }));
-        }
-        // whose steps the help shows (help-panel.js renderCtx)
-        if let Some(a) = ctx_line(ui, &app.help, &t) {
-            act = Some(a);
-        }
-        ui.separator();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("help_scroll", format!("{view:?}"))).show(ui, |ui| match &view {
-            View::Index => {
-                let all = topics_for(scope);
-                let own: Vec<&&Topic> = all.iter().filter(|t| t.scope == scope).collect();
-                if own.is_empty() && scope != "studio" {
-                    ui.label(RichText::new(s("shell.help.none")).color(t.text_dim));
-                }
-                for sec in SECTIONS {
-                    let mut list: Vec<&&Topic> = own.iter().copied().filter(|x| x.section == sec).collect();
-                    if list.is_empty() {
-                        continue;
+    crate::shell::side(
+        ui,
+        egui::Panel::right("help_panel").default_size(380.0).size_range(260.0..=640.0).resizable(true).frame(frame),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(s("shell.help.title")).strong().family(crate::theme::bold_family()).size(15.0).color(t.text_strong));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("×").on_hover_text(s("shell.help.close.title")).clicked() {
+                        act = Some(("help.close", Params::default()));
                     }
-                    list.sort_by(|a, b| a.order.total_cmp(&b.order).then_with(|| a.title.cmp(&b.title)));
-                    ui.add_space(4.0);
-                    ui.label(RichText::new(s(&format!("shell.help.section.{sec}"))).strong().color(t.text_strong));
-                    for x in list {
-                        if ui.link(RichText::new(&x.title).color(t.text)).on_hover_text(&x.summary).clicked() {
-                            act = Some(("help.open", Params { name: Some(format!("{}/{}", x.scope, x.slug)), ..Default::default() }));
+                    if ui.small_button("≡").on_hover_text(s("shell.help.all_topics")).clicked() {
+                        act = Some(("help.search", Params::default()));
+                    }
+                    if ui.small_button("←").on_hover_text(s("shell.help.back")).clicked() {
+                        act = Some(("help.back", Params::default()));
+                    }
+                });
+            });
+            let r = ui.add(crate::shell::field(&mut q).hint_text(s("shell.help.search")).desired_width(f32::INFINITY));
+            if r.changed() {
+                act = Some(("help.search", Params { name: Some(q.clone()), ..Default::default() }));
+            }
+            // whose steps the help shows (help-panel.js renderCtx)
+            if let Some(a) = ctx_line(ui, &app.help, &t) {
+                act = Some(a);
+            }
+            ui.separator();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("help_scroll", format!("{view:?}"))).show(
+                ui,
+                |ui| match &view {
+                    View::Index => {
+                        let all = topics_for(scope);
+                        let own: Vec<&&Topic> = all.iter().filter(|t| t.scope == scope).collect();
+                        if own.is_empty() && scope != "studio" {
+                            ui.label(RichText::new(s("shell.help.none")).color(t.text_dim));
+                        }
+                        for sec in SECTIONS {
+                            let mut list: Vec<&&Topic> = own.iter().copied().filter(|x| x.section == sec).collect();
+                            if list.is_empty() {
+                                continue;
+                            }
+                            list.sort_by(|a, b| a.order.total_cmp(&b.order).then_with(|| a.title.cmp(&b.title)));
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(s(&format!("shell.help.section.{sec}")))
+                                    .strong()
+                                    .family(crate::theme::bold_family())
+                                    .color(t.text_strong),
+                            );
+                            for x in list {
+                                if ui.link(RichText::new(&x.title).color(t.text)).on_hover_text(&x.summary).clicked() {
+                                    act =
+                                        Some(("help.open", Params { name: Some(format!("{}/{}", x.scope, x.slug)), ..Default::default() }));
+                                }
+                            }
+                        }
+                        let mut basics: Vec<&&Topic> = all.iter().filter(|x| x.scope == "common").collect();
+                        basics.sort_by(|a, b| a.order.total_cmp(&b.order).then_with(|| a.title.cmp(&b.title)));
+                        ui.add_space(6.0);
+                        ui.label(RichText::new(s("shell.help.basics")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                        for x in basics {
+                            if ui.link(RichText::new(&x.title).color(t.text)).on_hover_text(&x.summary).clicked() {
+                                act = Some(("help.open", Params { name: Some(format!("common:{}", x.slug)), ..Default::default() }));
+                            }
                         }
                     }
-                }
-                let mut basics: Vec<&&Topic> = all.iter().filter(|x| x.scope == "common").collect();
-                basics.sort_by(|a, b| a.order.total_cmp(&b.order).then_with(|| a.title.cmp(&b.title)));
-                ui.add_space(6.0);
-                ui.label(RichText::new(s("shell.help.basics")).strong().color(t.text_strong));
-                for x in basics {
-                    if ui.link(RichText::new(&x.title).color(t.text)).on_hover_text(&x.summary).clicked() {
-                        act = Some(("help.open", Params { name: Some(format!("common:{}", x.slug)), ..Default::default() }));
+                    View::Search(q) => {
+                        let hits = search(scope, q);
+                        if hits.is_empty() {
+                            ui.label(RichText::new(lang::shell("shell.help.no_hits", &[("q", q.clone())])).color(t.text));
+                            ui.label(RichText::new(s("shell.help.no_hits.hint")).small().color(t.text_dim));
+                        } else {
+                            ui.label(
+                                RichText::new(lang::shell("shell.help.hits", &[("n", hits.len().to_string()), ("q", q.clone())]))
+                                    .small()
+                                    .color(t.text_dim),
+                            );
+                        }
+                        for x in hits {
+                            let name = if x.scope == "common" {
+                                format!("{} · {}", x.title, s("shell.help.basics.short"))
+                            } else {
+                                x.title.clone()
+                            };
+                            if ui.link(RichText::new(name).color(t.text)).clicked() {
+                                let target =
+                                    if x.scope == "common" { format!("common:{}", x.slug) } else { format!("{}/{}", x.scope, x.slug) };
+                                act = Some(("help.open", Params { name: Some(target), ..Default::default() }));
+                            }
+                            ui.label(RichText::new(&x.summary).small().color(t.text_dim));
+                            ui.add_space(3.0);
+                        }
                     }
-                }
-            }
-            View::Search(q) => {
-                let hits = search(scope, q);
-                if hits.is_empty() {
-                    ui.label(RichText::new(lang::shell("shell.help.no_hits", &[("q", q.clone())])).color(t.text));
-                    ui.label(RichText::new(s("shell.help.no_hits.hint")).small().color(t.text_dim));
-                } else {
-                    ui.label(
-                        RichText::new(lang::shell("shell.help.hits", &[("n", hits.len().to_string()), ("q", q.clone())]))
-                            .small()
-                            .color(t.text_dim),
-                    );
-                }
-                for x in hits {
-                    let name =
-                        if x.scope == "common" { format!("{} · {}", x.title, s("shell.help.basics.short")) } else { x.title.clone() };
-                    if ui.link(RichText::new(name).color(t.text)).clicked() {
-                        let target = if x.scope == "common" { format!("common:{}", x.slug) } else { format!("{}/{}", x.scope, x.slug) };
-                        act = Some(("help.open", Params { name: Some(target), ..Default::default() }));
+                    View::Topic(sc, sl) => {
+                        if let Some(x) = self::scope(sc).iter().find(|x| x.slug == *sl) {
+                            ui.label(RichText::new(&x.title).size(17.0).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                            if x.scope == "common" {
+                                ui.label(RichText::new(s("shell.help.basics")).small().color(t.text_dim));
+                            }
+                            if cc_lang::is_es() {
+                                ui.label(RichText::new(s("shell.help.untranslated")).small().italics().color(t.text_dim));
+                            }
+                            ui.label(RichText::new(&x.summary).color(t.text_dim));
+                            ui.add_space(6.0);
+                            if let Some(g) = draw_body(ui, x.body, &t) {
+                                let target = resolve(x.scope, &g).map(|r| format!("{}/{}", r.scope, r.slug)).unwrap_or(g);
+                                act = Some(("help.open", Params { name: Some(target), ..Default::default() }));
+                            }
+                        }
                     }
-                    ui.label(RichText::new(&x.summary).small().color(t.text_dim));
-                    ui.add_space(3.0);
-                }
-            }
-            View::Topic(sc, sl) => {
-                if let Some(x) = self::scope(sc).iter().find(|x| x.slug == *sl) {
-                    ui.label(RichText::new(&x.title).size(17.0).strong().color(t.text_strong));
-                    if x.scope == "common" {
-                        ui.label(RichText::new(s("shell.help.basics")).small().color(t.text_dim));
-                    }
-                    if cc_lang::is_es() {
-                        ui.label(RichText::new(s("shell.help.untranslated")).small().italics().color(t.text_dim));
-                    }
-                    ui.label(RichText::new(&x.summary).color(t.text_dim));
-                    ui.add_space(6.0);
-                    if let Some(g) = draw_body(ui, x.body, &t) {
-                        let target = resolve(x.scope, &g).map(|r| format!("{}/{}", r.scope, r.slug)).unwrap_or(g);
-                        act = Some(("help.open", Params { name: Some(target), ..Default::default() }));
-                    }
-                }
-            }
-        });
-    });
+                },
+            );
+        },
+    );
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && ctx.memory(|m| m.focused()).is_none() {
         act = Some(("help.close", Params::default()));
     }

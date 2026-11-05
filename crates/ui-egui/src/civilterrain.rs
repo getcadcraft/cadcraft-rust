@@ -1162,7 +1162,7 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
                 }
             });
             ui.separator();
-            ui.label(RichText::new(t0("tui.crs.head")).strong().color(tk.text_strong));
+            ui.label(RichText::new(t0("tui.crs.head")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             for l in &crs_lines {
                 if let Some(rest) = l.strip_prefix("[x] ").or_else(|| l.strip_prefix("[ ] ")) {
                     let mut on = d.adopt;
@@ -1181,15 +1181,15 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
             }
             if let (true, Some(cc)) = (lidar, &d.class_counts) {
                 ui.separator();
-                ui.label(RichText::new(t0("tui.classes.head")).strong().color(tk.text_strong));
+                ui.label(RichText::new(t0("tui.classes.head")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                 let mut has = cc.clone();
                 has.sort_by(|a, b| a.0.total_cmp(&b.0));
                 let picked = d.classes.clone().unwrap_or_default();
                 egui::Grid::new("cv_terrain_classes").num_columns(4).spacing([10.0, 2.0]).show(ui, |ui| {
                     ui.label("");
-                    ui.label(RichText::new(t0("tui.th.class")).small().strong());
-                    ui.label(RichText::new(t0("tui.th.name")).small().strong());
-                    ui.label(RichText::new(t0("tui.f.points")).small().strong());
+                    ui.label(RichText::new(t0("tui.th.class")).small().strong().family(crate::theme::bold_family()));
+                    ui.label(RichText::new(t0("tui.th.name")).small().strong().family(crate::theme::bold_family()));
+                    ui.label(RichText::new(t0("tui.f.points")).small().strong().family(crate::theme::bold_family()));
                     ui.end_row();
                     for (c, n) in &has {
                         let mut on = picked.contains(c);
@@ -1273,11 +1273,11 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
             if !d.msg.is_empty() {
                 dim(ui, &d.msg);
             }
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t0("cad.ui.cancel"))).clicked() {
                     acts.push(("civil.terrain", "cancel".into()));
                 }
-                if ui.add_enabled(plan.ok, crate::shell::Btn::new(t0("tui.import"))).clicked() {
+                if ui.add_enabled(plan.ok, crate::shell::Btn::primary(t0("tui.import"))).clicked() {
                     acts.push(("civil.terrain", "go".into()));
                 }
             });
@@ -1541,7 +1541,7 @@ pub fn geotiff_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
         .collapsible(false)
         .default_width(440.0)
         .show(ctx, |ui| {
-            ui.add(egui::Label::new(RichText::new(t0("tui.gt.lede")).small().color(tk.text_dim)).wrap());
+            crate::shell::note(ui, tk, &t0("tui.gt.lede"));
             geotiff_section(cv, ui, tk, acts);
             if ui.add(crate::shell::Btn::new(t0("cad.ui.close"))).clicked() {
                 acts.push(("civil.geotiff", "close".into()));

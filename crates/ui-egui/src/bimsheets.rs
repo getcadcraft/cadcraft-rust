@@ -287,7 +287,7 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
         .default_size([960.0, 640.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(bt("res.sh.paper", &[])).small().color(t.text_dim));
+                crate::shell::note(ui, &t, &bt("res.sh.paper", &[]));
                 let label = |p: &str| match p {
                     "letter" | "tabloid" | "archd" => bt(&format!("res.sh.paper.{p}"), &[]),
                     other => other.to_ascii_uppercase(),
@@ -311,7 +311,7 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
                 ui.vertical(|ui| {
                     ui.set_width(200.0);
                     if d.sheets.is_empty() {
-                        ui.label(RichText::new(bt("res.sh.none", &[])).small().color(t.text_dim));
+                        crate::shell::note(ui, &t, &bt("res.sh.none", &[]));
                     }
                     egui::ScrollArea::vertical().id_salt("bim_sheets_list").show(ui, |ui| {
                         for (i, s) in d.sheets.iter().enumerate() {

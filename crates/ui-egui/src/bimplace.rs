@@ -570,7 +570,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut xy = app.bimh.draw.place_xy.clone();
     ui.horizontal_wrapped(|ui| {
         let key = if pasting { "place.bar.pasting" } else { "place.bar.placing" };
-        ui.label(RichText::new(bt(key, &[("name", &name)])).strong());
+        ui.label(RichText::new(bt(key, &[("name", &name)])).strong().family(crate::theme::bold_family()));
         ui.label(RichText::new(bt("ui.place.hint", &[])).small().color(t.text_dim));
     });
     ui.horizontal_wrapped(|ui| {
@@ -618,12 +618,12 @@ pub fn dialog(app: &mut UiApp, ctx: &egui::Context) {
             if let Some(h) = a.height.as_mut() {
                 field(ui, "place.dlg.height", h, "bim_place_h");
             }
-            ui.horizontal(|ui| {
-                if ui.add(crate::shell::Btn::primary(bt("place.dlg.ok", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                    act = Some("bim.place.ok");
-                }
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                     act = Some("bim.place.cancel");
+                }
+                if ui.add(crate::shell::Btn::primary(bt("place.dlg.ok", &[]))).clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    act = Some("bim.place.ok");
                 }
             });
         });

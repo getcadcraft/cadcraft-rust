@@ -9,7 +9,6 @@
 //! tab), the view cube, the axis icon (X/Y/Z on the 3D tab), or none — the last three in both places
 //! (cadcraft.js `applyCorner`). My tools: mytoolsdlg.rs.
 
-use egui::RichText;
 use serde_json::{Value, json};
 
 use crate::UiApp;
@@ -226,73 +225,86 @@ fn tr(k: &str) -> String {
     crate::edit::lang_text(k, &[])
 }
 
-/// The CadCraft section of the Settings window: each choice asks for `settings.set` through `act`.
-pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Option<String>) {
+/// CadCraft's sections of the Settings window (settings.inc's fieldsets), by their legend's key: the window lists
+/// them on the left and shows one ([`section`]).
+pub const SECTIONS: [&str; 6] = ["set.cursor", "set.paste_point", "set.clicking_objects", "set.lasso", "set.corner_indicator", "set.tabs"];
+
+/// A section's name (its legend).
+pub fn section_title(key: &str) -> String {
+    tr(key)
+}
+
+/// One CadCraft section of the Settings window (its choices and hint; the window draws the head): each choice asks
+/// for `settings.set` through `act`.
+pub fn section(app: &UiApp, ui: &mut egui::Ui, key: &str, act: &mut Option<String>) {
     let t = app.tokens;
     let c = &app.cadset;
-    let mut group = |ui: &mut egui::Ui, legend: &str, key: &str, now: &str, opts: &[(&str, &str)], hint: &str| {
-        ui.add_space(6.0);
-        ui.label(RichText::new(tr(legend)).color(t.text));
+    let mut group = |ui: &mut egui::Ui, setting: &str, now: &str, opts: &[(&str, &str)], hint: &str| {
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 16.0;
             for (v, label) in opts {
                 if ui.radio(now == *v, tr(label)).clicked() && now != *v {
-                    *act = Some(format!("cad.{key}={v}"));
+                    *act = Some(format!("cad.{setting}={v}"));
                 }
             }
         });
-        ui.label(RichText::new(tr(hint)).small().color(t.text_dim));
+        ui.add_space(6.0);
+        crate::shell::note(ui, &t, &tr(hint));
     };
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(RichText::new("CadCraft").strong().color(t.text_strong));
-    group(
-        ui,
-        "set.cursor",
-        "cursor",
-        &c.cursor,
-        &[("small", "set.small"), ("medium", "set.medium"), ("large", "set.large")],
-        "set.crosshair_pick_box_drawing",
-    );
-    group(
-        ui,
-        "set.paste_point",
-        "paste",
-        if c.paste_center { "center" } else { "lower-left" },
-        &[("lower-left", "set.lower_left_corner"), ("center", "set.center")],
-        "set.where_pasted_copy_hangs",
-    );
-    group(
-        ui,
-        "set.clicking_objects",
-        "pick",
-        if c.pick_replace { "replace" } else { "add" },
-        &[("add", "set.adds_selection"), ("replace", "set.replaces_selection")],
-        "set.no_command_running_adds",
-    );
-    group(
-        ui,
-        "set.lasso",
-        "lasso",
-        if c.lasso_box { "box" } else { "lasso" },
-        &[("lasso", "set.lasso.lasso"), ("box", "set.lasso.box")],
-        "set.lasso.hint",
-    );
-    group(
-        ui,
-        "set.corner_indicator",
-        "corner",
-        &c.corner,
-        &[("auto", "set.automatic_axis_icon_drawing"), ("cube", "set.view_cube"), ("axes", "set.axis_icon"), ("none", "set.none")],
-        "set.automatic_shows_axis_icon",
-    );
-    group(
-        ui,
-        "set.tabs",
-        "tabs",
-        if c.tabs_number { "number" } else { "full" },
-        &[("full", "set.tabs.full"), ("number", "set.tabs.number")],
-        "set.tabs.hint",
-    );
+    match key {
+        "set.cursor" => group(
+            ui,
+            "cursor",
+            &c.cursor,
+            &[("small", "set.small"), ("medium", "set.medium"), ("large", "set.large")],
+            "set.crosshair_pick_box_drawing",
+        ),
+        "set.paste_point" => group(
+            ui,
+            "paste",
+            if c.paste_center { "center" } else { "lower-left" },
+            &[("lower-left", "set.lower_left_corner"), ("center", "set.center")],
+            "set.where_pasted_copy_hangs",
+        ),
+        "set.clicking_objects" => group(
+            ui,
+            "pick",
+            if c.pick_replace { "replace" } else { "add" },
+            &[("add", "set.adds_selection"), ("replace", "set.replaces_selection")],
+            "set.no_command_running_adds",
+        ),
+        "set.lasso" => group(
+            ui,
+            "lasso",
+            if c.lasso_box { "box" } else { "lasso" },
+            &[("lasso", "set.lasso.lasso"), ("box", "set.lasso.box")],
+            "set.lasso.hint",
+        ),
+        "set.corner_indicator" => group(
+            ui,
+            "corner",
+            &c.corner,
+            &[("auto", "set.automatic_axis_icon_drawing"), ("cube", "set.view_cube"), ("axes", "set.axis_icon"), ("none", "set.none")],
+            "set.automatic_shows_axis_icon",
+        ),
+        "set.tabs" => group(
+            ui,
+            "tabs",
+            if c.tabs_number { "number" } else { "full" },
+            &[("full", "set.tabs.full"), ("number", "set.tabs.number")],
+            "set.tabs.hint",
+        ),
+        _ => {}
+    }
+}
+
+impl CadSet {
+    /// cadcraft.js's `cc-settings-reset`: the cursor, paste point, clicking, dragging, corner and tabs back to their
+    /// defaults (the drafting toggles and snap kinds stay as they are).
+    pub fn reset(&mut self) {
+        let draft = std::mem::take(&mut self.draft);
+        *self = CadSet { draft, ..CadSet::default() };
+    }
 }
 
 /// sheetnum.js `sheetNumberOf(name, set)`: the open sheet set's number for that layout when it has one, else the

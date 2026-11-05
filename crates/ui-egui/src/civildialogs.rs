@@ -474,7 +474,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 let read = read_traverse(&cv.project.points, &form);
                 match &read {
                     Read::Help(k) => {
-                        ui.add(egui::Label::new(RichText::new(t(k, &[])).small().color(tk.text_dim)).wrap());
+                        crate::shell::note(ui, tk, &t(k, &[]));
                     }
                     Read::Errors(e) => {
                         for m in e {
@@ -519,7 +519,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                         egui::ScrollArea::vertical().max_height(180.0).show(ui, |ui| {
                             egui::Grid::new("civil_tv_table").striped(true).num_columns(4).show(ui, |ui| {
                                 for h in [t("tv.r.station", &[]), t("tv.r.an", &[]), t("tv.r.ae", &[]), tr!("tv.r.corr", u = u)] {
-                                    ui.label(RichText::new(h).strong());
+                                    ui.label(RichText::new(h).strong().family(crate::theme::bold_family()));
                                 }
                                 ui.end_row();
                                 for (i, st) in res.stations.iter().take(60).enumerate() {
@@ -534,11 +534,10 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                         if res.stations.len() > 60 {
                             ui.label(RichText::new(tr!("tv.more", n = res.stations.len() - 60)).small());
                         }
-                        ui.add(egui::Label::new(RichText::new(t("tv.compass", &[])).small().color(tk.text_dim)).wrap());
+                        crate::shell::note(ui, tk, &t("tv.compass", &[]));
                     }
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         cancel = true;
                     }
@@ -550,7 +549,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                     if ui.add_enabled(lp, crate::shell::Btn::new(t("tv.add.parcel", &[]))).clicked() {
                         add = Some("parcel");
                     }
-                    if ui.add_enabled(ok, crate::shell::Btn::new(t("tv.add.points", &[]))).clicked() {
+                    if ui.add_enabled(ok, crate::shell::Btn::primary(t("tv.add.points", &[]))).clicked() {
                         add = Some("points");
                     }
                 });
@@ -596,7 +595,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 let read = read_calls(&cv.project.points, &form);
                 match &read {
                     Read::Help(k) => {
-                        ui.add(egui::Label::new(RichText::new(t(k, &[])).small().color(tk.text_dim)).wrap());
+                        crate::shell::note(ui, tk, &t(k, &[]));
                     }
                     Read::Errors(e) => {
                         for m in e {
@@ -626,16 +625,15 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                             ui.end_row();
                         });
                         if !r.closes {
-                            ui.add(egui::Label::new(RichText::new(t("pc.dlg.gap", &[])).small().color(tk.text_dim)).wrap());
+                            crate::shell::note(ui, tk, &t("pc.dlg.gap", &[]));
                         }
                     }
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         cancel = true;
                     }
-                    if ui.add_enabled(matches!(read, Read::Ok(_)), crate::shell::Btn::new(t("pc.dlg.add", &[]))).clicked() {
+                    if ui.add_enabled(matches!(read, Read::Ok(_)), crate::shell::Btn::primary(t("pc.dlg.add", &[]))).clicked() {
                         go = true;
                     }
                 });

@@ -1,11 +1,12 @@
 # UI notes: the look of CadCraft 0.7, measured
 
-> Last reviewed 2026-11-03 · Last updated 2026-11-03 · Change: first version (M17.1, "look like 0.7"): CadCraft 0.7.1's
-> app shell and the 0.7 website measured in headless Chromium at 1600 × 1000, CSS read as source.
+> Last reviewed 2026-11-05 · Last updated 2026-11-05 · Change: M17.16–M17.20: the panels' sections, the dialogs (frame,
+> head, foot, Settings' 0.7 sections) measured from 0.7.1 and the 0.5 / 0.7 CSS.
 
 | Date | Change |
 |---|---|
 | 2026-11-03 | M17.1: first measurements (app shell, CadCraft window, website /apps, /great-eight, Studio apps page) |
+| 2026-11-05 | M17.16–M17.20: panel sections, dialogs, Settings (sections), dock edges |
 
 How these were measured: `getcadcraft.com/use/<app>/0.7.1` (PartCraft and TakeoffCraft have no 0.7.1: `/use/<app>/0.7`),
 the website pages, each loaded in headless Chromium at 1600 × 1000 (light: `prefers-color-scheme: light`; dark:
@@ -93,6 +94,38 @@ rotate); every app's status bar is the same 32 px strip.
 - Outlined button (`.btn-line`): 2 px action border, action text 15/700, 40 high; filled (`.btn-cc`) action fill.
 - Hint card ("Start drawing"): 16 px from the stage corner, ≤ 512 wide, sheet-2, 1.5 px ink border, heading 14/700.
 
+## Panel sections (every app's `.cc-sec` / `.cv-sec` / `.dc-sec` / `.pc-sec` / `.tc-sec` / `.mc-sec` / `.bc-sec`)
+
+- A section: padding .9rem 1rem (14.4 / 16), a 1 px `--line` rule under it, the last one without. The fork draws the
+  rule over each head that does not open its panel (`shell::h`), across the panel's whole width.
+- Head (`.x-h`): 15 px (`--fs-sm`), weight 700, `font-stretch: 112%` (Archivo at wdth 112, `theme::head`), ink,
+  .5rem under it. Sub-head (`.cv-h3`): 14 px 700, .9rem over, .4rem under. Properties sub-heads (`.pc-props-sub`,
+  `.dc-sub`): 13 px 700 ink-2.
+- Folding sections (`.dc-fold`): the head with a 7 px chevron of 1.5 px ink-2 before it (⌄ open, › closed), the body
+  not indented (`shell::fold`). MarkupCraft's left rows (`.mc-find-sec`, `.mc-layers-sec`): the browser's ▸ marker,
+  an icon, 14 px 600, a rule under each row (`shell::fold_row`), then "Sheets" as a head.
+- Notes (`.cv-note`, `.dc-note`, `.pc-note`, `.mc-note` in ModelCraft): 14 px ink-2, line height 1.6;
+  CadCraft / TakeoffCraft / MarkupCraft notes 13 px. `<strong>` is weight 700 (egui's `strong()` only changes the
+  colour: the fork sets the bold face too).
+- Dock edges toward the stage: 1.5 px ink (`aside[data-shell-dock]`), egui draws them as the panel separator
+  (`shell::side`).
+- Buttons in panels and dialogs: `.btn-sm-cc` 40 px high, 15 px 700, .9rem in; DetailCraft's `.btn-sm-dc` 2.1rem
+  (34 px), 14 px.
+- ModelCraft: "Outliner and components" is a left dock (232 px), the rest in the right one, all sections open.
+
+## Dialogs (`.cv-dialog`, `.cc-dialog`, `.shell-settings` …; measured on CivilCraft 0.7.1's codes dialog)
+
+| Part | Value |
+|---|---|
+| Frame | sheet-2, 1 px ink edge (pen-2 renders 1 px), radius 2; 640 px wide for the app dialogs (`min(40rem)`) |
+| Backdrop | the ink at 35 % over the page (model space: the light ink, so the page lightens) |
+| Head | 56 px: padding .65rem 1rem, the title 15 px 700 at 112 % (the shell's own dialogs 20 px), ✕ 32 × 34 at the right, a 1 px line under it |
+| Body | padding .9rem 1rem; labels 14 px ink-2, inputs 31 px, notes 14 px ink-2 |
+| Foot | 62 px: a 1 px line over it, padding .65rem 1rem, buttons at the right with .75rem between them: Cancel (outlined) then the main action (filled) at the far right; the shell's dialogs put Reset / Discard at the left (`space-between`) |
+| Settings (0.7 sections) | 52rem × 47.5rem; tabs <App> \| Global (15 px 600 ink-2; the chosen one on sheet-2 in a line box, the app's colour along its top); a 13rem section list on the sheet colour (14 px, 11 px padding, the chosen one 600 ink on sheet-2 with a 2 px app-colour edge), the section at the right (its head 20 px 700 at 112 %); foot Reset <app> settings \| Done |
+
+Modal dialogs open in the middle of the page (`showModal()`); a dialog placed by its code keeps its place.
+
 ## Icons
 
 0.7 draws Bootstrap Icons (an icon font) at 18.4 px in the app colour. The fork does not ship that pack (CLAUDE.md § 7):
@@ -117,3 +150,5 @@ each button shows the same picture idea; stroke ~1.3 px at 18 px.
 - No sub-pixel antialiasing of text; strokes are not hinted to the pixel grid the way the browser does for 1 px borders.
 - Bootstrap's icon font is not used (above): icons are close in idea and size, not identical in shape.
 - Native `<select>` arrows: egui's combo box draws its own ▾.
+- A dialog foot right-aligns its buttons with their width from the previous frame (egui lays rows out left to
+  right): the first frame of a new dialog has them at the left.

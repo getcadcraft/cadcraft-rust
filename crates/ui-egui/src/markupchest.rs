@@ -245,7 +245,7 @@ impl PdfView {
     /// The Tools tab (renderChest): a row per tool (a click draws with it, × removes it), Save selected as a tool, Import,
     /// Export.
     pub fn chest_panel(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
-        ui.label(RichText::new(t0("chest.h")).strong().color(tok.text_strong));
+        ui.label(RichText::new(t0("chest.h")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
         ui.label(RichText::new(t0("chest.note")).small().color(tok.text_dim));
         let mut act: Option<(&str, usize)> = None;
         ui.horizontal_wrapped(|ui| {
@@ -276,7 +276,11 @@ impl PdfView {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("■").color(colour.unwrap_or(tok.text)));
                 let on = using.is_some() && tk.get("id") == using.as_ref();
-                if ui.selectable_label(on, RichText::new(tstr(tk, "name")).strong()).on_hover_text(&meta).clicked() {
+                if ui
+                    .selectable_label(on, RichText::new(tstr(tk, "name")).strong().family(crate::theme::bold_family()))
+                    .on_hover_text(&meta)
+                    .clicked()
+                {
                     act = Some(("use", i));
                 }
                 ui.label(RichText::new(&meta).small().color(tok.text_dim));
@@ -336,7 +340,7 @@ impl PdfView {
             if !error.is_empty() {
                 ui.colored_label(ui.visuals().error_fg_color, &error);
             }
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t0("image.signature.clear"))).clicked() {
                     strokes.clear();
                 }

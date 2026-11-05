@@ -628,23 +628,26 @@ pub fn new_dialog(app: &mut UiApp, ctx: &egui::Context) {
     let Some(mut dlg) = app.bimh.new_dlg.clone() else { return };
     let mut go = false;
     let mut cancel = false;
-    crate::shell::Dialog::new(RichText::new(bt("new.title", &[])).strong()).collapsible(false).resizable(false).show(ctx, |ui| {
-        ui.label(bt("new.lede", &[]));
-        let l = ui.label(bt("new.name", &[]));
-        ui.add(crate::shell::field(&mut dlg.name).id_salt("bim_new_name")).labelled_by(l.id);
-        let l = ui.label(bt("new.levels", &[]));
-        ui.add(crate::shell::field(&mut dlg.levels).id_salt("bim_new_levels")).labelled_by(l.id);
-        let l = ui.label(bt("new.height", &[]));
-        ui.add(crate::shell::field(&mut dlg.height).id_salt("bim_new_height")).labelled_by(l.id);
-        ui.label(RichText::new(bt("new.height.hint", &[])).small());
-        if !dlg.problem.is_empty() {
-            ui.colored_label(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c), &dlg.problem);
-        }
-        ui.horizontal(|ui| {
-            go = ui.add(crate::shell::Btn::new(bt("new.create", &[]))).clicked();
-            cancel = ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked();
+    crate::shell::Dialog::new(RichText::new(bt("new.title", &[])).strong().family(crate::theme::bold_family()))
+        .collapsible(false)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.label(bt("new.lede", &[]));
+            let l = ui.label(bt("new.name", &[]));
+            ui.add(crate::shell::field(&mut dlg.name).id_salt("bim_new_name")).labelled_by(l.id);
+            let l = ui.label(bt("new.levels", &[]));
+            ui.add(crate::shell::field(&mut dlg.levels).id_salt("bim_new_levels")).labelled_by(l.id);
+            let l = ui.label(bt("new.height", &[]));
+            ui.add(crate::shell::field(&mut dlg.height).id_salt("bim_new_height")).labelled_by(l.id);
+            ui.label(RichText::new(bt("new.height.hint", &[])).small());
+            if !dlg.problem.is_empty() {
+                ui.colored_label(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c), &dlg.problem);
+            }
+            crate::shell::foot(ui, |ui| {
+                cancel = ui.add(crate::shell::Btn::new(bt("dialog.cancel", &[]))).clicked();
+                go = ui.add(crate::shell::Btn::primary(bt("new.create", &[]))).clicked();
+            });
         });
-    });
     if cancel {
         app.bimh.new_dlg = None;
         return;

@@ -1256,7 +1256,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
             });
         }
     }
-    ui.label(RichText::new(tr("app.drawing.notes_help")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("app.drawing.notes_help"));
     ui.horizontal(|ui| {
         if ui.add(crate::shell::Btn::primary(tr("app.drawing.export_pdf"))).clicked() {
             *act = cmd("part.drawing", "pdf");

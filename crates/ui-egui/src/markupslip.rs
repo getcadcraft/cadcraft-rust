@@ -445,7 +445,7 @@ impl PdfView {
                     });
                     ui.checkbox(&mut skip, t0("slip.skip_closed"));
                     ui.checkbox(&mut stamp, t("slip.stamp_old", &[("stamp", Fill::S(t0("slip.superseded")))]));
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         cancel = ui.add(crate::shell::Btn::new(t0("slip.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("slip.ok"))).clicked();
                     });
@@ -467,7 +467,7 @@ impl PdfView {
                     if sel > 0 {
                         ui.radio_value(&mut use_sel, true, t("flat.sel", &[("n", Fill::N(sel as f64))]));
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         save = ui.add(crate::shell::Btn::primary(t0("flat.ok"))).clicked();
                     });
@@ -502,7 +502,7 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         go = ui.add(crate::shell::Btn::primary(t0("print.ok"))).clicked();
                     });
@@ -521,7 +521,7 @@ impl PdfView {
                 let (mut discard, mut save) = (false, false);
                 crate::shell::Dialog::new(t0("unsaved.title")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t0("unsaved.close.text"));
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         discard = ui.add(crate::shell::Btn::new(t0("unsaved.close.discard"))).clicked();
                         save = ui.add(crate::shell::Btn::primary(t0("unsaved.save_first"))).clicked();

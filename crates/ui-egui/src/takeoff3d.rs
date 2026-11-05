@@ -680,7 +680,7 @@ impl PdfView {
             if !error.is_empty() {
                 ui.colored_label(ui.visuals().error_fg_color, &error);
             }
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 close = ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked();
                 ok = ui.add(crate::shell::Btn::primary(t("d3.levels.ok"))).clicked();
             });

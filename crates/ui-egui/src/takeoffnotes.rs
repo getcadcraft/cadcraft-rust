@@ -199,7 +199,7 @@ impl TakeoffMode {
             self.sel_note = None;
             return;
         };
-        ui.label(RichText::new(t("note.h")).strong().color(tok.text_strong));
+        crate::shell::h(ui, tok, &t("note.h"));
         let kv = |ui: &mut egui::Ui, k: String, v: String| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(k).color(tok.text_dim));
@@ -250,7 +250,7 @@ impl TakeoffMode {
         let open = all.iter().filter(|n| n.get("status").and_then(Value::as_str) == Some("open")).count();
         #[allow(clippy::cast_precision_loss)]
         let head = tf("notes.h.n", &[("n", F::N(all.len() as f64)), ("open", F::N(open as f64))]);
-        ui.label(RichText::new(head).strong().color(tok.text_strong));
+        crate::shell::h(ui, tok, &head);
         ui.checkbox(&mut self.notes_open_only, t("notes.open.only"));
         let mut pick: Option<String> = None;
         for n in &all {
@@ -289,11 +289,11 @@ impl TakeoffMode {
         crate::shell::Dialog::new(title).collapsible(false).resizable(false).show(ctx, |ui| {
             let l = ui.label(t("note.f.text"));
             ui.add(egui::TextEdit::multiline(&mut ask.text).desired_rows(4).char_limit(2000)).labelled_by(l.id);
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                     done = Some(None);
                 }
-                if ui.add(crate::shell::Btn::new(t("note.add"))).clicked() {
+                if ui.add(crate::shell::Btn::primary(t("note.add"))).clicked() {
                     done = Some(Some(ask.text.clone()));
                 }
             });
@@ -645,7 +645,7 @@ impl TakeoffMode {
         if groups.is_empty() {
             return;
         }
-        ui.label(RichText::new(t("group.h")).strong().color(tok.text_strong));
+        crate::shell::h(ui, tok, &t("group.h"));
         let mut ops: Vec<String> = Vec::new();
         for g in &groups {
             let id = s(g.get("id"));
@@ -696,7 +696,7 @@ impl TakeoffMode {
             if !ask.error.is_empty() {
                 ui.label(RichText::new(&ask.error).color(ui.visuals().error_fg_color));
             }
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t("btn.cancel"))).clicked() {
                     act = Some(false);
                 }

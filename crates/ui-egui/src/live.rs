@@ -1139,7 +1139,7 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
     let mut ask: Option<u64> = ctx.data(|d| d.get_temp(ask_id));
     let ho_id = egui::Id::unique(("cc_live_handover", p));
     let mut ask_ho: Option<u64> = ctx.data(|d| d.get_temp(ho_id));
-    crate::shell::Dialog::new(RichText::new(sw("window.live.title", &[])).strong())
+    crate::shell::Dialog::new(RichText::new(sw("window.live.title", &[])).strong().family(crate::theme::bold_family()))
         .modeless()
         .default_width(420.0)
         .pivot(egui::Align2::CENTER_CENTER)
@@ -1154,7 +1154,7 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                 let host = s.server.is_some();
                 if host {
                     ui.add_space(4.0);
-                    ui.label(RichText::new(sw("window.live.code.title", &[])).strong());
+                    ui.label(RichText::new(sw("window.live.code.title", &[])).strong().family(crate::theme::bold_family()));
                     match s.join_link() {
                         Some(link) => {
                             ui.horizontal(|ui| {
@@ -1162,7 +1162,12 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                                     crate::qr::paint(ui, &q, 132.0, tk).on_hover_text(sw("window.live.qr.label", &[]));
                                 }
                                 ui.vertical(|ui| {
-                                    ui.label(RichText::new(sw("window.live.code.label", &[("code", s.code.clone())])).strong().size(16.0));
+                                    ui.label(
+                                        RichText::new(sw("window.live.code.label", &[("code", s.code.clone())]))
+                                            .strong()
+                                            .family(crate::theme::bold_family())
+                                            .size(16.0),
+                                    );
                                     if let Some(at) = s.code_expires {
                                         let left = at.saturating_duration_since(web_time::Instant::now()).as_secs();
                                         let line = if left == 0 {
@@ -1204,7 +1209,7 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                     });
                     if !s.knocks.is_empty() {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(sw("window.live.waiting.title", &[])).strong());
+                        ui.label(RichText::new(sw("window.live.waiting.title", &[])).strong().family(crate::theme::bold_family()));
                     }
                     for k in &s.knocks {
                         let name = match &k.signed {
@@ -1229,7 +1234,11 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                     }
                 }
                 ui.add_space(4.0);
-                ui.label(RichText::new(sw("window.live.people.title", &[("n", people_in(s).to_string())])).strong());
+                ui.label(
+                    RichText::new(sw("window.live.people.title", &[("n", people_in(s).to_string())]))
+                        .strong()
+                        .family(crate::theme::bold_family()),
+                );
                 if !s.doc.peers.contains_key(&s.doc.c) {
                     let role = match s.doc.role.as_str() {
                         "host" => sw("window.live.role.host", &[]),
@@ -1323,7 +1332,7 @@ pub fn window<V: LiveView>(v: &mut V, ctx: &egui::Context, tk: &crate::theme::To
                     acts.push((cmd("host"), if who.is_empty() { String::new() } else { format!("| {who}") }));
                 }
                 ui.separator();
-                ui.label(RichText::new(sw("live.join.title", &[])).strong());
+                ui.label(RichText::new(sw("live.join.title", &[])).strong().family(crate::theme::bold_family()));
                 ui.label(RichText::new(sw("live.join.hint", &[])).color(tk.text_dim));
                 let l = ui.label(sw("live.join.label", &[]));
                 ui.add(crate::shell::field(&mut f.0).desired_width(260.0).hint_text("K7-Q4M2X")).labelled_by(l.id);

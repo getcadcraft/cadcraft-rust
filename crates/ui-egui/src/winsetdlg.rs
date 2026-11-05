@@ -471,10 +471,10 @@ fn cmp_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(note).color(tok.text_dim));
             egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
                 egui::Grid::new("cmp_rows").num_columns(4).striped(true).spacing([10.0, 3.0]).show(ui, |ui| {
-                    ui.label(RichText::new(t("cmp.property")).strong());
-                    ui.label(RichText::new(a.as_deref().map(item_label).unwrap_or_default()).strong());
+                    ui.label(RichText::new(t("cmp.property")).strong().family(crate::theme::bold_family()));
+                    ui.label(RichText::new(a.as_deref().map(item_label).unwrap_or_default()).strong().family(crate::theme::bold_family()));
                     ui.label("");
-                    ui.label(RichText::new(b.as_deref().map(item_label).unwrap_or_default()).strong());
+                    ui.label(RichText::new(b.as_deref().map(item_label).unwrap_or_default()).strong().family(crate::theme::bold_family()));
                     ui.end_row();
                     for r in rows.iter().filter(|r| !only || !r.same) {
                         let lab = label(&cat, &r.key);

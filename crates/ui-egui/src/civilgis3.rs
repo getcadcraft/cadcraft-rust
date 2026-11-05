@@ -403,12 +403,12 @@ pub fn use_window(cv: &CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                 };
                 ui.label(RichText::new(n).small().color(tk.text_dim));
             }
-            ui.add(egui::Label::new(RichText::new(t0("vec.use.note")).small().color(tk.text_dim)).wrap());
-            ui.horizontal(|ui| {
+            crate::shell::note(ui, tk, &t0("vec.use.note"));
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t0("vec.cancel"))).clicked() {
                     acts.push(("civil.gis.use.dlg", "cancel".into()));
                 }
-                if ui.add(crate::shell::Btn::new(t0("vec.use.go"))).clicked() {
+                if ui.add(crate::shell::Btn::primary(t0("vec.use.go"))).clicked() {
                     acts.push(("civil.gis.use.dlg", "go".into()));
                 }
             });

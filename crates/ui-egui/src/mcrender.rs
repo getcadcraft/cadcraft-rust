@@ -658,7 +658,7 @@ impl ModelView {
                                     .small(),
                             );
                             // the sun
-                            ui.label(RichText::new(mt("render.sun", &[])).strong());
+                            ui.label(RichText::new(mt("render.sun", &[])).strong().family(crate::theme::bold_family()));
                             let month = MONTHS.get((msun.0 as usize).saturating_sub(1)).copied().unwrap_or("June");
                             ui.label(
                                 RichText::new(mt(
@@ -705,7 +705,7 @@ impl ModelView {
                                 ui.checkbox(&mut s.edges, mt("render.edges", &[]));
                             }
                             if !colors.is_empty() {
-                                ui.label(RichText::new(mt("render.looks", &[])).strong());
+                                ui.label(RichText::new(mt("render.looks", &[])).strong().family(crate::theme::bold_family()));
                                 ui.label(RichText::new(mt("render.looks.hint", &[])).small());
                                 egui::ScrollArea::vertical().max_height(160.0).id_salt("mc-render-looks").show(ui, |ui| {
                                     for (key, faces) in colors.iter().take(200) {
@@ -738,21 +738,25 @@ impl ModelView {
                         });
                     });
                 });
-                ui.separator();
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&d.status).small());
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.add(crate::shell::Btn::new(mt("render.close", &[]))).clicked() {
-                            *act = Some("render-close".into());
+                let status = d.status.clone();
+                let tk = crate::shell::tokens_of(ui.ctx());
+                crate::shell::foot_split(
+                    ui,
+                    |ui| {
+                        crate::shell::note(ui, &tk, &status);
+                    },
+                    |ui| {
+                        if ui.add(crate::shell::Btn::primary(mt(if running { "render.stop" } else { "render.go" }, &[]))).clicked() {
+                            *act = Some("render-go".into());
                         }
                         if ui.add_enabled(!running && d.png.is_some(), crate::shell::Btn::new(mt("render.save", &[]))).clicked() {
                             *act = Some("render-save".into());
                         }
-                        if ui.add(crate::shell::Btn::new(mt(if running { "render.stop" } else { "render.go" }, &[]))).clicked() {
-                            *act = Some("render-go".into());
+                        if ui.add(crate::shell::Btn::new(mt("render.close", &[]))).clicked() {
+                            *act = Some("render-close".into());
                         }
-                    });
-                });
+                    },
+                );
             });
         if !open {
             *act = Some("render-close".into());

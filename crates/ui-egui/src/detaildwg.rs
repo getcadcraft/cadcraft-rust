@@ -327,7 +327,7 @@ pub fn shop_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: 
     let mut open = true;
     let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));
     let title = t("app.shop.title", &[("mark", F::S(d.shop.mark.clone()))]);
-    crate::shell::Dialog::new(RichText::new(title).strong())
+    crate::shell::Dialog::new(RichText::new(title).strong().family(crate::theme::bold_family()))
         .collapsible(false)
         .resizable(true)
         .default_width(860.0)
@@ -353,12 +353,12 @@ pub fn shop_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: 
                     run(acts, "detail.shop", format!("paper:{paper}"));
                 }
             });
-            let room = (ui.available_height() - 44.0).max(160.0);
+            let room = (ui.available_height() - 100.0).max(160.0);
             let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), room), egui::Sense::hover());
             let l = &d.shop.list;
             draw_list(&ui.painter_at(r), r, l.w, l.h, &l.items);
             ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, tk.divider), egui::StrokeKind::Outside);
-            ui.horizontal_wrapped(|ui| {
+            crate::shell::foot(ui, |ui| {
                 ui.label(RichText::new(&d.shop.note).small().color(tk.text_dim));
                 if ui.add(crate::shell::Btn::primary(t0("page.dlg.shop.pdf"))).clicked() {
                     run(acts, "detail.export", format!("shop:{}", d.shop.part));
@@ -378,7 +378,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
     let mut open = true;
     let st = dv.dwg_status();
     let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));
-    crate::shell::Dialog::new(RichText::new(t0("page.dlg.drawings.title")).strong())
+    crate::shell::Dialog::new(RichText::new(t0("page.dlg.drawings.title")).strong().family(crate::theme::bold_family()))
         .collapsible(false)
         .resizable(true)
         .default_width(900.0)
@@ -439,7 +439,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
                 };
                 // detailcraft.css `.dc-issue-st.is-changed`: the layer red, semibold
                 ui.label(if warn {
-                    RichText::new(text).color(Color32::from_rgb(0xd0, 0x22, 0x3e)).strong()
+                    RichText::new(text).color(Color32::from_rgb(0xd0, 0x22, 0x3e)).strong().family(crate::theme::bold_family())
                 } else {
                     RichText::new(text).color(tk.text)
                 });
@@ -464,6 +464,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
             });
             // the foot: what the set is, the format, the downloads
             let foot = |ui: &mut egui::Ui, dv_fmt: &mut String, d: &DwgDlg, acts: &mut Vec<Act>| {
+                crate::shell::foot_rule(ui);
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
                         RichText::new(t(
@@ -500,7 +501,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
                 });
             };
             // the preview fills what is left above the foot
-            let room = (ui.available_height() - 44.0).max(160.0);
+            let room = (ui.available_height() - 100.0).max(160.0);
             let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), room), egui::Sense::hover());
             if let Some(sh) = d.set.sheets.get(at) {
                 draw_sheet(&ui.painter_at(r), r, sh);

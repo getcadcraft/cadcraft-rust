@@ -306,12 +306,12 @@ pub fn windows(app: &mut UiApp, ctx: &egui::Context) {
                 egui::ScrollArea::both().id_salt("bim_equip_rows").show(ui, |ui| {
                     egui::Grid::new("bim_equip_grid").striped(true).show(ui, |ui| {
                         for hd in &h.headers {
-                            ui.label(RichText::new(hd).small().strong());
+                            ui.label(RichText::new(hd).small().strong().family(crate::theme::bold_family()));
                         }
                         ui.end_row();
                         for (i, r) in rows.iter().enumerate() {
                             let c = page::row_cells(r, &|k| storey_name(&l, k));
-                            ui.label(RichText::new(&c.item).small().strong());
+                            ui.label(RichText::new(&c.item).small().strong().family(crate::theme::bold_family()));
                             ui.label(
                                 RichText::new(c.qty_sub.as_ref().map_or_else(|| c.qty.clone(), |s| format!("{} ({s})", c.qty))).small(),
                             );
@@ -349,7 +349,7 @@ pub fn windows(app: &mut UiApp, ctx: &egui::Context) {
             .open(&mut open)
             .default_size([720.0, 360.0])
             .show(ctx, |ui| {
-                ui.label(RichText::new(bt("credits.intro", &[])).small().color(t.text_dim));
+                crate::shell::note(ui, &t, &bt("credits.intro", &[]));
                 if list.is_empty() {
                     ui.label(RichText::new(bt("credits.none", &[])).color(t.text_dim));
                     return;
@@ -358,11 +358,11 @@ pub fn windows(app: &mut UiApp, ctx: &egui::Context) {
                     for k in
                         ["credits.col.item", "credits.col.version", "credits.col.license", "credits.col.attribution", "credits.col.usedas"]
                     {
-                        ui.label(RichText::new(bt(k, &[])).small().strong());
+                        ui.label(RichText::new(bt(k, &[])).small().strong().family(crate::theme::bold_family()));
                     }
                     ui.end_row();
                     for g in &list {
-                        ui.label(RichText::new(&g.name).small().strong());
+                        ui.label(RichText::new(&g.name).small().strong().family(crate::theme::bold_family()));
                         ui.label(RichText::new(&g.version).small());
                         ui.label(RichText::new(&g.license).small());
                         ui.label(RichText::new(&g.line).small());
@@ -370,12 +370,12 @@ pub fn windows(app: &mut UiApp, ctx: &egui::Context) {
                         ui.end_row();
                     }
                 });
-                ui.horizontal(|ui| {
-                    if ui.add(crate::shell::Btn::primary(bt("credits.copy", &[]))).clicked() {
-                        act = Some(("bim.credits.copy", Params::default()));
-                    }
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(bt("credits.csv", &[]))).clicked() {
                         act = Some(("bim.credits.csv", Params::default()));
+                    }
+                    if ui.add(crate::shell::Btn::primary(bt("credits.copy", &[]))).clicked() {
+                        act = Some(("bim.credits.copy", Params::default()));
                     }
                 });
             });

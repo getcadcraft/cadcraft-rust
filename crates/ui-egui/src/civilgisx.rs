@@ -583,7 +583,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
     let crs = cv.project.state.get("crs").filter(|c| cc_civil::js::truthy(Some(c))).cloned();
     let mut open = true;
     crate::shell::Dialog::new(t0("vec.x.title")).id(egui::Id::unique("cv_gis_export")).open(&mut open).collapsible(false).show(ctx, |ui| {
-        ui.label(egui::RichText::new(t0("vec.x.what")).strong().color(tk.text_strong));
+        ui.label(egui::RichText::new(t0("vec.x.what")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
         for k in &kinds {
             let mut on = d.keys.contains(&k.key);
             ui.add_enabled_ui(k.count > 0, |ui| {
@@ -594,7 +594,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 }
             });
         }
-        ui.label(egui::RichText::new(t0("vec.x.as")).strong().color(tk.text_strong));
+        ui.label(egui::RichText::new(t0("vec.x.as")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
         for (v, lk) in FORMATS {
             let off = (v == "geojson" || v == "kml" || v == "kmz") && crs.is_none();
             ui.add_enabled_ui(!(v == "geojson" && off), |ui| {
@@ -624,10 +624,10 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
         // builder B's spot: the surface as a GeoTIFF elevation grid (gis-terrain-ui.js geotiffSection)
         if cv.gis3.geotiff.is_some() {
             ui.separator();
-            ui.label(egui::RichText::new(t0("tui.gt.head")).strong().color(tk.text_strong));
+            ui.label(egui::RichText::new(t0("tui.gt.head")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             crate::civilterrain::geotiff_section(cv, ui, tk, acts);
         }
-        ui.horizontal(|ui| {
+        crate::shell::foot(ui, |ui| {
             if ui.add(crate::shell::Btn::new(t0("vec.close"))).clicked() {
                 acts.push(("civil.gis.export", "close".into()));
             }
@@ -638,7 +638,7 @@ pub fn export_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 "geojson" => "vec.x.go.geojson",
                 _ => "vec.x.go.shp",
             };
-            if ui.add_enabled(!d.keys.is_empty(), crate::shell::Btn::new(t0(go))).clicked() {
+            if ui.add_enabled(!d.keys.is_empty(), crate::shell::Btn::primary(t0(go))).clicked() {
                 acts.push(("civil.gis.export", "go".into()));
             }
         });

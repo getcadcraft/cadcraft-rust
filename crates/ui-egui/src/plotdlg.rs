@@ -10,7 +10,7 @@
 //! Open to print shows the PDF in the system's PDF viewer (the web build: a new tab, downloaded when the tab is blocked).
 
 use cc_io_cad::plot::{PAPERS, PEN_WIDTHS, display_list, extents_of, layout_sheet, model_sheet, paper_label, scale_list, to_pdf_dpi};
-use egui::{Color32, RichText};
+use egui::Color32;
 
 use crate::{Params, UiApp};
 
@@ -294,6 +294,9 @@ fn group3(n: usize) -> String {
     out
 }
 
+/// The width of the Plot dialog's choices (its 19rem column less the labels).
+const COMBO_W: f32 = 178.0;
+
 /// The dialog window.
 pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     if !app.plot.open || app.editor.is_none() {
@@ -307,7 +310,6 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let mut do_print = false;
     let mut publish = false;
     let sheets = app.editor.as_ref().map_or(0, |e| e.eng.doc().layouts.len());
-    let mut close = false;
     let mut pick = false;
     let mut open = true;
     crate::shell::Dialog::new(t("ui.plot_pdf"))
@@ -317,9 +319,11 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
         .default_pos(ctx.content_rect().center())
         .collapsible(false)
         .show(ctx, |ui| {
+            // 0.5 / 0.7 `.cc-plot-body`: the options in a 19rem column (a 1 px rule at its right), the preview beside it
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {
-                    ui.set_width(230.0);
+                    ui.set_width(272.0);
+                    ui.spacing_mut().item_spacing.y = 6.0;
                     if on_sheet {
                         let lay = app.editor.as_ref().and_then(|e| e.eng.doc().layout().map(|l| (l.name.clone(), l.paper.clone())));
                         if let Some((name, paper)) = lay {
@@ -336,12 +340,13 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                 },
                                 |p| paper_label(p, &t),
                             );
-                            ui.label(RichText::new(tv("app.plot.sheet", &[("name", name), ("paper", label)])).color(tok.text_dim));
+                            crate::shell::note(ui, &tok, &tv("app.plot.sheet", &[("name", name), ("paper", label)]));
                         }
                     } else {
-                        ui.label(RichText::new(t("app.plots_model_onto_sheet")).color(tok.text_dim));
+                        crate::shell::note(ui, &tok, &t("app.plots_model_onto_sheet"));
+                        ui.add_space(8.0);
                         let p = &app.plot;
-                        egui::Grid::new("plot_opts").num_columns(2).show(ui, |ui| {
+                        egui::Grid::new("plot_opts").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                             ui.label(t("ui.area"));
                             ui.horizontal(|ui| {
                                 let areas = [
@@ -350,13 +355,16 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                     ("window", t("ui.a_window")),
                                 ];
                                 let cur = areas.iter().find(|(k, _)| *k == p.area).map(|(_, l)| l.clone()).unwrap_or_default();
-                                egui::ComboBox::new("plot_area", "").selected_text(cur).show_ui(ui, |ui| {
-                                    for (k, l) in &areas {
-                                        if ui.selectable_label(*k == p.area, l).clicked() {
-                                            act.push(("area".into(), (*k).into()));
+                                egui::ComboBox::new("plot_area", "")
+                                    .width(if p.area == "window" { COMBO_W - 48.0 } else { COMBO_W })
+                                    .selected_text(cur)
+                                    .show_ui(ui, |ui| {
+                                        for (k, l) in &areas {
+                                            if ui.selectable_label(*k == p.area, l).clicked() {
+                                                act.push(("area".into(), (*k).into()));
+                                            }
                                         }
-                                    }
-                                });
+                                    });
                                 if p.area == "window" && ui.small_button(t("ui.pick")).clicked() {
                                     pick = true;
                                 }
@@ -364,7 +372,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             ui.end_row();
                             ui.label(t("ui.paper"));
                             let cur = cc_io_cad::plot::paper_by_key(&p.paper).map(|x| paper_label(x, &t)).unwrap_or_default();
-                            egui::ComboBox::new("plot_paper", "").selected_text(cur).show_ui(ui, |ui| {
+                            egui::ComboBox::new("plot_paper", "").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
                                 for x in &PAPERS {
                                     if ui.selectable_label(x.key == p.paper, paper_label(x, &t)).clicked() {
                                         act.push(("paper".into(), x.key.into()));
@@ -374,6 +382,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             ui.end_row();
                             ui.label(t("ui.orientation"));
                             egui::ComboBox::new("plot_orient", "")
+                                .width(COMBO_W)
                                 .selected_text(t(if p.portrait { "ui.portrait" } else { "ui.landscape" }))
                                 .show_ui(ui, |ui| {
                                     if ui.selectable_label(!p.portrait, t("ui.landscape")).clicked() {
@@ -390,7 +399,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                 None => t("app.fit_paper"),
                                 Some(n) => list.iter().find(|x| x.n == n).map_or_else(|| format!("1:{}", fmt(n)), |x| x.label.clone()),
                             };
-                            egui::ComboBox::new("plot_scale", "").selected_text(cur).show_ui(ui, |ui| {
+                            egui::ComboBox::new("plot_scale", "").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
                                 if ui.selectable_label(p.scale.is_none(), t("app.fit_paper")).clicked() {
                                     act.push(("scale".into(), String::new()));
                                 }
@@ -404,9 +413,12 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         });
                     }
                     let p = &app.plot;
-                    egui::Grid::new("plot_ink").num_columns(2).show(ui, |ui| {
+                    ui.add_space(8.0);
+                    crate::shell::sec_break_in(ui, &tok);
+                    egui::Grid::new("plot_ink").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                         ui.label(t("ui.ink"));
                         egui::ComboBox::new("plot_inkc", "")
+                            .width(COMBO_W)
                             .selected_text(t(if p.mono { "ui.black_monochrome" } else { "ui.drawing_colours" }))
                             .show_ui(ui, |ui| {
                                 if ui.selectable_label(p.mono, t("ui.black_monochrome")).clicked() {
@@ -418,21 +430,21 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             });
                         ui.end_row();
                         ui.label(t("ui.line_weight"));
-                        egui::ComboBox::new("plot_pen", "").selected_text(format!("{} mm", cc_cad::js::to_fixed(p.pen, 2))).show_ui(
-                            ui,
-                            |ui| {
+                        egui::ComboBox::new("plot_pen", "")
+                            .width(COMBO_W)
+                            .selected_text(format!("{} mm", cc_cad::js::to_fixed(p.pen, 2)))
+                            .show_ui(ui, |ui| {
                                 for w in PEN_WIDTHS {
                                     if ui.selectable_label(p.pen == w, format!("{} mm", cc_cad::js::to_fixed(w, 2))).clicked() {
                                         act.push(("pen".into(), cc_cad::js::num_to_string(w)));
                                     }
                                 }
-                            },
-                        );
+                            });
                         ui.end_row();
                         ui.label(t("ui.plot.pictures"));
                         let dpi_label =
                             |d: u32| if d == 0 { t("ui.plot.pictures.own") } else { tv("ui.plot.dpi", &[("n", d.to_string())]) };
-                        egui::ComboBox::new("plot_dpi", "").selected_text(dpi_label(p.dpi)).show_ui(ui, |ui| {
+                        egui::ComboBox::new("plot_dpi", "").width(COMBO_W).selected_text(dpi_label(p.dpi)).show_ui(ui, |ui| {
                             for d in [0u32, 600, 300, 150] {
                                 if ui.selectable_label(p.dpi == d, dpi_label(d)).clicked() {
                                     act.push(("dpi".into(), d.to_string()));
@@ -442,28 +454,17 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         ui.end_row();
                     });
                     if !info.is_empty() {
-                        ui.label(RichText::new(&info).color(tok.text_dim));
+                        ui.add_space(8.0);
+                        crate::shell::note(ui, &tok, &info);
                     }
-                    if !p.status.is_empty() {
-                        ui.label(RichText::new(&p.status).color(tok.text));
-                    }
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        if sheets >= 2 && ui.add(crate::shell::Btn::new(t("plot.publish"))).on_hover_text(t("plot.publish.title")).clicked()
-                        {
-                            publish = true;
-                        }
-                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::primary(t("ui.download_pdf"))).clicked() {
-                            do_save = true;
-                        }
-                        if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.open_print"))).clicked() {
-                            do_print = true;
-                        }
-                        if ui.add(crate::shell::Btn::new(t("ui.close"))).clicked() {
-                            close = true;
-                        }
-                    });
                 });
+                // the column's rule (`.cc-plot-opts`: border-right 1 px line), from the head's rule to the foot's
+                let r = ui.min_rect();
+                ui.add_space(15.0);
+                let x = ui.cursor().left() - 0.5;
+                ui.painter()
+                    .line_segment([egui::pos2(x, r.top() - 14.0), egui::pos2(x, r.bottom() + 14.0)], egui::Stroke::new(1.0, tok.line));
+                ui.add_space(1.0);
                 // the preview: the sheet in white with the plotted lines, as tall as the paper's shape asks (the
                 // dialog is as tall as its contents, no taller)
                 let list = match (sheet.as_ref(), app.editor.as_ref()) {
@@ -478,13 +479,35 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     .clamp(160.0, 380.0);
                 let (rect, _) = ui.allocate_exact_size(egui::vec2(pw, ph), egui::Sense::hover());
                 let painter = ui.painter_at(rect);
-                painter.rect_filled(rect, 0.0, tok.panel_darker);
+                // `.cc-plot-preview`: the ink at 12 % over the sheet
+                painter.rect_filled(rect, 0.0, crate::theme::mix(tok.rule, tok.canvas_bg, 0.12));
                 if let Some(list) = list.as_ref() {
                     preview(&painter, rect, list, app.plot.pen);
                 }
             });
+            // `.cc-plot-foot`: the status at the left, then Publish, Open to print and Download PDF at the right
+            let status = app.plot.status.clone();
+            crate::shell::foot_split(
+                ui,
+                |ui| {
+                    if !status.is_empty() {
+                        crate::shell::note(ui, &tok, &status);
+                    }
+                },
+                |ui| {
+                    if sheets >= 2 && ui.add(crate::shell::Btn::new(t("plot.publish"))).on_hover_text(t("plot.publish.title")).clicked() {
+                        publish = true;
+                    }
+                    if ui.add_enabled(sheet.is_some(), crate::shell::Btn::new(t("ui.open_print"))).clicked() {
+                        do_print = true;
+                    }
+                    if ui.add_enabled(sheet.is_some(), crate::shell::Btn::primary(t("ui.download_pdf"))).clicked() {
+                        do_save = true;
+                    }
+                },
+            );
         });
-    if !open || close {
+    if !open {
         app.plot.open = false;
     }
     for (k, v) in act {

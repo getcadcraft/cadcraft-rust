@@ -6,7 +6,6 @@
 //! browser's storage on the web). The key style, Snap and Collide changed in the model's own menus and status bar are
 //! the same settings (modelcraft.js setSetting), so they are kept too.
 
-use egui::RichText;
 use serde_json::{Value, json};
 
 use crate::UiApp;
@@ -140,19 +139,25 @@ impl crate::modelcraft::ModelView {
     }
 }
 
-/// The Settings window's ModelCraft section (settings.inc).
-pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Option<String>) {
+/// ModelCraft's sections of the Settings window (settings.inc's fieldsets), by their legend's key.
+pub const SECTIONS: [&str; 5] = ["set.controls", "set.scroll", "set.touch2", "set.snap", "set.corner"];
+
+/// A section's name (its legend).
+pub fn section_title(key: &str) -> String {
+    mt(key, &[])
+}
+
+/// One ModelCraft section of the Settings window (settings.inc; the window draws the head).
+pub fn section(app: &UiApp, ui: &mut egui::Ui, key: &str, act: &mut Option<String>) {
     let t = app.tokens;
     let s = app.mcset_now();
-    let legend = |ui: &mut egui::Ui, k: &str| {
-        ui.add_space(6.0);
-        ui.label(RichText::new(mt(k, &[])).color(t.text));
-    };
     let hint = |ui: &mut egui::Ui, text: String| {
-        ui.label(RichText::new(text).small().color(t.text_dim));
+        ui.add_space(6.0);
+        crate::shell::note(ui, &t, &text);
     };
     let radios = |ui: &mut egui::Ui, act: &mut Option<String>, key: &str, now: &str, opts: &[(&str, &str)]| {
         ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 16.0;
             for (v, label) in opts {
                 if ui.radio(now == *v, mt(label, &[])).clicked() && now != *v {
                     *act = Some(format!("mc.{key}={v}"));
@@ -160,35 +165,40 @@ pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Option<String>) {
             }
         });
     };
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(RichText::new("ModelCraft").strong().color(t.text_strong));
-    legend(ui, "set.controls");
-    radios(ui, act, "keys", &s.keys, &[("sketchup", "set.controls.sketchup"), ("blender", "set.controls.blender")]);
-    hint(ui, mt(if s.keys == "blender" { "app.keys.hint.blender" } else { "app.keys.hint.sketchup" }, &[]));
-    legend(ui, "set.scroll");
-    radios(
-        ui,
-        act,
-        "scroll",
-        &s.scroll,
-        &[("auto", "set.scroll.auto"), ("mouse", "set.scroll.mouse"), ("trackpad", "set.scroll.trackpad")],
-    );
-    hint(ui, mt("set.scroll.hint", &[]));
-    legend(ui, "set.touch2");
-    radios(ui, act, "touch2", &s.touch2, &[("pan", "set.touch2.pan"), ("orbit", "set.touch2.orbit")]);
-    hint(ui, mt("set.touch2.hint", &[]));
-    legend(ui, "set.snap");
-    for (k, label, on) in [("snap", "set.snap.snap", s.snap), ("collide", "set.snap.collide", s.collide)] {
-        let mut v = on;
-        if ui.checkbox(&mut v, mt(label, &[])).changed() {
-            *act = Some(format!("mc.{k}={v}"));
+    match key {
+        "set.controls" => {
+            radios(ui, act, "keys", &s.keys, &[("sketchup", "set.controls.sketchup"), ("blender", "set.controls.blender")]);
+            hint(ui, mt(if s.keys == "blender" { "app.keys.hint.blender" } else { "app.keys.hint.sketchup" }, &[]));
         }
+        "set.scroll" => {
+            radios(
+                ui,
+                act,
+                "scroll",
+                &s.scroll,
+                &[("auto", "set.scroll.auto"), ("mouse", "set.scroll.mouse"), ("trackpad", "set.scroll.trackpad")],
+            );
+            hint(ui, mt("set.scroll.hint", &[]));
+        }
+        "set.touch2" => {
+            radios(ui, act, "touch2", &s.touch2, &[("pan", "set.touch2.pan"), ("orbit", "set.touch2.orbit")]);
+            hint(ui, mt("set.touch2.hint", &[]));
+        }
+        "set.snap" => {
+            for (k, label, on) in [("snap", "set.snap.snap", s.snap), ("collide", "set.snap.collide", s.collide)] {
+                let mut v = on;
+                if ui.checkbox(&mut v, mt(label, &[])).changed() {
+                    *act = Some(format!("mc.{k}={v}"));
+                }
+            }
+            hint(ui, mt("set.snap.hint", &[]));
+        }
+        "set.corner" => {
+            radios(ui, act, "corner", &s.corner, &[("cube", "set.corner.cube"), ("axes", "set.corner.axes"), ("none", "set.corner.none")]);
+            hint(ui, mt("set.corner.hint", &[]));
+        }
+        _ => {}
     }
-    hint(ui, mt("set.snap.hint", &[]));
-    legend(ui, "set.corner");
-    radios(ui, act, "corner", &s.corner, &[("cube", "set.corner.cube"), ("axes", "set.corner.axes"), ("none", "set.corner.none")]);
-    hint(ui, mt("set.corner.hint", &[]));
 }
 
 #[cfg(test)]

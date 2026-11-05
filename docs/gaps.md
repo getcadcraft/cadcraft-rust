@@ -180,12 +180,16 @@ Closed: DWG reading R13–R2018 at full-model parity with 0.5 (M2, 2026-10-16); 
 the command line, LINE … TRIM, undo, selection, DWG writing, CadCraft's DWG import and DWG / DXF saving at byte parity (M4).
 
 12. **The 0.7 look (M17)**: Tokens from 0.7's tokens.css (paper / model, plus medium light, medium dark and high
-    contrast), Archivo, the app bar (mark, swatch, name™, test chip, bordered buttons, Paper | Model), the status bar
-    and its toggles, CadCraft's whole window (0.7 toolbar groups that wrap, "Layers and drawing" with blocks / sheet
-    set / drawing, the Properties grip, tabs, the command area, the grid and axis icon, the Start drawing card) and
-    the start screen laid out as the website's /apps page are in (docs/ui-notes.md). The other
-    apps' toolbars and docks are 0.7's since M17.2–M17.6 (ModelCraft, MarkupCraft, DetailCraft, PartCraft, BimCraft's
-    IFC view, CivilCraft, TakeoffCraft); still the old look: the panels' section heads (themed egui widgets; fields, tabs and buttons are 0.7's since
-    M17.10–M17.11), the dialogs' inner layouts (their titles, backdrop and primary buttons are 0.7's since M17.12). Not in
-    CadCraft's window yet: the snap kinds kept between runs, the command history's first lines ("CadCraft is
-    ready…").
+    contrast), Archivo, the app shell, every app's toolbar and docks, the panels' section heads (15 px bold at 112 %
+    with the sections' rules, folds, sub-heads, 14 px notes, 1.5 px ink dock edges; M17.16), the dialogs (0.7's frame,
+    head, foot with Cancel then the filled main action at the right, centred, 40 px buttons; the Plot dialog's column
+    and preview; Settings as 0.7's sections dialog; M17.19), CadCraft's kept drafting toggles and snap kinds and its
+    opening history line (M17.17), TakeoffCraft's kept Snap / Snap to 45° (M17.18) are in (docs/ui-notes.md). Still
+    unlike 0.7, and why: the 0.7-only pieces (Find, Problems, Save for offline, Full screen in the app bar; 0.7's
+    extra toolbar groups and dialogs such as CivilCraft's codes dialog, Settings' Version / Toolbar / Tour sections)
+    are 0.7 features, not 0.5 looks; TakeoffCraft keeps 0.5's PDF-view layout (no Quantities dock at the bottom, Snap on
+    a row under the toolbar rather than in the status bar); panel fields keep fixed widths where 0.7's fill the
+    column; egui's combo boxes, check boxes and radios keep their own drawing (no native `<select>` chevron); the
+    inner layout of the less used dialogs (CRS, GIS import, linework, render) is 0.5's order in 0.7's frame, not
+    re-measured one by one; a dialog foot's buttons reach the right edge from the second frame (egui lays out left
+    to right; ui-notes "What egui cannot match").

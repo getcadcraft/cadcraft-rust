@@ -293,7 +293,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
             .default_width(460.0)
             .default_pos([320.0, 110.0])
             .show(ctx, |ui| {
-                ui.add(egui::Label::new(RichText::new(t("xs.ui.lede", &[])).small().color(tk.text_dim)).wrap());
+                crate::shell::note(ui, tk, &t("xs.ui.lede", &[]));
                 ui.add_space(4.0);
                 egui::Grid::new("civil_xs_grid").num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                     ui.label(t("pp.ui.paper", &[]));
@@ -343,11 +343,11 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                 ui.add_space(4.0);
                 ui.add(egui::Label::new(RichText::new(info).small().color(tk.text)).wrap());
                 ui.separator();
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(t("pp.ui.cancel", &[]))).clicked() {
                         close = true;
                     }
-                    if ui.add(crate::shell::Btn::new(RichText::new(t("xs.ui.go", &[])).strong())).clicked() {
+                    if ui.add(crate::shell::Btn::primary(t("xs.ui.go", &[]))).clicked() {
                         acts.push(("civil.xs.go", String::new()));
                     }
                 });
@@ -385,7 +385,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                     }
                     ui.label("%");
                 });
-                ui.add(egui::Label::new(RichText::new(t("mh.factor.note", &[])).small().color(tk.text_dim)).wrap());
+                crate::shell::note(ui, tk, &t("mh.factor.note", &[]));
                 cv.mh_update();
                 let res = cv.sheets.mh.as_ref().and_then(|x| x.res.clone());
                 if let Some(r) = &res {
@@ -404,7 +404,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                                     t("mh.c.dir", &[]),
                                     tr!("mh.c.haul", u = if units == "m" { "m" } else { "ft" }),
                                 ] {
-                                    ui.label(RichText::new(h).small().strong());
+                                    ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()));
                                 }
                                 ui.end_row();
                                 for s in &r.spans {
@@ -422,12 +422,11 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                     }
                     ui.label(RichText::new(balance).small().color(tk.text_dim));
                 }
-                ui.separator();
-                ui.horizontal(|ui| {
+                crate::shell::foot(ui, |ui| {
                     if ui.add(crate::shell::Btn::new(t("pc.dlg.cancel", &[]))).clicked() {
                         close = true;
                     }
-                    if ui.add_enabled(res.is_some(), crate::shell::Btn::new("CSV")).clicked() {
+                    if ui.add_enabled(res.is_some(), crate::shell::Btn::primary("CSV")).clicked() {
                         acts.push(("civil.mh.csv", String::new()));
                     }
                 });

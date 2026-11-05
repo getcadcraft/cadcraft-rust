@@ -25,17 +25,53 @@ pub struct Settings {
     pub zoom: f32,
     /// the dialog is open
     pub open: bool,
+    /// the dialog's tab (0.7 `.shell-tabs`: the app's settings, or the global ones) and the section shown in it
+    pub global: bool,
+    pub sec: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { theme: "model".into(), zoom: 1.0, open: false }
+        Settings { theme: "model".into(), zoom: 1.0, open: false, global: false, sec: String::new() }
+    }
+}
+
+/// The global tab's sections (the shell's words): the language, the theme, the panel text size.
+const GLOBAL_SECTIONS: [&str; 3] = ["shell.settings.lang", "shell.settings.theme", "shell.settings.zoom"];
+
+/// The app tab's sections for the app showing, (key, name): CadCraft's settings.inc fieldsets, My tools, the input
+/// styles; ModelCraft's. The other apps keep their settings in their own windows (none here).
+fn app_sections(app: &UiApp) -> Vec<(String, String)> {
+    match app.active_app() {
+        "cadcraft" => {
+            let mut v: Vec<(String, String)> =
+                crate::cadset::SECTIONS.iter().map(|k| ((*k).to_string(), crate::cadset::section_title(k))).collect();
+            v.push(("mytools".into(), crate::mytoolsdlg::section_title()));
+            v.push(("input".into(), crate::lang::shell("shell.input.legend", &[])));
+            v
+        }
+        "modelcraft" => crate::mcset::SECTIONS.iter().map(|k| ((*k).to_string(), crate::mcset::section_title(k))).collect(),
+        // settings.inc's Drawing fieldset: Snap and Snap to 45° (the others are not in this version)
+        "takeoffcraft" => vec![("set.drawing".into(), cc_takeoff::i18n::t("set.drawing"))],
+        _ => Vec::new(),
     }
 }
 
 pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("settings.open", "Settings", "", "{} → opens Settings (language, theme, panel text size)"),
     ("settings.close", "Settings: done", "", "{}"),
+    (
+        "settings.show",
+        "Settings: show a section",
+        "",
+        "{name: \"app\" | \"global\" | \"app:<section>\" | \"global:<section>\"} → opens Settings on that tab (and section: set.cursor, mytools, input, shell.settings.theme …)",
+    ),
+    (
+        "settings.reset",
+        "Settings: reset the app's settings",
+        "",
+        "{} → the app's own settings back to their defaults (0.5's Reset <app> settings)",
+    ),
     (
         "settings.set",
         "Settings: change one",
@@ -52,6 +88,49 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         }
         "settings.close" => {
             app.settings.open = false;
+            Ok(())
+        }
+        "settings.show" => {
+            let spec = params.name.clone().unwrap_or_default();
+            let (tab, sec) = spec.split_once(':').unwrap_or((spec.as_str(), ""));
+            let global = match tab {
+                "global" => true,
+                "app" => false,
+                _ => return Err(format!("settings.show: {tab} is not app or global")),
+            };
+            let list: Vec<String> = if global {
+                GLOBAL_SECTIONS.iter().map(|k| (*k).to_string()).collect()
+            } else {
+                app_sections(app).into_iter().map(|x| x.0).collect()
+            };
+            if !sec.is_empty() && !list.iter().any(|k| k == sec) {
+                return Err(format!("settings.show: no section {sec} (one of {})", list.join(", ")));
+            }
+            app.settings.open = true;
+            app.settings.global = global;
+            app.settings.sec = sec.to_string();
+            Ok(())
+        }
+        "settings.reset" => {
+            match app.active_app() {
+                "cadcraft" => {
+                    app.cadset.reset();
+                    crate::cadset::push(app);
+                }
+                "modelcraft" => {
+                    let d = crate::mcset::McSet::default();
+                    if let Some(mc) = app.mc.as_mut() {
+                        mc.set_keys(&d.keys);
+                        mc.apply_settings(&d);
+                    }
+                    app.mcset = d;
+                }
+                "takeoffcraft" => {
+                    app.tk_snap = (true, false);
+                    app.seed_tk_snap();
+                }
+                _ => {}
+            }
             Ok(())
         }
         "settings.set" => {
@@ -227,6 +306,30 @@ fn app_name(slug: &str) -> &'static str {
     crate::hub::APPS.iter().find(|a| a.0 == slug).map_or("CadCraft", |a| a.1)
 }
 
+/// A tab of the Settings dialog (`.shell-tabs [role=tab]`).
+fn settings_tab(ui: &mut egui::Ui, t: &crate::theme::Tokens, layer: egui::Color32, word: &str, on: bool) -> egui::Response {
+    let ink = if on { t.text } else { t.text_dim };
+    let g = ui.painter().layout_no_wrap(word.to_string(), crate::theme::semi(15.0), ink);
+    let (r, resp) = ui.allocate_exact_size(egui::vec2(g.size().x + 26.0, 36.0), egui::Sense::click());
+    if on {
+        ui.painter().rect(
+            r,
+            egui::CornerRadius { nw: 2, ne: 2, sw: 0, se: 0 },
+            t.panel,
+            egui::Stroke::new(1.0, t.line),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter().rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(r.width(), 1.5)), 0.0, layer);
+        // the open tab sits on the row's rule
+        ui.painter().line_segment(
+            [egui::pos2(r.left() + 1.0, r.bottom() - 0.5), egui::pos2(r.right() - 1.0, r.bottom() - 0.5)],
+            egui::Stroke::new(1.5, t.panel),
+        );
+    }
+    ui.painter().galley(egui::pos2(r.left() + 13.0, r.center().y - g.size().y / 2.0), g, ink);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 /// The Settings window (drawn every frame while open).
 pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     if ctx.zoom_factor() != app.settings.zoom {
@@ -245,90 +348,205 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
     let mut act: Option<String> = None;
     let mut input_act: Vec<(&'static str, Option<String>)> = Vec::new();
     let mut done = false;
+    let mut reset = false;
     let theme_now = app.settings.theme.clone();
     let lang_now = cc_lang::locale();
     let zoom_now = app.settings.zoom;
-    // CadCraft's sections make it long: it scrolls within the window
-    let max_h = (ctx.content_rect().height() - 60.0).max(200.0);
+    let slug = app.active_app();
+    let app_secs = app_sections(app);
+    // 0.7's sections dialog: the tabs (<App> | Global) over a list of sections at the left and the one picked at the
+    // right; an app with no settings here has the global tab only
+    let global = app.settings.global || app_secs.is_empty();
+    let list: Vec<(String, String)> =
+        if global { GLOBAL_SECTIONS.iter().map(|k| ((*k).to_string(), s(k))).collect() } else { app_secs.clone() };
+    let sec = list.iter().find(|x| x.0 == app.settings.sec).or(list.first()).cloned().unwrap_or_default();
+    let mut pick: Option<(bool, String)> = None;
+    let layer = t.app(slug);
+    let full = ctx.content_rect();
+    let w = (full.width() - 32.0).clamp(320.0, 832.0);
+    let h = (full.height() - 40.0).clamp(240.0, 760.0);
     crate::shell::Dialog::new(title(app))
+        .shell_head()
         .open(&mut open)
         .collapsible(false)
         .resizable(false)
-        .default_width(340.0)
-        .max_height(max_h)
-        .default_height(max_h)
-        .vscroll(true)
+        .fixed_size([w - 34.0, h - 24.0])
+        .pivot(egui::Align2::CENTER_CENTER)
+        .default_pos(full.center())
         .show(ctx, |ui| {
-            ui.label(RichText::new(s("shell.settings.general")).strong().color(t.text_strong));
-            ui.add_space(4.0);
-            // language: every app (0.5 reloads the page; here the words change at once)
-            ui.horizontal(|ui| {
-                let lab = ui.label(RichText::new(s("shell.settings.lang.label")).color(t.text));
-                egui::ComboBox::new("settings.lang", "").selected_text(lang_now.name()).show_ui(ui, |ui| {
-                    for l in cc_lang::Locale::ALL {
-                        if ui.selectable_label(l == lang_now, l.name()).clicked() {
-                            act = Some(format!("lang={}", l.code()));
+            ui.spacing_mut().item_spacing.y = 0.0;
+            // the tabs (`.shell-tabs`: 15 px semibold ink-2; the chosen one on sheet-2 in a line box, the app's colour
+            // along its top; a 1 px line under the row)
+            if !app_secs.is_empty() {
+                let row = ui.max_rect();
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 4.0;
+                    let app_word = if slug == "studio" { s("shell.settings.general") } else { app_name(slug).to_string() };
+                    for (g, word) in [(false, app_word), (true, "Global".to_string())] {
+                        if settings_tab(ui, &t, layer, &word, g == global).clicked() && g != global {
+                            pick = Some((g, String::new()));
                         }
                     }
                 });
-                let _ = lab;
-            });
-            ui.label(RichText::new(t0(&STUDIO, "settings.lang.hint")).small().color(t.text_dim));
-            ui.add_space(8.0);
-            ui.label(RichText::new(s("shell.settings.theme")).color(t.text));
-            ui.horizontal_wrapped(|ui| {
-                for (v, k) in [
-                    ("model", "shell.settings.theme.model"),
-                    ("paper", "shell.settings.theme.paper"),
-                    ("system", "shell.settings.theme.system"),
-                ] {
-                    if ui.radio(theme_now == v, s(k)).clicked() {
-                        act = Some(format!("theme={v}"));
+                let y = ui.cursor().top() - 0.5;
+                ui.painter()
+                    .line_segment([egui::pos2(row.left() - 16.0, y), egui::pos2(row.right() + 16.0, y)], egui::Stroke::new(1.0, t.line));
+            }
+            let body_h = (ui.available_height() - 51.0).max(120.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                // the section list (`.shell-sec-nav`: 13rem on the sheet colour, a 1 px line at its right)
+                let (nav, _) = ui.allocate_exact_size(egui::vec2(208.0, body_h), egui::Sense::hover());
+                let nav = egui::Rect::from_min_max(egui::pos2(nav.left() - 16.0, nav.top()), nav.max);
+                ui.painter().rect_filled(nav, 0.0, t.panel_darker);
+                ui.painter().line_segment(
+                    [egui::pos2(nav.right() - 0.5, nav.top()), egui::pos2(nav.right() - 0.5, nav.bottom())],
+                    egui::Stroke::new(1.0, t.line),
+                );
+                let mut y = nav.top() + 10.0;
+                for (k, name) in &list {
+                    let g = ui.painter().layout(name.clone(), crate::theme::semi(14.0), t.text, nav.width() - 32.0);
+                    let rh = g.size().y + 22.0;
+                    let r = egui::Rect::from_min_size(egui::pos2(nav.left(), y), egui::vec2(nav.width() - 1.0, rh));
+                    let resp = ui
+                        .interact(r, ui.make_persistent_id(("settings.sec", k)), egui::Sense::click())
+                        .on_hover_cursor(egui::CursorIcon::PointingHand);
+                    let on = *k == sec.0;
+                    if on || resp.hovered() {
+                        ui.painter().rect_filled(r, 0.0, t.panel);
                     }
+                    if on {
+                        ui.painter().rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(2.0, rh)), 0.0, layer);
+                    }
+                    let font = if on { crate::theme::semi(14.0) } else { egui::FontId::proportional(14.0) };
+                    let g =
+                        ui.painter().layout(name.clone(), font, if on || resp.hovered() { t.text } else { t.text_dim }, nav.width() - 32.0);
+                    ui.painter().galley(egui::pos2(r.left() + 14.0, r.top() + 11.0), g, t.text);
+                    if resp.clicked() && !on {
+                        pick = Some((global, k.clone()));
+                    }
+                    y += rh + 2.0;
                 }
-            });
-            // the three looks the Rust test version adds (CLAUDE.md's presets; plain English: 0.5 has no words for them)
-            ui.horizontal_wrapped(|ui| {
-                for (v, k) in [("medium-light", "Medium light"), ("medium-dark", "Medium dark"), ("contrast", "High contrast")] {
-                    if ui.radio(theme_now == v, k).clicked() {
-                        act = Some(format!("theme={v}"));
-                    }
-                }
-            });
-            ui.label(RichText::new(s("shell.settings.theme.hint")).small().color(t.text_dim));
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(s("shell.settings.zoom")).color(t.text));
-                let word = |name: &str, z: f32| {
-                    let pct = (z * 100.0).round() as i32;
-                    crate::lang::t(&SHELL, &format!("shell.settings.zoom.{name}"), &[("pct", pct.to_string())])
-                };
-                let cur = ZOOMS
-                    .iter()
-                    .find(|(_, z)| (*z - zoom_now).abs() < 0.001)
-                    .map_or_else(|| format!("{:.0}%", zoom_now * 100.0), |(n, z)| word(n, *z));
-                egui::ComboBox::new("settings.zoom", "").selected_text(cur).show_ui(ui, |ui| {
-                    for (n, z) in ZOOMS {
-                        if ui.selectable_label((z - zoom_now).abs() < 0.001, word(n, z)).clicked() {
-                            act = Some(format!("zoom={z}"));
-                        }
-                    }
+                // the section (`.shell-pane`: .9rem 1.1rem; its legend 20 px bold at 112 %)
+                ui.add_space(18.0);
+                ui.vertical(|ui| {
+                    ui.set_width((ui.available_width() - 2.0).max(100.0));
+                    egui::ScrollArea::vertical().id_salt(("settings.pane", &sec.0)).max_height(body_h).auto_shrink([false, false]).show(
+                        ui,
+                        |ui| {
+                            ui.spacing_mut().item_spacing.y = 6.0;
+                            ui.add_space(14.0);
+                            if !global && slug != "studio" {
+                                crate::shell::note(
+                                    ui,
+                                    &t,
+                                    &crate::lang::t(&SHELL, "shell.settings.app_only", &[("app", app_name(slug).into())]),
+                                );
+                                ui.add_space(14.0);
+                            }
+                            ui.label(RichText::new(&sec.1).font(crate::theme::head(20.0)).color(t.text_strong));
+                            ui.add_space(8.0);
+                            match sec.0.as_str() {
+                                "shell.settings.lang" => {
+                                    let lab = ui.label(RichText::new(s("shell.settings.lang.label")).color(t.text));
+                                    egui::ComboBox::new("settings.lang", "").width(260.0).selected_text(lang_now.name()).show_ui(
+                                        ui,
+                                        |ui| {
+                                            for l in cc_lang::Locale::ALL {
+                                                if ui.selectable_label(l == lang_now, l.name()).clicked() {
+                                                    act = Some(format!("lang={}", l.code()));
+                                                }
+                                            }
+                                        },
+                                    );
+                                    let _ = lab;
+                                    ui.add_space(6.0);
+                                    crate::shell::note(ui, &t, &t0(&STUDIO, "settings.lang.hint"));
+                                }
+                                "shell.settings.theme" => {
+                                    // the three looks the Rust test version adds are plain English (0.5 has no words for them)
+                                    for (v, k) in [
+                                        ("model", s("shell.settings.theme.model")),
+                                        ("paper", s("shell.settings.theme.paper")),
+                                        ("system", s("shell.settings.theme.system")),
+                                        ("medium-light", "Medium light".to_string()),
+                                        ("medium-dark", "Medium dark".to_string()),
+                                        ("contrast", "High contrast".to_string()),
+                                    ] {
+                                        if ui.radio(theme_now == v, k).clicked() {
+                                            act = Some(format!("theme={v}"));
+                                        }
+                                    }
+                                    ui.add_space(6.0);
+                                    crate::shell::note(ui, &t, &s("shell.settings.theme.hint"));
+                                }
+                                "shell.settings.zoom" => {
+                                    let word = |name: &str, z: f32| {
+                                        let pct = (z * 100.0).round() as i32;
+                                        crate::lang::t(&SHELL, &format!("shell.settings.zoom.{name}"), &[("pct", pct.to_string())])
+                                    };
+                                    let cur = ZOOMS
+                                        .iter()
+                                        .find(|(_, z)| (*z - zoom_now).abs() < 0.001)
+                                        .map_or_else(|| format!("{:.0}%", zoom_now * 100.0), |(n, z)| word(n, *z));
+                                    egui::ComboBox::new("settings.zoom", "").width(260.0).selected_text(cur).show_ui(ui, |ui| {
+                                        for (n, z) in ZOOMS {
+                                            if ui.selectable_label((z - zoom_now).abs() < 0.001, word(n, z)).clicked() {
+                                                act = Some(format!("zoom={z}"));
+                                            }
+                                        }
+                                    });
+                                }
+                                "mytools" => crate::mytoolsdlg::section(app, ui, &mut input_act),
+                                "input" => crate::inputdlg::section(app, ui, &mut input_act),
+                                "set.drawing" if slug == "takeoffcraft" => {
+                                    let tt = cc_takeoff::i18n::t;
+                                    let (snap, s45) = app.tk_snap;
+                                    for (cmd, on, label, hint) in [
+                                        ("takeoff.snap", snap, "settings.snap", "settings.snap.hint"),
+                                        ("takeoff.snap45", s45, "set.snap45", "set.snap45.hint"),
+                                    ] {
+                                        let mut v = on;
+                                        if ui.checkbox(&mut v, tt(label)).changed() {
+                                            input_act.push((cmd, Some(if v { "on".into() } else { "off".into() })));
+                                        }
+                                        crate::shell::note(ui, &t, &tt(hint));
+                                        ui.add_space(6.0);
+                                    }
+                                }
+                                k if slug == "cadcraft" => crate::cadset::section(app, ui, k, &mut act),
+                                k if slug == "modelcraft" => crate::mcset::section(app, ui, k, &mut act),
+                                _ => {}
+                            }
+                        },
+                    );
                 });
             });
-            // the app's own section (0.5's app-settings.inc includes the build's settings.inc)
-            if app.active_app() == "cadcraft" {
-                crate::cadset::section(app, ui, &mut act);
-                crate::mytoolsdlg::section(app, ui, &mut input_act);
-                crate::inputdlg::section(app, ui, &mut input_act);
-            }
-            if app.active_app() == "modelcraft" {
-                crate::mcset::section(app, ui, &mut act);
-            }
-            ui.add_space(10.0);
-            if ui.add(crate::shell::Btn::new(s("shell.settings.done"))).clicked() {
-                done = true;
-            }
+            // the foot (`.shell-dlg-foot`: space-between): Reset <app> settings at the left, Done at the right
+            crate::shell::foot_flush_split(
+                ui,
+                |ui| {
+                    if !app_secs.is_empty() {
+                        let word = crate::lang::t(&SHELL, "shell.settings.reset", &[("app", app_name(slug).into())]);
+                        if ui.add(crate::shell::Btn::new(word)).clicked() {
+                            reset = true;
+                        }
+                    }
+                },
+                |ui| {
+                    if ui.add(crate::shell::Btn::primary(s("shell.settings.done"))).clicked() {
+                        done = true;
+                    }
+                },
+            );
         });
+    if let Some((g, k)) = pick {
+        app.settings.global = g;
+        app.settings.sec = k;
+    }
+    if reset {
+        let _ = app.run("settings.reset", &Params::default());
+    }
     if let Some(a) = act
         && let Err(e) = app.run("settings.set", &Params { name: Some(a), ..Default::default() })
     {
@@ -373,6 +591,31 @@ mod tests {
             b.load_settings(&json!({"lang": 5, "zoom": "x", "theme": "pink"}));
             assert_eq!(b.settings.theme, "paper");
             assert_eq!(title(&b), crate::lang::t0(&STUDIO, "settings.title"));
+        });
+    }
+
+    #[test]
+    fn sections_and_reset() {
+        cc_lang::with(cc_lang::Locale::En, || {
+            let mut app = UiApp::default();
+            let run = |app: &mut UiApp, id: &str, v: &str| app.run(id, &Params { name: Some(v.into()), ..Default::default() });
+            // the start screen has the global sections only
+            run(&mut app, "settings.show", "global:shell.settings.theme").unwrap();
+            assert!(app.settings.open && app.settings.global && app.settings.sec == "shell.settings.theme");
+            assert!(run(&mut app, "settings.show", "app:set.cursor").is_err());
+            app.run("file.new", &Params::default()).unwrap();
+            run(&mut app, "settings.show", "app:set.cursor").unwrap();
+            assert!(!app.settings.global);
+            assert!(run(&mut app, "settings.show", "app:nope").is_err());
+            assert!(run(&mut app, "settings.show", "elsewhere").is_err());
+            // Reset CadCraft settings: cadcraft.js's six back to their defaults, the snap kinds kept
+            run(&mut app, "settings.set", "cad.cursor=large").unwrap();
+            run(&mut app, "settings.set", "cad.tabs=number").unwrap();
+            run(&mut app, "edit.snapkind", "tan").unwrap();
+            app.sync_editor();
+            app.run("settings.reset", &Params::default()).unwrap();
+            assert_eq!((app.cadset.cursor.as_str(), app.cadset.tabs_number), ("medium", false));
+            assert!(app.cadset.draft.kinds.contains(&"tan"));
         });
     }
 }

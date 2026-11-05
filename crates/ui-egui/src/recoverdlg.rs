@@ -23,7 +23,8 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
         .collect();
     let mut act: Option<(&'static str, usize)> = None;
     let mut open = true;
-    crate::shell::Dialog::new(RichText::new(title).strong().color(tok.text_strong))
+    crate::shell::Dialog::new(title)
+        .shell_head()
         .id(egui::Id::unique("recover_dlg"))
         .open(&mut open)
         .collapsible(false)
@@ -47,7 +48,7 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
                             ui.set_width(ui.available_width());
                             ui.horizontal(|ui| {
                                 ui.vertical(|ui| {
-                                    ui.label(RichText::new(name).strong().color(tok.text_strong));
+                                    ui.label(RichText::new(name).strong().family(crate::theme::bold_family()).color(tok.text_strong));
                                     ui.label(RichText::new(meta).small().color(tok.text_dim));
                                 });
                                 if *alive {
@@ -76,19 +77,21 @@ pub fn show(app: &mut UiApp, ctx: &egui::Context) {
                 }
             });
             ui.add_space(4.0);
-            ui.label(RichText::new(hint).small().color(tok.text_dim));
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.add(crate::shell::Btn::new(st("shell.autosave.discard_all", &[]))).clicked() {
-                    act = Some(("recovery.discard_all", 0));
-                }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let later = egui::Button::new(RichText::new(st("shell.autosave.later", &[])).color(tok.text_strong)).fill(tok.accent);
-                    if ui.add(later).clicked() {
-                        act = Some(("recovery.later", 0));
-                    }
-                });
-            });
+            crate::shell::note(ui, &tok, &hint);
+            // `.shell-dlg-foot` (space-between): Discard all at the left, Later at the right
+            let mut discard = false;
+            let mut later = false;
+            crate::shell::foot_split(
+                ui,
+                |ui| discard = ui.add(crate::shell::Btn::new(st("shell.autosave.discard_all", &[]))).clicked(),
+                |ui| later = ui.add(crate::shell::Btn::primary(st("shell.autosave.later", &[]))).clicked(),
+            );
+            if discard {
+                act = Some(("recovery.discard_all", 0));
+            }
+            if later {
+                act = Some(("recovery.later", 0));
+            }
         });
     // the dialog takes Enter and Esc before the command line sees them
     let esc = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));

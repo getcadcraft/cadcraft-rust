@@ -326,10 +326,10 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(t("params.panel.empty")).color(tok.text_dim));
         } else {
             egui::Grid::new("par_rows").num_columns(5).spacing([6.0, 3.0]).striped(true).show(ui, |ui| {
-                ui.label(RichText::new(t("params.panel.name")).strong());
-                ui.label(RichText::new(t("params.panel.expression")).strong());
-                ui.label(RichText::new(t("params.panel.value")).strong());
-                ui.label(RichText::new(t("params.panel.type")).strong());
+                ui.label(RichText::new(t("params.panel.name")).strong().family(crate::theme::bold_family()));
+                ui.label(RichText::new(t("params.panel.expression")).strong().family(crate::theme::bold_family()));
+                ui.label(RichText::new(t("params.panel.value")).strong().family(crate::theme::bold_family()));
+                ui.label(RichText::new(t("params.panel.type")).strong().family(crate::theme::bold_family()));
                 ui.label("");
                 ui.end_row();
                 for r in &rows {
@@ -415,7 +415,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             }
         });
         if let Some(ch) = app.par.choice.clone() {
-            ui.label(RichText::new(t("params.panel.which_parameter_changes")).strong());
+            ui.label(RichText::new(t("params.panel.which_parameter_changes")).strong().family(crate::theme::bold_family()));
             ui.label(&ch.text);
             ui.horizontal(|ui| {
                 for c in ch.choices.iter().take(6) {
@@ -507,7 +507,7 @@ fn dc_edit_window(app: &mut UiApp, ctx: &egui::Context) {
                 ui.label(RichText::new(&err).color(Color32::from_rgb(0xe0, 0x60, 0x50)));
             }
             ui.label(RichText::new(format!("{what}.")).small());
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
                     cancel = true;
                 }

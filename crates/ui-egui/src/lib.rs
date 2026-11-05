@@ -2266,6 +2266,7 @@ impl UiApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = web_time::Instant::now();
         let ctx = ui.ctx().clone();
+        shell::set_small_buttons(&ctx, self.active_app() == "detailcraft");
         // what the open sheets' Snap / Snap to 45° are now is what is kept
         if let Some(p) = self.pdf.as_ref() {
             self.tk_snap = (!p.takeoff.snap.off, p.takeoff.snap.s45);

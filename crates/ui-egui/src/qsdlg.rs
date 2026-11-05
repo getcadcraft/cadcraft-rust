@@ -403,12 +403,13 @@ fn qs_window(app: &mut UiApp, ctx: &egui::Context) {
             if ui.checkbox(&mut append, t("dlg.qs.append")).changed() {
                 set.push(format!("append={}", u8::from(append)));
             }
-            ui.separator();
+            crate::shell::foot_rule(ui);
             ui.horizontal(|ui| {
                 let total = if q.apply == "sel" { q.current.len() } else { total };
                 ui.label(RichText::new(tv("dlg.qs.count", &[("n", found.to_string()), ("total", total.to_string())])).color(tok.text_dim));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(crate::shell::Btn::primary(RichText::new(t("dlg.qs.ok")).strong())).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if ui.add(crate::shell::Btn::primary(t("dlg.qs.ok"))).clicked() {
                         ok = true;
                     }
                     if ui.add(crate::shell::Btn::new(t("dlg.qs.cancel"))).clicked() {
@@ -476,7 +477,7 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
                     }
                 }
             });
-            ui.label(RichText::new(t("dlg.find.in")).strong().color(tok.text_strong));
+            ui.label(RichText::new(t("dlg.find.in")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
             ui.horizontal_wrapped(|ui| {
                 for (i, (k, label)) in
                     [("text", "dlg.find.in.text"), ("attr", "dlg.find.in.attr"), ("dim", "dlg.find.in.dim")].iter().enumerate()
@@ -506,13 +507,15 @@ fn find_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(RichText::new(line).small().color(tok.text));
                 }
             });
+            crate::shell::foot_rule(ui);
             ui.horizontal(|ui| {
                 if !f.what.is_empty() {
                     let n: usize = ms.iter().map(|m| m.count).sum();
                     ui.label(RichText::new(tv("dlg.find.results", &[("n", n.to_string())])).color(tok.text_dim));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(!f.what.is_empty(), crate::shell::Btn::new(RichText::new(t("dlg.find.replace")).strong())).clicked() {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if ui.add_enabled(!f.what.is_empty(), crate::shell::Btn::primary(t("dlg.find.replace"))).clicked() {
                         act = Some("find.replace");
                     }
                     if ui.add_enabled(!f.what.is_empty(), crate::shell::Btn::new(t("dlg.find.select"))).clicked() {

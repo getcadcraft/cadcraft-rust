@@ -1039,7 +1039,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     sub.push_str(&format!(" · {}", t("sheetset.unsaved")));
                 }
                 let name = set.get("name").and_then(Value::as_str).unwrap_or("");
-                let r = ui.selectable_label(sel("set", "set"), RichText::new(name).strong());
+                let r = ui.selectable_label(sel("set", "set"), RichText::new(name).strong().family(crate::theme::bold_family()));
                 if r.clicked() {
                     acts.push(("ss.select", "set".into()));
                 }
@@ -1114,7 +1114,9 @@ fn tree(
             ui.add_space(indent);
             let r = ui.selectable_label(
                 sel("subset", id),
-                RichText::new(format!("▾ {}", g.get("name").and_then(Value::as_str).unwrap_or(""))).strong(),
+                RichText::new(format!("▾ {}", g.get("name").and_then(Value::as_str).unwrap_or("")))
+                    .strong()
+                    .family(crate::theme::bold_family()),
             );
             if r.clicked() {
                 acts.push(("ss.select", format!("subset:{id}")));
@@ -1439,7 +1441,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                 }
                 Form::Publish { name, .. } => {
                     ui.label(tv("sheetset.publish.which", &[("name", name.clone())]));
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(t("sheetset.publish.subset"))).clicked() {
                             ok = Some(("ss.publish", "subset".into()));
                         }

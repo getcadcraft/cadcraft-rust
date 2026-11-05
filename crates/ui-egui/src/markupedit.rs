@@ -1016,7 +1016,8 @@ impl PdfView {
             let colour = crate::pdfview::hex_color(&m.style.color, 1.0).unwrap_or(tok.text);
             let resp = ui
                 .scope(|ui| {
-                    let r = ui.selectable_label(on, RichText::new(&title).strong().color(tok.text_strong));
+                    let r =
+                        ui.selectable_label(on, RichText::new(&title).strong().family(crate::theme::bold_family()).color(tok.text_strong));
                     ui.horizontal_wrapped(|ui| {
                         ui.label(RichText::new("■").color(colour));
                         let body: Vec<&str> = [text.as_str(), m.comment.as_str()].into_iter().filter(|s| !s.is_empty()).collect();
@@ -1055,6 +1056,7 @@ impl PdfView {
         ui.label(
             RichText::new(if n > 0 { t("thread.h.count", &[("n", Fill::N(n as f64))]) } else { t0("thread.label") })
                 .strong()
+                .family(crate::theme::bold_family())
                 .color(tok.text_strong),
         );
         if n == 0 {
@@ -1170,9 +1172,9 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                        save = ui.add(crate::shell::Btn::new(t0("chest.dlg.save"))).clicked();
+                        save = ui.add(crate::shell::Btn::primary(t0("chest.dlg.save"))).clicked();
                     });
                 });
                 if save {
@@ -1193,9 +1195,9 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                        add = ui.add(crate::shell::Btn::new(t0("space.add"))).clicked();
+                        add = ui.add(crate::shell::Btn::primary(t0("space.add"))).clicked();
                     });
                 });
                 if add {
@@ -1213,7 +1215,7 @@ impl PdfView {
                 let mut ok = false;
                 crate::shell::Dialog::new(t0("chest.remove.h")).collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(t("chest.remove.text", &[("tool", Fill::S(name))]));
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
                         ok = ui.add(crate::shell::Btn::primary(t0("chest.remove.ok"))).clicked();
                     });
@@ -1231,9 +1233,9 @@ impl PdfView {
                     ui.add(crate::shell::field(&mut number)).labelled_by(l.id);
                     let l = ui.label(t0("rename.title"));
                     ui.add(crate::shell::field(&mut title)).labelled_by(l.id);
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                        save = ui.add(crate::shell::Btn::new(t0("dlg.save"))).clicked();
+                        save = ui.add(crate::shell::Btn::primary(t0("dlg.save"))).clicked();
                     });
                 });
                 if save {
@@ -1261,9 +1263,9 @@ impl PdfView {
                     if !error.is_empty() {
                         ui.colored_label(ui.visuals().error_fg_color, &error);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         close = ui.add(crate::shell::Btn::new(t0("dlg.cancel"))).clicked();
-                        go = ui.add(crate::shell::Btn::new(t0(ok))).clicked();
+                        go = ui.add(crate::shell::Btn::primary(t0(ok))).clicked();
                     });
                 });
                 if go {

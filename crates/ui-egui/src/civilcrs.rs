@@ -1555,7 +1555,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                 );
                             }
                             Some(c) => {
-                                ui.label(RichText::new(t0("crs.d.now")).strong().color(tk.text_strong));
+                                ui.label(RichText::new(t0("crs.d.now")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                                 show_lines(ui, tk, &facts(&crs_pick::describe(c)));
                             }
                         }
@@ -1565,7 +1565,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                         for (k, l) in g {
                             match k.as_str() {
                                 "head" => {
-                                    ui.label(RichText::new(l.text()).strong().color(tk.text_strong));
+                                    ui.label(RichText::new(l.text()).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                                 }
                                 "file" | "off" => {
                                     if ui.add(crate::shell::Btn::new(l.text())).clicked() {
@@ -1588,6 +1588,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                     ui.label(
                         RichText::new(t0(if d.pick || d.current.is_none() { "crs.d.pick.head" } else { "crs.d.change.head" }))
                             .strong()
+                            .family(crate::theme::bold_family())
                             .color(tk.text_strong),
                     );
                     ui.horizontal(|ui| {
@@ -1637,14 +1638,14 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                         }
                     });
                     ui.separator();
-                    ui.label(RichText::new(t0("crs.d.chosen")).strong().color(tk.text_strong));
+                    ui.label(RichText::new(t0("crs.d.chosen")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                     show_lines(ui, tk, &chosen);
                     if let Some(p) = &d.problem {
                         ui.add(egui::Label::new(RichText::new(p).small().color(problem)).wrap());
                     }
                     if !d.pick {
                         ui.separator();
-                        ui.label(RichText::new(t0("crs.d.ggl")).strong().color(tk.text_strong));
+                        ui.label(RichText::new(t0("crs.d.ggl")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
                         ui.horizontal(|ui| {
                             for (m, k) in [("grid", "crs.d.mode.grid"), ("ground", "crs.d.mode.ground"), ("local", "crs.d.mode.local")] {
                                 if ui.radio(d.gmode == m, t0(k)).clicked() {
@@ -1654,15 +1655,20 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                         });
                         match d.gmode.as_str() {
                             "grid" => {
-                                ui.add(egui::Label::new(RichText::new(t0("crs.d.grid.note")).small().color(tk.text_dim)).wrap());
+                                crate::shell::note(ui, tk, &t0("crs.d.grid.note"));
                             }
                             "ground" => {
-                                ui.add(egui::Label::new(RichText::new(t0("crs.d.ground.note")).small().color(tk.text_dim)).wrap());
+                                crate::shell::note(ui, tk, &t0("crs.d.ground.note"));
                                 field(ui, &t0("crs.d.csf"), &d.csf, "0.99987", 120.0, acts, "csf");
                                 field(ui, &t0("crs.d.base.e"), &d.be, "", 120.0, acts, "be");
                                 field(ui, &t0("crs.d.base.n"), &d.bn, "", 120.0, acts, "bn");
-                                ui.add(egui::Label::new(RichText::new(t0("crs.d.base.note")).small().color(tk.text_dim)).wrap());
-                                ui.label(RichText::new(t0("crs.d.factor.head")).strong().color(tk.text_strong));
+                                crate::shell::note(ui, tk, &t0("crs.d.base.note"));
+                                ui.label(
+                                    RichText::new(t0("crs.d.factor.head"))
+                                        .strong()
+                                        .family(crate::theme::bold_family())
+                                        .color(tk.text_strong),
+                                );
                                 field(ui, &t0("crs.d.e"), &d.ae, "", 120.0, acts, "ae");
                                 field(ui, &t0("crs.d.n"), &d.an, "", 120.0, acts, "an");
                                 field(ui, &tr!("crs.d.elev", unit = if units == "m" { "m" } else { "ft" }), &d.az, "", 120.0, acts, "az");
@@ -1682,11 +1688,13 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                 }
                             }
                             _ => {
-                                ui.add(egui::Label::new(RichText::new(t0("crs.d.local.note")).small().color(tk.text_dim)).wrap());
+                                crate::shell::note(ui, tk, &t0("crs.d.local.note"));
                                 for (i, key) in ["crs.d.cp1", "crs.d.cp2", "crs.d.cp3"].iter().enumerate() {
                                     let Some(c) = d.cps.get(i) else { continue };
                                     let title = t0(key);
-                                    ui.label(RichText::new(&title).small().strong().color(tk.text_strong));
+                                    ui.label(
+                                        RichText::new(&title).small().strong().family(crate::theme::bold_family()).color(tk.text_strong),
+                                    );
                                     ui.horizontal(|ui| {
                                         for (f, val, hint, w) in [
                                             ("n", &c.n, t0("crs.d.cp.no"), 80.0),
@@ -1712,8 +1720,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                             }
                         }
                     }
-                    ui.separator();
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if !d.pick && d.current.is_some() && ui.add(crate::shell::Btn::new(t0("crs.d.remove"))).clicked() {
                             acts.push(("civil.crs.dlg", "remove".into()));
                         }
@@ -1721,7 +1728,7 @@ pub fn crs_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                             acts.push(("civil.crs.dlg", "close".into()));
                         }
                         let label = if d.pick { t0("vec.ask.go") } else { t0("crs.d.apply") };
-                        let b = ui.add_enabled(apply_off.is_none(), crate::shell::Btn::new(label));
+                        let b = ui.add_enabled(apply_off.is_none(), crate::shell::Btn::primary(label));
                         let b = match &apply_off {
                             Some(w) => b.on_disabled_hover_text(w),
                             None => b,

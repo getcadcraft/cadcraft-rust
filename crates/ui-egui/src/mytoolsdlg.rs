@@ -651,12 +651,14 @@ pub fn icon_texture(app: &mut UiApp, ctx: &egui::Context, url: Option<&str>) -> 
 
 /// Settings › CadCraft › My tools (mytools-ui.js `renderSettings`): each button with Edit / Delete, then Add, Import,
 /// Import CUIx and Export, and what the last action said.
+/// The section's name in the Settings window (settings.inc's legend).
+pub fn section_title() -> String {
+    t("mytools.legend")
+}
+
 pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Vec<(&'static str, Option<String>)>) {
     let tk = app.tokens;
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(RichText::new(t("mytools.legend")).strong().color(tk.text_strong));
-    ui.label(RichText::new(t("mytools.hint")).small().color(tk.text_dim));
+    crate::shell::note(ui, &tk, &t("mytools.hint"));
     let d = &app.mytools.data;
     if d.groups.is_empty() {
         ui.label(RichText::new(t("mytools.none")).italics().color(tk.text_dim));
@@ -726,7 +728,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.end_row();
                     if k == "macro" {
                         ui.label("");
-                        ui.label(RichText::new(t("mytools.f.macro.hint")).small().color(tk.text_dim));
+                        crate::shell::note(ui, &tk, &t("mytools.f.macro.hint"));
                         ui.end_row();
                     }
                 }
@@ -741,7 +743,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 }
                 ui.end_row();
                 ui.label("");
-                ui.label(RichText::new(t("mytools.f.key.hint")).small().color(tk.text_dim));
+                crate::shell::note(ui, &tk, &t("mytools.f.key.hint"));
                 ui.end_row();
                 ui.label(t("mytools.f.icon"));
                 ui.horizontal(|ui| {
@@ -754,7 +756,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             crate::ribbon::paint_icon(ui.painter(), r, "star", tk.text);
                         }
                         (None, false) => {
-                            ui.label(RichText::new(t("mytools.icon.none")).small().color(tk.text_dim));
+                            crate::shell::note(ui, &tk, &t("mytools.icon.none"));
                         }
                     }
                     if ui.add(crate::shell::Btn::new(t("mytools.icon.pick"))).clicked() {
@@ -769,11 +771,11 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
             if !e.err.is_empty() {
                 ui.label(RichText::new(&e.err).color(tk.text_strong));
             }
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t("mytools.cancel"))).clicked() {
                     acts.push(("mytools.cancel", None));
                 }
-                if ui.add(crate::shell::Btn::new(t("mytools.save"))).clicked() {
+                if ui.add(crate::shell::Btn::primary(t("mytools.save"))).clicked() {
                     acts.push(("mytools.save", None));
                 }
             });

@@ -595,9 +595,6 @@ fn drop_text_after(raw: &mut egui::RawInput, i: usize) {
 pub fn section(app: &UiApp, ui: &mut egui::Ui, act: &mut Vec<(&'static str, Option<String>)>) {
     let reg = registry();
     let t = app.tokens;
-    ui.add_space(8.0);
-    ui.separator();
-    ui.label(RichText::new(shell("shell.input.legend", &[])).strong().color(t.text_strong));
     let cur = app.ribbon.st.style.clone();
     let list: Vec<&Profile> = reg.styles.iter().chain(app.ribbon.st.custom.iter()).collect();
     ui.horizontal_wrapped(|ui| {
@@ -705,16 +702,13 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                 }
                 keys_table(ui, &t, &d, &label, &mut act);
             }
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(conflicts.is_empty(), crate::shell::Btn::new(shell("shell.input.dlg.save", &[]))).clicked() {
-                        act.push(("input.custom.save", None));
-                    }
-                    if ui.add(crate::shell::Btn::new(shell("shell.input.dlg.cancel", &[]))).clicked() {
-                        act.push(("input.custom.cancel", None));
-                    }
-                });
+            crate::shell::foot(ui, |ui| {
+                if ui.add(crate::shell::Btn::new(shell("shell.input.dlg.cancel", &[]))).clicked() {
+                    act.push(("input.custom.cancel", None));
+                }
+                if ui.add_enabled(conflicts.is_empty(), crate::shell::Btn::primary(shell("shell.input.dlg.save", &[]))).clicked() {
+                    act.push(("input.custom.save", None));
+                }
             });
         });
     if !open || (d.recording.is_none() && ctx.input(|i| i.key_pressed(egui::Key::Escape))) {
@@ -774,9 +768,9 @@ fn keys_table(
     };
     egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
         egui::Grid::new("input_keys_grid").num_columns(3).striped(true).spacing(egui::vec2(10.0, 3.0)).show(ui, |ui| {
-            ui.label(RichText::new(shell("shell.input.dlg.cmd", &[])).strong());
-            ui.label(RichText::new(shell("shell.input.dlg.place", &[])).strong());
-            ui.label(RichText::new(shell("shell.input.dlg.keys", &[])).strong());
+            ui.label(RichText::new(shell("shell.input.dlg.cmd", &[])).strong().family(crate::theme::bold_family()));
+            ui.label(RichText::new(shell("shell.input.dlg.place", &[])).strong().family(crate::theme::bold_family()));
+            ui.label(RichText::new(shell("shell.input.dlg.keys", &[])).strong().family(crate::theme::bold_family()));
             ui.end_row();
             for g in crate::ribbon::GROUPS {
                 let cmds: Vec<&ip::RegCmd> = reg
@@ -788,7 +782,7 @@ fn keys_table(
                 if cmds.is_empty() {
                     continue;
                 }
-                ui.label(RichText::new(tx(&format!("input.grp.{g}"))).strong().color(t.text_strong));
+                ui.label(RichText::new(tx(&format!("input.grp.{g}"))).strong().family(crate::theme::bold_family()).color(t.text_strong));
                 ui.end_row();
                 for c in cmds {
                     ui.label(label(&c.id));
@@ -849,7 +843,7 @@ fn keys_table(
 fn mouse_pane(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Draft, act: &mut Vec<(&'static str, Option<String>)>) {
     let m = d.p.mouse.clone().unwrap_or_else(|| ip::clean_mouse(None));
     let set = |act: &mut Vec<(&'static str, Option<String>)>, s: String| act.push(("input.custom.mouse", Some(s)));
-    ui.label(RichText::new(shell("shell.input.mouse.wheel", &[])).strong());
+    ui.label(RichText::new(shell("shell.input.mouse.wheel", &[])).strong().family(crate::theme::bold_family()));
     ui.horizontal(|ui| {
         let word = |w: i8| shell(if w < 0 { "shell.input.mouse.wheel.flip" } else { "shell.input.mouse.wheel.normal" }, &[]);
         egui::ComboBox::new("input_wheel", "").selected_text(word(m.wheel)).show_ui(ui, |ui| {
@@ -866,7 +860,7 @@ fn mouse_pane(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Draft, act: &mut 
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new(shell("shell.input.mouse.pan2d", &[])).strong());
+    ui.label(RichText::new(shell("shell.input.mouse.pan2d", &[])).strong().family(crate::theme::bold_family()));
     ui.horizontal(|ui| {
         for b in ip::BUTTONS {
             let mut on = m.pan2d.iter().any(|x| x == b);
@@ -882,7 +876,7 @@ fn mouse_pane(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Draft, act: &mut 
     });
     ui.label(RichText::new(shell("shell.input.mouse.pan2d.hint", &[])).small().color(t.text_dim));
     ui.add_space(6.0);
-    ui.label(RichText::new(shell("shell.input.mouse.3d", &[])).strong());
+    ui.label(RichText::new(shell("shell.input.mouse.3d", &[])).strong().family(crate::theme::bold_family()));
     let mut own = m.orbit3d.is_none();
     if ui.checkbox(&mut own, shell("shell.input.mouse.3d.own", &[])).changed() {
         set(act, format!("orbit3d={}", if own { "own" } else { "set" }));

@@ -2,6 +2,38 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — M17.16–M17.19 the 0.7 look, the rest of gaps item 12: section heads, dialogs, kept snap settings (agent, work/look07b)
+
+- M17.16 panel sections in every app as 0.5 / 0.7's CSS draws them (`.x-sec`, `.x-h`): `shell::h` (15 px bold at
+  112 % width, Archivo wdth 112 as a new face; the 1 px rule across the panel over every head that does not open
+  it), `h3`, `sub` (13 px ink-2), `fold` (DetailCraft's `.dc-fold` chevron, body not indented), `fold_row`
+  (MarkupCraft's Find text / Bookmarks / Spaces rows), `section`; CivilCraft, DetailCraft, PartCraft, ModelCraft
+  (all sections open; "Outliner and components" back in its own left dock as 0.5 / 0.7), BimCraft, MarkupCraft,
+  TakeoffCraft. Notes 14 px ink-2 at line height 1.6; `strong()` text is bold now (egui only changed its colour);
+  side docks' edge toward the stage 1.5 px ink (`shell::side`); buttons 40 px / 15 px bold (`.btn-sm-cc`),
+  DetailCraft 34 px / 14 px (`.btn-sm-dc`); long CadCraft layer names end in … before the flags.
+- M17.17 CadCraft keeps Grid, Ortho, Snap, Polar, LWT, POLARANG and the object snap kinds between runs
+  (cadcraft.js `cadcraft.settings`), and every drawing opened takes them; one command history for the window, opening
+  with cadcraft.js's "CadCraft is ready. Type a command (L for line, HELP for the list) or open a drawing."
+  (`app.cadcraft_ready_type_command`, en / es-MX); the CLI is untouched, so kdiff transcripts do not change.
+- M17.18 TakeoffCraft keeps Snap and Snap to 45° per viewer (takeoffcraft.js `settings.snap / snap45`, booleans only),
+  handed to every sheet set opened; Settings › TakeoffCraft › Drawing has both with their hints.
+- M17.19 dialogs: 0.7's frame (1 px ink, radius 2), head (15 px bold 112 %; the shell's own 20 px), the ink at 35 %
+  behind a modal one, modal ones opening in the middle, the foot (`shell::foot` / `foot_split`: a rule over it, Cancel
+  then the filled main action at the right, Reset / Discard / a status at the left) in 54 dialogs; the Plot dialog as
+  `.cc-plot-body` (a 19rem column of choices with a rule at its right, the preview on the ink-12 % sheet, the foot);
+  Settings as 0.7's sections dialog (tabs <App> | Global, the section list, one section, Reset <app> settings | Done;
+  `settings.show {app|global[:section]}`, `settings.reset` = cadcraft.js / modelcraft.js / takeoffcraft.js's reset);
+  Recover your work? in the shell's style. Every dialog that opens headless (58, scratch `dialogs.sh`) shot
+  before | after, 0.7 beside the Plot, Settings, Traverse and deed-calls ones.
+- Parity on this build, en and es-MX: kdiff 5250/5250 (with `--not-random LIVEHOLD,LIVELOCK,LIVEUNLOCK,_PLOTWIN`:
+  the shared kdiff picks M16.17's live commands, which the frozen 0.5 command line does not know: 5093/5250 without
+  the flag on main as well), mkuidiff 27 checks 0 different, cvuidiff all identical, cvtooldiff 156/156 projects,
+  4812/4812 status lines, 46/46 files, dcuidiff 58 identical, pcuidiff identical, tkopsdiff 77 checks 0 different
+  (292/292 status lines), mcuidiff 1243/1243 files, bmuidiff 2568/2568 steps, 418/418 IFC files.
+- Shots: forks/lead/shots/look07b/{before,after,ref,sbs} (sbs/<app>.png: before | after | 0.7; sbs/dlg/*.png).
+- Plain English (no 0.5 key): Settings' "Global" tab.
+
 ## 2026-11-04 — M16.17 Studio Live's last 0.5 pieces: host handoff, one-time codes, CadCraft's in-drawing extras, the same-file join (agent, work/livextras)
 
 - Host handoff in the Live window (every app, the shared core): the host's people list has Hand over… for each editor

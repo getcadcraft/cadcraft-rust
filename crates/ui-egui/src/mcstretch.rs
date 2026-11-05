@@ -189,11 +189,11 @@ impl ModelView {
                     if !err.is_empty() {
                         ui.colored_label(egui::Color32::from_rgb(0xd0, 0x22, 0x3e), &err);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(mt("app.btn.cancel", &[]))).clicked() {
                             a = Some("stretch-cancel".into());
                         }
-                        if ui.add(crate::shell::Btn::new(mt("app.dyn.go", &[]))).clicked() {
+                        if ui.add(crate::shell::Btn::primary(mt("app.dyn.go", &[]))).clicked() {
                             a = Some(format!("stretch-go:{}:{}", crate::mcact::ns(iid), serde_json::json!(size)));
                         }
                     });

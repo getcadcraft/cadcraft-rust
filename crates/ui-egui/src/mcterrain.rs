@@ -155,11 +155,11 @@ impl ModelView {
                     if !err.is_empty() {
                         ui.colored_label(egui::Color32::from_rgb(0xd0, 0x22, 0x3e), &err);
                     }
-                    ui.horizontal(|ui| {
+                    crate::shell::foot(ui, |ui| {
                         if ui.add(crate::shell::Btn::new(mt("app.btn.cancel", &[]))).clicked() {
                             a = Some("terrain-grid-cancel".into());
                         }
-                        if ui.add(crate::shell::Btn::new(mt("app.text3d.place", &[]))).clicked() {
+                        if ui.add(crate::shell::Btn::primary(mt("app.text3d.place", &[]))).clicked() {
                             a = Some(format!("terrain-grid-place:{}", serde_json::json!({ "width": w, "depth": d, "spacing": s })));
                         }
                     });

@@ -286,7 +286,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
             if !rows.is_empty() {
                 egui::Grid::new("cv_imp_preview").num_columns(5).spacing([12.0, 2.0]).striped(true).show(ui, |ui| {
                     for h in [t0("sk.c.point"), t0("pt.props.northing"), t0("pt.props.easting"), t0("pt.props.elev"), t0("pt.props.desc")] {
-                        ui.label(RichText::new(h).small().strong().color(tk.text_dim));
+                        ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
                     }
                     ui.end_row();
                     for r in &rows {
@@ -306,8 +306,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                     });
                 });
             }
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
+            crate::shell::foot(ui, |ui| {
                 if ui.add(crate::shell::Btn::new(t0("ui.cancel"))).clicked() {
                     acts.push(("civil.import", "cancel".into()));
                 }
