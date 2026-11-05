@@ -2,6 +2,53 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — M13.14 PartCraft's move / turn gizmo, M6.37 ModelCraft numpad views and touch loupe, M4.62 point cloud overscan (agent, work/closea)
+
+- M13.14 (gizmo3.rs, partgizmo.rs; cc-render lines3 `render_on_top`, view3d `top_lines`): asm-ui.js's gizmo — three.js's
+  TransformControls (three 0.186.1, MIT) on a stand-in at the parts' middle, translate and rotate, world space, size
+  0.9: its picking (the picker meshes built as three builds them, f32 positions, front-side culling, distance-sorted),
+  the drag plane, the handle scale and hiding, the drag maths (Matrix4 / Quaternion / Ray / Raycaster in three's
+  order, fdlibm trig) ported to f64 on the CPU; the handles drawn by the 3D view's line pass without the depth test.
+  The part copy's Drag to move / Drag to turn (filled while on; the same again or Esc stops), one undo step per drag
+  ("Move by hand" / "Turn by hand"), the parts following live; the explode step's direction "Drag an arrow in the
+  view" (Drag to add the step; the step along the drag). Commands `part.asm.set=drag=translate|rotate`,
+  `part.asm=step-dir:drag`, `part.asm=gizmo:<x,y | at:u,v,w>;dx,dy…` (one gesture in view pixels; its trace note gives
+  the camera, the pixels, the handle and the drag).
+- Parity: forks/tools/pcuidiff-closea.mjs + pchost-closea.mjs + pcscenarios-closea.mjs (should replace the shared
+  pcuidiff / pchost / pcscenarios at merge): the JS side runs the real TransformControls with the app's camera and
+  pixels; new scenarios `gizmo` (41 ops: every arrow, a square, the middle, the rings, misses, Esc, undo / redo) and
+  `gizmo-explode` (33 ops); every scenario 995 steps + 79 files, 0 differences, en and es-MX — each drag's matrix
+  bit for bit.
+- M6.37 (keycode.rs; apps/cadcraft-web keydown listener): egui names the numpad's digits as the row's; the host now
+  reports each press's `KeyboardEvent.code` (the web: a capture listener) and `UiApp::raw_input_hook` pairs them with
+  the frame's key presses; with Num Lock off a navigation key whose physical key is a digit is the numpad's (the
+  desktop, no host code needed). The modeler keys' numpad views (1 / 3 / 7, Ctrl for the opposite, 5, .) from the
+  keyboard; the number row still types into the value box; the numpad's digit types nothing when it was taken.
+  Desktop with Num Lock on: egui-winit drops winit's key location — reading it needs `winit` as a direct dependency
+  (already in the tree, 0.30.13) to wrap eframe's event loop (`eframe::create_native`): asked, not added.
+- M6.37 loupe (modelcraft.rs, view3d `paint_loupe`): modelcraft.js's loupe — while a drawing finger is down (not
+  Select / Orbit / Pan) a 128 px disc 36 px above it (below near the top) shows twice as large what is under it: the
+  3D view's own picture laid again with a 2× viewport, one scissor row of the disc at a time, and the marks over the
+  view (snaps, guides, lines) copied from this frame's shapes, magnified and cut at the disc; a cross at the finger.
+  cadcraft-shot `--touch-drag a:b [--hold]`, `--key K@CODE`, `--mouse-drag a:b:middle`.
+- M4.62 (cloudview.rs): the point cloud's overscan. Snapping alone does not prove it: the engine places a point at
+  `round(a·x + c·y + tx)` and a pan of S whole pixels makes `tx' = tx − S + δ` (δ a rounding residue), so a point whose
+  value is within |δ| of a half-pixel can land one over. Now, when a pan starts, one picture with 256 device pixels of
+  margin is made, with each point's distance to the nearest half-pixel: points nearer than 10⁻⁶ px are listed and
+  placed again exactly on each frame; for every other point the smallest distance σ must exceed |δ| plus the add's
+  last bit. When both hold the moved picture is the redraw pixel for pixel (same points, order, pixels, z-test);
+  otherwise it is drawn again as before. A drag pans in whole device pixels while a cloud shows (the rest carried).
+  Probe (`cloudview::overscan_tests::overscan_probe`, ignored; the 6 room scans and the 2 M-point LAZ, ppp 1 / 1.5 / 2,
+  4 zooms): 21,000 pans, 20,125 shown moved, each compared with the full redraw: 0 pixels differ; 875 overscans made
+  (pans past the margin). Speed: a redraw of 2 M points 8.9–10.7 ms, a moved frame's proof 0.004 ms (44 k points:
+  0.05–0.8 ms vs 0.0001–0.002 ms).
+- Parity on this build: pcuidiff-closea all scenarios 995 / 995 steps, 79 / 79 files, en and es-MX;
+  mcuidiff-modelfin `--edit --lights --play --terrain --starter --keys` 1320 / 1320 status lines, 1285 / 1285 files,
+  en and es-MX; kdiff 5250 / 5250 en and es-MX.
+- Shots: forks/lead/shots/closea/ (gizmo-move, gizmo-turn, loupe, loupe-top, numpad, numrow, numpad-off,
+  cloud-panned).
+- Plain English (no 0.5 key): none; the gizmo's script errors (`part.asm: gizmo: …`) are command errors, as others.
+
 ## 2026-11-05 — M6.36 a terrain grid's Fix out of memory; S.15 DetailCraft's model read typed (agent, work/fixfin)
 
 - M6.36 (cc-m3d edges.rs): mcuidiff-modelfin `--edit --terrain --starter --keys --lang es-MX`, arc.skp seed 3, had the

@@ -3600,7 +3600,11 @@ impl UiApp {
         let by = [egui::PointerButton::Primary, egui::PointerButton::Secondary, egui::PointerButton::Middle];
         if !touching && resp.dragged() && by.iter().any(|b| resp.dragged_by(*b) && pans(*b)) {
             let d = resp.drag_delta();
-            view.pan(f64::from(d.x) * ppp, f64::from(d.y) * ppp);
+            // whole device pixels while a point cloud shows (its overscan moves: cloudview.rs)
+            let (dx, dy) = cloudview::pan_steps(f64::from(d.x) * ppp, f64::from(d.y) * ppp);
+            view.pan(dx, dy);
+        } else if resp.drag_stopped() {
+            cloudview::pan_end();
         }
         if let Some(p) = resp.hover_pos() {
             let sx = f64::from(p.x - rect.min.x) * ppp;
