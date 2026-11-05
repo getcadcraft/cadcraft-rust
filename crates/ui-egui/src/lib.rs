@@ -1396,8 +1396,10 @@ impl UiApp {
         let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(a, _)| a).to_string();
         let keep_space = self.space;
         let hidden = std::mem::take(&mut self.hidden);
-        let ed = edit::Editor::new(doc, &stem);
+        let mut ed = edit::Editor::new(doc, &stem);
         edit::carry_history(&ed, self.editor.as_ref());
+        // LISP's CDATE reads the window's zone (`app.tz`)
+        ed.eng.set_zone(Some(self.zone));
         self.editor = Some(ed);
         self.doc = None;
         self.sync_editor();
@@ -1672,6 +1674,9 @@ impl UiApp {
                 if let Some((_, view)) = self.scene3.as_mut() {
                     view.cam.persp = !view.cam.persp;
                 }
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.eng.set_zone(Some(zone));
+                }
             }
             "file.export" => {
                 let f = params.name.clone().ok_or("file.export: name is required")?;
@@ -1877,8 +1882,9 @@ impl UiApp {
                 self.model3 = None;
                 self.model3 = None;
                 self.source = None;
-                let ed = edit::Editor::new(cc_cad::Doc::new(), "Drawing1");
+                let mut ed = edit::Editor::new(cc_cad::Doc::new(), "Drawing1");
                 edit::carry_history(&ed, self.editor.as_ref());
+                ed.eng.set_zone(Some(self.zone));
                 self.editor = Some(ed);
                 self.doc = None;
                 self.views = vec![None];

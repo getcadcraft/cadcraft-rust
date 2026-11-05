@@ -424,13 +424,13 @@ impl CivilView {
 }
 
 /// The Drive panel over the 3D view and the Drive / Sun buttons (drawn by civilview's 3D bar).
-pub fn bar(cv: &mut CivilView, ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>) {
+pub fn bar(cv: &mut CivilView, ui: &mut egui::Ui, acts: &mut Vec<(&'static str, String)>, zone: cc_clock::Zone) {
     if ui.selectable_label(cv.drive.is_some(), t0("dv.btn")).on_hover_text(t0("dv.title")).clicked() {
         acts.push(("civil.drive", if cv.drive.is_some() { "off".into() } else { "on".into() }));
     }
     let open = cv.sun.as_ref().is_some_and(|s| s.on);
     ui.menu_button(if open { format!("☀ {}", t0("sun.btn")) } else { t0("sun.btn") }, |ui| {
-        let s = cv.sun.clone().unwrap_or_else(|| SunSet::defaults(cc_clock::now_ms(), cc_clock::Zone::System));
+        let s = cv.sun.clone().unwrap_or_else(|| SunSet::defaults(cc_clock::now_ms(), zone));
         let mut on = s.on;
         if ui.checkbox(&mut on, t0("sun.on")).changed() {
             acts.push(("civil.sun", format!("on={}", if on { "on" } else { "off" })));
@@ -492,7 +492,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, rect: egui::Rect, tk: &Token
         egui::Frame::new().fill(tk.panel).stroke(egui::Stroke::new(1.5, tk.text)).inner_margin(6).corner_radius(3).show(ui, |ui| {
             ui.horizontal(|ui| {
                 let cur = als.iter().find(|(id, _)| *id == d.al).map_or(String::new(), |x| x.1.clone());
-                egui::ComboBox::new("cv_dv_al", "").selected_text(cur).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("cv_dv_al").selected_text(cur).show_ui(ui, |ui| {
                     for (id, name) in &als {
                         if ui.selectable_label(*id == d.al, name).clicked() {
                             acts.push(("civil.drive", format!("al={id}")));
@@ -512,16 +512,15 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, rect: egui::Rect, tk: &Token
                 }
                 ui.label(RichText::new(&d.out).monospace());
                 let speeds = cc_civil::drive::drive_speeds(&units);
-                egui::ComboBox::new("cv_dv_speed", "").selected_text(speeds.get(d.speed).map_or(String::new(), |s| s.0.clone())).show_ui(
-                    ui,
-                    |ui| {
+                egui::ComboBox::from_id_salt("cv_dv_speed")
+                    .selected_text(speeds.get(d.speed).map_or(String::new(), |s| s.0.clone()))
+                    .show_ui(ui, |ui| {
                         for (i, (label, _)) in speeds.iter().enumerate() {
                             if ui.selectable_label(i == d.speed, label).clicked() {
                                 acts.push(("civil.drive", format!("speed={i}")));
                             }
                         }
-                    },
-                );
+                    });
                 if ui.add(crate::shell::Btn::new(t0("dv.stop"))).clicked() {
                     acts.push(("civil.drive", "off".into()));
                 }

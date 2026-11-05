@@ -359,6 +359,21 @@ pub fn date_time_en(local: f64) -> String {
     format!("{}, {h12}:{mi:02} {ampm}", short_date_en(local))
 }
 
+/// `d.toLocaleString()` of a wall-clock time (`zone.local_ms(t)`) in the language now (the browser's locale in 0.5):
+/// en-US "10/12/2026, 6:00:00 AM", es-MX "12/10/2026, 6:00:00 a.m." (V8's ICU, plain spaces). Spec gap: years before 1
+/// print as plain numbers here.
+pub fn locale_string(local: f64) -> String {
+    let (y, mo, d, h, mi, sec, _) = civil(local);
+    let h12 = if h % 12 == 0 { 12 } else { h % 12 };
+    if cc_lang::is_es() {
+        let ampm = if h < 12 { "a.m." } else { "p.m." };
+        format!("{d}/{mo}/{y}, {h12}:{mi:02}:{sec:02} {ampm}")
+    } else {
+        let ampm = if h < 12 { "AM" } else { "PM" };
+        format!("{mo}/{d}/{y}, {h12}:{mi:02}:{sec:02} {ampm}")
+    }
+}
+
 /// A float the caller has range-checked (or clamps here: NaN and negatives → 0, above 9·10^15 → 9·10^15) as u64.
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 pub fn f2u(x: f64) -> u64 {
@@ -378,6 +393,31 @@ pub fn next_i(i: usize, n: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `toLocaleString()` as node 24 prints it under `TZ=` each zone (en-US, es-MX).
+    #[test]
+    fn locale_strings_in_four_zones() {
+        use cc_clock::Zone;
+        let t = 1_791_806_400_000.0;
+        let en = [
+            (0, "10/12/2026, 12:00:00 PM"),
+            (-360, "10/12/2026, 6:00:00 AM"),
+            (330, "10/12/2026, 5:30:00 PM"),
+            (780, "10/13/2026, 1:00:00 AM"),
+        ];
+        for (off, want) in en {
+            assert_eq!(cc_lang::with(cc_lang::Locale::En, || locale_string(Zone::Fixed(off).local_ms(t))), want);
+        }
+        let es = [
+            (0, "12/10/2026, 12:00:00 p.m."),
+            (-360, "12/10/2026, 6:00:00 a.m."),
+            (330, "12/10/2026, 5:30:00 p.m."),
+            (780, "13/10/2026, 1:00:00 a.m."),
+        ];
+        for (off, want) in es {
+            assert_eq!(cc_lang::with(cc_lang::Locale::EsMx, || locale_string(Zone::Fixed(off).local_ms(t))), want);
+        }
+    }
     #[test]
     fn dates() {
         let t = parse_date("2026-10-10T12:30:00Z");

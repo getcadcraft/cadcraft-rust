@@ -139,3 +139,35 @@ fn a_loop_that_grows_the_drawing_ends_at_the_step_budget() {
     let n = count(&eng);
     assert!(n > 0 && n < 2_000, "{n}");
 }
+
+/// CDATE is the local time (host-cad.js: `getFullYear()` … `getHours()` of `new Date()`), DATE the Julian day (UTC).
+/// Expected values: the frozen JS's CDATE expression run under `TZ=` each zone (node, 2026-11-05).
+#[test]
+fn cdate_is_local_time_in_four_zones() {
+    use cc_clock::Zone;
+    type Case = (&'static str, i32, [f64; 3]);
+    let cases: [Case; 4] = [
+        ("UTC", 0, [20261012.12, 20260308.095959, 20261231.23595999]),
+        ("America/Denver", -360, [20261012.06, 20260308.035959, 20261231.16595999]),
+        ("Asia/Kolkata", 330, [20261012.173, 20260308.152959, 20270101.05295999]),
+        ("Pacific/Auckland", 780, [20261013.01, 20260308.225959, 20270101.12595999]),
+    ];
+    let times = [1_791_806_400_000.0, 1_772_963_999_000.0, 1_798_761_599_990.0];
+    for (name, _, want) in cases {
+        for (t, w) in times.iter().zip(want) {
+            // the machine's zone (System), as the window runs without app.tz
+            let got = cc_clock::with_zone_name(name, || cc_engine::lisp::host::cdate(*t, Zone::System)).unwrap();
+            assert_eq!(got, w, "{name} at {t}");
+        }
+    }
+    // a fixed zone (app.tz) reaches CDATE through the engine; DATE stays UTC
+    for (name, off, want) in cases {
+        let (mut eng, log) = engine();
+        eng.set_clock(Some((times[0], Zone::Fixed(off))));
+        assert!(eng.lisp_line("(princ (rtos (getvar \"CDATE\") 2 6))"));
+        assert!(log.borrow().printed.iter().any(|l| l.contains(&format!("{:.6}", want[0]))), "{name}: {:?}", log.borrow().printed);
+        let (mut eng, _) = engine();
+        eng.set_zone(Some(Zone::Fixed(off)));
+        assert!(eng.lisp_line("(setq d (getvar \"CDATE\"))"));
+    }
+}

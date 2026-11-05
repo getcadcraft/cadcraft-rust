@@ -800,12 +800,7 @@ fn archive(app: &mut UiApp) -> Result<(), String> {
     let now = now_ms();
     // the note's date as toISOString gives it (UTC); the zip's time and date on the local clock (as JS's getHours …)
     let today = iso_date(now);
-    let local = cc_clock::Zone::System.local_ms(now);
-    let (y, mo, d, h, mi, s) = civil(local);
-    let when = io::DosTime {
-        time: u16::try_from((h << 11) | (mi << 5) | (s >> 1)).unwrap_or(0),
-        date: u16::try_from(((y.saturating_sub(1980).max(0)) << 9) | (mo << 5) | d).unwrap_or(0),
-    };
+    let when = dos_time(now, app.zone);
     let text = ss::write_sheet_set(&set);
     let a = io::archive_set(&set, &mut f, &app.sheetset.set_file.clone(), Some(&text), &read_model, &today, when, &l);
     for n in &a.notes {
@@ -831,6 +826,15 @@ fn archive(app: &mut UiApp) -> Result<(), String> {
 }
 
 /// Civil fields (y, m, d, h, min, s) of a time value in ms read as UTC.
+/// sheetset-archive.js's zip time and date: `getHours()` … `getDate()` of now, on the local clock of `zone`.
+fn dos_time(now: f64, zone: cc_clock::Zone) -> io::DosTime {
+    let (y, mo, d, h, mi, s) = civil(zone.local_ms(now));
+    io::DosTime {
+        time: u16::try_from((h << 11) | (mi << 5) | (s >> 1)).unwrap_or(0),
+        date: u16::try_from(((y.saturating_sub(1980).max(0)) << 9) | (mo << 5) | d).unwrap_or(0),
+    }
+}
+
 fn civil(ms: f64) -> (i64, i64, i64, i64, i64, i64) {
     let ms = if ms.is_finite() { ms } else { 0.0 };
     // a time value fits i64 milliseconds
@@ -1353,7 +1357,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     field(ui, &t("sheetset.f.title"), title, false);
                     ui.label(t("sheetset.f.template"));
                     let cur = choices.iter().find(|(v, _)| v == template).map(|x| x.1.clone()).unwrap_or_default();
-                    egui::ComboBox::new("ss_tpl", "").selected_text(cur).width(300.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("ss_tpl").selected_text(cur).width(300.0).show_ui(ui, |ui| {
                         for (v, l) in choices.iter() {
                             if ui.selectable_label(v == template, l).clicked() {
                                 *template = v.clone();
@@ -1422,7 +1426,7 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
                     ui.label(t("sheetset.f.layoutnames"));
                     let opts = [("number-title", "sheetset.ln.numbertitle"), ("number", "sheetset.ln.number"), ("title", "sheetset.ln.title"), ("keep", "sheetset.ln.keep")];
                     let cur = opts.iter().find(|(v, _)| *v == layout_names.as_str()).map(|x| t(x.1)).unwrap_or_default();
-                    egui::ComboBox::new("ss_ln", "").selected_text(cur).width(300.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("ss_ln").selected_text(cur).width(300.0).show_ui(ui, |ui| {
                         for (v, k) in opts {
                             if ui.selectable_label(layout_names.as_str() == v, t(k)).clicked() {
                                 *layout_names = v.into();
@@ -1520,6 +1524,30 @@ fn form_window(app: &mut UiApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The archive zip's entry dates on the local clock (sheetset-archive.js `getHours()` …): the frozen JS's values
+    /// under `TZ=` each zone (node), for the machine's zone and for a fixed one (`app.tz`).
+    #[test]
+    fn archive_zip_dates_in_four_zones() {
+        let times = [1_791_806_400_000.0, 1_772_963_999_000.0, 1_798_761_599_990.0];
+        type Case = (&'static str, i32, [(u16, u16); 3]);
+        let cases: [Case; 4] = [
+            ("UTC", 0, [(24576, 23884), (20349, 23656), (49021, 23967)]),
+            ("America/Denver", -360, [(12288, 23884), (8061, 23656), (34685, 23967)]),
+            ("Asia/Kolkata", 330, [(35776, 23884), (31677, 23656), (11197, 24097)]),
+            ("Pacific/Auckland", 780, [(2048, 23885), (46973, 23656), (26493, 24097)]),
+        ];
+        for (name, off, want) in cases {
+            for (t, (time, date)) in times.iter().zip(want) {
+                let sys = cc_clock::with_zone_name(name, || dos_time(*t, cc_clock::Zone::System)).unwrap();
+                assert_eq!(sys, io::DosTime { time, date }, "{name} at {t}");
+                // Denver's daylight time ends before the last instant: a fixed offset is a fixed offset
+                if name != "America/Denver" || *t < 1_790_000_000_000.0 {
+                    assert_eq!(dos_time(*t, cc_clock::Zone::Fixed(off)), io::DosTime { time, date }, "{name} fixed at {t}");
+                }
+            }
+        }
+    }
 
     /// M4.60: a folder the browser picked — read only (`<input webkitdirectory>`) or written in place (the directory
     /// picker) — opens a set, starts one, and saves the set file through the folder's writer.

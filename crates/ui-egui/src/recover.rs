@@ -545,7 +545,7 @@ fn open_recovered(app: &mut UiApp, rec: &Rec, data: &[u8]) -> Result<(), String>
     let mut doc = cc_cad::Doc::new();
     doc.load(&input);
     drop(input);
-    let ed = edit::Editor::new(doc, &name);
+    let mut ed = edit::Editor::new(doc, &name);
     // recovered work is not saved to a file yet (0.5: doc.savedVersion = -1)
     ed.eng.doc_mut().saved_version = u64::MAX;
     let key = editor_key(&ed);
@@ -577,6 +577,7 @@ fn open_recovered(app: &mut UiApp, rec: &Rec, data: &[u8]) -> Result<(), String>
     app.pdf = None;
     app.source = None;
     crate::edit::carry_history(&ed, app.editor.as_ref());
+    ed.eng.set_zone(Some(app.zone));
     app.editor = Some(ed);
     app.doc = None;
     app.sync_editor();

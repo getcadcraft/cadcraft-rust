@@ -534,9 +534,12 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(t("appload.history.none")).color(tok.text_dim));
         }
         egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
+            let zone = app.zone;
             for k in &app.lisp.history {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&k.name).monospace());
+                    // appload.js: `new Date(f.at || 0).toLocaleString()`, on the local clock
+                    ui.label(RichText::new(cc_markup::js::locale_string(zone.local_ms(k.at))).color(tok.text_dim));
                     if ui.small_button(t("appload.loadagain")).clicked() {
                         act = Some(("lisp.history.load", k.name.clone()));
                     }

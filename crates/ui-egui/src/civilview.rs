@@ -2931,6 +2931,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut cmd: Vec<(&'static str, Params)> = Vec::new();
     let mut save_file: Option<(String, Vec<u8>)> = None;
     let frame_started = web_time::Instant::now();
+    let zone = app.zone;
     crate::civilcrs::poll_host(app);
     if let Some(cv) = app.civil.as_mut() {
         // 0.7's toolbar (CivilCraft ui.inc: File, Surface, Design, Edit, View), then a row for GIS, Settings and the
@@ -2998,7 +2999,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                             cmd.push(("civil.exag", Params { factor: Some(ex), ..Default::default() }));
                         }
                         let mut bacts = Vec::new();
-                        crate::civildrive::bar(cv, ui, &mut bacts);
+                        crate::civildrive::bar(cv, ui, &mut bacts, zone);
                         for (id, k) in bacts {
                             cmd.push((id, Params { name: Some(k), ..Default::default() }));
                         }

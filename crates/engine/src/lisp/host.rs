@@ -1882,7 +1882,7 @@ impl CadHost {
                 Pv::Num(now / 86_400_000.0 + 2_440_587.5)
             }
             "CDATE" => {
-                let (now, zone) = st.clock.unwrap_or((cc_clock::now_ms(), cc_clock::Zone::System));
+                let (now, zone) = st.clock.unwrap_or((cc_clock::now_ms(), st.zone.unwrap_or(cc_clock::Zone::System)));
                 Pv::Num(cdate(now, zone))
             }
             "MILLISECS" => {

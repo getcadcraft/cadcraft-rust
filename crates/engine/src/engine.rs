@@ -560,6 +560,8 @@ pub struct State {
     pub wants_poll: bool,
     /// the time and zone DATE / CDATE read (the host's clock; None = the system's)
     pub clock: Option<(f64, cc_clock::Zone)>,
+    /// the zone CDATE reads the system's clock in when no clock is set (`app.tz`; None = the machine's)
+    pub zone: Option<cc_clock::Zone>,
     /// the interpreter's caps (None: cc-lisp's defaults)
     pub lisp_limits: Option<cc_lisp::Limits>,
 }
@@ -966,6 +968,11 @@ impl Engine {
     /// The time and zone DATE / CDATE read (None: the system's clock and zone).
     pub fn set_clock(&mut self, clock: Option<(f64, cc_clock::Zone)>) {
         self.sh.st.borrow_mut().clock = clock;
+    }
+
+    /// The zone CDATE's local time is read in (the window's `app.tz`; None = the machine's).
+    pub fn set_zone(&mut self, zone: Option<cc_clock::Zone>) {
+        self.sh.st.borrow_mut().zone = zone;
     }
 
     /// A routine paused for the window (every few thousand steps): let it run on. → true when it is still busy.
