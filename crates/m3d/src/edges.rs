@@ -282,12 +282,13 @@ pub fn reface(def: &mut Def, plane: &Plane, new_edges: &IdSet, hint: Option<P3>)
         cycles = walk_cycles(def, &live, &p2);
         let mut bridges = IdSet::new();
         for c in &cycles {
-            let mut seen = IdSet::new();
+            // M6.36: a small set per cycle (an IdSet's index is as long as the largest id: one per cycle of a big
+            // grid ran the process out of memory)
+            let mut seen: FxMap<u64, ()> = FxMap::default();
             for &e in &c.edges {
-                if seen.has(e) {
+                if seen.insert(kb(e), ()).is_some() {
                     bridges.add(e);
                 }
-                seen.add(e);
             }
         }
         if bridges.is_empty() {
@@ -300,12 +301,14 @@ pub fn reface(def: &mut Def, plane: &Plane, new_edges: &IdSet, hint: Option<P3>)
     let pos: Vec<&Cycle> = cycles.iter().filter(|c| c.area > EPS2).collect();
     let negs: Vec<&Cycle> = cycles.iter().filter(|c| c.area < -EPS2).collect();
     let mut holes_of: Vec<Vec<usize>> = vec![Vec::new(); pos.len()];
-    let pos_sets: Vec<IdSet> = pos.iter().map(|c| IdSet::from_iter_ids(c.verts.iter().copied())).collect();
+    // M6.36: hash sets, sized by the cycle, not by the largest vertex id (80,000 dense sets of a 200 × 200 grid's
+    // cycles took 78 GB)
+    let pos_sets: Vec<FxMap<u64, ()>> = pos.iter().map(|c| c.verts.iter().map(|&v| (kb(v), ())).collect()).collect();
     for (hi, h) in negs.iter().enumerate() {
         let mut best: Option<usize> = None;
         for (ci, c) in pos.iter().enumerate() {
             let Some(vs) = pos_sets.get(ci) else { continue };
-            let Some(probe) = h.verts.iter().copied().find(|&v| !vs.has(v)) else { continue };
+            let Some(probe) = h.verts.iter().copied().find(|&v| !vs.contains_key(&kb(v))) else { continue };
             let pp = p2.get(probe).copied().unwrap_or([f64::NAN; 2]);
             if !in_poly(pp, &c.poly) {
                 continue;

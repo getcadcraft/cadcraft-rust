@@ -156,6 +156,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "m3d_terrain"
+path = "fuzz_targets/m3d_terrain.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "m3d_import"
 path = "fuzz_targets/m3d_import.rs"
 test = false

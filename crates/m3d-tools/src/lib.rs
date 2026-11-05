@@ -36,6 +36,7 @@ pub mod collide;
 pub mod dynamic;
 pub mod entourage;
 pub mod fuzzdrive;
+pub mod fuzzterrain;
 pub mod i18n;
 pub mod infer;
 pub mod js;

@@ -116,3 +116,42 @@ fn nan_split_edges_do_not_multiply() {
     assert!(d.edges.len() < 8 * cc_m3d::edges::MAX_NAN_EDGES, "{} edges", d.edges.len());
     assert!(t.elapsed().as_secs() < 10);
 }
+
+/// M6.36: re-facing a plane kept one id set per cycle, indexed by id: 80,000 cycles of a 200 × 200 terrain grid in a
+/// model with 240,000 ids asked for 78 GB, and Fix (the solid checker) was killed for want of memory. A 150 × 150 grid
+/// of loose edges whose ids sit near 2^20 (the end of the dense range) asked for 94 GB; now a few megabytes.
+#[test]
+fn reface_big_grid_with_high_ids() {
+    let n = 150usize;
+    let base = 1_000_000usize;
+    let vid = |i: usize, j: usize| base + i * (n + 1) + j;
+    let mut verts = Vec::new();
+    for i in 0..=n {
+        for j in 0..=n {
+            verts.push(json!([vid(i, j), i as f64 * 0.1, j as f64 * 0.1, 0.0]));
+        }
+    }
+    let mut edges = Vec::new();
+    let mut eid = base + (n + 1) * (n + 1);
+    for i in 0..=n {
+        for j in 0..=n {
+            if i < n {
+                edges.push(json!([eid, vid(i, j), vid(i + 1, j)]));
+                eid += 1;
+            }
+            if j < n {
+                edges.push(json!([eid, vid(i, j), vid(i, j + 1)]));
+                eid += 1;
+            }
+        }
+    }
+    let defs = vec![json!({ "id": "root", "next": eid, "verts": verts, "edges": edges })];
+    let mut m = Model::new();
+    m.load(&file(defs), false).unwrap();
+    let d = m.def_mut("root").unwrap();
+    let all = cc_m3d::omap::IdSet::from_iter_ids(d.edges.keys());
+    let t = std::time::Instant::now();
+    assert!(cc_m3d::edges::reface(d, &cc_m3d::vec::plane_from([0.0, 0.0, 1.0], [0.0, 0.0, 0.0]), &all, None));
+    assert_eq!(d.faces.len(), n * n);
+    assert!(t.elapsed().as_secs() < 60, "{:?}", t.elapsed());
+}
