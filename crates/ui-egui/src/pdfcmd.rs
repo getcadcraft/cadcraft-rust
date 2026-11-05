@@ -91,10 +91,15 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64);
         let outs = app.pdf.as_mut().ok_or("markup.save: open a PDF first")?.save_files(now)?;
         let save = app.services.save.as_mut().ok_or("markup.save: saving is not available here")?;
+        let mut done = Vec::new();
         for (file, bytes) in outs {
             if let Some(to) = save(&file, bytes)? {
-                app.message = format!("Saved {to}");
+                done.push(to);
             }
+        }
+        // markupcraft.js save: save.done with the files saved
+        if !done.is_empty() {
+            app.message = crate::lang::t(&crate::lang::MARKUPCRAFT, "save.done", &[("list", done.join("; "))]);
         }
         return Ok(());
     }

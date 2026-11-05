@@ -274,7 +274,8 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
             };
             let save = app.services.save.as_mut().ok_or("Saving is not available here.")?;
             if let Some(to) = save(&name, csv.into_bytes())? {
-                app.message = format!("Saved {to}");
+                // 0.5 downloads the credits without a word; the window says it as COUNT does (count.saved)
+                app.message = tv("count.saved", &[("name", to)]);
             }
         }
         other => return Err(format!("unknown command {other}")),
@@ -546,7 +547,7 @@ fn lib_window(app: &mut UiApp, ctx: &egui::Context) {
                 };
                 if !cats.is_empty() {
                     let cur = if lib.category.is_empty() { t("lib.panel.every_category") } else { lib.category.clone() };
-                    egui::ComboBox::new("lib_cat", "").selected_text(cur).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("lib_cat").selected_text(cur).show_ui(ui, |ui| {
                         if ui.selectable_label(lib.category.is_empty(), t("lib.panel.every_category")).clicked() {
                             act.push(("lib.category", String::new()));
                         }

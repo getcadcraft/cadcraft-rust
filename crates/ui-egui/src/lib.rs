@@ -400,6 +400,99 @@ pub const UI_COMMANDS: &[(&str, &str, &str, &str)] = &[
     ),
 ];
 
+/// modelcraft.js importFile's message for an import (`app.import.skp.done`, `app.import.dae`, `app.import.site` …):
+/// what came in, what was converted, what was left out. Spec gap: 0.5's DWG note on dynamic blocks is not added.
+fn import_said(fmt: &str, file: &str, x: &cc_io_m3d::obj::Imported, model: &cc_m3d::model::Model) -> String {
+    use crate::mcact::ns;
+    use crate::modelcraft::mt;
+    let rep = &x.report;
+    let num = |k: &str| rep.get(k).and_then(serde_json::Value::as_f64).unwrap_or(0.0);
+    let s = |v: f64| ns(v);
+    let def = model.def(&x.def);
+    let (faces, edges) = def.map_or((0.0, 0.0), |d| (d.faces.len() as f64, d.edges.len() as f64));
+    let skipped = {
+        let list: Vec<String> = rep
+            .get("skipped")
+            .and_then(serde_json::Value::as_object)
+            .map(|m| {
+                m.iter()
+                    .filter(|(_, n)| n.as_f64().is_some_and(|n| n != 0.0))
+                    .map(|(k, n)| format!("{} {k}", ns(n.as_f64().unwrap_or(0.0))))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if list.is_empty() { String::new() } else { format!(" {}", mt("app.import.skipped", &[("list", &list.join(", "))])) }
+    };
+    let mut out = match fmt {
+        "skp" | "skpjson" => {
+            let version = rep.get("version").and_then(serde_json::Value::as_str).unwrap_or("");
+            let mut m = mt(
+                "app.import.skp.done",
+                &[("file", file), ("version", version), ("faces", &s(num("faces"))), ("n", &s(num("components")))],
+            );
+            for (k, key) in [("tags", "app.import.skp.tags"), ("hidden", "app.import.skp.hidden"), ("untagged", "app.import.skp.untagged")]
+            {
+                if num(k) != 0.0 {
+                    m.push(' ');
+                    m.push_str(&mt(key, &[("n", &s(num(k)))]));
+                }
+            }
+            let kept = num("texturedKept");
+            if kept != 0.0 {
+                m.push(' ');
+                m.push_str(&mt("app.import.skp.textures_kept", &[("n", &s(kept))]));
+            }
+            if num("textured") > kept {
+                m.push(' ');
+                m.push_str(&mt("app.import.skp.textures", &[("n", &s(num("textured") - kept))]));
+            }
+            m
+        }
+        "dae" => {
+            let up = rep.get("up").and_then(serde_json::Value::as_str).unwrap_or("Z_UP");
+            let meter = num("meter");
+            let mut conv = Vec::new();
+            if up != "Z_UP" {
+                conv.push(mt("app.import.dae.up", &[("axis", if up == "Y_UP" { "Y" } else { "X" })]));
+            }
+            if meter != 1.0 {
+                conv.push(mt("app.import.dae.unit", &[("m", &s(meter))]));
+            }
+            let mut m = if num("components") != 0.0 {
+                mt("app.import.dae.comps", &[("file", file), ("faces", &s(num("faces"))), ("n", &s(num("components")))])
+            } else {
+                mt("app.import.dae", &[("file", file), ("n", &s(num("faces")))])
+            };
+            if !conv.is_empty() {
+                m.push(' ');
+                m.push_str(&mt("app.import.dae.converted", &[("how", &conv.join(", "))]));
+            }
+            m
+        }
+        "dxf" | "dwg" | "dwgjson" => {
+            if edges == 0.0 {
+                mt("app.import.site.empty", &[("file", file)])
+            } else {
+                let mut m = mt("app.import.site", &[("file", file), ("edges", &s(edges))]);
+                if faces != 0.0 {
+                    m.push(' ');
+                    m.push_str(&mt("app.import.site.faces", &[("n", &s(faces))]));
+                }
+                if num("texts") != 0.0 {
+                    m.push(' ');
+                    m.push_str(&mt("app.import.site.texts", &[("n", &s(num("texts")))]));
+                }
+                m.push(' ');
+                m.push_str(&mt("app.import.site.group", &[]));
+                m
+            }
+        }
+        _ => mt("app.import.dae", &[("file", file), ("n", &s(faces))]),
+    };
+    out.push_str(&skipped);
+    out
+}
+
 /// The built-in sample (CadCraft's own public fixture, base-plan.dwg).
 pub static SAMPLE_DWG: &[u8] = include_bytes!("../../../assets/samples/kitchen-equipment.dwg");
 /// The drawing the sample links (xref "base-plan").
@@ -888,18 +981,20 @@ impl UiApp {
             None => cc_m3d::model::Model::new(),
         };
         match cc_m3d_files::run_import(&mut model, fmt, &input, &name, None) {
-            Ok(_) => {
+            Ok(x) => {
                 let ms = t0.elapsed().as_secs_f64() * 1000.0;
+                // modelcraft.js importFile's words for what came in
+                let said = import_said(fmt, &f.name, &x, &model);
                 if into_open {
                     if let Some(mc) = self.mc.as_mut() {
                         mc.tools.host.set_model(model);
-                        mc.message = format!("Imported {} in {ms:.0} ms", f.name);
+                        mc.message = said;
                     }
                 } else {
                     let t1 = web_time::Instant::now();
                     self.show_model(model, &name);
                     self.open_split = format!("import {ms:.1} ms, view {:.1} ms", t1.elapsed().as_secs_f64() * 1000.0);
-                    self.message = format!("Opened {} in {ms:.0} ms", f.name);
+                    self.message = said;
                 }
             }
             Err(e) => self.error = Some(format!("{}: {}", f.name, cc_m3d_files::err_text(&e))),
@@ -1442,8 +1537,18 @@ impl UiApp {
         let save = self.services.save.as_mut().ok_or("file.save: saving is not available here")?;
         if let Some(to) = save(&name, bytes)? {
             self.save_format = format.to_string();
-            let label = if format.starts_with("dxf") { format.replace("dxf", "DXF ") } else { format!("DWG {format}") };
-            self.message = format!("Saved {to} ({label}, {:.0} KB) in {ms:.0} ms", size as f64 / 1024.0);
+            // cadcraft.js saveFile: `app.save.written` with FORMATS[format].label()
+            let label = match format {
+                "dxf12" | "dxf" => "DXF R12".to_string(),
+                "dxf2000" => lang::cad("save.format.dxf2000"),
+                v => lang::t(
+                    &lang::CADCRAFT,
+                    "save.format.dwg",
+                    &[("version", lang::t(&lang::CADCRAFT, "dwg.version", &[("v", v.to_string())]))],
+                ),
+            };
+            self.message = lang::t(&lang::CADCRAFT, "app.save.written", &[("file", to.clone()), ("format", label)]);
+            let _ = (ms, size);
             if let Some(ed) = self.editor.as_mut() {
                 ed.eng.doc_mut().mark_saved();
             }
@@ -1795,7 +1900,8 @@ impl UiApp {
                 let save = self.services.save.as_mut().ok_or("takeoff.export: saving is not available here")?;
                 for (name, bytes) in outs {
                     if let Some(to) = save(&name, bytes)? {
-                        self.message = format!("Saved {to}");
+                        // takeoffcraft.js: file.written
+                        self.message = cc_takeoff::i18n::tf("file.written", &[("file", cc_takeoff::i18n::F::S(to))]);
                     }
                 }
             }
@@ -2206,7 +2312,8 @@ impl UiApp {
         let blob = ed.hs.borrow_mut().blob.take();
         if let Some((name, bytes)) = blob {
             match self.services.save.as_mut().map(|f| f(&name, bytes)) {
-                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                // cadcraft.js COUNT / PUBLISH downloads: count.saved
+                Some(Ok(Some(to))) => self.message = lang::t(&lang::CADCRAFT, "count.saved", &[("name", to)]),
                 Some(Ok(None)) => {}
                 Some(Err(e)) => self.error = Some(e),
                 None => self.error = Some("Saving is not available here".into()),
@@ -2561,7 +2668,10 @@ impl UiApp {
                     Ok(outs) => {
                         for (name, bytes) in outs {
                             match self.services.save.as_mut().map(|f| f(&name, bytes)) {
-                                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                                // takeoffcraft.js: file.written
+                                Some(Ok(Some(to))) => {
+                                    self.message = cc_takeoff::i18n::tf("file.written", &[("file", cc_takeoff::i18n::F::S(to))])
+                                }
                                 Some(Ok(None)) => {}
                                 Some(Err(e)) => self.error = Some(e),
                                 None => self.error = Some("Saving is not available here".into()),
@@ -2574,13 +2684,18 @@ impl UiApp {
             if save {
                 match pdf.save_files(now) {
                     Ok(outs) => {
+                        let mut done = Vec::new();
                         for (name, bytes) in outs {
                             match self.services.save.as_mut().map(|f| f(&name, bytes)) {
-                                Some(Ok(Some(to))) => self.message = format!("Saved {to}"),
+                                Some(Ok(Some(to))) => done.push(to),
                                 Some(Ok(None)) => {}
                                 Some(Err(e)) => self.error = Some(e),
                                 None => self.error = Some("Saving is not available here".into()),
                             }
+                        }
+                        // markupcraft.js save: save.done with the files saved
+                        if !done.is_empty() {
+                            self.message = lang::t(&lang::MARKUPCRAFT, "save.done", &[("list", done.join("; "))]);
                         }
                     }
                     Err(e) => self.error = Some(e),

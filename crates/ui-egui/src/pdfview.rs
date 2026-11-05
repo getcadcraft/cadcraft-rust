@@ -1564,13 +1564,17 @@ impl PdfView {
     pub fn status(&self) -> String {
         let p = self.cur.pages.get(self.page);
         let label = p.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| format!("{}", self.page + 1));
+        // markupcraft.js's sheet nav (nav.label.sheet), zoom (nav.zoom) and hint (hint.zoom) words; the page size and
+        // the render time are the fork's own numbers
+        let mk = |k: &str, v: &[(&str, String)]| crate::lang::t(&crate::lang::MARKUPCRAFT, k, v);
+        let sheet = mk("nav.label.sheet", &[("i", (self.page + 1).to_string()), ("n", self.cur.pages.len().to_string()), ("title", label)]);
+        let hint = mk("hint.zoom", &[("space", "Space".into()), ("pgup", "Page Up".into()), ("pgdn", "Page Down".into())]);
         format!(
-            "{}: sheet {label} ({} of {}) · {:.0} × {:.0} pt · zoom {:.0}% · render {:.0} ms · drag pans, wheel zooms, Page Up / Down",
+            "{}: {sheet} · {:.0} × {:.0} pt · {} {:.0}% · render {:.0} ms · {hint}",
             self.cur.name,
-            self.page + 1,
-            self.cur.pages.len(),
             p.map_or(0.0, |p| p.width),
             p.map_or(0.0, |p| p.height),
+            mk("nav.zoom", &[]),
             self.zoom * 100.0,
             self.render_ms
         )
