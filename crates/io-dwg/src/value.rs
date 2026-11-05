@@ -36,6 +36,20 @@ impl Obj {
     pub fn get(&self, k: &str) -> Option<&V> {
         self.0.iter().find(|(kk, _)| kk == k).map(|(_, v)| v)
     }
+    /// [`Obj::get`] looking first where the key was in the object before (`hint`, updated): the objects of one kind come
+    /// from one reader with their keys in one order, so a run of lookups over them finds the key at once (a JS
+    /// engine's property cache). An object's keys are unique (a JS object's: `set` replaces, the readers copy unique
+    /// keys), so the key at the hint is the one `get` finds.
+    pub fn get_at(&self, k: &str, hint: &mut usize) -> Option<&V> {
+        if let Some((kk, v)) = self.0.get(*hint)
+            && kk == k
+        {
+            return Some(v);
+        }
+        let i = self.0.iter().position(|(kk, _)| kk == k)?;
+        *hint = i;
+        self.0.get(i).map(|(_, v)| v)
+    }
     pub fn get_mut(&mut self, k: &str) -> Option<&mut V> {
         self.0.iter_mut().find(|(kk, _)| kk == k).map(|(_, v)| v)
     }

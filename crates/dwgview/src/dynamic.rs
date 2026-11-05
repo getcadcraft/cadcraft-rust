@@ -76,6 +76,9 @@ pub fn visibility_of(block: &Obj) -> Option<Visibility> {
 pub struct Defs<'a> {
     pub defs: HashMap<String, DynDef<'a>>,
     by_name: HashMap<&'a str, &'a Obj>,
+    /// a reference's visibility state when its own `dyn` names none: the same for every reference of a block (its
+    /// entities against its definition's), worked out once per (block, definition) (S.10: Properties of a pick)
+    states: std::cell::RefCell<HashMap<(usize, usize), Option<String>>>,
 }
 
 pub fn dynamic_defs(model: &Obj) -> Defs<'_> {
@@ -128,6 +131,17 @@ pub fn dynamic_of(model: &Obj, insert: &Obj, defs: &Defs<'_>) -> Option<DynInfo>
         Some(V::Str(s)) if !s.is_empty() => Some(s.clone()),
         _ => None,
     };
+    let memo_key = blk.map(|b| (std::ptr::from_ref(b) as usize, std::ptr::from_ref(def.block) as usize));
+    if state.is_none()
+        && def.vis.is_some()
+        && let Some(k) = memo_key
+        && let Some(st) = defs.states.borrow().get(&k)
+    {
+        state = st.clone();
+        let states: Vec<String> = def.vis.as_ref().map(|v| v.states.iter().map(|(n, _)| n.clone()).collect()).unwrap_or_default();
+        let others = states.iter().filter(|s| Some(*s) != state.as_ref()).cloned().collect();
+        return Some(DynInfo { name: def.name.clone(), label: def.vis.as_ref().and_then(|v| v.label.clone()), state, states, others });
+    }
     if state.is_none()
         && let (Some(vis), Some(blk)) = (&def.vis, blk)
     {
@@ -157,6 +171,9 @@ pub fn dynamic_of(model: &Obj, insert: &Obj, defs: &Defs<'_>) -> Option<DynInfo>
                 .collect()
         };
         state = state_for(vis, &shown);
+        if let Some(k) = memo_key {
+            defs.states.borrow_mut().insert(k, state.clone());
+        }
     }
     let states: Vec<String> = def.vis.as_ref().map(|v| v.states.iter().map(|(n, _)| n.clone()).collect()).unwrap_or_default();
     let others = states.iter().filter(|s| Some(*s) != state.as_ref()).cloned().collect();

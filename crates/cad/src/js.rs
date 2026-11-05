@@ -323,17 +323,36 @@ pub fn to_fixed(x: f64, f: usize) -> String {
     if x.abs() >= 1e21 {
         return num_to_string(x);
     }
-    const EXTRA: usize = 25;
-    if f > 100 {
+    if f > 100 || fixed_tie(x.abs(), f) {
         return to_fixed_exact(x, f);
     }
-    let s = format!("{:.*}", f.saturating_add(EXTRA), x.abs());
-    let (ip, fp) = s.split_once('.').unwrap_or((s.as_str(), ""));
-    let fb = fp.as_bytes();
-    if fb.get(f) == Some(&b'5') && fb.get(f.saturating_add(1)..).is_some_and(|r| r.iter().all(|&c| c == b'0')) {
-        return to_fixed_exact(x, f);
+    // no exact tie: Rust's correctly rounded `{:.f}` is the nearest, as toFixed's n (S.10; it was `{:.(f+25)}` and a
+    // look at the tail)
+    let s = format!("{:.*}", f, x.abs());
+    if x < 0.0 {
+        let mut out = String::with_capacity(s.len().saturating_add(1));
+        out.push('-');
+        out.push_str(&s);
+        return out;
     }
-    fixed_from(x < 0.0, ip, fp, f)
+    s
+}
+
+/// Is |x| · 10^f exactly halfway between two integers (where toFixed takes the larger, Rust's formatting the even)?
+/// With |x| = m · 2^e, m odd: |x| · 2 · 10^f = m · 5^f · 2^(e + 1 + f) is an odd integer only when e = −(f + 1).
+fn fixed_tie(a: f64, f: usize) -> bool {
+    if !a.is_finite() || a == 0.0 {
+        return false;
+    }
+    const FRAC: u64 = 0x000f_ffff_ffff_ffff;
+    const HIDDEN: u64 = 0x0010_0000_0000_0000;
+    let bits = a.to_bits();
+    let exp = i64::try_from(bits.wrapping_shr(52) & 0x7ff).unwrap_or(0);
+    let frac = bits & FRAC;
+    // a = m · 2^e (subnormals have no hidden bit and the smallest exponent)
+    let (m, e) = if exp == 0 { (frac, -1074i64) } else { (frac | HIDDEN, exp.saturating_sub(1075)) };
+    let e = e.saturating_add(i64::from(m.trailing_zeros()));
+    e == i64::try_from(f).unwrap_or(i64::MAX).saturating_add(1).saturating_neg()
 }
 
 /// [`to_fixed`] from the exact decimal expansion (a double has at most 1074 digits after the point).
@@ -710,8 +729,31 @@ mod tests {
             s ^= s << 17;
             s
         };
-        let mut vals: Vec<f64> =
-            vec![0.0, -0.0, 0.5, 1.5, 2.5, 1.005, 0.125, 0.0625, 1e20, 9.999_999_999_999_999e20, 4.35, -4.35, 0.000_05, 5e-5];
+        let mut vals: Vec<f64> = vec![
+            0.0,
+            -0.0,
+            0.5,
+            1.5,
+            2.5,
+            1.005,
+            0.125,
+            0.0625,
+            1e20,
+            9.999_999_999_999_999e20,
+            4.35,
+            -4.35,
+            0.000_05,
+            5e-5,
+            -0.5,
+            -2.5,
+            0.375,
+            -0.375,
+            1.25,
+            1e-320,
+            -0.004,
+            0.9999999,
+            2.0f64.powi(-30),
+        ];
         for _ in 0..1000 {
             let r = next();
             vals.push(f64::from_bits(r));
@@ -721,6 +763,10 @@ mod tests {
             vals.push((r % 1_000_000) as f64 / 1024.0);
             vals.push((r >> 20) as f64 * 3.7);
             vals.push(((r % 100_000) as f64 * 0.3048 / 7.0) * if r & 1 == 1 { -1.0 } else { 1.0 });
+            // exact halves at every place count up to 30 (k / 2^(f+1)) and their neighbours
+            let k = (r % 4096) as f64 * 2.0 + 1.0;
+            let half = k / 2.0f64.powi(((r >> 40) % 31) as i32 + 1);
+            vals.extend([half, -half, f64::from_bits(half.to_bits() + 1), f64::from_bits(half.to_bits() - 1)]);
         }
         for x in vals {
             for f in [0usize, 1, 2, 3, 4, 5, 6, 8, 9, 12, 17, 20, 30] {

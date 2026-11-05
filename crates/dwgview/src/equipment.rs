@@ -242,25 +242,34 @@ pub fn equipment_list(db: &Obj, drawing: &Drawing) -> Option<EquipList> {
     let mut rows: Vec<Row> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     let mut tags = 0usize;
+    // where the keys were in the object before (the reader writes every object of a kind in one key order)
+    let (mut h_type, mut h_attribs, mut h_insert, mut h_tag, mut h_value) = (0usize, 0usize, 0usize, 0usize, 0usize);
     for e in model.arr("entities").map(Vec::as_slice).unwrap_or(&[]) {
         let Some(e) = e.as_obj() else { continue };
-        let ty = e.str("type").unwrap_or("");
+        let ty = e.get_at("type", &mut h_type).and_then(V::as_str).unwrap_or("");
         if ty != "INSERT" && ty != "MINSERT" {
             continue;
         }
-        let attribs = e.arr("attribs").map(Vec::as_slice).unwrap_or(&[]);
+        let attribs = e.get_at("attribs", &mut h_attribs).and_then(V::as_arr).map(Vec::as_slice).unwrap_or(&[]);
         if attribs.is_empty() {
             continue;
         }
         let mut a: Vec<(String, String)> = Vec::new();
         for t in attribs {
             let t = t.as_obj();
-            let tag = t.and_then(|t| t.get("tag"));
+            let tag = t.and_then(|t| t.get_at("tag", &mut h_tag));
             if !jsv::truthy(tag) {
                 continue;
             }
-            let k = jsv::to_str(tag).to_uppercase();
-            let v = clean(t.and_then(|t| t.get("value")));
+            // String(tag).toUpperCase() (a tag is nearly always upper-case ASCII already: no copy to make it)
+            let k = match tag {
+                Some(V::Str(s)) if s.bytes().all(|b| b.is_ascii() && !b.is_ascii_lowercase()) => s.clone(),
+                _ => jsv::to_str(tag).to_uppercase(),
+            };
+            let v = match t.and_then(|t| t.get_at("value", &mut h_value)) {
+                Some(V::Str(s)) => clean_str(s),
+                other => clean(other),
+            };
             match a.iter_mut().find(|(x, _)| *x == k) {
                 Some(slot) => slot.1 = v,
                 None => a.push((k, v)),
@@ -320,7 +329,7 @@ pub fn equipment_list(db: &Obj, drawing: &Drawing) -> Option<EquipList> {
             }
         };
         // `e.insert || {x: 0, y: 0}`
-        let (x, y) = match e.get("insert") {
+        let (x, y) = match e.get_at("insert", &mut h_insert) {
             Some(p) if p.truthy() => (jsv::to_num(jsv::get(Some(p), "x")), jsv::to_num(jsv::get(Some(p), "y"))),
             _ => (0.0, 0.0),
         };
