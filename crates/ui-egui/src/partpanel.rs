@@ -99,6 +99,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         }
     }
     pv.tints = ([t.accent.r(), t.accent.g(), t.accent.b(), 255], [t.row_selected.r(), t.row_selected.g(), t.row_selected.b(), 255]);
+    pv.dark = app.preset.is_dark();
     let c = t.canvas_bg;
     pv.view.style.background = [f32::from(c.r()) / 255.0, f32::from(c.g()) / 255.0, f32::from(c.b()) / 255.0, 1.0];
     pv.view.style.back = if app.preset.is_dark() { crate::model3d::BACK_MODEL } else { crate::model3d::BACK_PAPER };

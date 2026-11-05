@@ -20,6 +20,8 @@ pub struct ToolsSt {
     pub t: f64,
     pub draft: Option<StepDraft>,
     pub await_face: bool,
+    /// the move / turn gizmo (partgizmo.rs)
+    pub gizmo: Option<crate::partgizmo::Gizmo>,
 }
 
 /// asm-ui.js `st.draft`: the step being made.
@@ -76,6 +78,7 @@ fn dir_labels() -> Vec<(String, String)> {
         .map(|(k, l)| ((*k).to_string(), (*l).to_string()))
         .collect();
     v.push(("face".into(), tr("ui.asm.dir.face")));
+    v.push(("drag".into(), tr("ui.asm.dir.drag")));
     v
 }
 
@@ -83,6 +86,10 @@ impl PartView {
     /// What is drawn: the placement, or the exploded view at the slider's position (asm-ui.js `displayWorld`).
     pub fn asm_display_world(&self) -> Vec<(String, V::M4)> {
         let Some(st) = self.asm.as_ref() else { return Vec::new() };
+        // moving a part by hand shows the assembly as placed
+        if st.tools.gizmo.as_ref().is_some_and(|g| g.purpose == "move") {
+            return st.world.clone();
+        }
         match self.asm_active_view().filter(|v| !jv::arr(v.get("steps")).is_empty()) {
             Some(v) => cc_part::explode::exploded(&st.world, &cc_part::explode::offsets(Some(&v), st.tools.t)),
             None => st.world.clone(),
@@ -97,7 +104,7 @@ impl PartView {
     }
 
     /// A part copy's middle in the world (`centreOf`).
-    fn asm_centre_of(&self, iid: &str, world: &[(String, V::M4)]) -> [f64; 3] {
+    pub(crate) fn asm_centre_of(&self, iid: &str, world: &[(String, V::M4)]) -> [f64; 3] {
         let Some(st) = self.asm.as_ref() else { return [0.0; 3] };
         let pid = st.inst(iid).map(|i| js::str_of(i.get("part"))).unwrap_or_default();
         let c = st.bbox_of(&pid).map_or([0.0; 3], |(lo, hi)| [(lo[0] + hi[0]) * 0.5, (lo[1] + hi[1]) * 0.5, (lo[2] + hi[2]) * 0.5]);
@@ -108,9 +115,9 @@ impl PartView {
         }
     }
 
-    /// Esc with an assembly tool waiting (no gizmo here): whether it took the key.
+    /// Esc with an assembly tool waiting (the gizmo): whether it took the key.
     pub fn asm_tools_escape(&mut self) -> bool {
-        false
+        self.asm_gizmo_escape()
     }
 
     /// asm-ui.js `reset()`.
@@ -118,6 +125,7 @@ impl PartView {
         if let Some(st) = self.asm.as_mut() {
             st.tools = ToolsSt { t: 1.0, ..ToolsSt::default() };
         }
+        self.scene.top_lines = None;
     }
 
     /// `moveBy(id, opts, label)`.
@@ -219,13 +227,19 @@ impl PartView {
                 let about = self.asm_centre_of(iid, &world);
                 self.asm_move_by(iid, None, Some((axis, a, about)), &tr("ui.asm.turn.go"));
             }
+            // Drag to move / Drag to turn (startDrag)
+            "drag" => match value {
+                "translate" => self.asm_start_drag(iid, crate::gizmo3::Mode::Translate),
+                "rotate" => self.asm_start_drag(iid, crate::gizmo3::Mode::Rotate),
+                _ => return Err(format!("part.asm.set: drag={value}: translate or rotate")),
+            },
             _ => return Err(format!("part.asm.set: no field {field}")),
         }
         Ok(())
     }
 
     /// One exploded view changed (`setV`).
-    fn asm_set_view(&mut self, label: &str, f: impl FnOnce(&mut Value, &str) -> Result<(), String>) {
+    pub(crate) fn asm_set_view(&mut self, label: &str, f: impl FnOnce(&mut Value, &str) -> Result<(), String>) {
         let Some(vid) = self.asm_active_view().map(|v| jv::s(&v, "id").to_string()) else { return };
         let r = self.asm_commit(label, |a| f(a, &vid));
         if let Some(Err(e)) = r {
@@ -493,7 +507,7 @@ impl PartView {
                 }
             }
             "step-dir" => {
-                if !(dir_of(v).is_some() || v == "face") {
+                if !(dir_of(v).is_some() || v == "face" || v == "drag") {
                     return Err(format!("part.asm: step direction {v}"));
                 }
                 if let Some(d) = self.asm_draft() {
@@ -521,6 +535,10 @@ impl PartView {
                     self.note = tr("ui.asm.step.tick");
                     return Ok(None);
                 }
+                if d.dir == "drag" {
+                    self.asm_start_step_drag(d.insts.clone());
+                    return Ok(None);
+                }
                 let dir = if d.dir == "face" { d.face_dir } else { dir_of(&d.dir) };
                 let Some(dir) = dir else {
                     self.note = tr("ui.asm.step.face_first");
@@ -535,6 +553,8 @@ impl PartView {
                 }
                 self.asm_scene();
             }
+            // one gesture with the gizmo, in view pixels (partgizmo.rs)
+            "gizmo" => self.asm_gizmo_gesture(v)?,
             "explode-delete" => {
                 self.asm_set_view(&tr("ui.asm.undo.delete_view"), |a, vid| {
                     if let Some(l) = a.get_mut("views").and_then(Value::as_array_mut) {
@@ -1054,6 +1074,23 @@ pub fn inst_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
     if ui.add(crate::shell::Btn::new(tr("ui.asm.turn.go"))).clicked() {
         *act = cmd("part.asm.set", format!("turn={ax},{}", ang.trim()));
     }
+    // Drag to move / Drag to turn (the gizmo; filled while it is up on this copy)
+    let g = pv.gizmo().filter(|g| g.purpose == "move" && g.insts.first().is_some_and(|x| x.as_str() == iid)).map(|g| g.tc.mode);
+    ui.horizontal_wrapped(|ui| {
+        for (mode, value, stop, start) in [
+            (crate::gizmo3::Mode::Translate, "drag=translate", "ui.asm.drag.stop_move", "ui.asm.drag.move"),
+            (crate::gizmo3::Mode::Rotate, "drag=rotate", "ui.asm.drag.stop_turn", "ui.asm.drag.turn"),
+        ] {
+            let clicked = if g == Some(mode) {
+                ui.add(crate::shell::Btn::primary(tr(stop))).clicked()
+            } else {
+                ui.add(crate::shell::Btn::new(tr(start))).clicked()
+            };
+            if clicked {
+                *act = cmd("part.asm.set", value);
+            }
+        }
+    });
 }
 
 /// asm-ui.js `rootSections()`: the BOM (+ CSV) and the exploded views.
@@ -1191,6 +1228,9 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         });
     });
     ui.horizontal(|ui| {
+        if draft.dir == "drag" {
+            return;
+        }
         ui.label(tr("ui.asm.step.distance"));
         let Some(st) = pv.asm.as_mut() else { return };
         let key = format!("{vid}:dist");
@@ -1215,7 +1255,7 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         ui.label(RichText::new(words).small().color(t.text_dim));
     }
     ui.horizontal_wrapped(|ui| {
-        if ui.add(crate::shell::Btn::primary(tr("ui.asm.step.add"))).clicked() {
+        if ui.add(crate::shell::Btn::primary(tr(if draft.dir == "drag" { "ui.asm.step.drag_add" } else { "ui.asm.step.add" }))).clicked() {
             *act = cmd("part.asm", "step-add");
         }
         if ui.add(crate::shell::Btn::new(tr("ui.asm.explode.delete"))).clicked() {
@@ -1312,6 +1352,8 @@ pub fn ask_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
 
 /// The view in the assembly: hover names a part copy, a click picks one (or a joint's face), the keys.
 pub fn stage_input(ui: &egui::Ui, resp: &egui::Response, rect: egui::Rect, pv: &mut PartView, act: &mut Cmd) {
+    // the gizmo first: a press on a handle drags it (the view's click still picks, as in the 0.5 page)
+    crate::partgizmo::stage_pointer(ui, resp, rect, pv);
     let ppp = f64::from(ui.ctx().pixels_per_point());
     let px = resp.hover_pos().map(|p| (f64::from(p.x - rect.min.x) * ppp, f64::from(p.y - rect.min.y) * ppp));
     if ui.input(|i| i.pointer.delta() != egui::Vec2::ZERO) {

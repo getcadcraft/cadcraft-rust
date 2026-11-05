@@ -32,7 +32,9 @@ pub mod cad3dtab;
 pub mod cadlive;
 pub mod cadprops;
 pub mod cadset;
+pub mod gizmo3;
 pub mod inputdlg;
+pub mod partgizmo;
 pub use cc_engine::inputprof;
 pub mod canvas;
 pub mod civil3d;
@@ -1506,6 +1508,9 @@ impl UiApp {
     /// What a panel or window of the sheet view says after the last command (the Find count line, a window's text),
     /// taken once: headless traces print it next to the status line.
     pub fn trace_note(&mut self) -> String {
+        if let Some(pv) = self.part.as_mut().filter(|p| !p.trace_note.is_empty()) {
+            return std::mem::take(&mut pv.trace_note);
+        }
         self.pdf.as_mut().map(|p| std::mem::take(&mut p.note)).unwrap_or_default()
     }
 

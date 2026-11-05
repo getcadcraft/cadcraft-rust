@@ -205,6 +205,10 @@ pub struct PartView {
     pub asm_edit: Option<crate::partasm::EditPartOf>,
     /// the instance each scene instance draws, in the assembly
     pub asm_inst_ids: Vec<String>,
+    /// what the last command wants the trace to say besides the status line (the gizmo's camera)
+    pub trace_note: String,
+    /// the theme is dark (the gizmo's helper lines)
+    pub dark: bool,
 }
 
 /// Rebuilds of parts whose last rebuild took longer than this (ms) go to a thread on the desktop, so the window keeps
@@ -305,6 +309,8 @@ impl PartView {
             asm: None,
             asm_edit: None,
             asm_inst_ids: Vec::new(),
+            trace_note: String::new(),
+            dark: false,
         };
         pv.rebuild();
         pv.view.cam.fit(pv.scene.min, pv.scene.max, Some(ISO_DIR));

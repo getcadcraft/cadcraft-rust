@@ -94,6 +94,9 @@ impl GpuLines {
 /// The line pipeline.
 pub struct LinePass {
     pipe: wgpu::RenderPipeline,
+    /// the same without the depth test: lines over everything (PartCraft's move / turn gizmo, as three.js's
+    /// TransformControls draws with depthTest off)
+    pipe_top: wgpu::RenderPipeline,
     frame: wgpu::Buffer,
     bind: wgpu::BindGroup,
 }
@@ -142,47 +145,68 @@ impl LinePass {
             immediate_size: 0,
         });
         let attrs = wgpu::vertex_attr_array![0 => Float32x3, 1 => Unorm8x4];
-        let pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("cc3 lines"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs"),
-                compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
-                    array_stride: 16,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &attrs,
-                })],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: TARGET_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::LineList, cull_mode: None, ..Default::default() },
-            // reversed z: nearer is greater (no depth bias: lines cannot take one; the shader moves them a hair nearer)
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::GreaterEqual),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState { count: crate::mesh3d::SAMPLES, mask: !0, alpha_to_coverage_enabled: false },
-            multiview_mask: None,
-            cache: None,
-        });
-        LinePass { pipe, frame, bind }
+        let make = |compare: wgpu::CompareFunction| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("cc3 lines"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: 16,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &attrs,
+                    })],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: TARGET_FORMAT,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::LineList, cull_mode: None, ..Default::default() },
+                // reversed z: nearer is greater (no depth bias: lines cannot take one; the shader moves them a hair nearer)
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(compare),
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState { count: crate::mesh3d::SAMPLES, mask: !0, alpha_to_coverage_enabled: false },
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let pipe = make(wgpu::CompareFunction::GreaterEqual);
+        let pipe_top = make(wgpu::CompareFunction::Always);
+        LinePass { pipe, pipe_top, frame, bind }
     }
 
     /// Draw `lines` into `target` over what is there (seen by `cam`).
     pub fn render(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &Target3, cam: &Cam3, lines: &GpuLines) {
+        self.draw(&self.pipe, device, queue, target, cam, lines);
+    }
+
+    /// Draw `lines` over everything in `target`, the solids in front of them too (no depth test).
+    pub fn render_on_top(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &Target3, cam: &Cam3, lines: &GpuLines) {
+        self.draw(&self.pipe_top, device, queue, target, cam, lines);
+    }
+
+    fn draw(
+        &self,
+        pipe: &wgpu::RenderPipeline,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        target: &Target3,
+        cam: &Cam3,
+        lines: &GpuLines,
+    ) {
         let Some(buf) = &lines.buf else { return };
         // proj · view rotation · T(origin − eye), in f64: the big translations cancel before anything is f32
         let o = lines.origin;
@@ -209,7 +233,7 @@ impl LinePass {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.pipe);
+            pass.set_pipeline(pipe);
             pass.set_bind_group(0, &self.bind, &[]);
             pass.set_vertex_buffer(0, buf.slice(..));
             pass.draw(0..lines.count, 0..1);

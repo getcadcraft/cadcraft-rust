@@ -1192,10 +1192,13 @@ impl PartView {
             }
             "key" => match v {
                 "Escape" => {
+                    // the gizmo's Esc comes first (partcraft.js: asmTools.keydown before the assembly's keys)
+                    if self.asm_tools_escape() {
+                        return Ok(None);
+                    }
                     let Some(st) = self.asm.as_mut() else { return Ok(None) };
                     if st.joint_pick.take().is_some() {
                         self.note = tr("app.joint.cancelled");
-                    } else if self.asm_tools_escape() {
                     } else if let Some(st) = self.asm.as_mut() {
                         st.sel = None;
                     }
@@ -1217,6 +1220,8 @@ impl PartView {
     /// The assembly's scene: one mesh per part, a copy per instance at its (shown) placement.
     pub fn asm_scene(&mut self) {
         use cc_render::mesh3d::{Instance3, MeshData};
+        // asm-ui.js afterShow: the gizmo's stand-in at the middle of its parts again
+        self.asm_place_proxy();
         let Some(st) = self.asm.as_ref() else { return };
         let shown = self.asm_display_world();
         let mut meshes: Vec<MeshData> = Vec::new();

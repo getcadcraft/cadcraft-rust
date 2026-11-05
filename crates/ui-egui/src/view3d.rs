@@ -28,6 +28,8 @@ pub struct Scene3D {
     pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
     /// lines in the scene, depth-tested with it (ModelCraft's drawing axes and guide lines)
     pub lines: Option<Arc<cc_render::lines3::Lines3>>,
+    /// lines over everything, the solids in front of them too (PartCraft's move / turn gizmo)
+    pub top_lines: Option<Arc<cc_render::lines3::Lines3>>,
     /// a picture of the view asked for (TakeoffCraft's PNG): drawn again offscreen and read back into it
     pub snapshot: Option<Arc<std::sync::Mutex<Snapshot>>>,
 }
@@ -89,6 +91,7 @@ impl Scene3D {
             textures: Arc::default(),
             images: Vec::new(),
             lines: None,
+            top_lines: None,
             snapshot: None,
         }
     }
@@ -233,6 +236,9 @@ pub struct Gpu3 {
     line_pass: cc_render::lines3::LinePass,
     lines: Option<(Arc<cc_render::lines3::Lines3>, cc_render::lines3::GpuLines)>,
     shown_lines: Option<Arc<cc_render::lines3::Lines3>>,
+    /// lines over everything: on the GPU (keyed as `lines`), what the target shows
+    top: Option<(Arc<cc_render::lines3::Lines3>, cc_render::lines3::GpuLines)>,
+    shown_top: Option<Arc<cc_render::lines3::Lines3>>,
     /// pictures being read back (Snapshot)
     pending: Vec<Pending>,
 }
@@ -258,6 +264,8 @@ pub fn install(rs: &egui_wgpu::RenderState) {
         line_pass: cc_render::lines3::LinePass::new(&rs.device),
         lines: None,
         shown_lines: None,
+        top: None,
+        shown_top: None,
         pending: Vec::new(),
     };
     rs.renderer.write().callback_resources.insert(g);
@@ -384,6 +392,20 @@ impl egui_wgpu::CallbackTrait for Callback {
         if !same {
             g.shown = None;
         }
+        let tkey = self.scene.top_lines.clone();
+        if let Some(l) = &self.scene.top_lines
+            && g.top.as_ref().is_none_or(|(k, _)| !Arc::ptr_eq(k, l))
+        {
+            g.top = Some((l.clone(), cc_render::lines3::GpuLines::upload(device, l)));
+        }
+        let same_top = match (&g.shown_top, &tkey) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        };
+        if !same_top {
+            g.shown = None;
+        }
         if g.shown != Some(key)
             && let (Some((t, _)), Some(set)) = (&g.target, &g.instances)
         {
@@ -401,9 +423,13 @@ impl egui_wgpu::CallbackTrait for Callback {
             if let (Some(_), Some((_, gl))) = (&self.scene.lines, &g.lines) {
                 g.line_pass.render(device, queue, t, &self.cam, gl);
             }
+            if let (Some(_), Some((_, gl))) = (&self.scene.top_lines, &g.top) {
+                g.line_pass.render_on_top(device, queue, t, &self.cam, gl);
+            }
             g.shown = Some(key);
             g.shown_cloud = ckey;
             g.shown_lines = lkey;
+            g.shown_top = tkey;
         }
         if let Some(cap) = &self.capture {
             capture(device, queue, g, cap);
