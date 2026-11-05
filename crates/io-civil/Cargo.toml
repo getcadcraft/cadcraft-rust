@@ -39,3 +39,7 @@ zlib-rs = { version = "0.6.8", default-features = false, features = ["rust-alloc
 miniz_oxide = "0.8"
 # NFD of a character for its Helvetica width (font.js charAdvance)
 unicode-normalization = "0.1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# a point cloud's colours made side by side (S.14)
+rayon = "1"

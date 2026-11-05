@@ -709,10 +709,12 @@ pub fn colorize(cloud: &Cloud, mode: &str, color: [u8; 3]) -> Vec<u8> {
         let hi0 = quantile(&get, 0.98, n);
         let hi = if hi0 == 0.0 || hi0.is_nan() { 1.0 } else { hi0 };
         let span = (hi - lo).max(1.0);
-        for (px, v) in out.as_chunks_mut::<3>().0.iter_mut().zip(inten) {
-            let g = round(40.0 + 215.0 * ((f64::from(*v) - lo) / span).clamp(0.0, 1.0)) as u8;
-            px.copy_from_slice(&[g, g, g]);
-        }
+        each_run(&mut out, inten, 1, |out, inten| {
+            for (px, v) in out.as_chunks_mut::<3>().0.iter_mut().zip(inten) {
+                let g = round(40.0 + 215.0 * ((f64::from(*v) - lo) / span).clamp(0.0, 1.0)) as u8;
+                px.copy_from_slice(&[g, g, g]);
+            }
+        });
         return out;
     }
     // height (also rgb without colours, class without classes, intensity without intensity)
@@ -721,10 +723,28 @@ pub fn colorize(cloud: &Cloud, mode: &str, color: [u8; 3]) -> Vec<u8> {
     let hi = quantile(&get, 0.99, n);
     let d = hi - lo;
     let span = if d == 0.0 || d.is_nan() { 1.0 } else { d };
-    for (px, p) in out.as_chunks_mut::<3>().0.iter_mut().zip(cloud.pos.as_chunks::<3>().0) {
-        ramp_at((f64::from(p[2]) - lo) / span, px);
-    }
+    let fill = |out: &mut [u8], pos: &[f32]| {
+        for (px, p) in out.as_chunks_mut::<3>().0.iter_mut().zip(pos.as_chunks::<3>().0) {
+            ramp_at((f64::from(p[2]) - lo) / span, px);
+        }
+    };
+    each_run(&mut out, &cloud.pos, 3, fill);
     out
+}
+
+/// `fill(colours, positions)` over the whole cloud: in runs of 64k points side by side on the desktop (S.14: a point's
+/// colour depends only on the point), else at once.
+/// `per` holds `stride` values a point.
+fn each_run<T: Sync>(out: &mut [u8], per: &[T], stride: usize, fill: impl Fn(&mut [u8], &[T]) + Sync + Send) {
+    const RUN: usize = 1 << 16;
+    #[cfg(not(target_arch = "wasm32"))]
+    if out.len() > RUN.saturating_mul(3) {
+        use rayon::prelude::*;
+        out.par_chunks_mut(RUN.saturating_mul(3)).zip(per.par_chunks(RUN.saturating_mul(stride))).for_each(|(o, p)| fill(o, p));
+        return;
+    }
+    let _ = stride;
+    fill(out, per);
 }
 
 /// `colorModes(cloud)`: its own colours, intensity and classes only when the file has them.

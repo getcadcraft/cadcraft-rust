@@ -91,6 +91,9 @@ struct Pts<'a> {
 /// A point's square on screen: its top-left device pixel, or `SKIP` (off the pane, not drawn).
 const SKIP: (i32, i32) = (i32::MIN, i32::MIN);
 
+/// A picture's width, height and, per band of rows, the rows its points touched (first, end; empty when first ≥ end).
+type Dirty = (usize, usize, Vec<(i64, i64)>);
+
 /// Where point `i` lands: `Math.round(a·x + c·y + tx) − h0` (and y), off-pane points skipped.
 fn place(p: &Proj, pts: &Pts<'_>, i: usize, hh: i64) -> (i32, i32) {
     let Some(&[x, y, _]) = i.checked_mul(3).and_then(|o| pts.pos.get(o..o.saturating_add(3))) else { return SKIP };
@@ -110,10 +113,12 @@ fn place(p: &Proj, pts: &Pts<'_>, i: usize, hh: i64) -> (i32, i32) {
 }
 
 /// Plot every placed point (in order) into the rows of one band (`r0` its first row; `px` / `zb` its pixels).
-fn plot_band(p: &Proj, pts: &Pts<'_>, scr: &[(i32, i32)], r0: i64, px: &mut [u32], zb: &mut [f32]) {
+fn plot_band(p: &Proj, pts: &Pts<'_>, scr: &[(i32, i32)], r0: i64, px: &mut [u32], zb: &mut [f32]) -> (i64, i64) {
     let wu = p.w as usize;
+    // the band's rows the points reach (r0-relative, end exclusive)
+    let (mut lo, mut hi) = (i64::MAX, i64::MIN);
     if wu == 0 {
-        return;
+        return (lo, hi);
     }
     let r1 = r0.saturating_add(px.len().checked_div(wu).unwrap_or(0) as i64);
     for (k, &(sx, sy)) in scr.iter().enumerate() {
@@ -133,20 +138,45 @@ fn plot_band(p: &Proj, pts: &Pts<'_>, scr: &[(i32, i32)], r0: i64, px: &mut [u32
         let Some(&[r, g, b]) = pts.rgb.get(o..o.saturating_add(3)) else { continue };
         let col = 0xff00_0000u32 | (u32::from(b) << 16) | (u32::from(g) << 8) | u32::from(r);
         let (u0, u1) = (sx.max(0) as usize, p.w.min(sx.saturating_add(p.s)) as usize);
-        for v in sy.max(r0)..r1.min(sy.saturating_add(p.s)) {
+        let (v0, v1) = (sy.max(r0), r1.min(sy.saturating_add(p.s)));
+        if v0 < v1 {
+            lo = lo.min(v0.saturating_sub(r0));
+            hi = hi.max(v1.saturating_sub(r0));
+        }
+        for v in v0..v1 {
             let row = (v.saturating_sub(r0) as usize).saturating_mul(wu);
             let (Some(zr), Some(pr)) =
                 (zb.get_mut(row.saturating_add(u0)..row.saturating_add(u1)), px.get_mut(row.saturating_add(u0)..row.saturating_add(u1)))
             else {
                 continue;
             };
+            // an empty pixel (0: a drawn one is opaque) holds no depth yet: −∞, which any z but NaN passes (S.14: so
+            // the depths need no clearing)
             for (zv, pv) in zr.iter_mut().zip(pr.iter_mut()) {
-                if z >= *zv {
+                if if *pv == 0 { !z.is_nan() } else { z >= *zv } {
                     *zv = z;
                     *pv = col;
                 }
             }
         }
+    }
+    (lo, hi)
+}
+
+/// Clears a band for the next picture: the rows `last` says the last picture of this size touched, or all of it (the
+/// depths are not cleared: an empty pixel has none, see `plot_band`).
+fn clear_band(px: &mut [u32], wu: usize, last: Option<(i64, i64)>) {
+    match last {
+        Some((lo, hi)) => {
+            if lo < hi {
+                let (a, b) = (usize::try_from(lo).unwrap_or(0).saturating_mul(wu), usize::try_from(hi).unwrap_or(0).saturating_mul(wu));
+                let b = b.min(px.len());
+                if let Some(p) = px.get_mut(a.min(b)..b) {
+                    p.fill(0);
+                }
+            }
+        }
+        None => px.fill(0),
     }
 }
 
@@ -179,6 +209,9 @@ pub struct CloudAttach {
     zb: Vec<f32>,
     /// where each drawn point landed (the last draw's)
     scr: Vec<(i32, i32)>,
+    /// the last picture's size and, per band of rows, the rows its points touched (the rest is clear): the next
+    /// picture of that size clears only those (S.14)
+    dirty: Option<Dirty>,
 }
 
 impl Default for CloudAttach {
@@ -198,6 +231,7 @@ impl Default for CloudAttach {
             buf: None,
             zb: Vec::new(),
             scr: Vec::new(),
+            dirty: None,
         }
     }
 }
@@ -394,6 +428,11 @@ impl CloudAttach {
         let (wu, hu) = (ww as usize, hh as usize);
         let len = wu.saturating_mul(hu);
         let mut buf = self.buf.take().unwrap_or_default();
+        // the last picture's touched rows, when it had this size (else every row is cleared)
+        let last = self
+            .dirty
+            .take()
+            .filter(|(w0, h0, _)| *w0 == wu && *h0 == hu && buf.w == wu && buf.h == hu && buf.px.len() == len && self.zb.len() == len);
         buf.w = wu;
         buf.h = hu;
         // the bands clear their own rows (px.fill(0); zb.fill(-Infinity))
@@ -413,8 +452,29 @@ impl CloudAttach {
         let bands = 16;
         let rows = hu.div_ceil(bands).max(1);
         let chunk = rows.saturating_mul(wu).max(1);
+        // a few points (a slice, a small scan): one thread does it faster than handing out the bands (S.14)
+        let few = m < 65536;
         #[cfg(not(target_arch = "wasm32"))]
-        {
+        if few {
+            for (k, slot) in self.scr.iter_mut().enumerate() {
+                *slot = place(&pr, &pts, at(k), hi);
+            }
+            let last = last.as_ref().map(|(_, _, v)| v.as_slice());
+            let scr = &self.scr;
+            let touched: Vec<(i64, i64)> = buf
+                .px
+                .chunks_mut(chunk)
+                .zip(self.zb.chunks_mut(chunk))
+                .enumerate()
+                .map(|(bi, (px, zb))| {
+                    clear_band(px, wu, last.and_then(|v| v.get(bi).copied()));
+                    plot_band(&pr, &pts, scr, bi.saturating_mul(rows) as i64, px, zb)
+                })
+                .collect();
+            self.dirty = Some((wu, hu, touched));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if !few {
             use rayon::prelude::*;
             // where each point lands (in parallel), then each band of rows takes the points in order
             self.scr.par_chunks_mut(65536).enumerate().for_each(|(ci, ch)| {
@@ -423,21 +483,28 @@ impl CloudAttach {
                 }
             });
             let scr = &self.scr;
-            buf.px.par_chunks_mut(chunk).zip(self.zb.par_chunks_mut(chunk)).enumerate().for_each(|(bi, (px, zb))| {
-                px.fill(0);
-                zb.fill(f32::NEG_INFINITY);
-                plot_band(&pr, &pts, scr, bi.saturating_mul(rows) as i64, px, zb);
-            });
+            let last = last.as_ref().map(|(_, _, v)| v.as_slice());
+            let touched: Vec<(i64, i64)> = buf
+                .px
+                .par_chunks_mut(chunk)
+                .zip(self.zb.par_chunks_mut(chunk))
+                .enumerate()
+                .map(|(bi, (px, zb))| {
+                    clear_band(px, wu, last.and_then(|v| v.get(bi).copied()));
+                    plot_band(&pr, &pts, scr, bi.saturating_mul(rows) as i64, px, zb)
+                })
+                .collect();
+            self.dirty = Some((wu, hu, touched));
         }
         #[cfg(target_arch = "wasm32")]
         {
             for (k, slot) in self.scr.iter_mut().enumerate() {
                 *slot = place(&pr, &pts, at(k), hi);
             }
-            buf.px.fill(0);
-            self.zb.fill(f32::NEG_INFINITY);
-            plot_band(&pr, &pts, &self.scr, 0, &mut buf.px, &mut self.zb);
-            let _ = (chunk, rows);
+            clear_band(&mut buf.px, wu, last.as_ref().and_then(|(_, _, v)| v.first().copied()));
+            let t = plot_band(&pr, &pts, &self.scr, 0, &mut buf.px, &mut self.zb);
+            self.dirty = Some((wu, hu, vec![t]));
+            let _ = (chunk, rows, few);
         }
         self.buf = Some(buf);
         self.buf.as_ref()
@@ -475,6 +542,34 @@ mod tests {
             unit: Some("m".into()),
             z_unit: None,
             notes: Vec::new(),
+        }
+    }
+
+    /// S.14: a picture drawn after another of the same size (which clears only the rows the last one touched) is the
+    /// picture a fresh draw makes: every point, then the slice, then every point again, then a moved view.
+    #[test]
+    fn a_redraw_clears_what_the_last_picture_drew() {
+        let mut c = cloud();
+        let n = 5000usize;
+        c.n = n;
+        c.pos = (0..n).flat_map(|i| [(i % 71) as f32 * 0.03, (i / 71) as f32 * 0.015, ((i * 7) % 13) as f32 * 0.25]).collect();
+        c.max = [102.2, 201.1, 13.0];
+        let fresh = |slice: bool, t: [f64; 6]| {
+            let mut a = CloudAttach::default();
+            a.attach(c.clone(), None);
+            a.slice.on = slice;
+            a.changed();
+            a.draw(t, 640.0, 400.0, 1.0, "meters").cloned().unwrap_or_default().px
+        };
+        let t0 = [250.0, 0.0, 0.0, -250.0, -24_980.0, 50_300.0];
+        let t1 = [180.0, 0.0, 0.0, -180.0, -17_950.0, 36_300.0];
+        let mut a = CloudAttach::default();
+        a.attach(c.clone(), None);
+        for (slice, t) in [(false, t0), (true, t0), (false, t0), (true, t1), (false, t1)] {
+            a.slice.on = slice;
+            a.changed();
+            let got = a.draw(t, 640.0, 400.0, 1.0, "meters").cloned().unwrap_or_default().px;
+            assert!(got == fresh(slice, t), "slice {slice}, view {t:?}");
         }
     }
 
