@@ -546,4 +546,42 @@ mod tests {
         v.act("key:2").unwrap();
         assert_eq!(v.vcb, "2");
     }
+
+    #[test]
+    fn numpad_from_the_keyboard() {
+        // keycode.rs names the press; the numpad switches views (modeler keys), the number row types
+        let press = |key| egui::Event::Key { key, physical_key: Some(key), pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        let mut v = groups(&[0.0, 2.0]);
+        v.act("keys-blender").unwrap();
+        crate::keycode::host_key("Numpad7");
+        crate::keycode::pair(&[press(egui::Key::Num7)]);
+        assert!(v.key_press(egui::Key::Num7, egui::Modifiers::NONE), "the numpad's 7 types nothing");
+        assert_eq!(v.message, "Top view.");
+        crate::keycode::host_key("Numpad1");
+        crate::keycode::pair(&[press(egui::Key::Num1)]);
+        let ctrl = egui::Modifiers { ctrl: true, command: true, ..Default::default() };
+        v.key_press(egui::Key::Num1, ctrl);
+        assert_eq!(v.message, "Back view.");
+        // the number row: the handler leaves it (its text starts the value box)
+        crate::keycode::host_key("Digit7");
+        crate::keycode::pair(&[press(egui::Key::Num7)]);
+        v.message.clear();
+        assert!(!v.key_press(egui::Key::Num7, egui::Modifiers::NONE));
+        assert!(v.message.is_empty());
+        // Num Lock off with no code from the host: PageDown whose physical key is the 3
+        crate::keycode::pair(&[egui::Event::Key {
+            key: egui::Key::PageDown,
+            physical_key: Some(egui::Key::Num3),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]);
+        v.key_press(egui::Key::PageDown, egui::Modifiers::NONE);
+        assert_eq!(v.message, "Right view.");
+        // the push-pull keys: the numpad's 7 is a digit for the value box, as in modelcraft.js
+        v.act("keys-sketchup").unwrap();
+        crate::keycode::host_key("Numpad7");
+        crate::keycode::pair(&[press(egui::Key::Num7)]);
+        assert!(!v.key_press(egui::Key::Num7, egui::Modifiers::NONE));
+    }
 }

@@ -165,6 +165,10 @@ pub struct ModelView {
     held_touch: Option<(egui::Pos2, f64)>,
     long_done: bool,
     multi: bool,
+    /// touch: the first finger's press–drag under way (the tool drags)
+    touch_drag: bool,
+    /// touch: where the drawing finger is (the loupe above it: modelcraft.js `loupe`)
+    pub loupe_at: Option<egui::Pos2>,
     /// a Ctrl + middle-drag zooming about this point (modeler keys)
     cam_zoom: Option<(f64, f64)>,
     /// imported pictures decoded for the view and renders (model3d.rs)
@@ -269,6 +273,8 @@ impl ModelView {
             held_touch: None,
             long_done: false,
             multi: false,
+            touch_drag: false,
+            loupe_at: None,
             cam_zoom: None,
             img_cache,
             recording: None,
@@ -523,6 +529,7 @@ impl ModelView {
         view3d::paint_capture(ui, rect, &self.scene, &cam, &style, self.recording.as_ref().map(|r| r.cap.clone()));
         // the model's marks (axes, guides, dimensions, section planes); presentation view (and a film being recorded,
         // as 0.5 records in it): the dimensions only, no tool marks, no selection
+        let first = ui.ctx().graphics_mut(|g| g.entry(ui.layer_id()).next_idx());
         if self.recording.is_none() {
             let bg = style.background;
             self.marks(&ui.painter_at(rect), rect, bg[0] + bg[1] + bg[2] < 1.5);
@@ -530,7 +537,11 @@ impl ModelView {
         if !self.presenting && self.recording.is_none() {
             self.overlay(ui, rect, t);
         }
+        let last = ui.ctx().graphics_mut(|g| g.entry(ui.layer_id()).next_idx());
         self.corner_indicator(ui, rect, t);
+        if let Some(f) = self.loupe_at.filter(|f| rect.contains(*f)) {
+            self.loupe(ui, rect, f, style.background, (first, last), t);
+        }
         self.take_tool_message();
         self.dialogs(ui.ctx());
     }
@@ -615,6 +626,8 @@ impl ModelView {
         let (touch, multi) = ui.input(|i| (i.any_touches(), i.multi_touch()));
         let now = self.now();
         if let Some(m) = multi.filter(|m| m.num_touches >= 2) {
+            self.loupe_at = None;
+            self.touch_drag = false;
             if !self.multi {
                 self.multi = true;
                 self.held_touch = None;
@@ -647,11 +660,22 @@ impl ModelView {
             }
             return true;
         }
+        // the press–drag a finger began: the loupe follows it until it lifts
+        if self.touch_drag {
+            if released[0] || !touch {
+                self.touch_drag = false;
+                self.loupe_at = None;
+            } else if pos.is_some() {
+                self.loupe_at = pos;
+            }
+        }
         // one finger: the press waits; moving past 8 px makes it a press–drag, a lift is a tap, a long press is Enter
         if let Some((p0, t0)) = self.held_touch {
             let moved = pos.is_some_and(|p| p.distance(p0) > 8.0);
             if moved {
                 self.held_touch = None;
+                self.touch_drag = true;
+                self.loupe_at = pos;
                 self.place_guard();
                 self.held = Some(egui::PointerButton::Primary);
                 let e = self.ev(p0, rect, mods);
@@ -660,6 +684,7 @@ impl ModelView {
             }
             if released[0] {
                 self.held_touch = None;
+                self.loupe_at = None;
                 let e = self.ev(p0, rect, mods);
                 let _ = self.tools.down(&e);
                 let _ = self.tools.up(&e);
@@ -667,9 +692,13 @@ impl ModelView {
             }
             if now - t0 >= 500.0 {
                 self.held_touch = None;
+                self.loupe_at = None;
                 self.long_done = true;
                 let _ = self.tools.call("finish", &[]);
                 return true;
+            }
+            if pos.is_some() {
+                self.loupe_at = pos;
             }
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
             return true;
@@ -686,12 +715,56 @@ impl ModelView {
             && !(self.corner == "cube" && crate::cad3dtab::in_cube(rect, p))
         {
             self.held_touch = Some((p, now));
+            self.loupe_at = Some(p);
             let e = self.ev(p, rect, mods);
             let _ = self.tools.mv(&e);
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(50));
             return true;
         }
         false
+    }
+
+    /// The loupe above a drawing finger (modelcraft.js `loupe`, 0.5's touch): what is under the finger, twice as large,
+    /// in a disc 128 px across 36 px above it (below it near the top edge) — the view and the marks drawn over it
+    /// (this frame's shapes between `marks`) — with a cross at the finger. Not with Select, Orbit or Pan.
+    fn loupe(&self, ui: &egui::Ui, rect: Rect, f: Pos2, bg: [f32; 4], marks: (egui::layers::ShapeIdx, egui::layers::ShapeIdx), t: &Tokens) {
+        const R: f32 = 64.0;
+        const ZOOM: f32 = 2.0;
+        if matches!(self.tools.name.as_str(), "select" | "orbit" | "pan") {
+            return;
+        }
+        let at = f - rect.min;
+        let top = if at.y - R * 2.0 - 36.0 >= 0.0 { at.y - R * 2.0 - 36.0 } else { at.y + 36.0 };
+        let left = (at.x - R).min(rect.width() - R * 2.0).max(0.0);
+        let c = rect.min + egui::vec2(left + R, top + R);
+        let painter = ui.painter_at(rect);
+        let fill = egui::Color32::from_rgb((bg[0] * 255.0) as u8, (bg[1] * 255.0) as u8, (bg[2] * 255.0) as u8);
+        painter.circle_filled(c, R, fill);
+        view3d::paint_loupe(ui, rect, f, c, R, ZOOM);
+        // the marks over the view, magnified with it (clipped to the loupe's square)
+        let layer = ui.layer_id();
+        let sq = Rect::from_center_size(c, egui::vec2(R * 2.0, R * 2.0)).intersect(rect);
+        let tf = egui::emath::TSTransform::new(c.to_vec2() - f.to_vec2() * ZOOM, ZOOM);
+        ui.ctx().graphics_mut(|g| {
+            let list = g.entry(layer);
+            let n = marks.1.0.saturating_sub(marks.0.0);
+            let copies: Vec<egui::epaint::ClippedShape> = list.all_entries().skip(marks.0.0).take(n).cloned().collect();
+            for mut s in copies {
+                if matches!(s.shape, egui::Shape::Callback(_)) {
+                    continue;
+                }
+                s.transform(tf);
+                let clip = s.clip_rect.intersect(sq);
+                for shape in in_disc(s.shape, c, R) {
+                    list.add(clip, shape);
+                }
+            }
+        });
+        let ink = t.accent;
+        let st = egui::Stroke::new(1.0, ink);
+        painter.line_segment([c - egui::vec2(8.0, 0.0), c + egui::vec2(8.0, 0.0)], st);
+        painter.line_segment([c - egui::vec2(0.0, 8.0), c + egui::vec2(0.0, 8.0)], st);
+        painter.circle_stroke(c, R - 1.0, egui::Stroke::new(2.0, t.text));
     }
 
     /// Settings › ModelCraft › Corner indicator (modelcraft.js applySettings): the view cube at the top right, the
@@ -824,9 +897,12 @@ impl ModelView {
         // keys
         self.modifier_keys(mods);
         let events: Vec<egui::Event> = ui.input(|i| i.events.clone());
+        // a numpad digit the handler took types nothing (modelcraft.js: preventDefault)
+        let mut skip_text = false;
         for ev in events {
             match ev {
-                egui::Event::Key { key, pressed: true, modifiers, .. } => self.key(key, modifiers),
+                egui::Event::Key { key, pressed: true, modifiers, .. } => skip_text = self.key_press(key, modifiers),
+                egui::Event::Text(_) if std::mem::take(&mut skip_text) => {}
                 egui::Event::Key { key: egui::Key::Escape, pressed: false, .. } => {}
                 // Ctrl+C / Ctrl+X / Ctrl+V (Ctrl+Shift+V in place) arrive as clipboard events
                 egui::Event::Copy => self.run_act("copy"),
@@ -847,8 +923,11 @@ impl ModelView {
 
     /// A key pressed over the view: the value box while it is being typed, else modelcraft.js's keydown handler
     /// (mckeys.rs) with the key as the browser names it.
-    fn key(&mut self, key: egui::Key, m: egui::Modifiers) {
+    /// → true when a numpad digit was taken (its text is not typed).
+    pub(crate) fn key_press(&mut self, key: egui::Key, m: egui::Modifiers) -> bool {
         use egui::Key;
+        // the numpad's keys by their code (keycode.rs: egui names them as the number row's)
+        let code = crate::keycode::code_of(key).filter(|c| crate::keycode::is_numpad(c));
         if !self.vcb.is_empty() {
             match key {
                 Key::Enter => {
@@ -861,14 +940,33 @@ impl ModelView {
                 Key::Escape => self.vcb.clear(),
                 _ => {}
             }
-            return;
+            return false;
         }
         let ctrl = m.command || m.ctrl;
         // Ctrl+C / X / V arrive as clipboard events
         if ctrl && matches!(key, Key::C | Key::X | Key::V) {
-            return;
+            return false;
         }
         let name = key.name();
+        if let Some(c) = &code {
+            // e.key: the digit (Num Lock on) or the navigation key (off); e.code: the numpad's
+            let k = if key == Key::Period { ".".to_string() } else { name.to_string() };
+            let digit = matches!(
+                key,
+                Key::Num0
+                    | Key::Num1
+                    | Key::Num2
+                    | Key::Num3
+                    | Key::Num4
+                    | Key::Num5
+                    | Key::Num6
+                    | Key::Num7
+                    | Key::Num8
+                    | Key::Num9
+                    | Key::Period
+            );
+            return self.key_down(&k, c, m.shift, ctrl, m.alt) && digit;
+        }
         let k = match key {
             Key::Space => " ".to_string(),
             Key::Enter | Key::Escape | Key::Tab | Key::Delete | Key::Backspace | Key::Home | Key::PageUp | Key::PageDown => {
@@ -876,9 +974,10 @@ impl ModelView {
             }
             Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown => name.to_string(),
             _ if name.len() == 1 && name.chars().all(|c| c.is_ascii_alphabetic()) => name.to_lowercase(),
-            _ => return,
+            _ => return false,
         };
         self.key_down(&k, "", m.shift, ctrl, m.alt);
+        false
     }
     /// Whether the current tool locks to an axis (arrows, Shift).
     pub(crate) fn lockable(&mut self) -> bool {
@@ -1390,5 +1489,51 @@ impl ModelView {
             out.push_str(&format!("   · {}", self.message));
         }
         out
+    }
+}
+
+/// What of a shape lies in a disc (the loupe's): lines cut at its edge, anything else kept only when it fits inside.
+fn in_disc(shape: egui::Shape, c: Pos2, r: f32) -> Vec<egui::Shape> {
+    let inside = |p: Pos2| p.distance(c) <= r;
+    let cut = |a: Pos2, b: Pos2| -> Option<(Pos2, Pos2)> {
+        // the part of a→b within the disc: |a + t (b − a) − c| ≤ r
+        let d = b - a;
+        let f = a - c;
+        let (qa, qb, qc) = (d.dot(d), 2.0 * f.dot(d), f.dot(f) - r * r);
+        if qa <= f32::EPSILON {
+            return inside(a).then_some((a, b));
+        }
+        let disc = qb * qb - 4.0 * qa * qc;
+        if disc < 0.0 {
+            return None;
+        }
+        let sq = disc.sqrt();
+        let (t0, t1) = (((-qb - sq) / (2.0 * qa)).max(0.0), ((-qb + sq) / (2.0 * qa)).min(1.0));
+        (t0 < t1).then(|| (a + d * t0, a + d * t1))
+    };
+    match shape {
+        egui::Shape::LineSegment { points: [a, b], stroke } => {
+            cut(a, b).map(|(a, b)| egui::Shape::LineSegment { points: [a, b], stroke }).into_iter().collect()
+        }
+        egui::Shape::Path(p) if !p.closed => p
+            .points
+            .windows(2)
+            .filter_map(|w| match w {
+                [a, b] => cut(*a, *b).map(|(a, b)| {
+                    let color = match &p.stroke.color {
+                        egui::epaint::ColorMode::Solid(c) => *c,
+                        egui::epaint::ColorMode::UV(_) => egui::Color32::GRAY,
+                    };
+                    egui::Shape::line_segment([a, b], egui::Stroke::new(p.stroke.width, color))
+                }),
+                _ => None,
+            })
+            .collect(),
+        egui::Shape::Vec(v) => v.into_iter().flat_map(|s| in_disc(s, c, r)).collect(),
+        other => {
+            let b = other.visual_bounding_rect();
+            let fits = b.is_finite() && [b.left_top(), b.right_top(), b.left_bottom(), b.right_bottom()].into_iter().all(inside);
+            if fits { vec![other] } else { Vec::new() }
+        }
     }
 }

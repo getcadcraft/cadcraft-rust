@@ -120,6 +120,13 @@ mod web {
             set_status("The page has no canvas (cc_canvas).");
             return;
         };
+        // the physical key of each press (KeyboardEvent.code): egui names the numpad's digits as the number row's,
+        // ModelCraft's modeler keys switch views from the numpad (cc_ui_egui::keycode); capture: before the page's
+        let on_key = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(|e: web_sys::KeyboardEvent| {
+            cc_ui_egui::keycode::host_key(&e.code());
+        });
+        let _ = window.add_event_listener_with_callback_and_bool("keydown", on_key.as_ref().unchecked_ref(), true);
+        on_key.forget();
         let mut options = eframe::WebOptions::default();
         options.wgpu_options.wgpu_setup = match options.wgpu_options.wgpu_setup {
             egui_wgpu::WgpuSetup::CreateNew(mut c) => {

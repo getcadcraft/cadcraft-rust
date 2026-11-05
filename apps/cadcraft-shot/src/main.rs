@@ -346,13 +346,17 @@ fn shot(args: &[String]) -> Result<(), String> {
                 }
             }
             "--mouse-drag" => {
-                // a real primary-button drag at window coordinates: "x1,y1:x2,y2", in eight moves
+                // a real primary-button drag at window coordinates: "x1,y1:x2,y2", in eight moves (":middle" after it: the
+                // middle button, which pans the drawing)
+                let (v, which) = match v.strip_suffix(":middle") {
+                    Some(r) => (r.to_string(), egui::PointerButton::Middle),
+                    None => (v.clone(), egui::PointerButton::Primary),
+                };
                 if let Some((a, b)) = v.split_once(':')
                     && let (Some((x1, y1)), Some((x2, y2))) = (xy(a), xy(b))
                 {
                     let at = |k: f64| egui::pos2((x1 + (x2 - x1) * k) as f32, (y1 + (y2 - y1) * k) as f32);
-                    let button =
-                        |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods };
+                    let button = |pos, pressed| egui::Event::PointerButton { pos, button: which, pressed, modifiers: mods };
                     hs.event(egui::Event::PointerMoved(at(0.0)));
                     hs.run_steps(1);
                     hs.event(button(at(0.0), true));
@@ -392,6 +396,39 @@ fn shot(args: &[String]) -> Result<(), String> {
                     }
                 }
             }
+            "--touch-drag" => {
+                // one finger on a touch screen: "x1,y1:x2,y2" in eight moves (egui-winit sends the touch and the pointer it
+                // stands for); --hold after it keeps the finger down (a shot of what shows while it is down)
+                if let Some((a, b)) = v.split_once(':')
+                    && let (Some((x1, y1)), Some((x2, y2))) = (xy(a), xy(b))
+                {
+                    let at = |k: f64| egui::pos2((x1 + (x2 - x1) * k) as f32, (y1 + (y2 - y1) * k) as f32);
+                    let touch = |phase, pos| egui::Event::Touch {
+                        device_id: egui::TouchDeviceId(1),
+                        id: egui::TouchId(1),
+                        phase,
+                        pos,
+                        force: None,
+                    };
+                    let button =
+                        |pos, pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: mods };
+                    hs.event(touch(egui::TouchPhase::Start, at(0.0)));
+                    hs.event(egui::Event::PointerMoved(at(0.0)));
+                    hs.event(button(at(0.0), true));
+                    hs.run_steps(1);
+                    for i in 1..=8 {
+                        hs.event(touch(egui::TouchPhase::Move, at(f64::from(i) / 8.0)));
+                        hs.event(egui::Event::PointerMoved(at(f64::from(i) / 8.0)));
+                        hs.run_steps(1);
+                    }
+                    if args.get(i + 2).map(String::as_str) != Some("--hold") {
+                        hs.event(touch(egui::TouchPhase::End, at(1.0)));
+                        hs.event(button(at(1.0), false));
+                        hs.event(egui::Event::PointerGone);
+                        hs.run_steps(2);
+                    }
+                }
+            }
             "--wait" => {
                 // keep drawing frames for MS milliseconds (background work, such as an Auto count search, lands)
                 let ms: u64 = v.parse().unwrap_or(0).min(60_000);
@@ -411,10 +448,22 @@ fn shot(args: &[String]) -> Result<(), String> {
                 hs.run_steps(2);
             }
             "--key" => {
-                // a key pressed and released (egui's key names: Enter, Escape, Backspace, Delete, A …)
-                if let Some(key) = egui::Key::from_name(&v) {
+                // a key pressed and released (egui's key names: Enter, Escape, Backspace, Delete, A …); KEY@CODE
+                // also says where it is as the host does (KeyboardEvent.code: `7@Numpad7`, `7@Digit7`, `PageDown@Numpad3`)
+                // and types a digit's text as the platform does
+                let (name, code) = v.split_once('@').map_or((v.as_str(), None), |(k, c)| (k, Some(c)));
+                if let Some(key) = egui::Key::from_name(name) {
+                    let phys = code.and_then(egui::Key::from_name);
                     for pressed in [true, false] {
-                        hs.event(egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: mods });
+                        let e = egui::Event::Key { key, physical_key: phys, pressed, repeat: false, modifiers: mods };
+                        if pressed && let Some(c) = code {
+                            cc_ui_egui::keycode::host_key(c);
+                            cc_ui_egui::keycode::pair(std::slice::from_ref(&e));
+                        }
+                        hs.event(e);
+                        if pressed && code.is_some() && name.len() == 1 && !mods.ctrl {
+                            hs.event(egui::Event::Text(name.to_string()));
+                        }
                         hs.run_steps(1);
                     }
                     hs.run_steps(1);

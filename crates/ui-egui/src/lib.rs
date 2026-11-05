@@ -34,6 +34,7 @@ pub mod cadprops;
 pub mod cadset;
 pub mod gizmo3;
 pub mod inputdlg;
+pub mod keycode;
 pub mod partgizmo;
 pub use cc_engine::inputprof;
 pub mod canvas;
@@ -2233,6 +2234,8 @@ impl UiApp {
     /// (or a paste, or a slow frame) can put "LINE⏎0,0⏎" into one frame, and the command line answers one question
     /// per Enter.
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
+        // which physical key each new press came from (the numpad's digits: keycode.rs)
+        keycode::pair(&raw.events);
         if !self.held.is_empty() {
             let mut ev = std::mem::take(&mut self.held);
             ev.append(&mut raw.events);

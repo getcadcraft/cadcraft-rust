@@ -649,6 +649,68 @@ pub fn paint_capture(
     ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, cb));
 }
 
+/// A loupe over the 3D view (ModelCraft's touch: modelcraft.js `loupe`): the picture the view drew this frame around
+/// `focus` (a point of `view`), `zoom` times larger, in a disc of `radius` at `centre` (all in points). The view's
+/// own target is laid again with a viewport `zoom` times the view's, one pixel row of the disc at a time (scissor
+/// rows: a disc without a shader of its own). Paint it after the view and before what goes over it.
+pub fn paint_loupe(ui: &egui::Ui, view: Rect, focus: egui::Pos2, centre: egui::Pos2, radius: f32, zoom: f32) {
+    let rect = Rect::from_center_size(centre, egui::vec2(radius * 2.0, radius * 2.0));
+    let cb = LoupeCallback { view, focus, centre, radius, zoom, clip: view.intersect(ui.clip_rect()) };
+    ui.painter().add(egui_wgpu::Callback::new_paint_callback(rect, cb));
+}
+
+struct LoupeCallback {
+    view: Rect,
+    focus: egui::Pos2,
+    centre: egui::Pos2,
+    radius: f32,
+    zoom: f32,
+    /// what may be drawn on (points): the view, inside the window
+    clip: Rect,
+}
+
+impl egui_wgpu::CallbackTrait for LoupeCallback {
+    fn paint(&self, info: egui::PaintCallbackInfo, pass: &mut egui_wgpu::wgpu::RenderPass<'static>, res: &egui_wgpu::CallbackResources) {
+        let Some(g) = res.get::<Gpu3>() else { return };
+        let Some((_, bind)) = &g.target else { return };
+        let k = info.pixels_per_point;
+        let [sw, sh] = info.screen_size_px;
+        let (z, r) = (self.zoom, self.radius * k);
+        let (cx, cy) = (self.centre.x * k, self.centre.y * k);
+        // the view's picture, zoom times larger, with the focus at the centre
+        let (w, h) = (self.view.width() * k * z, self.view.height() * k * z);
+        let x = cx - (self.focus.x - self.view.min.x) * k * z;
+        let y = cy - (self.focus.y - self.view.min.y) * k * z;
+        let limit = 8192.0_f32;
+        if !(w.is_finite() && h.is_finite() && x.is_finite() && y.is_finite())
+            || w > limit
+            || h > limit
+            || x.abs() > limit
+            || y.abs() > limit
+        {
+            return;
+        }
+        pass.set_viewport(x, y, w, h, 0.0, 1.0);
+        let (c0, c1) = (self.clip.min * k, self.clip.max * k);
+        let top = (cy - r).floor().max(c0.y.max(0.0)) as u32;
+        let bottom = ((cy + r).ceil().min(c1.y).max(0.0) as u32).min(sh);
+        for row in top..bottom {
+            let dy = row as f32 + 0.5 - cy;
+            let half = (r * r - dy * dy).max(0.0).sqrt();
+            if half <= 0.0 {
+                continue;
+            }
+            let x0 = (cx - half).round().max(c0.x.max(0.0)) as u32;
+            let x1 = ((cx + half).round().min(c1.x).max(0.0) as u32).min(sw);
+            if x1 <= x0 {
+                continue;
+            }
+            pass.set_scissor_rect(x0, row, x1 - x0, 1);
+            g.blit.draw(pass, bind);
+        }
+    }
+}
+
 /// A test scene: one box mesh (12 triangles, 12 edges) placed `n × n` times on a grid at `origin`, plus one plate
 /// under them — a stand-in until models load (screenshots and the frame benchmark at survey coordinates).
 pub fn demo_scene(n: usize, origin: [f64; 3]) -> Scene3D {
