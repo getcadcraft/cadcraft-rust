@@ -14,7 +14,7 @@ use cc_io_civil::gis_read::{self, Src};
 use egui::RichText;
 use serde_json::{Value, json};
 
-use crate::civilpanel::{Act, head, link, note, report_pub};
+use crate::civilpanel::{Act, head, link, note, report_pub, sub};
 use crate::civilview::{CivilView, Sel, t0};
 use crate::theme::Tokens;
 
@@ -739,13 +739,13 @@ pub fn feature_props(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, lid: &s
             ui.end_row();
         }
     });
-    head(ui, tk, &t0("vec.f.attrs"));
+    sub(ui, tk, &t0("vec.f.attrs"));
     if l.fields.is_empty() {
         note(ui, tk, &t0("vec.f.noattrs"));
     } else {
         egui::Grid::new(("cv_gis_attrs", lid, i)).num_columns(2).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
             for (k, v) in attr_rows(&l, &f) {
-                ui.label(RichText::new(k).small().strong().color(tk.text_dim));
+                ui.label(RichText::new(k).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
                 ui.label(RichText::new(v).small().color(tk.text));
                 ui.end_row();
             }
@@ -918,7 +918,7 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
             egui::Grid::new("cv_gis_imp_rows").num_columns(6).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
                 ui.label("");
                 for h in [t0("vec.f.layer"), t0("vec.col.kind"), t0("vec.col.features"), t0("vec.col.fields"), t0("vec.col.format")] {
-                    ui.label(RichText::new(h).small().strong().color(tk.text_dim));
+                    ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
                 }
                 ui.end_row();
                 for (si, li, on, r) in &rows {
@@ -933,7 +933,7 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 }
             });
             report_pub(ui, tk, &notes, false);
-            ui.label(RichText::new(t0("vec.import.crs")).strong().color(tk.text_strong));
+            ui.label(RichText::new(t0("vec.import.crs")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             if case == "offer" {
                 if ui.radio(using_offer, t0("vec.offer.use").replace("{crs}", &string_of(offer.get("name")))).clicked() {
                     acts.push(("civil.gis.import", "crs=offer".into()));
@@ -962,7 +962,7 @@ pub fn import_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts:
                 if case == "none" {
                     break;
                 }
-                ui.label(RichText::new(tr!("vec.unknown.legend", file = file.as_str())).small().color(tk.text_dim));
+                crate::shell::note(ui, tk, &tr!("vec.unknown.legend", file = file.as_str()));
                 if ui.radio(*same, t0("vec.unknown.same")).clicked() {
                     acts.push(("civil.gis.import", format!("unknown={si}:same")));
                 }

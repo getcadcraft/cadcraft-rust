@@ -617,7 +617,7 @@ impl PdfView {
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             for f in self.files() {
                 if several {
-                    ui.label(egui::RichText::new(&f.name).small().strong().color(t.text_dim));
+                    ui.label(egui::RichText::new(&f.name).small().strong().family(crate::theme::bold_family()).color(t.text_dim));
                 }
                 for i in 0..f.pages.len() {
                     // the sheet's title as MarkupCraft names it (title block, typed name, else file and page)
@@ -637,13 +637,28 @@ impl PdfView {
     /// The sheet list with the Spaces under it.
     pub fn sheets_and_spaces(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         if self.mode != "takeoff" {
-            // MarkupCraft's Find text and Bookmarks over the sheets (ui.inc's left panel)
+            // MarkupCraft's left panel (ui.inc): Find text, Bookmarks and Spaces as folding rows, then the Sheets
             self.find_panels(ui, t);
-            ui.separator();
+            crate::shell::fold_row(
+                ui,
+                t,
+                "mc-spaces-row",
+                "bounding-box-circles",
+                &cc_markup::i18n::t0("space.h"),
+                &cc_markup::i18n::t0("space.h.title"),
+                None,
+                |ui| self.spaces_list(ui, t),
+            );
+            ui.add_space(12.0);
+            crate::shell::h_plain(ui, t, &cc_markup::i18n::t0("sheets.h"));
+            self.sheets(ui, t);
+            return;
         }
+        // TakeoffCraft's ui.inc: the Sheets head over the list
+        crate::shell::h(ui, t, &cc_takeoff::i18n::t("sheets.h"));
         let h = ui.available_height();
         ui.allocate_ui(egui::vec2(ui.available_width(), (h * 0.62).max(80.0)), |ui| self.sheets(ui, t));
-        ui.separator();
+        crate::shell::sec_break(ui, t);
         egui::ScrollArea::vertical().id_salt("mc-spaces").auto_shrink([false, false]).show(ui, |ui| self.spaces_panel(ui, t));
     }
 
@@ -1528,7 +1543,7 @@ impl PdfView {
         let mut pick: Option<cc_markup::units::Cal> = None;
         egui::ComboBox::new("mc-scale", t0("props.scale")).selected_text(shown).show_ui(ui, |ui| {
             for (group, list, unit) in scale_presets() {
-                ui.label(egui::RichText::new(group).strong());
+                ui.label(egui::RichText::new(group).strong().family(crate::theme::bold_family()));
                 for (label, ratio) in list {
                     let on = cal.as_ref().is_some_and(|c| c.label == label);
                     if ui.selectable_label(on, label).clicked() {

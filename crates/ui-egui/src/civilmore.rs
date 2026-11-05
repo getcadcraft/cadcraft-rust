@@ -269,7 +269,9 @@ pub fn settings_window(cv: &mut CivilView, ctx: &egui::Context, tk: &crate::them
                     net,
                     &[("off", t("set.internet.off", &[])), ("on", t("set.internet.on", &[]))],
                 );
-                ui.label(egui::RichText::new(t("set.assist.legend", &[])).strong().color(tk.text_strong));
+                ui.label(
+                    egui::RichText::new(t("set.assist.legend", &[])).strong().family(crate::theme::bold_family()).color(tk.text_strong),
+                );
                 let mut on = s.assist;
                 if ui.checkbox(&mut on, t("set.assist.on", &[])).changed() {
                     acts.push(("civil.settings", format!("assist={}", if on { "on" } else { "off" })));
@@ -306,7 +308,7 @@ fn seg(
     cur: &str,
     opts: &[(&str, String)],
 ) {
-    ui.label(egui::RichText::new(t(legend, &[])).strong().color(tk.text_strong));
+    ui.label(egui::RichText::new(t(legend, &[])).strong().family(crate::theme::bold_family()).color(tk.text_strong));
     ui.horizontal_wrapped(|ui| {
         for (v, label) in opts {
             if ui.radio(cur == *v, label.as_str()).clicked() && cur != *v {

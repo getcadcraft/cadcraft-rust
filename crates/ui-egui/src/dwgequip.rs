@@ -195,7 +195,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
             ui.horizontal_top(|ui| {
                 for (k, hd) in head.headers.iter().enumerate() {
                     cell(ui, k, &mut |ui| {
-                        ui.label(RichText::new(hd).strong().small().color(t.text_strong));
+                        ui.label(RichText::new(hd).strong().family(crate::theme::bold_family()).small().color(t.text_strong));
                     });
                 }
             });
@@ -213,7 +213,11 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
                 let top = ui.cursor().min;
                 let resp = ui.horizontal_top(|ui| {
                     cell(ui, 0, &mut |ui| {
-                        ui.label(RichText::new(&c.item).small().strong().color(if r.clash { CLASH } else { t.text_strong }));
+                        ui.label(RichText::new(&c.item).small().strong().family(crate::theme::bold_family()).color(if r.clash {
+                            CLASH
+                        } else {
+                            t.text_strong
+                        }));
                     });
                     cell(ui, 1, &mut |ui| {
                         main(ui, &c.qty);

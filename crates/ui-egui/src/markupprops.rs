@@ -345,7 +345,7 @@ impl crate::pdfview::PdfView {
         // custom columns' fields (setField): column key, value
         let mut field_set: Vec<(String, String)> = Vec::new();
         let head = |ui: &mut egui::Ui, s: String| {
-            ui.label(RichText::new(s).strong().color(tok.text_strong));
+            crate::shell::h(ui, tok, &s);
         };
         let kv = |ui: &mut egui::Ui, k: String, v: String| {
             if !v.is_empty() {

@@ -241,92 +241,86 @@ impl ModelView {
         boxes: &mut std::collections::HashMap<String, String>,
         acts: &mut Vec<String>,
     ) {
-        egui::CollapsingHeader::new(RichText::new(mt("ui.lights", &[])).color(t.text_strong))
-            .id_salt("mc-lights")
-            .default_open(false)
-            .show(ui, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    for k in ["point", "spot", "area"] {
-                        if ui.add(crate::shell::Btn::new(mt(&format!("ui.lights.{k}"), &[]))).clicked() {
-                            acts.push(format!("light-add:{k}"));
-                        }
+        crate::shell::section(ui, t, &mt("ui.lights", &[]), |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for k in ["point", "spot", "area"] {
+                    if ui.add(crate::shell::Btn::new(mt(&format!("ui.lights.{k}"), &[]))).clicked() {
+                        acts.push(format!("light-add:{k}"));
+                    }
+                }
+            });
+            let lights = &self.tools.host.model.lights;
+            let sel = self.sel_light.filter(|id| lights.get(*id).is_some());
+            for (id, l) in lights.iter() {
+                ui.horizontal(|ui| {
+                    let mut on = l.on;
+                    if ui.checkbox(&mut on, "").on_hover_text(mt("app.light.on", &[])).changed() {
+                        acts.push(format!("light-on:{}={}", crate::mcact::ns(id), if on { "on" } else { "off" }));
+                    }
+                    if ui.selectable_label(sel == Some(id), self.light_name(id)).clicked() {
+                        acts.push(format!("light-pick:{}", crate::mcact::ns(id)));
                     }
                 });
-                let lights = &self.tools.host.model.lights;
-                let sel = self.sel_light.filter(|id| lights.get(*id).is_some());
-                for (id, l) in lights.iter() {
-                    ui.horizontal(|ui| {
-                        let mut on = l.on;
-                        if ui.checkbox(&mut on, "").on_hover_text(mt("app.light.on", &[])).changed() {
-                            acts.push(format!("light-on:{}={}", crate::mcact::ns(id), if on { "on" } else { "off" }));
-                        }
-                        if ui.selectable_label(sel == Some(id), self.light_name(id)).clicked() {
-                            acts.push(format!("light-pick:{}", crate::mcact::ns(id)));
-                        }
-                    });
-                }
-                if let Some(id) = sel
-                    && let Some(l) = lights.get(id)
-                {
-                    let u = self.tools.host.model.units.clone();
-                    egui::Grid::new("mc-light-edit").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
-                        let field = |ui: &mut egui::Ui,
-                                     boxes: &mut std::collections::HashMap<String, String>,
-                                     label: &str,
-                                     key: &str,
-                                     text: &str| {
+            }
+            if let Some(id) = sel
+                && let Some(l) = lights.get(id)
+            {
+                let u = self.tools.host.model.units.clone();
+                egui::Grid::new("mc-light-edit").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
+                    let field =
+                        |ui: &mut egui::Ui, boxes: &mut std::collections::HashMap<String, String>, label: &str, key: &str, text: &str| {
                             ui.label(RichText::new(label).color(t.text_dim));
                             let r = crate::mcpanels::text_box(ui, boxes, key, text, 110.0);
                             ui.end_row();
                             r
                         };
-                        if let Some(x) = field(ui, boxes, &mt("app.light.lumens", &[]), "mc-light-lm", &cc_m3d::js::num_str(l.lumens)) {
-                            acts.push(format!("light-lumens:{x}"));
-                        }
-                        ui.label(RichText::new(mt("app.light.color", &[])).color(t.text_dim));
-                        let mut rgb = crate::mcmats::rgb(&l.color).map_or([255, 231, 196], |(r, g, b)| [r, g, b]);
-                        if ui.color_edit_button_srgb(&mut rgb).changed() {
-                            acts.push(format!("light-color:#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]));
-                        }
-                        ui.end_row();
-                        ui.label("");
-                        ui.horizontal(|ui| {
-                            for (k, _) in PRESETS {
-                                if ui.small_button(mt(&format!("app.light.{k}"), &[])).clicked() {
-                                    acts.push(format!("light-preset:{k}"));
-                                }
-                            }
-                        });
-                        ui.end_row();
-                        if l.kind == "spot"
-                            && let Some(x) = field(ui, boxes, &mt("app.light.angle", &[]), "mc-light-ang", &cc_m3d::js::num_str(l.angle))
-                        {
-                            acts.push(format!("light-angle:{x}"));
-                        }
-                        let mut rows: Vec<(&str, &str, f64, &str)> = Vec::new();
-                        if l.kind == "area" {
-                            rows.push(("app.light.width", "mc-light-w", l.size[0], "w"));
-                            rows.push(("app.light.depth", "mc-light-d", l.size[1], "d"));
-                        } else {
-                            rows.push(("app.light.bulb", "mc-light-b", l.size[0], "b"));
-                        }
-                        rows.push(("app.light.x", "mc-light-x", l.p[0], "x"));
-                        rows.push(("app.light.y", "mc-light-y", l.p[1], "y"));
-                        rows.push(("app.light.height", "mc-light-z", l.p[2], "z"));
-                        for (label, key, m, k) in rows {
-                            if let Some(x) = field(ui, boxes, &mt(label, &[]), key, &cc_m3d::units::format_length(m, &u)) {
-                                acts.push(format!("light-len:{k}={x}"));
+                    if let Some(x) = field(ui, boxes, &mt("app.light.lumens", &[]), "mc-light-lm", &cc_m3d::js::num_str(l.lumens)) {
+                        acts.push(format!("light-lumens:{x}"));
+                    }
+                    ui.label(RichText::new(mt("app.light.color", &[])).color(t.text_dim));
+                    let mut rgb = crate::mcmats::rgb(&l.color).map_or([255, 231, 196], |(r, g, b)| [r, g, b]);
+                    if ui.color_edit_button_srgb(&mut rgb).changed() {
+                        acts.push(format!("light-color:#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]));
+                    }
+                    ui.end_row();
+                    ui.label("");
+                    ui.horizontal(|ui| {
+                        for (k, _) in PRESETS {
+                            if ui.small_button(mt(&format!("app.light.{k}"), &[])).clicked() {
+                                acts.push(format!("light-preset:{k}"));
                             }
                         }
-                        ui.label("");
-                        if ui.add(crate::shell::Btn::new(mt("app.light.delete", &[]))).clicked() {
-                            acts.push("light-del".into());
-                        }
-                        ui.end_row();
                     });
-                }
-                ui.label(RichText::new(mt("ui.lights.note", &[])).small().color(t.text_dim));
-            });
+                    ui.end_row();
+                    if l.kind == "spot"
+                        && let Some(x) = field(ui, boxes, &mt("app.light.angle", &[]), "mc-light-ang", &cc_m3d::js::num_str(l.angle))
+                    {
+                        acts.push(format!("light-angle:{x}"));
+                    }
+                    let mut rows: Vec<(&str, &str, f64, &str)> = Vec::new();
+                    if l.kind == "area" {
+                        rows.push(("app.light.width", "mc-light-w", l.size[0], "w"));
+                        rows.push(("app.light.depth", "mc-light-d", l.size[1], "d"));
+                    } else {
+                        rows.push(("app.light.bulb", "mc-light-b", l.size[0], "b"));
+                    }
+                    rows.push(("app.light.x", "mc-light-x", l.p[0], "x"));
+                    rows.push(("app.light.y", "mc-light-y", l.p[1], "y"));
+                    rows.push(("app.light.height", "mc-light-z", l.p[2], "z"));
+                    for (label, key, m, k) in rows {
+                        if let Some(x) = field(ui, boxes, &mt(label, &[]), key, &cc_m3d::units::format_length(m, &u)) {
+                            acts.push(format!("light-len:{k}={x}"));
+                        }
+                    }
+                    ui.label("");
+                    if ui.add(crate::shell::Btn::new(mt("app.light.delete", &[]))).clicked() {
+                        acts.push("light-del".into());
+                    }
+                    ui.end_row();
+                });
+            }
+            crate::shell::note(ui, t, &mt("ui.lights.note", &[]));
+        });
     }
 }
 

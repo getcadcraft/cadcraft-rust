@@ -670,7 +670,7 @@ impl TakeoffMode {
     /// copy / duplicate / cut / delete.
     pub fn multi_props(&mut self, ui: &mut egui::Ui, tok: &Tokens, sheet: &str) {
         let ids = self.sel_ids();
-        ui.label(RichText::new(t("mark.h.many")).strong().color(tok.text_strong));
+        ui.label(RichText::new(t("mark.h.many")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
         let mut by: Vec<(String, usize)> = Vec::new();
         for id in &ids {
             let item = self.tk.mark(id).map(|m| s(m.get("item"))).unwrap_or_default();

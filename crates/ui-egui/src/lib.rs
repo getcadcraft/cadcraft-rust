@@ -1160,40 +1160,46 @@ impl UiApp {
         // 0.7's dock: the grip, then the body inset
         let app_c = t.app(self.active_app());
         let frame = shell::panel_frame(&t);
-        egui::Panel::left("model3").default_size(256.0).size_range(160.0..=400.0).resizable(true).frame(frame).show(ui, |ui| {
-            shell::grip(ui, &t, app_c, &lang::cad("app.tab.model"), false, false);
-            ui.add_space(8.0);
-            let inner = ui.available_rect_before_wrap().shrink2(egui::vec2(12.0, 0.0));
-            let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(inner));
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(lang::cad("app.tab.model")).font(theme::bold(15.0)).color(t.text_strong));
-                if ui.small_button(lang::cad("opt.showall")).clicked() {
-                    toggle = Some("*".into());
+        crate::shell::side(
+            ui,
+            egui::Panel::left("model3").default_size(256.0).size_range(160.0..=400.0).resizable(true).frame(frame),
+            |ui| {
+                shell::grip(ui, &t, app_c, &lang::cad("app.tab.model"), false, false);
+                ui.add_space(8.0);
+                let inner = ui.available_rect_before_wrap().shrink2(egui::vec2(12.0, 0.0));
+                let ui = &mut ui.new_child(egui::UiBuilder::new().max_rect(inner));
+                // the section head with its link (0.7 `.cc-sec-head`: the title, Show all at the right)
+                shell::section_head(ui, &t, &lang::cad("app.tab.model"), |ui| {
+                    if shell::link(ui, &t, "", &lang::cad("opt.showall")).clicked() {
+                        toggle = Some("*".into());
+                    }
+                });
+                ui.add_space(4.0);
+                ui.checkbox(&mut cut.0, RichText::new(lang::mc("app.undo.sec_active")).color(t.text));
+                if cut.0 {
+                    ui.add(egui::Slider::new(&mut cut.1, 0.0..=1.0).show_value(false).text("height"));
                 }
-            });
-            ui.checkbox(&mut cut.0, RichText::new(lang::mc("app.undo.sec_active")).color(t.text));
-            if cut.0 {
-                ui.add(egui::Slider::new(&mut cut.1, 0.0..=1.0).show_value(false).text("height"));
-            }
-            ui.separator();
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                for (title, list, prefix) in [(lang::bim("ui.storeys"), &storeys, "s:"), (lang::bim("color.field.cls"), &classes, "c:")] {
-                    egui::CollapsingHeader::new(RichText::new(title).color(t.text_strong)).default_open(true).show(ui, |ui| {
-                        for (name, n) in list.iter() {
-                            let key = format!("{prefix}{name}");
-                            let mut on = !self.hidden3.contains(&key);
-                            let label = if name.is_empty() { "(none)".to_string() } else { name.clone() };
-                            if ui.checkbox(&mut on, RichText::new(format!("{label}  ({n})")).color(t.text)).changed() {
-                                toggle = Some(key);
+                shell::sec_break(ui, &t);
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    for (title, list, prefix) in [(lang::bim("ui.storeys"), &storeys, "s:"), (lang::bim("color.field.cls"), &classes, "c:")]
+                    {
+                        shell::section(ui, &t, &title, |ui| {
+                            for (name, n) in list.iter() {
+                                let key = format!("{prefix}{name}");
+                                let mut on = !self.hidden3.contains(&key);
+                                let label = if name.is_empty() { "(none)".to_string() } else { name.clone() };
+                                if ui.checkbox(&mut on, RichText::new(format!("{label}  ({n})")).color(t.text)).changed() {
+                                    toggle = Some(key);
+                                }
                             }
-                        }
-                    });
-                }
-                if let Some(bytes) = &bytes {
-                    bim_act = self.bim.panels(ui, &t, bytes, &self.ifc_name);
-                }
-            });
-        });
+                        });
+                    }
+                    if let Some(bytes) = &bytes {
+                        bim_act = self.bim.panels(ui, &t, bytes, &self.ifc_name);
+                    }
+                });
+            },
+        );
         if let Some(a) = bim_act {
             self.bim_act(a);
         }
@@ -1259,8 +1265,9 @@ impl UiApp {
         // (a terrain's survey points in one string) shows its start and its length
         let max_w = (ui.available_width() * 0.45).clamp(220.0, 520.0);
         let app_c = t.app(self.active_app());
-        egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(shell::panel_frame(&t)).show(
+        crate::shell::side(
             ui,
+            egui::Panel::right("props3").default_size(300.0).size_range(200.0..=max_w).resizable(true).frame(shell::panel_frame(&t)),
             |ui| {
                 shell::grip(ui, &t, app_c, &lang::cad("ui.properties"), false, false);
                 ui.add_space(8.0);
@@ -2375,21 +2382,35 @@ impl UiApp {
             });
             let frame = shell::panel_frame(&t);
             let inset = egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 4 });
-            egui::Panel::left("pdf_sheets").default_size(224.0).size_range(120.0..=360.0).resizable(true).frame(frame).show(ui, |ui| {
-                shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("sheets.h"), false, false);
-                inset.show(ui, |ui| pdf.sheets_and_spaces(ui, &t));
-            });
+            crate::shell::side(
+                ui,
+                egui::Panel::left("pdf_sheets").default_size(224.0).size_range(120.0..=360.0).resizable(true).frame(frame),
+                |ui| {
+                    shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("sheets.h"), false, false);
+                    inset.show(ui, |ui| pdf.sheets_and_spaces(ui, &t));
+                },
+            );
             if pdf.mode != "takeoff" {
-                egui::Panel::right("mc_props").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
-                    shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("panels.label"), false, false);
-                    inset.show(ui, |ui| pdf.right_panel(ui, &t));
-                });
+                crate::shell::side(
+                    ui,
+                    egui::Panel::right("mc_props").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame),
+                    |ui| {
+                        shell::grip(ui, &t, app_c, &cc_markup::i18n::t0("panels.label"), false, false);
+                        inset.show(ui, |ui| pdf.right_panel(ui, &t));
+                    },
+                );
             }
             if pdf.mode == "takeoff" {
-                egui::Panel::right("tk_side").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
-                    shell::grip(ui, &t, app_c, &cc_takeoff::i18n::t("group.takeoff"), false, false);
-                    inset.show(ui, |ui| egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t)));
-                });
+                crate::shell::side(
+                    ui,
+                    egui::Panel::right("tk_side").default_size(300.0).size_range(200.0..=440.0).resizable(true).frame(frame),
+                    |ui| {
+                        shell::grip(ui, &t, app_c, &cc_takeoff::i18n::t("group.takeoff"), false, false);
+                        inset.show(ui, |ui| {
+                            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| pdf.takeoff_panel(ui, &t))
+                        });
+                    },
+                );
             }
             egui::CentralPanel::no_frame().show(ui, |ui| {
                 let rect = ui.max_rect();
@@ -2486,17 +2507,35 @@ impl UiApp {
             let t = self.tokens;
             if let Some(mc) = self.mc.as_mut() {
                 // 0.7's right dock: the grip, then the panel inset 16 px
-                egui::Panel::right("mc_side")
-                    .default_size(300.0)
-                    .size_range(200.0..=440.0)
-                    .resizable(true)
-                    .frame(shell::panel_frame(&t))
-                    .show(ui, |ui| {
+                crate::shell::side(
+                    ui,
+                    egui::Panel::right("mc_side")
+                        .default_size(300.0)
+                        .size_range(200.0..=440.0)
+                        .resizable(true)
+                        .frame(shell::panel_frame(&t)),
+                    |ui| {
                         shell::grip(ui, &t, t.app("modelcraft"), &lang::mc("ui.right.aria"), false, false);
                         egui::Frame::new()
                             .inner_margin(egui::Margin { left: 16, right: 12, top: 8, bottom: 4 })
                             .show(ui, |ui| mc.side_panel(ui, &t));
-                    });
+                    },
+                );
+                // 0.5 / 0.7's left dock: "Outliner and components" (232 px)
+                shell::side(
+                    ui,
+                    egui::Panel::left("mc_left")
+                        .default_size(232.0)
+                        .size_range(180.0..=420.0)
+                        .resizable(true)
+                        .frame(shell::panel_frame(&t)),
+                    |ui| {
+                        shell::grip(ui, &t, t.app("modelcraft"), &lang::mc("ui.left.aria"), false, false);
+                        egui::Frame::new()
+                            .inner_margin(egui::Margin { left: 16, right: 12, top: 8, bottom: 4 })
+                            .show(ui, |ui| mc.left_panel(ui, &t));
+                    },
+                );
                 if let Err(e) = self.flush_model_save() {
                     self.error = Some(e);
                 }
@@ -3102,8 +3141,9 @@ impl UiApp {
         };
         let app_c = t.app(self.active_app());
         let mut act: Option<(&str, Params)> = None;
-        egui::Panel::left("layers").default_size(248.0).size_range(180.0..=420.0).resizable(true).frame(shell::panel_frame(&t)).show(
+        crate::shell::side(
             ui,
+            egui::Panel::left("layers").default_size(248.0).size_range(180.0..=420.0).resizable(true).frame(shell::panel_frame(&t)),
             |ui| {
                 if shell::grip(ui, &t, app_c, &lang::cad("ui.layers_drawing"), false, true) == shell::GripAct::Close {
                     act = Some(("layers.close", Params::default()));
@@ -3189,7 +3229,21 @@ impl UiApp {
                                 shell::swatch(ui, &t, 16.0, *c);
                                 let font = if cur { theme::bold(14.0) } else { egui::FontId::proportional(14.0) };
                                 let ink = if on { t.text } else { t.text_disabled };
-                                let nr = ui.add(egui::Label::new(RichText::new(name).font(font).color(ink)).sense(egui::Sense::click()));
+                                // a long name ends in … before the flags (0.7 `.cc-layer-name`: text-overflow ellipsis)
+                                let room = (ui.available_width() - if editing { 100.0 } else { 30.0 }).max(30.0);
+                                let nr = ui
+                                    .allocate_ui_with_layout(
+                                        egui::vec2(room, 22.0),
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            ui.add(
+                                                egui::Label::new(RichText::new(name).font(font).color(ink))
+                                                    .truncate()
+                                                    .sense(egui::Sense::click()),
+                                            )
+                                        },
+                                    )
+                                    .inner;
                                 if editing && nr.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
                                     act = Some(("layer.current", Params { name: Some(name.clone()), ..Default::default() }));
                                 }

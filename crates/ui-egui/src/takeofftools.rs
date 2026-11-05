@@ -751,7 +751,7 @@ impl TakeoffMode {
     }
 
     pub fn panel(&mut self, ui: &mut egui::Ui, t: &Tokens, sheet: &str, user_unit: f64) {
-        ui.label(RichText::new(cc_takeoff::i18n::t("group.takeoff")).strong().color(t.text_strong));
+        crate::shell::h(ui, t, &cc_takeoff::i18n::t("group.takeoff"));
         // scale
         let cur = self
             .tk
@@ -849,7 +849,7 @@ impl TakeoffMode {
         }
         if self.item.is_some() {
             ui.separator();
-            egui::CollapsingHeader::new(RichText::new(cc_takeoff::i18n::t("item.h")).strong())
+            egui::CollapsingHeader::new(RichText::new(cc_takeoff::i18n::t("item.h")).strong().family(crate::theme::bold_family()))
                 .id_salt("tk_item_props")
                 .default_open(true)
                 .show(ui, |ui| {

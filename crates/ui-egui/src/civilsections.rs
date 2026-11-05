@@ -261,7 +261,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
     }
     let idx = cv.sections.idx;
     ui.horizontal(|ui| {
-        ui.label(RichText::new(t("sec.title", &[])).strong().color(tk.text_strong));
+        ui.label(RichText::new(t("sec.title", &[])).strong().family(crate::theme::bold_family()).color(tk.text_strong));
         let als: Vec<(String, String)> =
             arr(cv.project.state.get("alignments")).iter().map(|x| (string_of(x.get("id")), string_of(x.get("name")))).collect();
         let cur = a.as_ref().map(|x| string_of(x.get("id"))).unwrap_or_default();

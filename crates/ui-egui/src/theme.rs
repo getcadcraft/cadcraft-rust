@@ -325,6 +325,8 @@ pub fn contrast(a: Color32, b: Color32) -> f64 {
 pub const SEMI: &str = "archivo-600";
 pub const BOLD: &str = "archivo-700";
 pub const WIDE: &str = "archivo-wide";
+/// Archivo 700 at 112 % width: 0.7's panel section heads (`.cc-h`: `font-stretch: 112%`).
+pub const HEAD: &str = "archivo-head";
 
 /// Archivo SemiBold at `size` (0.7's tool labels, app-bar buttons, toggles).
 pub fn semi(size: f32) -> egui::FontId {
@@ -339,6 +341,17 @@ pub fn bold(size: f32) -> egui::FontId {
 /// Archivo Bold at 125 % width (the website's and the start screen's headings).
 pub fn wide(size: f32) -> egui::FontId {
     egui::FontId::new(size, egui::FontFamily::Name(WIDE.into()))
+}
+
+/// Archivo bold as a family (keeps the text's size): what `RichText::strong()` means in 0.7 (`<strong>`, `font-weight:
+/// 700`); egui's strong only changes the colour.
+pub fn bold_family() -> egui::FontFamily {
+    egui::FontFamily::Name(BOLD.into())
+}
+
+/// The panel section heads' face (Archivo 700 at 112 % width).
+pub fn head(size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(HEAD.into()))
 }
 
 /// The UI fonts, all OFL and bundled (no system fonts): Archivo (0.7's face: one variable file, used at weight 500
@@ -356,6 +369,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     f.font_data.insert(SEMI.into(), archivo(600.0, 100.0));
     f.font_data.insert(BOLD.into(), archivo(700.0, 100.0));
     f.font_data.insert(WIDE.into(), archivo(700.0, 125.0));
+    f.font_data.insert(HEAD.into(), archivo(700.0, 112.0));
     f.font_data.insert(
         "inter".into(),
         std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))),
@@ -367,7 +381,7 @@ pub fn install_fonts(ctx: &egui::Context) {
     let fam = |first: &str| vec![first.to_string(), "inter".into(), "jbmono".into()];
     f.families.insert(egui::FontFamily::Proportional, fam("archivo"));
     f.families.insert(egui::FontFamily::Monospace, vec!["jbmono".into(), "archivo".into(), "inter".into()]);
-    for n in [SEMI, BOLD, WIDE] {
+    for n in [SEMI, BOLD, WIDE, HEAD] {
         f.families.insert(egui::FontFamily::Name(n.into()), fam(n));
     }
     ctx.set_fonts(f);

@@ -130,13 +130,13 @@ pub fn super_block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value
     crate::civilpanel::report_pub(ui, tk, &probs, true);
     let rows = curve_rows(&plan, &units);
     if rows.is_empty() {
-        ui.label(RichText::new(t0("se.none")).small().color(tk.text_dim));
+        crate::shell::note(ui, tk, &t0("se.none"));
         return;
     }
     let aid = string_of(a.get("id"));
     egui::Grid::new(("cv_se_curves", aid.as_str())).num_columns(6).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
         for h in ["#".to_string(), t0("se.c.r"), "e".to_string(), t0("se.c.lr"), t0("se.c.lt"), t0("se.c.full")] {
-            ui.label(RichText::new(h).small().strong().color(tk.text_dim));
+            ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
         }
         ui.end_row();
         for r in &rows {
@@ -152,7 +152,7 @@ pub fn super_block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value
         }
     });
     ui.add_space(6.0);
-    ui.label(RichText::new(t0("se.diagram")).strong().color(tk.text_strong));
+    ui.label(RichText::new(t0("se.diagram")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
     // the typed plan for slopesAt: the same superPlan the corridor ran (its assembly over the defaults)
     let asm = cc_civil::corridor::read_assembly(a.get("corridor").unwrap_or(&Value::Null), &units);
     let al = cv.project.alignment(a);

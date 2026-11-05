@@ -545,7 +545,7 @@ fn draw_spans(ui: &mut egui::Ui, sp: &[Span], t: &crate::theme::Tokens, small: b
                     ui.label(base(&s.text).color(t.text));
                 }
                 SpanKind::Bold | SpanKind::Ui => {
-                    ui.label(base(&s.text).strong().color(t.text_strong));
+                    ui.label(base(&s.text).strong().family(crate::theme::bold_family()).color(t.text_strong));
                 }
                 SpanKind::Code | SpanKind::Key => {
                     ui.label(base(&s.text).code().color(t.text_strong));
@@ -634,7 +634,7 @@ fn draw_body(ui: &mut egui::Ui, body: &str, t: &crate::theme::Tokens) -> Option<
                 let callout = toks.first().copied().filter(|k| matches!(*k, "note" | "tip" | "warning"));
                 block = Some((callout.is_some() || fits(&toks), callout));
                 if callout.is_none() && reader().is_none() {
-                    ui.label(RichText::new(variant_label(&toks)).small().strong().color(t.text_dim));
+                    ui.label(RichText::new(variant_label(&toks)).small().strong().family(crate::theme::bold_family()).color(t.text_dim));
                 }
                 if callout.is_some() {
                     ui.add_space(2.0);
@@ -668,7 +668,13 @@ fn draw_body(ui: &mut egui::Ui, body: &str, t: &crate::theme::Tokens) -> Option<
             flush_para(ui, &mut para, &mut go);
             ui.add_space(6.0);
             let size = if line.starts_with("## ") { 15.0 } else { 13.5 };
-            ui.label(RichText::new(spans(h).into_iter().map(|s| s.text).collect::<String>()).size(size).strong().color(t.text_strong));
+            ui.label(
+                RichText::new(spans(h).into_iter().map(|s| s.text).collect::<String>())
+                    .size(size)
+                    .strong()
+                    .family(crate::theme::bold_family())
+                    .color(t.text_strong),
+            );
             continue;
         }
         let trimmed = line.trim_start();

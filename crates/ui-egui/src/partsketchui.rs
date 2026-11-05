@@ -227,7 +227,7 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
             (p.sel, "app.sketch.legend_selected"),
         ] {
             ui.label(RichText::new("■").color(c));
-            ui.label(RichText::new(tr(k)).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr(k));
         }
     });
     ui.separator();
@@ -236,7 +236,12 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
         pv.sk.sel.iter().filter(|id| S::constraints(&sk).iter().any(|c| jv::is_str(c.get("id"), id))).cloned().collect();
     if !ents.is_empty() {
         let names: Vec<String> = ents.iter().map(|id| entity_name(&sk, id)).collect();
-        ui.label(RichText::new(trv("app.sketch.selected", &[("names", names.join(", "))])).strong().color(t.text_strong));
+        ui.label(
+            RichText::new(trv("app.sketch.selected", &[("names", names.join(", "))]))
+                .strong()
+                .family(crate::theme::bold_family())
+                .color(t.text_strong),
+        );
         let app = S::applicable(&sk, &ents);
         let rel: Vec<&str> = app.iter().copied().filter(|ty| S::RELATIONS.contains(ty)).collect();
         let dims: Vec<&str> = app.iter().copied().filter(|ty| S::DIMENSIONS.contains(ty)).collect();
@@ -255,7 +260,7 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
             }
         });
         if rel.is_empty() && dims.is_empty() {
-            ui.label(RichText::new(tr("app.sketch.no_relation_fits")).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr("app.sketch.no_relation_fits"));
         }
         ui.horizontal_wrapped(|ui| {
             if ents.iter().any(|id| S::by_id(&sk, id).is_some_and(|e| e.ty() != "point"))
@@ -276,21 +281,21 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
             constraint_list(ui, &sk, &mine, &tr("app.sketch.relations_on_selection"), &bad, t, act);
         }
     } else if !cons.is_empty() {
-        ui.label(RichText::new(tr("app.sketch.selected_relations")).strong().color(t.text_strong));
+        ui.label(RichText::new(tr("app.sketch.selected_relations")).strong().family(crate::theme::bold_family()).color(t.text_strong));
         if ui.add(crate::shell::Btn::new(tr("app.btn.delete"))).clicked() {
             *act = cmd("part.delete", "");
         }
         let list: Vec<Value> = S::constraints(&sk).iter().filter(|c| cons.iter().any(|id| jv::is_str(c.get("id"), id))).cloned().collect();
         constraint_list(ui, &sk, &list, "", &bad, t, act);
     } else {
-        ui.label(RichText::new(tr("app.sketch.panel_note")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("app.sketch.panel_note"));
         if !S::constraints(&sk).is_empty() {
             constraint_list(ui, &sk, S::constraints(&sk), &tr("app.sketch.relations_dims"), &bad, t, act);
         }
     }
     ui.separator();
     // numeric entry (partcraft.js numericEntry): geometry by typed coordinates
-    ui.label(RichText::new(tr("app.num.title")).strong().color(t.text_strong));
+    ui.label(RichText::new(tr("app.num.title")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     let kinds = [
         ("line", "app.num.line"),
         ("centerline", "app.num.centerline"),
@@ -328,7 +333,7 @@ pub fn sketch_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut 
     }
     ui.separator();
     ui.horizontal_wrapped(|ui| {
-        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.sketch.exit")).strong())).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.sketch.exit")).strong().family(crate::theme::bold_family()))).clicked() {
             *act = cmd("part.sketch.exit", "");
         }
         if ui.add(crate::shell::Btn::new(tr("app.sketch.fit"))).clicked() {
@@ -343,7 +348,7 @@ fn describe(sk: &Value, id: &str) -> String {
 
 fn constraint_list(ui: &mut egui::Ui, sk: &Value, list: &[Value], title: &str, bad: &[String], t: &Tokens, act: &mut Cmd) {
     if !title.is_empty() {
-        ui.label(RichText::new(title).strong().color(t.text_strong));
+        ui.label(RichText::new(title).strong().family(crate::theme::bold_family()).color(t.text_strong));
     }
     for c in list.iter().take(200) {
         let id = jv::s(c, "id").to_string();

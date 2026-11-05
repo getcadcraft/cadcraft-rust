@@ -5,7 +5,7 @@
 
 use egui::{Align2, Color32, Pos2, Rect, Response, Sense, Stroke, Vec2};
 
-use crate::theme::{Tokens, bold, semi};
+use crate::theme::{Tokens, bold, head, semi};
 
 /// The app bar's height (0.7 `.app-bar`: 48 px with its 1 px rule).
 pub const APP_BAR_H: f32 = 48.0;
@@ -176,12 +176,16 @@ pub fn grip(ui: &mut egui::Ui, t: &Tokens, app: Color32, name: &str, pin: bool, 
         }
     }
     let g = galley(ui, name, semi(12.0), t.text_dim);
-    let room = (w - 22.0 - 3.0 * 29.0).max(20.0);
+    let buttons = 1.0 + f32::from(u8::from(pin)) + f32::from(u8::from(close));
+    let room = (w - 22.0 - 8.0 - buttons * 29.0).max(20.0);
     let gw = g.size().x;
-    let clip = Rect::from_min_size(Pos2::new(r.left() + 22.0, r.top()), Vec2::new(room, GRIP_H));
+    let el = galley(ui, "…", semi(12.0), t.text_dim);
+    // a name too long is cut short with an ellipsis (`text-overflow: ellipsis`)
+    let shown = if gw > room { room - el.size().x } else { room };
+    let clip = Rect::from_min_size(Pos2::new(r.left() + 22.0, r.top()), Vec2::new(shown, GRIP_H));
     ui.painter().with_clip_rect(clip).galley(Pos2::new(r.left() + 22.0, r.center().y - g.size().y / 2.0), g, t.text_dim);
     if gw > room {
-        ui.painter().text(Pos2::new(clip.right(), r.center().y), Align2::RIGHT_CENTER, "…", semi(12.0), t.text_dim);
+        ui.painter().galley(Pos2::new(clip.right(), r.center().y - el.size().y / 2.0), el, t.text_dim);
     }
     let mut act = GripAct::None;
     let mut x = r.right() - 4.0;
@@ -208,7 +212,7 @@ pub fn grip(ui: &mut egui::Ui, t: &Tokens, app: Color32, name: &str, pin: bool, 
 pub fn section_head(ui: &mut egui::Ui, t: &Tokens, title: &str, links: impl FnOnce(&mut egui::Ui)) {
     ui.horizontal(|ui| {
         ui.set_min_height(22.0);
-        ui.label(egui::RichText::new(title).font(bold(15.0)).color(t.text_strong));
+        ui.label(egui::RichText::new(title).font(head(15.0)).color(t.text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             links(ui);
@@ -237,6 +241,188 @@ pub fn link(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str) -> Response 
     let th = if resp.hovered() { 2.0 } else { 1.0 };
     ui.painter().line_segment([Pos2::new(gx, base), Pos2::new(gx + gw, base)], Stroke::new(th, t.accent));
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Has nothing been placed in `ui` yet (a section head at the top of its panel gets no rule over it)?
+fn at_top(ui: &egui::Ui) -> bool {
+    ui.cursor().top() <= ui.max_rect().top() + 1.0
+}
+
+/// The rule between two panel sections (0.7 `.cc-sec`: padding .9rem 1rem, a 1 px line under it), drawn across the
+/// panel's whole width (its clip rect) with the sections' 14 px padding on either side.
+pub fn sec_break(ui: &mut egui::Ui, t: &Tokens) {
+    ui.add_space(14.0);
+    let clip = ui.clip_rect();
+    let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().line_segment([Pos2::new(clip.left(), r.center().y), Pos2::new(clip.right(), r.center().y)], Stroke::new(1.0, t.line));
+    ui.add_space(14.0);
+}
+
+/// A 1 px line rule across the current column only (`.cc-plot-opts` groups), with 8 px on either side.
+pub fn sec_break_in(ui: &mut egui::Ui, t: &Tokens) {
+    let (r, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().line_segment([Pos2::new(r.left(), r.center().y), Pos2::new(r.right(), r.center().y)], Stroke::new(1.0, t.line));
+    ui.add_space(8.0);
+}
+
+/// A panel section's head as every 0.5 / 0.7 app draws it (`.cc-h`, `.cv-h`, `.dc-h`, `.pc-h`, `.tc-h`, `.mc-h`,
+/// `.bc-h`: 15 px, bold, 112 % wide, ink; .5rem under it). A head that does not open its panel starts a new
+/// section: the 1 px rule across the panel goes over it.
+pub fn h(ui: &mut egui::Ui, t: &Tokens, title: &str) -> Response {
+    if !at_top(ui) {
+        sec_break(ui, t);
+    }
+    let r = ui.label(egui::RichText::new(title).font(head(15.0)).color(t.text_strong));
+    ui.add_space(4.0);
+    r
+}
+
+/// A head inside a section (`.cv-h3` and the like: 14 px bold, .9rem over it, .4rem under it).
+pub fn h3(ui: &mut egui::Ui, t: &Tokens, title: &str) -> Response {
+    if !at_top(ui) {
+        ui.add_space(10.0);
+    }
+    let r = ui.label(egui::RichText::new(title).font(bold(14.0)).color(t.text_strong));
+    ui.add_space(2.0);
+    r
+}
+
+/// A head that opens a section with no rule over it (the one before it drew its own: [`fold_row`]).
+pub fn h_plain(ui: &mut egui::Ui, t: &Tokens, title: &str) -> Response {
+    let r = ui.label(egui::RichText::new(title).font(head(15.0)).color(t.text_strong));
+    ui.add_space(4.0);
+    r
+}
+
+/// One folding row of a panel (MarkupCraft's `.mc-find-sec` / `.mc-layers-sec`: a `<details>` whose summary is the
+/// browser's ▸ marker, an icon and a 14 px semibold title; a 1 px rule across the panel under the row).
+#[allow(clippy::too_many_arguments)]
+pub fn fold_row<R>(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    icon: &str,
+    title: &str,
+    tip: &str,
+    force: Option<bool>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    let id = ui.make_persistent_id(id);
+    let mut st = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false);
+    if let Some(o) = force {
+        st.set_open(o);
+    }
+    ui.add_space(5.0);
+    let g = galley(ui, title, semi(14.0), t.text_strong);
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 24.0), Sense::click());
+    let mut resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if !tip.is_empty() {
+        resp = resp.on_hover_text(tip);
+    }
+    let c = Pos2::new(r.left() + 4.0, r.center().y);
+    let tri = if st.is_open() {
+        vec![Pos2::new(c.x - 4.0, c.y - 2.5), Pos2::new(c.x + 4.0, c.y - 2.5), Pos2::new(c.x, c.y + 3.5)]
+    } else {
+        vec![Pos2::new(c.x - 2.5, c.y - 4.0), Pos2::new(c.x + 3.5, c.y), Pos2::new(c.x - 2.5, c.y + 4.0)]
+    };
+    ui.painter().add(egui::Shape::convex_polygon(tri, t.text_strong, Stroke::NONE));
+    let mut x = r.left() + 14.0;
+    if !icon.is_empty() {
+        crate::ribbon::paint_icon(
+            ui.painter(),
+            Rect::from_min_size(Pos2::new(x, r.center().y - 7.0), Vec2::splat(14.0)),
+            icon,
+            t.text_strong,
+        );
+        x += 17.0;
+    }
+    ui.painter().galley(Pos2::new(x, r.center().y - g.size().y / 2.0), g, t.text_strong);
+    if resp.clicked() {
+        st.toggle(ui);
+    }
+    st.store(ui.ctx());
+    let out = if st.is_open() {
+        ui.add_space(4.0);
+        Some(add(ui))
+    } else {
+        None
+    };
+    ui.add_space(5.0);
+    let clip = ui.clip_rect();
+    let (rr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().line_segment([Pos2::new(clip.left(), rr.center().y), Pos2::new(clip.right(), rr.center().y)], Stroke::new(1.0, t.line));
+    out
+}
+
+/// A whole panel section: its head ([`h`], a rule over it unless it opens the panel), then its body.
+pub fn section<R>(ui: &mut egui::Ui, t: &Tokens, title: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    h(ui, t, title);
+    add(ui)
+}
+
+/// A sub-head in a properties list (`.pc-props-sub`, `.dc-sub`, `.cc-psec` subs: 13 px bold, ink-2, .5rem over it).
+pub fn sub(ui: &mut egui::Ui, t: &Tokens, title: &str) -> Response {
+    if !at_top(ui) {
+        ui.add_space(8.0);
+    }
+    ui.label(egui::RichText::new(title).font(bold(13.0)).color(t.text_dim))
+}
+
+/// A section that folds (`.dc-fold`: a `<details>` whose summary is the section head with a small chevron before
+/// it, ⌄ open and › closed; the body not indented). It starts a new section as [`h`] does. Returns whether it is open.
+pub fn fold<R>(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    title: &str,
+    default_open: bool,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    fold_open(ui, t, id, title, default_open, None, add)
+}
+
+/// [`fold`] that `force` opens or closes this frame (egui's `CollapsingHeader::open`).
+pub fn fold_open<R>(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    title: &str,
+    default_open: bool,
+    force: Option<bool>,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    if !at_top(ui) {
+        sec_break(ui, t);
+    }
+    let id = ui.make_persistent_id(id);
+    let mut st = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, default_open);
+    if let Some(o) = force {
+        st.set_open(o);
+    }
+    let open = st.is_open();
+    let g = galley(ui, title, head(15.0), t.text_strong);
+    let (r, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), g.size().y.max(22.0)), Sense::click());
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+    // the chevron: a 7 px corner turned down (open) or right (closed), 1.5 px ink-2
+    let c = Pos2::new(r.left() + 4.5, r.center().y);
+    let s = 3.2;
+    let pts = if open {
+        [Pos2::new(c.x - s, c.y - s * 0.5), Pos2::new(c.x, c.y + s * 0.5), Pos2::new(c.x + s, c.y - s * 0.5)]
+    } else {
+        [Pos2::new(c.x - s * 0.5, c.y - s), Pos2::new(c.x + s * 0.5, c.y), Pos2::new(c.x - s * 0.5, c.y + s)]
+    };
+    ui.painter().line(pts.to_vec(), Stroke::new(1.5, t.text_dim));
+    ui.painter().galley(Pos2::new(r.left() + 13.0, r.center().y - g.size().y / 2.0), g, t.text_strong);
+    if resp.clicked() {
+        st.toggle(ui);
+    }
+    st.store(ui.ctx());
+    if st.is_open() {
+        ui.add_space(8.0);
+        Some(add(ui))
+    } else {
+        None
+    }
 }
 
 /// A rule under a panel section (0.7 `.cc-sec`: 1 px line, full width of the panel).
@@ -298,6 +484,20 @@ pub fn kbd(ui: &mut egui::Ui, t: &Tokens, key: &str) -> Response {
     ui.painter().rect(r, 2.0, t.panel_darker, Stroke::new(1.0, t.rule), egui::StrokeKind::Inside);
     ui.painter().galley(Pos2::new(r.left() + 5.0, r.center().y - g.size().y / 2.0), g, t.text_strong);
     resp
+}
+
+/// A side dock (`egui::Panel::left` / `right`) with 0.7's edge toward the stage: `aside[data-shell-dock]`'s 1.5 px ink
+/// rule (egui draws a panel's edge in the parent's separator stroke; inside, the panel keeps the theme's own).
+pub fn side<R>(ui: &mut egui::Ui, panel: egui::Panel, add: impl FnOnce(&mut egui::Ui) -> R) -> egui::InnerResponse<R> {
+    let t = tokens_of(ui.ctx());
+    let keep = ui.style().visuals.widgets.noninteractive.bg_stroke;
+    ui.style_mut().visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.5, t.rule);
+    let r = panel.show(ui, |ui| {
+        ui.style_mut().visuals.widgets.noninteractive.bg_stroke = keep;
+        add(ui)
+    });
+    ui.style_mut().visuals.widgets.noninteractive.bg_stroke = keep;
+    r
 }
 
 /// A frame for a dock panel's body (0.7 `.cc-panel`: sheet-2, the sections' 16 px gutter).
@@ -561,8 +761,26 @@ pub fn tokens_of(ctx: &egui::Context) -> Tokens {
 
 pub(crate) const TOKENS_KEY: &str = "cc-shell-tokens";
 
+/// The button size of the app showing: `.btn-sm-cc` (40 px, 15 px bold, .9rem in) in every app but DetailCraft, whose
+/// panels and dialogs use `.btn-sm-dc` (2.1rem, 14 px, .75rem in). Set once a frame by the window ([`set_small_buttons`]).
+fn btn_metrics(ctx: &egui::Context) -> (f32, egui::FontId, f32) {
+    if ctx.data(|d| d.get_temp::<bool>(egui::Id::unique(BTN_DC_KEY))).unwrap_or(false) {
+        (34.0, bold(14.0), 12.0)
+    } else {
+        (40.0, bold(15.0), 14.4)
+    }
+}
+
+const BTN_DC_KEY: &str = "cc-shell-btn-dc";
+
+/// DetailCraft's smaller buttons on (`.btn-sm-dc`) or off for this frame.
+pub fn set_small_buttons(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique(BTN_DC_KEY), on));
+}
+
 /// A panel's or dialog's button as 0.7 draws it (`.btn-line.btn-sm-cc`): the action colour's text and 2 px border,
-/// 30 px tall, the fill on hover; greyed out when the ui is disabled. Inside a menu it is the menu's plain item.
+/// 40 px tall with 15 px bold words, the fill on hover; greyed out when the ui is disabled. Inside a menu it is the
+/// menu's plain item.
 pub struct Btn {
     text: egui::WidgetText,
 }
@@ -581,12 +799,13 @@ impl egui::Widget for Btn {
         let t = tokens_of(ui.ctx());
         let on = ui.is_enabled();
         let ink = if on { t.accent } else { t.text_disabled };
-        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, semi(14.0));
-        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 30.0), Sense::click());
+        let (h, font, pad) = btn_metrics(ui.ctx());
+        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, font);
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 2.0 * pad, h), Sense::click());
         let fill = if on && resp.hovered() { t.row_selected } else { Color32::TRANSPARENT };
         let edge = if on { t.accent } else { t.line };
         ui.painter().rect(r, 2.0, fill, Stroke::new(if on { 2.0 } else { 1.0 }, edge), egui::StrokeKind::Inside);
-        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, ink);
+        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + pad, r.center().y - g.size().y / 2.0), g, ink);
         if on { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
     }
 }
@@ -608,8 +827,9 @@ impl egui::Widget for Primary {
     fn ui(self, ui: &mut egui::Ui) -> Response {
         let t = tokens_of(ui.ctx());
         let on = ui.is_enabled();
-        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, semi(14.0));
-        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 24.0, 30.0), Sense::click());
+        let (h, font, pad) = btn_metrics(ui.ctx());
+        let g = self.text.into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, font);
+        let (r, resp) = ui.allocate_exact_size(Vec2::new(g.size().x + 2.0 * pad, h), Sense::click());
         let fill = if !on {
             crate::theme::mix(t.accent, t.panel, 0.45)
         } else if resp.hovered() {
@@ -618,7 +838,7 @@ impl egui::Widget for Primary {
             t.accent
         };
         ui.painter().rect(r, 2.0, fill, Stroke::new(2.0, fill), egui::StrokeKind::Inside);
-        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + 12.0, r.center().y - g.size().y / 2.0), g, t.on_accent);
+        ui.painter().galley_with_override_text_color(Pos2::new(r.left() + pad, r.center().y - g.size().y / 2.0), g, t.on_accent);
         if on { resp.on_hover_cursor(egui::CursorIcon::PointingHand) } else { resp }
     }
 }
@@ -631,12 +851,31 @@ pub struct Dialog<'a> {
     open: Option<&'a mut bool>,
     titled: bool,
     modal: bool,
+    /// the shell's own dialogs (Settings, Recent files, Recover): a 20 px head (`.shell-dlg-head h2`)
+    big: bool,
+    /// the caller placed the window (else a modal one opens in the middle of the page, as `showModal()` does)
+    placed: bool,
+    placed_pivot: bool,
 }
 
 impl<'a> Dialog<'a> {
     pub fn new(title: impl Into<egui::WidgetText>) -> Dialog<'a> {
         let title: egui::WidgetText = title.into();
-        Dialog { win: egui::Window::new(title.clone()).title_bar(false), title, open: None, titled: true, modal: true }
+        Dialog {
+            win: egui::Window::new(title.clone()).title_bar(false),
+            title,
+            open: None,
+            titled: true,
+            modal: true,
+            big: false,
+            placed: false,
+            placed_pivot: false,
+        }
+    }
+    /// One of the shell's own dialogs (Settings, Recent files, Recover your work?): its title at 20 px.
+    pub fn shell_head(mut self) -> Self {
+        self.big = true;
+        self
     }
     /// A panel-like window: no dimmed page behind it.
     pub fn modeless(mut self) -> Self {
@@ -657,40 +896,59 @@ impl<'a> Dialog<'a> {
         self
     }
     pub fn show<R>(self, ctx: &egui::Context, add: impl FnOnce(&mut egui::Ui) -> R) -> Option<egui::InnerResponse<Option<R>>> {
-        let Dialog { win, title, open, titled, modal } = self;
+        let Dialog { mut win, title, open, titled, modal, big, placed, placed_pivot } = self;
+        if modal && !placed {
+            if !placed_pivot {
+                win = win.pivot(egui::Align2::CENTER_CENTER);
+            }
+            win = win.default_pos(ctx.content_rect().center());
+        }
         if open.as_deref() == Some(&false) {
             return None;
         }
         let t = tokens_of(ctx);
         if modal {
-            // 0.7's ::backdrop: the page dimmed, on a background layer above the panels, under the windows
+            // 0.7's ::backdrop: the page under the ink at 35 % (`color-mix(in srgb, var(--ink) 35%, transparent)`), on a
+            // background layer above the panels, under the windows
             let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::unique("cc-dialog-backdrop")));
-            let a = if t.text.r() > 128 { 0.55 } else { 0.32 };
-            p.rect_filled(ctx.content_rect(), 0.0, Color32::BLACK.gamma_multiply(a));
+            p.rect_filled(ctx.content_rect(), 0.0, t.rule.gamma_multiply(0.35));
         }
+        // 0.7's `.cv-dialog` / `.dc-dialog` …: sheet-2, a 1 px ink edge, radius 2; the head and foot 16 px in, 10 px over
+        // and under, the body 16 px in
+        let frame = egui::Frame::new().fill(t.panel).stroke(Stroke::new(1.0, t.rule)).corner_radius(2).inner_margin(egui::Margin {
+            left: 16,
+            right: 16,
+            top: 11,
+            bottom: 11,
+        });
         let mut close = false;
-        let r = win.show(ctx, |ui| {
+        let r = win.frame(frame).show(ctx, |ui| {
             if titled {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(title.text()).font(bold(17.0)).color(t.text_strong));
+                    ui.set_min_height(34.0);
+                    // `.cv-dlg-head .cv-h`: the app's section head, 15 px bold at 112 %
+                    ui.label(egui::RichText::new(title.text()).font(head(if big { 20.0 } else { 15.0 })).color(t.text_strong));
                     if open.is_some() {
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            let (br, resp) = ui.allocate_exact_size(Vec2::new(30.0, 30.0), Sense::click());
+                            let (br, resp) = ui.allocate_exact_size(Vec2::new(32.0, 34.0), Sense::click());
                             let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                             if resp.hovered() {
                                 ui.painter().rect(br, 2.0, t.hover, Stroke::new(1.0, t.line), egui::StrokeKind::Inside);
                             }
-                            crate::ribbon::paint_icon(ui.painter(), Rect::from_center_size(br.center(), Vec2::splat(14.0)), "x-lg", t.text);
+                            crate::ribbon::paint_icon(ui.painter(), Rect::from_center_size(br.center(), Vec2::splat(16.0)), "x-lg", t.text);
                             close = resp.clicked();
                         });
                     }
                 });
+                // the head's 1 px line rule across the window, then the body's 14 px
                 let full = ui.max_rect();
-                let (rr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 9.0), Sense::hover());
+                let (rr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 11.0), Sense::hover());
                 ui.painter().line_segment(
-                    [Pos2::new(full.left() - 16.0, rr.center().y), Pos2::new(full.right() + 16.0, rr.center().y)],
-                    Stroke::new(1.0, t.divider),
+                    [Pos2::new(full.left() - 16.0, rr.bottom() - 0.5), Pos2::new(full.right() + 16.0, rr.bottom() - 0.5)],
+                    Stroke::new(1.0, t.line),
                 );
+                // the body's 14 px (`.shell-dlg-body`); a shell dialog's tabs sit 8 px under the head
+                ui.add_space(if big { 8.0 } else { 14.0 });
             }
             add(ui)
         });
@@ -699,6 +957,63 @@ impl<'a> Dialog<'a> {
         }
         r
     }
+}
+
+/// The rule over a dialog's foot, across the window, with the foot's spacing (for a foot laid out by hand).
+pub fn foot_rule(ui: &mut egui::Ui) {
+    ui.add_space(14.0);
+    foot_line(ui);
+}
+
+fn foot_line(ui: &mut egui::Ui) {
+    let t = tokens_of(ui.ctx());
+    let full = ui.max_rect();
+    let (rr, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 1.0), Sense::hover());
+    ui.painter().line_segment(
+        [Pos2::new(full.left() - 16.0, rr.center().y), Pos2::new(full.right() + 16.0, rr.center().y)],
+        Stroke::new(1.0, t.line),
+    );
+    ui.add_space(10.0);
+}
+
+/// A dialog's foot (`.cv-dlg-foot` and the like): a 1 px line rule across the window, then the buttons at the right
+/// with 12 px between them, in the order they are added (0.7: Cancel, then the main action at the far right).
+pub fn foot<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    foot_split(ui, |_| {}, add)
+}
+
+/// [`foot`] with something at its left too (`justify-content: space-between`: Reset, Discard all, a status line).
+pub fn foot_split<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    ui.add_space(14.0);
+    foot_flush_split(ui, left, right)
+}
+
+/// [`foot_split`] right under what is above it (a body that fills the window to its foot).
+pub fn foot_flush_split<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    foot_line(ui);
+    // the buttons' width from the last frame puts them against the right edge (egui lays out left to right only)
+    let id = ui.next_auto_id().with("cc-foot-w");
+    let was: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
+    ui.horizontal(|ui| {
+        ui.set_min_height(40.0);
+        ui.spacing_mut().item_spacing.x = 12.0;
+        let x0 = ui.cursor().left();
+        left(ui);
+        let used = ui.cursor().left() - x0;
+        // what shows of the row (a dialog whose body is wider than its window clips it at the window's margin)
+        let room = ui.available_width().min(ui.clip_rect().right() - 16.0 - ui.cursor().left());
+        ui.add_space((room - was - 1.0).max(0.0));
+        let a = ui.cursor().left();
+        let r = right(ui);
+        let w = ui.cursor().left() - a - ui.spacing().item_spacing.x;
+        if (w - was).abs() > 0.5 {
+            ui.ctx().data_mut(|d| d.insert_temp(id, w));
+            ui.ctx().request_repaint();
+        }
+        let _ = used;
+        r
+    })
+    .inner
 }
 
 macro_rules! forward {
@@ -712,22 +1027,50 @@ macro_rules! forward {
     };
 }
 
+impl<'a> Dialog<'a> {
+    pub fn default_pos(mut self, p: impl Into<Pos2>) -> Self {
+        self.win = self.win.default_pos(p);
+        self.placed = true;
+        self
+    }
+    pub fn current_pos(mut self, p: impl Into<Pos2>) -> Self {
+        self.win = self.win.current_pos(p);
+        self.placed = true;
+        self
+    }
+    pub fn fixed_pos(mut self, p: impl Into<Pos2>) -> Self {
+        self.win = self.win.fixed_pos(p);
+        self.placed = true;
+        self
+    }
+    pub fn default_rect(mut self, r: Rect) -> Self {
+        self.win = self.win.default_rect(r);
+        self.placed = true;
+        self
+    }
+    pub fn anchor(mut self, a: egui::Align2, o: impl Into<Vec2>) -> Self {
+        self.win = self.win.anchor(a, o);
+        self.placed = true;
+        self
+    }
+    pub fn pivot(mut self, a: egui::Align2) -> Self {
+        self.win = self.win.pivot(a);
+        self.placed_pivot = true;
+        self
+    }
+}
+
 forward!(
     id(id: egui::Id),
     resizable(on: impl Into<egui::Vec2b>),
-    default_pos(p: impl Into<Pos2>),
-    current_pos(p: impl Into<Pos2>),
-    fixed_pos(p: impl Into<Pos2>),
     default_width(w: f32),
     default_height(h: f32),
     default_size(s: impl Into<Vec2>),
-    default_rect(r: Rect),
+    fixed_size(s: impl Into<Vec2>),
     min_width(w: f32),
     min_height(h: f32),
     max_width(w: f32),
     max_height(h: f32),
-    pivot(a: egui::Align2),
-    anchor(a: egui::Align2, o: impl Into<Vec2>),
     constrain(on: bool),
     vscroll(on: bool),
     hscroll(on: bool),

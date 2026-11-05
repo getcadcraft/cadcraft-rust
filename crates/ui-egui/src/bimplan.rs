@@ -2326,28 +2326,23 @@ pub fn levels_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let Some(sn) = app.bimh.draw.data.clone() else { return };
     let units = app.bimh.draw.units.clone();
     let mut out: Vec<(&'static str, String)> = Vec::new();
-    egui::CollapsingHeader::new(RichText::new(bt("model.levels", &[])).color(t.text_strong)).id_salt("bim_levels").default_open(true).show(
-        ui,
-        |ui| {
-            for (i, l) in sn.levels.iter().enumerate().rev() {
-                ui.horizontal(|ui| {
-                    if ui.radio(app.bimh.draw.level == Some(l.id), "").on_hover_text(bt("model.lv.show", &[("name", &l.name)])).clicked() {
-                        out.push(("bim.level", i.to_string()));
-                    }
-                    ui.label(RichText::new(&l.name).color(t.text));
-                    ui.label(
-                        RichText::new(format!("{} · {}", fmt_len(l.elevation, &units), fmt_len(l.height, &units)))
-                            .small()
-                            .color(t.text_dim),
-                    );
-                });
-            }
-            if ui.add(crate::shell::Btn::new(bt("model.lv.add", &[]))).clicked() {
-                out.push(("bim.level.add", String::new()));
-            }
-            ui.label(RichText::new(bt("model.levels.note", &[])).small().color(t.text_dim));
-        },
-    );
+    crate::shell::section(ui, &t, &bt("model.levels", &[]), |ui| {
+        for (i, l) in sn.levels.iter().enumerate().rev() {
+            ui.horizontal(|ui| {
+                if ui.radio(app.bimh.draw.level == Some(l.id), "").on_hover_text(bt("model.lv.show", &[("name", &l.name)])).clicked() {
+                    out.push(("bim.level", i.to_string()));
+                }
+                ui.label(RichText::new(&l.name).color(t.text));
+                ui.label(
+                    RichText::new(format!("{} · {}", fmt_len(l.elevation, &units), fmt_len(l.height, &units))).small().color(t.text_dim),
+                );
+            });
+        }
+        if ui.add(crate::shell::Btn::new(bt("model.lv.add", &[]))).clicked() {
+            out.push(("bim.level.add", String::new()));
+        }
+        crate::shell::note(ui, &t, &bt("model.levels.note", &[]));
+    });
     for (id, arg) in out {
         app.run_ui(id, &Params { name: (!arg.is_empty()).then_some(arg), ..Default::default() });
     }
@@ -2364,49 +2359,46 @@ pub fn schedules_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let res_kinds = crate::bimres::schedule_kinds(app);
     let res_sc = crate::bimres::schedule(app, &which);
     let mut out: Vec<(&'static str, String)> = Vec::new();
-    egui::CollapsingHeader::new(RichText::new(bt("model.sch.title", &[])).color(t.text_strong))
-        .id_salt("bim_sched")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for k in ["doors", "windows", "walls", "rooms"] {
-                    if ui.selectable_label(which == k, bt(&format!("model.sch.{k}"), &[])).clicked() {
-                        out.push(("bim.schedule", k.into()));
-                    }
+    crate::shell::section(ui, &t, &bt("model.sch.title", &[]), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for k in ["doors", "windows", "walls", "rooms"] {
+                if ui.selectable_label(which == k, bt(&format!("model.sch.{k}"), &[])).clicked() {
+                    out.push(("bim.schedule", k.into()));
                 }
-                for (k, label) in &res_kinds {
-                    if ui.selectable_label(which == *k, label).clicked() {
-                        out.push(("bim.schedule", (*k).into()));
-                    }
-                }
-                if ui.add(crate::shell::Btn::new(bt("model.sch.csv", &[]))).clicked() {
-                    out.push(("bim.schedule", format!("{which}:csv")));
-                }
-            });
-            let Some(sc) = res_sc.as_ref().or_else(|| all.get(&which)) else { return };
-            if sc.rows.is_empty() {
-                ui.label(RichText::new(bt("model.sch.none", &[])).small().color(t.text_dim));
-                return;
             }
-            egui::Grid::new("bim_sched_grid").striped(true).show(ui, |ui| {
-                for h in &sc.head {
-                    ui.label(RichText::new(h).small().strong());
+            for (k, label) in &res_kinds {
+                if ui.selectable_label(which == *k, label).clicked() {
+                    out.push(("bim.schedule", (*k).into()));
+                }
+            }
+            if ui.add(crate::shell::Btn::new(bt("model.sch.csv", &[]))).clicked() {
+                out.push(("bim.schedule", format!("{which}:csv")));
+            }
+        });
+        let Some(sc) = res_sc.as_ref().or_else(|| all.get(&which)) else { return };
+        if sc.rows.is_empty() {
+            ui.label(RichText::new(bt("model.sch.none", &[])).small().color(t.text_dim));
+            return;
+        }
+        egui::Grid::new("bim_sched_grid").striped(true).show(ui, |ui| {
+            for h in &sc.head {
+                ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()));
+            }
+            ui.end_row();
+            for r in &sc.rows {
+                for c in r {
+                    ui.label(RichText::new(c).small());
                 }
                 ui.end_row();
-                for r in &sc.rows {
-                    for c in r {
-                        ui.label(RichText::new(c).small());
-                    }
-                    ui.end_row();
+            }
+            if let Some(tot) = &sc.total {
+                for (i, _) in sc.head.iter().enumerate() {
+                    ui.label(RichText::new(tot.get(i).cloned().unwrap_or_default()).small().strong().family(crate::theme::bold_family()));
                 }
-                if let Some(tot) = &sc.total {
-                    for (i, _) in sc.head.iter().enumerate() {
-                        ui.label(RichText::new(tot.get(i).cloned().unwrap_or_default()).small().strong());
-                    }
-                    ui.end_row();
-                }
-            });
+                ui.end_row();
+            }
         });
+    });
     for (id, arg) in out {
         app.run_ui(id, &Params { name: Some(arg), ..Default::default() });
     }
@@ -2426,7 +2418,7 @@ pub fn props_block(app: &mut UiApp, ui: &mut egui::Ui) {
     let Some(sn) = app.bimh.draw.data.clone() else { return };
     let units = app.bimh.draw.units.clone();
     let mut out: Option<String> = None;
-    ui.label(RichText::new(&title).strong().color(t.text_strong));
+    ui.label(RichText::new(&title).strong().family(crate::theme::bold_family()).color(t.text_strong));
     let row = |app: &mut UiApp, ui: &mut egui::Ui, key: &str, label: &str, cur: String| {
         let l = ui.label(RichText::new(label).small().color(t.text_dim));
         let mut text = match &app.bimh.editing {

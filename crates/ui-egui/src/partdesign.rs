@@ -1161,7 +1161,7 @@ fn facts(ui: &mut egui::Ui, t: &Tokens, rows: &[(String, String)]) {
 }
 
 fn note(ui: &mut egui::Ui, t: &Tokens, key: &str) {
-    ui.label(RichText::new(tr(key)).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr(key));
 }
 
 fn fmt_v(p: [f64; 3], dp: usize) -> String {
@@ -1225,7 +1225,13 @@ pub fn design_panel(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens,
             if let Some(cc_part::refgeom::Ref::Plane { frame, center }) = g {
                 facts(ui, t, &[(tr("ui.design.normal"), fmt_v(frame.n, 4)), (tr("ui.design.through"), fmt_v(center, 3))]);
             }
-            if ui.add_enabled(ok, egui::Button::new(RichText::new(tr("ui.design.sketch_on_it")).strong())).clicked() {
+            if ui
+                .add_enabled(
+                    ok,
+                    egui::Button::new(RichText::new(tr("ui.design.sketch_on_it")).strong().family(crate::theme::bold_family())),
+                )
+                .clicked()
+            {
                 *act = cmd("part.sketch.on", id.clone());
             }
             note(ui, t, "ui.design.plane_note");

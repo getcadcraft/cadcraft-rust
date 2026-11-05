@@ -121,16 +121,24 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     let frame = crate::shell::panel_frame(&t);
     let inset = egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 4 });
     let app_c = t.app("partcraft");
-    egui::Panel::left("part_history").default_size(256.0).size_range(190.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-        crate::shell::grip(ui, &t, app_c, &tr("ui.left.aria"), false, false);
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            inset.show(ui, |ui| if pv.in_asm() { crate::partasmui::tree(ui, pv, &t, &mut act) } else { history(ui, pv, &t, &mut act) })
-        });
-    });
-    egui::Panel::right("part_side").default_size(296.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
-        crate::shell::grip(ui, &t, app_c, &tr("ui.right.props"), false, false);
-        inset.show(ui, |ui| part_side(ui, pv, &t, &mut act));
-    });
+    crate::shell::side(
+        ui,
+        egui::Panel::left("part_history").default_size(256.0).size_range(190.0..=420.0).resizable(true).frame(frame),
+        |ui| {
+            crate::shell::grip(ui, &t, app_c, &tr("ui.left.aria"), false, false);
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                inset.show(ui, |ui| if pv.in_asm() { crate::partasmui::tree(ui, pv, &t, &mut act) } else { history(ui, pv, &t, &mut act) })
+            });
+        },
+    );
+    crate::shell::side(
+        ui,
+        egui::Panel::right("part_side").default_size(296.0).size_range(220.0..=460.0).resizable(true).frame(frame),
+        |ui| {
+            crate::shell::grip(ui, &t, app_c, &tr("ui.right.props"), false, false);
+            inset.show(ui, |ui| part_side(ui, pv, &t, &mut act));
+        },
+    );
     egui::CentralPanel::no_frame().show(ui, |ui| {
         let rect = ui.max_rect();
         if pv.mode == Mode::Sketch {
@@ -359,7 +367,7 @@ fn tool_bar(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, clip: Option<&Valu
                         match c {
                             None => {
                                 ui.separator();
-                                ui.label(RichText::new(tr(key)).small().color(t.text_dim));
+                                crate::shell::note(ui, t, &tr(key));
                             }
                             Some(c) => {
                                 if ui.add(crate::shell::Btn::new(tr(key))).on_hover_text(tr(&format!("{key}.title"))).clicked() {
@@ -443,8 +451,8 @@ fn status_flag(r: Option<&Value>, f: &Value) -> String {
 
 fn history(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     let name = pv.part.get("name").and_then(Value::as_str).unwrap_or("").to_string();
-    ui.label(RichText::new(name).strong().color(t.text_strong));
-    ui.label(RichText::new(tr("ui.left.aria")).small().color(t.text_dim));
+    crate::shell::h(ui, t, &name);
+    crate::shell::note(ui, t, &tr("ui.left.aria"));
     ui.separator();
     for name in ["front", "top", "right"] {
         let on = pv.sel_plane.as_deref() == Some(name);
@@ -580,6 +588,7 @@ fn dims_block(ui: &mut egui::Ui, pv: &mut PartView, sid: &str, title_key: &str, 
     ui.label(
         RichText::new(trv("app.dims.title", &[("title", tr(title_key)), ("name", jv::s(&sf, "name").to_string())]))
             .strong()
+            .family(crate::theme::bold_family())
             .color(t.text_strong),
     );
     egui::Grid::new(("pc-dims", sid.to_string())).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
@@ -599,10 +608,10 @@ fn dims_block(ui: &mut egui::Ui, pv: &mut PartView, sid: &str, title_key: &str, 
 
 pub(crate) fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t: &Tokens, act: &mut Cmd) {
     let id = jv::s(f, "id").to_string();
-    ui.label(RichText::new(tr(if key == "edges" { "app.refs.edges_note" } else { "app.refs.faces_note" })).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr(if key == "edges" { "app.refs.edges_note" } else { "app.refs.faces_note" }));
     let items = jv::arr(f.get(key));
     if items.is_empty() {
-        ui.label(RichText::new(tr(if key == "edges" { "app.refs.no_edges" } else { "app.refs.no_faces" })).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr(if key == "edges" { "app.refs.no_edges" } else { "app.refs.no_faces" }));
     }
     for (i, r) in items.iter().enumerate() {
         let label = if key == "edges" {
@@ -621,7 +630,8 @@ pub(crate) fn ref_list(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, t
     }
     let picking = pv.mode == Mode::Pick && pv.editing.as_deref() == Some(id.as_str());
     if picking {
-        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.refs.done_picking")).strong())).clicked() {
+        if ui.add(crate::shell::Btn::new(RichText::new(tr("app.refs.done_picking")).strong().family(crate::theme::bold_family()))).clicked()
+        {
             *act = cmd("part.pick.done", "");
         }
     } else if ui.add(crate::shell::Btn::new(tr(if key == "edges" { "app.refs.pick_edges" } else { "app.refs.pick_faces" }))).clicked() {
@@ -634,7 +644,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
     let id = jv::s(f, "id").to_string();
     let fname = jv::s(f, "name").to_string();
     let ty = jv::s(f, "type").to_string();
-    ui.label(RichText::new(format!("{fname} · {}", P::feature_label(&ty))).strong().color(t.text_strong));
+    crate::shell::h(ui, t, &format!("{fname} · {}", P::feature_label(&ty)));
     if let Some(r) = pv.regen.results.get(&id) {
         let words = match jv::s(r, "status") {
             "error" => r.get("message").and_then(Value::as_str).map(str::to_string),
@@ -700,7 +710,10 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
                 }
             });
             ui.horizontal(|ui| {
-                if ui.add(crate::shell::Btn::new(RichText::new(tr("app.btn.edit_sketch")).strong())).clicked() {
+                if ui
+                    .add(crate::shell::Btn::new(RichText::new(tr("app.btn.edit_sketch")).strong().family(crate::theme::bold_family())))
+                    .clicked()
+                {
                     *act = cmd("part.sketch", id.clone());
                 }
                 if ui.add(crate::shell::Btn::new(tr("app.btn.export_dxf"))).clicked() {
@@ -1047,7 +1060,7 @@ fn confirm_dialog(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
 }
 
 fn facts(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
-    ui.label(RichText::new(tr("ui.left.facts")).strong().color(t.text_strong));
+    crate::shell::h(ui, t, &tr("ui.left.facts"));
     let errs = pv.failing();
     let n = P::features(&pv.part).len();
     let mut rows: Vec<(String, String)> = Vec::new();
@@ -1075,13 +1088,13 @@ fn facts(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
     rows.push((tr("app.facts.failing"), if errs > 0 { errs.to_string() } else { String::new() }));
     egui::Grid::new("pc-facts").num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
         for (k, v) in rows {
-            ui.label(RichText::new(k).small().color(t.text_dim));
-            ui.label(RichText::new(v).small().color(t.text));
+            ui.label(RichText::new(k).size(14.0).color(t.text_dim));
+            ui.label(RichText::new(v).size(14.0).color(t.text));
             ui.end_row();
         }
     });
     ui.label(
-        RichText::new(cc_part::i18n::t("app.build.rebuilt", &[("ms", cc_part::i18n::F::S(f3(pv.regen_ms)))])).small().color(t.text_dim),
+        RichText::new(cc_part::i18n::t("app.build.rebuilt", &[("ms", cc_part::i18n::F::S(f3(pv.regen_ms)))])).size(14.0).color(t.text_dim),
     );
 }
 
@@ -1102,7 +1115,7 @@ fn group3(v: f64) -> String {
 fn properties(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
     let shown = pv.sel_face.or(pv.hover);
     let Some(fi) = shown.and_then(|i| pv.face(i)) else {
-        ui.label(RichText::new(tr("app.props.part")).strong().color(t.text_strong));
+        crate::shell::h(ui, t, &tr("app.props.part"));
         let res = jv::n(&pv.part, "resolution");
         let curves = match res as i64 {
             32 => tr("app.part.res_coarse"),
@@ -1120,10 +1133,10 @@ fn properties(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
             ui.end_row();
         });
         ui.add_space(6.0);
-        ui.label(RichText::new(tr("app.part.note_mesh_off")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("app.part.note_mesh_off"));
         return;
     };
-    ui.label(RichText::new(tr("app.props.face")).strong().color(t.text_strong));
+    crate::shell::h(ui, t, &tr("app.props.face"));
     let ty = jv::s(fi, "type");
     let kind = match ty {
         "plane" => tr("app.face.flat"),
@@ -1167,14 +1180,14 @@ fn properties(ui: &mut egui::Ui, pv: &PartView, t: &Tokens) {
 }
 
 fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
-    ui.label(RichText::new(tr("ui.params.intro")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("ui.params.intro"));
     ui.add_space(4.0);
-    ui.label(RichText::new(tr("ui.params.vars")).strong().color(t.text_strong));
+    crate::shell::sub(ui, t, &tr("ui.params.vars"));
     let p = PP::params_of(&pv.part);
     let ev = cc_part::params::evaluate_vars(&p, None);
     egui::Grid::new("pc-vars").num_columns(3).striped(true).spacing([6.0, 3.0]).show(ui, |ui| {
         for k in ["ui.params.col.name", "ui.params.col.expr", "ui.params.col.value"] {
-            ui.label(RichText::new(tr(k)).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr(k));
         }
         ui.end_row();
         for v in &p.vars {
@@ -1208,9 +1221,9 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
         }
     });
     ui.add_space(8.0);
-    ui.label(RichText::new(tr("ui.params.eqs")).strong().color(t.text_strong));
+    crate::shell::sub(ui, t, &tr("ui.params.eqs"));
     if p.links.is_empty() {
-        ui.label(RichText::new(tr("ui.params.eqs.empty")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("ui.params.eqs.empty"));
     }
     let targets = PP::targets(&pv.part);
     egui::Grid::new("pc-eqs").num_columns(2).spacing([6.0, 3.0]).show(ui, |ui| {
@@ -1234,12 +1247,12 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
 /// values under, Export as a design table.
 fn configurations(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     ui.add_space(8.0);
-    ui.label(RichText::new(tr("configs.title")).strong().color(t.text_strong));
+    crate::shell::sub(ui, t, &tr("configs.title"));
     let cfgs = pv.configs();
     let p = PP::params_of(&pv.part);
     match &cfgs {
         None => {
-            ui.label(RichText::new(tr("configs.empty")).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr("configs.empty"));
         }
         Some(c) => {
             for r in &c.rows {

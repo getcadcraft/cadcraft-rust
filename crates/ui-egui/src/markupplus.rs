@@ -100,7 +100,12 @@ impl PdfView {
 
     /// The Spaces list (renderSpaces): by sheet, then name; a click shows the space.
     pub fn spaces_panel(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
-        ui.label(RichText::new(t0("space.h")).strong().color(tok.text_strong)).on_hover_text(t0("space.h.title"));
+        crate::shell::h(ui, tok, &t0("space.h")).on_hover_text(t0("space.h.title"));
+        self.spaces_list(ui, tok);
+    }
+
+    /// The spaces and New space (under the Spaces row's head, or a head of their own).
+    pub fn spaces_list(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
         let keys: Vec<String> = self.sheet_keys();
         let order = |m: &Markup| keys.iter().position(|k| k == m.sheet()).map_or(-1.0, |i| i as f64);
         let mut spaces: Vec<Markup> = self.store.all().into_iter().filter(|m| m.kind == "space").cloned().collect();
@@ -358,7 +363,10 @@ impl PdfView {
             let Some(p) = m.punch.clone() else { continue };
             let title = if m.subject.is_empty() { type_name(&m.kind) } else { m.subject.clone() };
             if ui
-                .selectable_label(self.tools.sel.contains(&m.id), RichText::new(format!("{}  {title}", cc_markup::js::ns(p.n))).strong())
+                .selectable_label(
+                    self.tools.sel.contains(&m.id),
+                    RichText::new(format!("{}  {title}", cc_markup::js::ns(p.n))).strong().family(crate::theme::bold_family()),
+                )
                 .clicked()
             {
                 jump = Some(m.id.clone());
@@ -465,7 +473,7 @@ impl PdfView {
         }
         // the punch item
         ui.add_space(4.0);
-        ui.label(RichText::new(t0("tab.punch")).strong().color(tok.text_strong));
+        ui.label(RichText::new(t0("tab.punch")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
         if let Some(p) = &m.punch {
             ui.label(format!("{} {}", t0("punch.number"), cc_markup::js::ns(p.n)));
             self.punch_fields(ui, m);

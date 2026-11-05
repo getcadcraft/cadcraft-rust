@@ -939,19 +939,19 @@ pub fn panel(app: &UiApp, ui: &mut egui::Ui) {
             grid(ui, "dwg3d_rows", &p.rows, &t);
             for c in [&p.flat, &p.missing].into_iter().flatten() {
                 ui.separator();
-                ui.label(RichText::new(&c.title).strong().color(t.text_strong));
+                ui.label(RichText::new(&c.title).strong().family(crate::theme::bold_family()).color(t.text_strong));
                 grid(ui, &c.title, &c.rows, &t);
                 small(ui, &c.note, t.text_dim);
             }
         }
         Some(page::PickView::Many { title, hint, counts }) => {
-            ui.label(RichText::new(title).strong().color(t.text_strong));
+            ui.label(RichText::new(title).strong().family(crate::theme::bold_family()).color(t.text_strong));
             small(ui, &hint, t.text_dim);
             grid(ui, "dwg3d_many", &counts, &t);
         }
         Some(page::PickView::One { cls, name, rows, attrs, back }) => {
             small(ui, &cls, t.text_dim);
-            ui.label(RichText::new(name).strong().color(t.text_strong));
+            ui.label(RichText::new(name).strong().family(crate::theme::bold_family()).color(t.text_strong));
             grid(ui, "dwg3d_props", &rows, &t);
             if let Some((summary, list)) = attrs {
                 egui::CollapsingHeader::new(RichText::new(summary).small())

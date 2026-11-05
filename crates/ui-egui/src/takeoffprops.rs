@@ -672,7 +672,7 @@ impl TakeoffMode {
         let lu = U::length_unit_of(&unit);
         let name = s(it.get("name"));
         let mut set: Vec<(String, String)> = Vec::new();
-        ui.label(RichText::new(tf("item.h.name", &[("item", F::S(name.clone()))])).strong().color(tok.text_strong));
+        crate::shell::h(ui, tok, &tf("item.h.name", &[("item", F::S(name.clone()))]));
         if let Some(v) = self.text_field(ui, "name", &name, &t("item.f.name"), "") {
             set.push(("name".into(), v));
         }
@@ -824,7 +824,7 @@ impl TakeoffMode {
             {
                 set.push(("pitch".into(), v));
             }
-            ui.label(RichText::new(t("item.f.3d")).small().strong());
+            ui.label(RichText::new(t("item.f.3d")).small().strong().family(crate::theme::bold_family()));
             for (field, key, label) in SHAPE {
                 if (field == "thick" || field == "head") && ty != "linear" {
                     continue;
@@ -893,7 +893,7 @@ impl TakeoffMode {
         }
         // measured
         ui.add_space(4.0);
-        ui.label(RichText::new(t("item.measured")).small().strong());
+        ui.label(RichText::new(t("item.measured")).small().strong().family(crate::theme::bold_family()));
         let tot = q.get(&id).map(|x| x.tot.clone()).unwrap_or_default();
         let vars: HashMap<String, f64> = item_vars(&it, &tot).into_iter().collect();
         let var = |k: &str| vars.get(k).copied().unwrap_or(0.0);
@@ -924,7 +924,7 @@ impl TakeoffMode {
         ui.add_space(4.0);
         let mut comp_act: Vec<String> = Vec::new();
         ui.horizontal(|ui| {
-            ui.label(RichText::new(t("asm.h")).strong().color(tok.text_strong));
+            crate::shell::h(ui, tok, &t("asm.h"));
             if ui.small_button(format!("+ {}", t("asm.add"))).clicked() {
                 comp_act.push("add".into());
             }
@@ -1014,7 +1014,7 @@ impl TakeoffMode {
         let fpu = self.ft_per_unit(&s(m.get("sheet"))).unwrap_or(0.0);
         let r = measure_mark(&m, fpu, Some(&it));
         let mut set: Vec<(String, String)> = Vec::new();
-        ui.label(RichText::new(t("mark.h")).strong().color(tok.text_strong));
+        crate::shell::h(ui, tok, &t("mark.h"));
         let items: Vec<Value> = self.tk.items().iter().filter(|i| kinds_of(Some(i)).contains(&kind)).cloned().collect();
         let l = ui.label(RichText::new(t("mark.f.item")).small());
         egui::ComboBox::new("tk_m_item", "")
@@ -1264,7 +1264,7 @@ impl TakeoffMode {
         if self.tk.state.get("areas").and_then(Value::as_array).is_none_or(Vec::is_empty) {
             return;
         }
-        ui.label(RichText::new(t("qty.area.col")).strong().color(tok.text_strong));
+        ui.label(RichText::new(t("qty.area.col")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
         let mut any = false;
         egui::Grid::new("tk_by_area").striped(true).num_columns(4).show(ui, |ui| {
             for (area, e) in area_estimates(&self.tk.state) {
@@ -1296,16 +1296,16 @@ impl TakeoffMode {
                     ui.label(U::format_cents(f(r.get("total"))));
                     ui.end_row();
                 }
-                ui.label(RichText::new(tf("qty.area.subtotal", &[("area", F::S(name))])).strong());
+                ui.label(RichText::new(tf("qty.area.subtotal", &[("area", F::S(name))])).strong().family(crate::theme::bold_family()));
                 ui.label("");
                 ui.label("");
-                ui.label(RichText::new(U::format_cents(e.total)).strong());
+                ui.label(RichText::new(U::format_cents(e.total)).strong().family(crate::theme::bold_family()));
                 ui.end_row();
             }
             let alts = alternates(&self.tk.state);
             if !alts.is_empty() {
                 let base = cc_takeoff::model::base_estimate(&self.tk.state);
-                ui.label(RichText::new(t("qty.alt.base")).strong());
+                ui.label(RichText::new(t("qty.alt.base")).strong().family(crate::theme::bold_family()));
                 ui.label("");
                 ui.label("");
                 ui.label(U::format_cents(base.total));

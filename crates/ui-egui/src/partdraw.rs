@@ -1020,7 +1020,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
             "fcf" => tr("app.gdt.fcf_head"),
             _ => tr("app.gdt.finish_head"),
         };
-        ui.label(RichText::new(head).strong().color(t.text_strong));
+        ui.label(RichText::new(head).strong().family(crate::theme::bold_family()).color(t.text_strong));
         if let Some(bad) = G::validate(Some(&n)) {
             ui.label(RichText::new(bad).small().color(t.text_strong));
         }
@@ -1091,7 +1091,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
             }
         });
         if matches!(jv::s(&n, "char"), "concentricity" | "symmetry") && kind == "fcf" {
-            ui.label(RichText::new(tr("app.gdt.legacy")).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr("app.gdt.legacy"));
         }
         egui::Grid::new("pc-dr-facts").num_columns(2).show(ui, |ui| {
             ui.label(RichText::new(tr("app.gdt.reads")).color(t.text_dim));
@@ -1101,7 +1101,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
             ui.label(trv("app.gdt.on_view", &[("view", view_word(jv::s(&n, "view")))]));
             ui.end_row();
         });
-        ui.label(RichText::new(tr("app.gdt.drag_note")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("app.gdt.drag_note"));
         ui.horizontal(|ui| {
             if ui.add(crate::shell::Btn::new(tr("app.btn.delete"))).clicked() {
                 *act = cmd("part.drawing", "delete");
@@ -1112,7 +1112,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
         });
         return;
     }
-    ui.label(RichText::new(tr("app.drawing.head")).strong().color(t.text_strong));
+    ui.label(RichText::new(tr("app.drawing.head")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     let sheets: Vec<(String, String)> = P::SHEET_KEYS.iter().map(|k| ((*k).to_string(), DR::sheet_label(k))).collect();
     let none = tr("app.drawing.none");
     let sec_of = d.get("section").filter(|s| s.is_object()).map(|s| jv::s(s, "of").to_string());
@@ -1170,7 +1170,7 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
     });
     // title block
     ui.separator();
-    ui.label(RichText::new(tr("drawing.panel.title_block")).strong());
+    ui.label(RichText::new(tr("drawing.panel.title_block")).strong().family(crate::theme::bold_family()));
     let title = d.get("title").cloned().unwrap_or(Value::Null);
     let revs = jv::arr(d.get("revisions")).to_vec();
     let today = ymd(pv.today_ms());
@@ -1202,9 +1202,9 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
     ui.label(RichText::new(mat).small().color(t.text_dim));
     // revisions
     ui.separator();
-    ui.label(RichText::new(tr("drawing.panel.revisions")).strong());
+    ui.label(RichText::new(tr("drawing.panel.revisions")).strong().family(crate::theme::bold_family()));
     if revs.is_empty() {
-        ui.label(RichText::new(tr("drawing.panel.no_revisions")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("drawing.panel.no_revisions"));
     }
     for (i, r) in revs.iter().enumerate() {
         ui.horizontal(|ui| {
@@ -1242,11 +1242,11 @@ pub fn drawing_panel(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut
         if !om.is_empty() {
             ui.label(RichText::new(trv("app.drawing.no_room", &[("list", om.join(", "))])).small().color(t.text_strong));
         }
-        ui.label(RichText::new(tr("kernel.drawing.note")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("kernel.drawing.note"));
     }
     let notes = jv::arr(d.get("notes")).to_vec();
     if !notes.is_empty() {
-        ui.label(RichText::new(tr("app.drawing.notes_on_sheet")).strong());
+        ui.label(RichText::new(tr("app.drawing.notes_on_sheet")).strong().family(crate::theme::bold_family()));
         for q in &notes {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(G::describe(q).unwrap_or_default()).small());

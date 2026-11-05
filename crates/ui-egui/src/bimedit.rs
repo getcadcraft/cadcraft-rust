@@ -572,9 +572,10 @@ pub fn props_edit(app: &mut UiApp, ui: &mut egui::Ui) {
         if editable.is_empty() {
             continue;
         }
-        egui::CollapsingHeader::new(RichText::new(set).color(t.text_strong)).id_salt(("bim_set", set.as_str())).default_open(false).show(
-            ui,
-            |ui| {
+        egui::CollapsingHeader::new(RichText::new(set).font(crate::theme::bold(15.0)).color(t.text_strong))
+            .id_salt(("bim_set", set.as_str()))
+            .default_open(false)
+            .show(ui, |ui| {
                 if set.ends_with(" (type)") {
                     ui.label(RichText::new(bt("prop.typenote", &[])).small().color(t.text_dim));
                 }
@@ -597,8 +598,7 @@ pub fn props_edit(app: &mut UiApp, ui: &mut egui::Ui) {
                         out = Some(("bim.prop".into(), format!("{set}/{pname}={nv}")));
                     }
                 }
-            },
-        );
+            });
     }
     if let Some((cmd, arg)) = out {
         app.run_ui(&cmd, &Params { name: Some(arg), ..Default::default() });
@@ -826,12 +826,16 @@ pub fn ifc_branch(app: &mut UiApp, ui: &mut egui::Ui) {
         None => {}
     }
     if app.bimh.draw.on {
-        egui::Panel::left("bim_side").default_size(240.0).size_range(180.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-                crate::bimplan::levels_panel(app, ui);
-                crate::bimplan::schedules_panel(app, ui);
-            });
-        });
+        crate::shell::side(
+            ui,
+            egui::Panel::left("bim_side").default_size(240.0).size_range(180.0..=420.0).resizable(true).frame(frame),
+            |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                    crate::bimplan::levels_panel(app, ui);
+                    crate::bimplan::schedules_panel(app, ui);
+                });
+            },
+        );
     } else {
         app.model_panel(ui);
     }

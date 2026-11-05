@@ -480,7 +480,7 @@ impl PdfView {
                     ui.label(RichText::new(line).color(tok.text_dim));
                 }
                 if let Some((o, n)) = self.tk_scale_ask.clone() {
-                    ui.label(RichText::new(t("cmp.scale.title")).strong());
+                    ui.label(RichText::new(t("cmp.scale.title")).strong().family(crate::theme::bold_family()));
                     ui.label(tf("cmp.scale.text", &[("old", F::S(o)), ("new", F::S(n))]));
                     ui.horizontal(|ui| {
                         if ui.add(crate::shell::Btn::new(t("cmp.scale.cancel"))).clicked() {

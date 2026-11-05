@@ -3012,18 +3012,26 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
         let frame = crate::shell::panel_frame(&t);
         let inset = egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 12, top: 10, bottom: 4 });
         let app_c = t.app("civilcraft");
-        egui::Panel::left("civil_left").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            crate::shell::grip(ui, &t, app_c, &t0("ui.left"), false, false);
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::left(cv, ui, &t, &mut acts)));
-        });
-        egui::Panel::right("civil_right").default_size(320.0).size_range(220.0..=460.0).resizable(true).frame(frame).show(ui, |ui| {
-            crate::shell::grip(ui, &t, app_c, &t0("ui.props"), false, false);
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::right(cv, ui, &t, &mut acts)));
-        });
+        crate::shell::side(
+            ui,
+            egui::Panel::left("civil_left").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame),
+            |ui| {
+                crate::shell::grip(ui, &t, app_c, &t0("ui.left"), false, false);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::left(cv, ui, &t, &mut acts)));
+            },
+        );
+        crate::shell::side(
+            ui,
+            egui::Panel::right("civil_right").default_size(320.0).size_range(220.0..=460.0).resizable(true).frame(frame),
+            |ui| {
+                crate::shell::grip(ui, &t, app_c, &t0("ui.props"), false, false);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| inset.show(ui, |ui| crate::civilpanel::right(cv, ui, &t, &mut acts)));
+            },
+        );
         for a in acts {
             let r = match a {
                 crate::civilpanel::Act::Select(s) => {

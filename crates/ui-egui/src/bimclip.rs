@@ -271,9 +271,14 @@ pub fn many_panel(app: &mut UiApp, ui: &mut egui::Ui) -> bool {
         }
     }
     by.sort_by_key(|x| std::cmp::Reverse(x.1));
-    ui.label(egui::RichText::new(bt("pick.many", &[("n", &list.len().to_string())])).strong().color(t.text_strong));
+    ui.label(
+        egui::RichText::new(bt("pick.many", &[("n", &list.len().to_string())]))
+            .strong()
+            .family(crate::theme::bold_family())
+            .color(t.text_strong),
+    );
     ui.label(egui::RichText::new(bt("pick.many.hint", &[])).small().color(t.text_dim));
-    ui.label(egui::RichText::new(bt("pick.many.classes", &[])).strong());
+    ui.label(egui::RichText::new(bt("pick.many.classes", &[])).strong().family(crate::theme::bold_family()));
     egui::Grid::new("bim_many").num_columns(2).show(ui, |ui| {
         for (c, n) in by {
             ui.label(c);
@@ -823,7 +828,7 @@ pub fn library_block(app: &mut UiApp, ui: &mut egui::Ui) {
         other => other.to_string(),
     };
     let mut swap = false;
-    ui.label(egui::RichText::new(title).strong().color(t.text_strong));
+    ui.label(egui::RichText::new(title).strong().family(crate::theme::bold_family()).color(t.text_strong));
     egui::Grid::new("bim_libblock").num_columns(2).show(ui, |ui| {
         ui.label(egui::RichText::new(bt("lib.block.license", &[])).color(t.text_dim));
         ui.label(if lic.is_empty() { bt("lib.block.license.none", &[]) } else { crate::bimlib::license_label(&lic) });

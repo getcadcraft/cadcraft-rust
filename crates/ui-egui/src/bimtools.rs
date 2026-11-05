@@ -196,20 +196,14 @@ impl BimTools {
     pub fn panels(&mut self, ui: &mut egui::Ui, t: &Tokens, bytes: &[u8], name: &str) -> Option<BimAct> {
         let mut act = None;
         let open = std::mem::take(&mut self.open);
-        egui::CollapsingHeader::new(RichText::new(bt("find.title", &[])).color(t.text_strong))
-            .default_open(false)
-            .open((open == 1).then_some(true))
-            .show(ui, |ui| {
-                act = self.find_panel(ui, t, bytes);
-            });
-        egui::CollapsingHeader::new(RichText::new(bt("qto.title", &[])).color(t.text_strong))
-            .default_open(false)
-            .open((open == 2).then_some(true))
-            .show(ui, |ui| {
-                if let Some(a) = self.qto_panel(ui, t, bytes, name) {
-                    act = Some(a);
-                }
-            });
+        crate::shell::fold_open(ui, t, "bim_find", &bt("find.title", &[]), false, (open == 1).then_some(true), |ui| {
+            act = self.find_panel(ui, t, bytes);
+        });
+        crate::shell::fold_open(ui, t, "bim_qto", &bt("qto.title", &[]), false, (open == 2).then_some(true), |ui| {
+            if let Some(a) = self.qto_panel(ui, t, bytes, name) {
+                act = Some(a);
+            }
+        });
         act
     }
 
@@ -327,10 +321,14 @@ impl BimTools {
         let mut act = None;
         if let Some(res) = &self.totals {
             egui::Grid::new("qto_rows").striped(true).num_columns(2 + res.sum.len()).show(ui, |ui| {
-                ui.label(RichText::new(label_of(&fields, res.group_by.first().map_or("", String::as_str))).strong());
-                ui.label(RichText::new(bt("qto.count", &[])).strong());
+                ui.label(
+                    RichText::new(label_of(&fields, res.group_by.first().map_or("", String::as_str)))
+                        .strong()
+                        .family(crate::theme::bold_family()),
+                );
+                ui.label(RichText::new(bt("qto.count", &[])).strong().family(crate::theme::bold_family()));
                 for f in &res.sum {
-                    ui.label(RichText::new(label_of(&numbers, f)).strong());
+                    ui.label(RichText::new(label_of(&numbers, f)).strong().family(crate::theme::bold_family()));
                 }
                 ui.end_row();
                 for r in res.rows.iter().take(MAX_SHOWN) {
@@ -342,10 +340,10 @@ impl BimTools {
                     }
                     ui.end_row();
                 }
-                ui.label(RichText::new(bt("qto.total", &[])).strong());
-                ui.label(RichText::new(cc_bim::js::num_str(res.total.count)).strong());
+                ui.label(RichText::new(bt("qto.total", &[])).strong().family(crate::theme::bold_family()));
+                ui.label(RichText::new(cc_bim::js::num_str(res.total.count)).strong().family(crate::theme::bold_family()));
                 for x in &res.total.sums {
-                    ui.label(RichText::new(cc_bim::js::num_str(*x)).strong());
+                    ui.label(RichText::new(cc_bim::js::num_str(*x)).strong().family(crate::theme::bold_family()));
                 }
                 ui.end_row();
             });

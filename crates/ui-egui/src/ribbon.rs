@@ -1444,6 +1444,7 @@ pub fn paint_icon(painter: &egui::Painter, r: Rect, name: &str, color: Color32) 
             p.line(&[(15.0, 2.0), (15.0, 6.0)]);
             p.line(&[(13.0, 4.0), (17.0, 4.0)]);
         }
+        "bookmark" => p.line(&[(6.0, 3.0), (14.0, 3.0), (14.0, 17.0), (10.0, 13.5), (6.0, 17.0), (6.0, 3.0)]),
         "bounding-box" | "bounding-box-circles" => {
             p.rect(5.0, 5.0, 15.0, 15.0);
             for (x, y) in [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)] {
@@ -2212,7 +2213,11 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
                 if let Some(fm) = menus.first() {
                     let items = &fm.items;
                     let open = bar_state.open.as_deref() == Some("file");
-                    let txt = RichText::new(crate::inputdlg::tx(&fm.label)).strong().color(if open { tk.text_strong } else { tk.text });
+                    let txt = RichText::new(crate::inputdlg::tx(&fm.label)).strong().family(crate::theme::bold_family()).color(if open {
+                        tk.text_strong
+                    } else {
+                        tk.text
+                    });
                     let r =
                         ui.add(egui::Button::new(txt).fill(if open { tk.accent } else { tk.panel_darker }).min_size(Vec2::new(48.0, 22.0)));
                     if r.clicked() {

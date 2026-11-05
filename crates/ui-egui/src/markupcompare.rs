@@ -494,7 +494,7 @@ impl PdfView {
 
     /// The Compare tab.
     pub fn compare_panel(&mut self, ui: &mut egui::Ui, tok: &crate::theme::Tokens) {
-        ui.label(egui::RichText::new(t0("compare.h")).strong().color(tok.text_strong));
+        ui.label(egui::RichText::new(t0("compare.h")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
         ui.label(egui::RichText::new(t0("compare.note")).small().color(tok.text_dim));
         let mut sheets: Vec<(String, String)> = Vec::new();
         let several = !self.others.is_empty();
@@ -592,7 +592,7 @@ impl PdfView {
         // Compare two sets
         if several {
             ui.separator();
-            ui.label(egui::RichText::new(t0("setcmp.h")).strong().color(tok.text_strong));
+            ui.label(egui::RichText::new(t0("setcmp.h")).strong().family(crate::theme::bold_family()).color(tok.text_strong));
             ui.label(egui::RichText::new(t0("setcmp.note")).small().color(tok.text_dim));
             let files: Vec<(String, String)> = self.files().iter().map(|f| (f.id.clone(), f.name.clone())).collect();
             if self.cmp.set_old.is_empty() {

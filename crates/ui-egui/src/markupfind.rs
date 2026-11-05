@@ -631,7 +631,7 @@ impl PdfView {
 
     /// The Find and Bookmarks sections at the top of the sheets panel.
     pub fn find_panels(&mut self, ui: &mut egui::Ui, tok: &Tokens) {
-        egui::CollapsingHeader::new(RichText::new(t0("find.h")).strong().color(tok.text_strong)).id_salt("mc-find").show(ui, |ui| {
+        crate::shell::fold_row(ui, tok, "mc-find", "search", &t0("find.h"), &t0("find.title"), None, |ui| {
             let l = ui.label(RichText::new(t0("find.label")).small());
             let r = ui.add(crate::shell::field(&mut self.find.q).hint_text(t0("find.placeholder"))).labelled_by(l.id);
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
@@ -676,7 +676,7 @@ impl PdfView {
                 self.auto_link();
             }
         });
-        egui::CollapsingHeader::new(RichText::new(t0("bm.h")).strong().color(tok.text_strong)).id_salt("mc-bookmarks").show(ui, |ui| {
+        crate::shell::fold_row(ui, tok, "mc-bookmarks", "bookmark", &t0("bm.h"), &t0("bm.h.title"), None, |ui| {
             let f = &self.cur;
             let note = if f.bookmarks.is_empty() {
                 t("bm.none", &[("file", Fill::S(f.name.clone()))])

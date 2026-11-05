@@ -327,7 +327,9 @@ use egui::RichText;
 pub fn card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     let a = pv.analysis.clone();
     ui.horizontal(|ui| {
-        ui.label(RichText::new(tr(&format!("analysis.title.{}", a.mode))).strong().color(t.text_strong));
+        ui.label(
+            RichText::new(tr(&format!("analysis.title.{}", a.mode))).strong().family(crate::theme::bold_family()).color(t.text_strong),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add(crate::shell::Btn::new(tr("draft.close"))).on_hover_text(tr("draft.close.title")).clicked() {
                 *act = cmd("part.analysis", "close");
@@ -361,7 +363,7 @@ pub fn card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
                     *act = cmd("part.analysis", format!("stripes:{}", str_t.trim()));
                 }
             });
-            ui.label(RichText::new(tr("analysis.zebra.note")).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr("analysis.zebra.note"));
         }
         "curvature" => {
             let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 10.0), egui::Sense::hover());

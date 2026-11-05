@@ -635,9 +635,9 @@ fn step_words(st: &crate::partasm::AsmSt, i: usize, s: &Value) -> String {
 /// The left panel in the assembly: renderAsmTree + renderAsmFacts.
 pub fn tree(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     let Some(st) = pv.asm.as_ref() else { return };
-    ui.label(RichText::new(jv::s(&st.asm, "name")).strong().color(t.text_strong));
+    ui.label(RichText::new(jv::s(&st.asm, "name")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     ui.separator();
-    ui.label(RichText::new(tr("app.asm.tree_parts")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("app.asm.tree_parts"));
     let problem = |kind: &str, id: &str| st.problems.iter().find(|p| jv::is_str(p.get(kind), id)).map(|p| jv::s(p, "message").to_string());
     for (n, i) in jv::arr(st.asm.get("instances")).iter().enumerate() {
         let id = jv::s(i, "id").to_string();
@@ -666,7 +666,7 @@ pub fn tree(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
             }
         });
     }
-    ui.label(RichText::new(tr("app.asm.tree_joints")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("app.asm.tree_joints"));
     let joints = jv::arr(st.asm.get("joints"));
     for j in joints {
         let id = jv::s(j, "id").to_string();
@@ -685,9 +685,9 @@ pub fn tree(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     if joints.is_empty() {
         ui.label(RichText::new(tr("app.asm.no_joints")).color(t.text_dim));
     }
-    ui.label(RichText::new(cc_part::i18n::t("ui.left.asm_note", &[("key", cc_part::i18n::F::S("J".into()))])).small().color(t.text_dim));
+    crate::shell::note(ui, t, &cc_part::i18n::t("ui.left.asm_note", &[("key", cc_part::i18n::F::S("J".into()))]));
     ui.separator();
-    ui.label(RichText::new(tr("app.facts.h_assembly")).strong().color(t.text_strong));
+    ui.label(RichText::new(tr("app.facts.h_assembly")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     egui::Grid::new("pc-asm-facts").num_columns(2).spacing([12.0, 4.0]).show(ui, |ui| {
         for (k, v) in facts(pv) {
             ui.label(RichText::new(k).color(t.text_dim));
@@ -767,9 +767,9 @@ pub fn props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
         ui.label(RichText::new(text).color(if bad { t.text_strong } else { t.text }));
     };
     if let Some(jp) = &st.joint_pick {
-        ui.label(RichText::new(tr("app.joint.new")).strong().color(t.text_strong));
+        ui.label(RichText::new(tr("app.joint.new")).strong().family(crate::theme::bold_family()).color(t.text_strong));
         msg(ui, &tr(if jp.is_some() { "app.joint.pick_second_face" } else { "app.joint.pick_first_face" }), false);
-        ui.label(RichText::new(tr("app.joint.new_note")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("app.joint.new_note"));
         return;
     }
     let sel = st.sel.clone();
@@ -778,12 +778,12 @@ pub fn props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
         Some((k, id)) if k == "inst" && st.inst(&id).is_some() => inst_props(ui, pv, t, act, &id),
         _ => {
             let name = jv::s(&st.asm, "name").to_string();
-            ui.label(RichText::new(tr("app.facts.h_assembly")).strong().color(t.text_strong));
+            ui.label(RichText::new(tr("app.facts.h_assembly")).strong().family(crate::theme::bold_family()).color(t.text_strong));
             ui.horizontal(|ui| {
                 ui.label(tr("app.props.name"));
                 text_field(ui, pv, "asm-name", &name, "name", act);
             });
-            ui.label(RichText::new(tr("app.asm.note")).small().color(t.text_dim));
+            crate::shell::note(ui, t, &tr("app.asm.note"));
             let Some(st) = pv.asm.as_ref() else { return };
             for p in &st.problems {
                 msg(ui, jv::s(p, "message"), !jv::truthy(p.get("free")));
@@ -800,7 +800,7 @@ fn joint_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, 
     let Some(st) = pv.asm.as_ref() else { return };
     let Some(j) = st.joint(jid).cloned() else { return };
     let ty = jv::s(&j, "type").to_string();
-    ui.label(RichText::new(jv::s(&j, "name")).strong().color(t.text_strong));
+    ui.label(RichText::new(jv::s(&j, "name")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     if let Some(pr) = st.problems.iter().find(|p| jv::is_str(p.get("joint"), jid)) {
         ui.label(RichText::new(jv::s(pr, "message")).color(t.text_strong));
     }
@@ -859,7 +859,7 @@ fn joint_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, 
     });
     // asm-ui.js jointSections: the limits
     if !dof.is_empty() {
-        ui.label(RichText::new(tr("asm.limits.title")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("asm.limits.title"));
         for k in &dof {
             let lim = A::limit_of(&j, Some(k));
             let mut on = lim.is_some();
@@ -879,7 +879,7 @@ fn joint_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, 
             }
         }
     }
-    ui.label(RichText::new(tr(&format!("asm.joint.note.{ty}"))).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr(&format!("asm.joint.note.{ty}")));
     if dof.len() > 1 {
         let sweep = pv
             .asm
@@ -908,7 +908,7 @@ fn inst_props(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd, i
     let Some(i) = st.inst(iid).cloned() else { return };
     let pid = js::str_of(i.get("part"));
     let n = jv::arr(st.asm.get("instances")).iter().position(|x| jv::is_str(x.get("id"), iid)).unwrap_or(0);
-    ui.label(RichText::new(jv::s(&i, "name")).strong().color(t.text_strong));
+    ui.label(RichText::new(jv::s(&i, "name")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     let copies = jv::arr(st.asm.get("instances")).iter().filter(|x| jv::is_str(x.get("part"), &pid)).count();
     let vol = st.stats_of(&pid).map(|s| format!("{} mm³", f3(jv::n(s, "volume")))).unwrap_or_default();
     let nj = jv::arr(st.asm.get("joints"))
@@ -1005,10 +1005,10 @@ pub fn inst_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         }
     });
     if !free {
-        ui.label(RichText::new(tr(if grounded { "ui.asm.move.grounded" } else { "ui.asm.move.joined" })).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr(if grounded { "ui.asm.move.grounded" } else { "ui.asm.move.joined" }));
         return;
     }
-    ui.label(RichText::new(tr("ui.asm.move.title")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("ui.asm.move.title"));
     let Some(st) = pv.asm.as_mut() else { return };
     let mv = st.edits.entry(format!("{iid}:move")).or_insert_with(|| "0,0,0".into()).clone();
     let mut d: Vec<String> = mv.split(',').map(str::to_string).collect();
@@ -1060,10 +1060,10 @@ pub fn inst_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
 pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     let rows = pv.asm_bom_rows();
     ui.separator();
-    ui.label(RichText::new(tr("ui.asm.bom.title")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("ui.asm.bom.title"));
     egui::Grid::new("pc-asm-bom").num_columns(6).striped(true).spacing([8.0, 2.0]).show(ui, |ui| {
         for h in ["ui.asm.bom.item", "ui.asm.bom.qty", "ui.asm.part.number", "ui.asm.bom.name", "part.material", "ui.asm.bom.mass_each"] {
-            ui.label(RichText::new(tr(h)).small().strong());
+            ui.label(RichText::new(tr(h)).small().strong().family(crate::theme::bold_family()));
         }
         ui.end_row();
         for r in &rows {
@@ -1090,7 +1090,7 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
     });
     // exploded views
     ui.separator();
-    ui.label(RichText::new(tr("ui.asm.explode.title")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("ui.asm.explode.title"));
     let Some(st) = pv.asm.as_ref() else { return };
     let views: Vec<(String, String)> =
         jv::arr(st.asm.get("views")).iter().map(|v| (jv::s(v, "id").to_string(), jv::s(v, "name").to_string())).collect();
@@ -1121,7 +1121,7 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         }
     });
     let Some(v) = pv.asm_active_view() else {
-        ui.label(RichText::new(tr("ui.asm.explode.note")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("ui.asm.explode.note"));
         return;
     };
     let vid = jv::s(&v, "id").to_string();
@@ -1166,10 +1166,10 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         });
     }
     if steps.is_empty() {
-        ui.label(RichText::new(tr("ui.asm.explode.no_steps")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("ui.asm.explode.no_steps"));
     }
     // a new step
-    ui.label(RichText::new(tr("ui.asm.step.title")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("ui.asm.step.title"));
     let draft = st.tools.draft.clone().unwrap_or(StepDraft { insts: Vec::new(), dir: "y".into(), dist: 50.0, face_dir: None });
     for i in jv::arr(st.asm.get("instances")) {
         let id = jv::s(i, "id").to_string();
@@ -1233,7 +1233,7 @@ fn clash_block(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) 
     let hide: Vec<String> = jv::arr(filter.get("hide")).iter().filter_map(|x| x.as_str().map(str::to_string)).collect();
     let pairs = jv::arr(filter.get("pairs")).len();
     ui.separator();
-    ui.label(RichText::new(tr("asm.clash.title")).small().color(t.text_dim));
+    crate::shell::note(ui, t, &tr("asm.clash.title"));
     for c in &shown {
         let bad = matches!(jv::s(c, "kind"), "overlap" | "thread-depth");
         ui.horizontal_wrapped(|ui| {

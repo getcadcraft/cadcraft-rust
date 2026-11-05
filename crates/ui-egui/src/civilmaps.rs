@@ -1264,9 +1264,9 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
             if cv.pcrs().is_none() {
                 ui.label(RichText::new(t0("mapl.no_crs")).small().color(Color32::from_rgb(0xd0, 0x4a, 0x5a)));
             }
-            ui.label(RichText::new(t0("mapl.layers")).strong().color(tk.text_strong));
+            ui.label(RichText::new(t0("mapl.layers")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             if list.is_empty() {
-                ui.label(RichText::new(t0("mapl.none")).small().color(tk.text_dim));
+                crate::shell::note(ui, tk, &t0("mapl.none"));
             }
             let n = list.len();
             for (i, m) in list.iter().enumerate() {
@@ -1303,11 +1303,11 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                     });
                 }
                 if let Some(a) = m.get("attribution").and_then(Value::as_str).filter(|a| !a.is_empty()) {
-                    ui.label(RichText::new(tr!("mapl.attribution", text = a)).small().color(tk.text_dim));
+                    crate::shell::note(ui, tk, &tr!("mapl.attribution", text = a));
                 }
             }
             ui.separator();
-            ui.label(RichText::new(t0("mapl.add_layer")).strong().color(tk.text_strong));
+            ui.label(RichText::new(t0("mapl.add_layer")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
             egui::ComboBox::new("cv_map_kind", t0("mapl.from")).selected_text(kind_label(&d.kind)).show_ui(ui, |ui| {
                 for k in bm::KINDS {
                     if ui.selectable_label(d.kind == k, kind_label(k)).clicked() {
@@ -1316,12 +1316,12 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                 }
             });
             if d.kind == "image" {
-                ui.label(RichText::new(t0("mapl.files.help")).small().color(tk.text_dim));
+                crate::shell::note(ui, tk, &t0("mapl.files.help"));
                 if ui.add(crate::shell::Btn::new(t0("mapl.files"))).clicked() {
                     acts.push(("civil.gis.pick", String::new()));
                 }
             } else {
-                ui.label(RichText::new(t0(&format!("mapl.help.{}", d.kind))).small().color(tk.text_dim));
+                crate::shell::note(ui, tk, &t0(&format!("mapl.help.{}", d.kind)));
                 ui.horizontal(|ui| {
                     ui.label(t0("mapl.f.url"));
                     if ui.add(crate::shell::field(&mut d.url).desired_width(360.0)).changed() {
@@ -1367,14 +1367,14 @@ pub fn window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut V
                         }
                     }
                     if !cv.internet_on() {
-                        ui.label(RichText::new(t0("mapl.read.needs_net")).small().color(tk.text_dim));
+                        crate::shell::note(ui, tk, &t0("mapl.read.needs_net"));
                     }
                 }
             }
             if !d.status.is_empty() {
                 ui.label(RichText::new(&d.status).small().color(tk.text));
             }
-            ui.label(RichText::new(t0("mapl.screen_only")).small().color(tk.text_dim));
+            crate::shell::note(ui, tk, &t0("mapl.screen_only"));
         });
     if !open {
         cv.maps.dlg = None;

@@ -106,14 +106,28 @@ fn row(ui: &mut egui::Ui, t: &Tokens, k: &str, v: &str) {
 }
 
 impl ModelView {
-    /// The right-hand panel.
+    /// The left-hand panel (ui.inc `.mc-left`, "Outliner and components"): the outliner, then the components.
+    pub fn left_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
+        let mut acts: Vec<String> = Vec::new();
+        let mut boxes = std::mem::take(&mut self.boxes);
+        egui::ScrollArea::vertical().id_salt("mc-left").auto_shrink([false, false]).show(ui, |ui| {
+            self.tree_section(ui, t, &mut boxes, &mut acts);
+            self.comps_section(ui, t, &mut acts);
+        });
+        self.boxes = boxes;
+        for a in acts {
+            if let Err(e) = self.act(&a) {
+                self.message = e;
+            }
+        }
+    }
+
+    /// The right-hand panel (`.mc-right`, "Entity info, style and scenes").
     pub fn side_panel(&mut self, ui: &mut egui::Ui, t: &Tokens) {
         let mut acts: Vec<String> = Vec::new();
         let mut boxes = std::mem::take(&mut self.boxes);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             self.info_section(ui, t, &mut boxes, &mut acts);
-            self.tree_section(ui, t, &mut boxes, &mut acts);
-            self.comps_section(ui, t, &mut acts);
             self.paint_sections(ui, t, &mut acts);
             self.lights_section(ui, t, &mut boxes, &mut acts);
             self.tags_section(ui, t, &mut boxes, &mut acts);
@@ -138,7 +152,7 @@ impl ModelView {
         // the heading names what is shown (infoH); it is known once the rows are laid out, so it shows from the next frame
         let title = self.info_heading.borrow().clone();
         let title = if title.is_empty() { mt("ui.info", &[]) } else { title };
-        egui::CollapsingHeader::new(RichText::new(title).color(t.text_strong)).id_salt("mc-info").default_open(true).show(ui, |ui| {
+        crate::shell::section(ui, t, &title, |ui| {
             let r = ui.scope(|ui| {
                 egui::Grid::new("mc-props").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                     heading = self.info_rows(ui, t, boxes, acts, &mut notes, &mut buttons);
@@ -501,7 +515,7 @@ impl ModelView {
     fn tree_section(&self, ui: &mut egui::Ui, t: &Tokens, boxes: &mut HashMap<String, String>, acts: &mut Vec<String>) {
         let model = &self.tools.host.model;
         let Some(root) = model.root() else { return };
-        egui::CollapsingHeader::new(RichText::new(mt("ui.outliner", &[])).color(t.text_strong)).default_open(true).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.outliner", &[]), |ui| {
             let host_path = &self.tools.host.path;
             if !host_path.is_empty() {
                 // the crumbs and Close group
@@ -513,7 +527,7 @@ impl ModelView {
                     names.push(d.name.clone());
                 }
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new(mt("app.tree.crumbs", &[("path", &names.join(" › "))])).small().color(t.text_dim));
+                    crate::shell::note(ui, t, &mt("app.tree.crumbs", &[("path", &names.join(" › "))]));
                     if ui.small_button(mt("ui.outliner.close", &[])).clicked() {
                         acts.push("close-all".into());
                     }
@@ -649,7 +663,7 @@ impl ModelView {
                     text.color(t.text)
                 };
                 if !filter.is_empty() && own {
-                    text = text.strong();
+                    text = text.strong().family(crate::theme::bold_family());
                 }
                 let r =
                     ui.add(egui::Button::selectable(is_sel, text).sense(Sense::click_and_drag())).on_hover_text(mt("app.tree.title", &[]));
@@ -687,7 +701,7 @@ impl ModelView {
     // ---- Components ----
 
     fn comps_section(&self, ui: &mut egui::Ui, t: &Tokens, acts: &mut Vec<String>) {
-        egui::CollapsingHeader::new(RichText::new(mt("ui.comps", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.comps", &[]), |ui| {
             if crate::shell::link(ui, t, "grid-3x3", &mt("ui.comps.starter", &[])).clicked() {
                 acts.push("starter".into());
             }
@@ -706,7 +720,7 @@ impl ModelView {
             }
             if !any {
                 let key = if self.blender() { "Ctrl+Shift+G" } else { "G" };
-                ui.label(RichText::new(mt("ui.comps.empty", &[("key", key)])).small().color(t.text_dim));
+                crate::shell::note(ui, t, &mt("ui.comps.empty", &[("key", key)]));
             }
         });
     }
@@ -715,7 +729,7 @@ impl ModelView {
 
     fn paint_sections(&self, ui: &mut egui::Ui, t: &Tokens, acts: &mut Vec<String>) {
         let cur = self.tools.paint_color.clone();
-        egui::CollapsingHeader::new(RichText::new(mt("ui.colors", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.colors", &[]), |ui| {
             ui.horizontal_wrapped(|ui| {
                 if swatch(ui, None, cur.is_none(), &mt("app.color.default", &[]), t) {
                     acts.push("paint:default".into());
@@ -734,15 +748,15 @@ impl ModelView {
                     acts.push(format!("paint:#{:02x}{:02x}{:02x}", rgb[0], rgb[1], rgb[2]));
                 }
             });
-            ui.label(RichText::new(mt("ui.colors.note", &[])).small().color(t.text_dim));
+            crate::shell::note(ui, t, &mt("ui.colors.note", &[]));
         });
-        egui::CollapsingHeader::new(RichText::new(mt("ui.materials", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.materials", &[]), |ui| {
             for cat in crate::mcmats::CATEGORIES {
                 let list: Vec<&crate::mcmats::Mat> = crate::mcmats::MATERIALS.iter().filter(|m| m.cat == *cat).collect();
                 if list.is_empty() {
                     continue;
                 }
-                ui.label(RichText::new(mt(&format!("render.matcat.{cat}"), &[])).small().color(t.text_dim));
+                crate::shell::note(ui, t, &mt(&format!("render.matcat.{cat}"), &[]));
                 ui.horizontal_wrapped(|ui| {
                     for m in list {
                         let key = format!("mat:{}", m.id);
@@ -759,14 +773,14 @@ impl ModelView {
                     }
                 });
             }
-            ui.label(RichText::new(mt("ui.materials.note", &[])).small().color(t.text_dim));
+            crate::shell::note(ui, t, &mt("ui.materials.note", &[]));
         });
     }
 
     // ---- Tags (renderTags) ----
 
     fn tags_section(&self, ui: &mut egui::Ui, t: &Tokens, boxes: &mut HashMap<String, String>, acts: &mut Vec<String>) {
-        egui::CollapsingHeader::new(RichText::new(mt("ui.tags", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.tags", &[]), |ui| {
             let model = &self.tools.host.model;
             let counts = model.tag_counts();
             let n_of = |k: &str| counts.iter().find(|c| c.0 == k).map_or(0.0, |c| c.1);
@@ -799,14 +813,14 @@ impl ModelView {
             if ui.small_button(format!("+ {}", mt("ui.tags.add", &[]))).clicked() {
                 acts.push("tag-add".into());
             }
-            ui.label(RichText::new(mt("ui.tags.note", &[])).small().color(t.text_dim));
+            crate::shell::note(ui, t, &mt("ui.tags.note", &[]));
         });
     }
 
     // ---- Style and the sun ----
 
     fn style_section(&self, ui: &mut egui::Ui, t: &Tokens, acts: &mut Vec<String>) {
-        egui::CollapsingHeader::new(RichText::new(mt("ui.style", &[])).color(t.text_strong)).default_open(false).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.style", &[]), |ui| {
             egui::Grid::new("mc-style").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
                 ui.label(RichText::new(mt("ui.style.faces", &[])).color(t.text_dim));
                 let mut mode = self.mode.clone();
@@ -893,7 +907,7 @@ impl ModelView {
     // ---- Scenes ----
 
     fn scenes_section(&self, ui: &mut egui::Ui, t: &Tokens, boxes: &mut HashMap<String, String>, acts: &mut Vec<String>) {
-        egui::CollapsingHeader::new(RichText::new(mt("ui.scenes", &[])).color(t.text_strong)).default_open(true).show(ui, |ui| {
+        crate::shell::section(ui, t, &mt("ui.scenes", &[]), |ui| {
             let scenes = &self.tools.host.model.scenes;
             ui.horizontal_wrapped(|ui| {
                 if ui.small_button(format!("+ {}", mt("ui.scenes.add", &[]))).clicked() {
@@ -924,7 +938,7 @@ impl ModelView {
                 }
             });
             if scenes.is_empty() {
-                ui.label(RichText::new(mt("ui.scenes.empty", &[("up", "Page Up"), ("down", "Page Down")])).small().color(t.text_dim));
+                crate::shell::note(ui, t, &mt("ui.scenes.empty", &[("up", "Page Up"), ("down", "Page Down")]));
             }
             for (i, sc) in scenes.iter().enumerate() {
                 ui.horizontal(|ui| {
@@ -963,17 +977,20 @@ impl ModelView {
     // ---- Check for 3D printing ----
 
     fn print_section(&self, ui: &mut egui::Ui, t: &Tokens, acts: &mut Vec<String>) {
-        egui::CollapsingHeader::new(RichText::new(mt("app.print3d.title", &[])).color(t.text_strong))
-            .id_salt("mc-print3d")
-            .open(self.print_report.as_ref().map(|_| true))
-            .default_open(false)
-            .show(ui, |ui| {
+        crate::shell::fold_open(
+            ui,
+            t,
+            "mc-print3d",
+            &mt("app.print3d.title", &[]),
+            false,
+            self.print_report.as_ref().map(|_| true),
+            |ui| {
                 if ui.small_button(mt("ui.export.print3d", &[])).clicked() {
                     acts.push("print-check".into());
                 }
                 let Some(r) = &self.print_report else { return };
                 let col = if r.ok { Color32::from_rgb(0x17, 0x9a, 0x4a) } else { Color32::from_rgb(0xd0, 0x22, 0x3e) };
-                ui.label(RichText::new(r.verdict()).strong().color(col));
+                ui.label(RichText::new(r.verdict()).strong().family(crate::theme::bold_family()).color(col));
                 for l in r.problem_lines() {
                     ui.label(RichText::new(format!("• {l}")).color(t.text));
                 }
@@ -984,7 +1001,7 @@ impl ModelView {
                     ui.label(RichText::new(l).small().color(t.text_dim));
                 }
                 if r.fix_hint() {
-                    ui.label(RichText::new(mt("app.print3d.fixhint", &[])).small().color(t.text_dim));
+                    crate::shell::note(ui, t, &mt("app.print3d.fixhint", &[]));
                 }
                 ui.horizontal(|ui| {
                     if r.triangles > 0.0 {
@@ -999,7 +1016,8 @@ impl ModelView {
                         acts.push("print-close".into());
                     }
                 });
-            });
+            },
+        );
     }
 }
 

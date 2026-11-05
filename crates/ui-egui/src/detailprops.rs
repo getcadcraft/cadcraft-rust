@@ -77,12 +77,14 @@ fn form_text(ui: &mut Ui, v: &mut String, width: f32, lid: egui::Id) {
     ui.add(crate::shell::field(v).desired_width(width)).labelled_by(lid);
 }
 
+/// A head inside the properties (`.dc-sub`: 13 px bold, ink-2, .55rem over it).
 fn sub(ui: &mut Ui, tk: &Tokens, text: &str) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(text).strong().color(tk.text_strong));
+    ui.add_space(8.0);
+    ui.label(RichText::new(text).font(crate::theme::bold(13.0)).color(tk.text_dim));
 }
+/// A note (`.dc-note`: 14 px ink-2).
 fn note(ui: &mut Ui, tk: &Tokens, text: &str) {
-    ui.label(RichText::new(text).small().color(tk.text_dim));
+    crate::shell::note(ui, tk, text);
 }
 fn kv(ui: &mut Ui, tk: &Tokens, id: &str, rows: &[(String, String)]) {
     egui::Grid::new(id).num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
@@ -197,8 +199,7 @@ fn sync_forms(dv: &mut DetailView) {
 pub fn right(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     sync_forms(dv);
     let head = |ui: &mut Ui, s: String| {
-        ui.label(RichText::new(s).strong().color(tk.text_strong));
-        ui.add_space(4.0);
+        crate::shell::h(ui, tk, &s);
     };
     let tool = dv.tools.tool;
     if tool == "paste" {
@@ -897,8 +898,7 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
         return;
     };
     let kind = string_of(c.get("type"));
-    ui.label(RichText::new(t0(&format!("app.props.{kind}"))).strong().color(tk.text_strong));
-    ui.add_space(4.0);
+    crate::shell::h(ui, tk, &t0(&format!("app.props.{kind}")));
     let s = |k: &str| string_of(c.get(k));
     let end_word = |e: &str| {
         let k = format!("app.word.{e}");
@@ -1026,8 +1026,7 @@ fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         return;
     };
     let mark = dv.footing_marks.iter().find(|(k, _)| k == id).map_or("", |(_, v)| v.as_str()).to_string();
-    ui.label(RichText::new(t("app.props.footing", &[("mark", F::S(mark))])).strong().color(tk.text_strong));
-    ui.add_space(4.0);
+    crate::shell::h(ui, tk, &t("app.props.footing", &[("mark", F::S(mark))]));
     let ph = cc_detail::js::or(cc_detail::js::f(f.get("phase")), 1.0);
     row(ui, tk, &t0("phase.prop"), |ui, lid| {
         let opts = phase_options(dv);
@@ -1054,7 +1053,7 @@ fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         .collect();
     egui::Grid::new("dc_foot_bars").striped(true).spacing([10.0, 2.0]).show(ui, |ui| {
         for h in ["app.bars.mark", "app.bars.bars", "app.bars.no", "app.bars.length"] {
-            ui.label(RichText::new(t0(h)).strong().size(11.0));
+            ui.label(RichText::new(t0(h)).strong().family(crate::theme::bold_family()).size(11.0));
         }
         ui.end_row();
         for (a, b, c, d) in &list {
@@ -1095,8 +1094,7 @@ fn stair_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
         return;
     };
     let mark = dv.marks.asm_mark(&format!("{id}.stringerL")).unwrap_or("").to_string();
-    ui.label(RichText::new(t("app.props.stair", &[("mark", F::S(mark))])).strong().color(tk.text_strong));
-    ui.add_space(4.0);
+    crate::shell::h(ui, tk, &t("app.props.stair", &[("mark", F::S(mark))]));
     let ph = cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0);
     row(ui, tk, &t0("phase.prop"), |ui, lid| {
         let opts = phase_options(dv);
@@ -1134,95 +1132,84 @@ fn stair_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
 /// The left panel's setup sections: grids, levels, phases and custom profiles (detailcraft.js `renderLeft`).
 pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let s = dv.model.state.clone();
-    egui::CollapsingHeader::new(RichText::new(t0("page.left.grids.title")).strong()).id_salt("dc_grids").default_open(true).show(
-        ui,
-        |ui| {
-            let gx = arr(s.get("grids").and_then(|g| g.get("x")));
-            let gy = arr(s.get("grids").and_then(|g| g.get("y")));
-            let labels = |l: &[Value]| l.iter().map(|g| string_of(g.get("label"))).collect::<Vec<_>>().join(" ");
-            let cur = [labels(gx), cc_detail::model::spacings_of(gx), labels(gy), cc_detail::model::spacings_of(gy)];
-            let mut form = dv.forms.grids.clone().unwrap_or_else(|| cur.clone());
-            let mut touched = false;
-            for (i, label) in
-                ["page.left.grids.numbered", "page.left.grids.spacings", "page.left.grids.lettered", "page.left.grids.spacings"]
-                    .iter()
-                    .enumerate()
-            {
-                row(ui, tk, &t0(label), |ui, lid| {
-                    if let Some(v) = form.get_mut(i)
-                        && ui.add(crate::shell::field(v).desired_width(130.0)).labelled_by(lid).changed()
-                    {
-                        touched = true;
-                    }
-                });
-            }
-            if touched || dv.forms.grids.is_some() {
-                dv.forms.grids = Some(form.clone());
-            }
-            if ui.add(crate::shell::Btn::new(t0("page.left.grids.apply"))).clicked() {
-                run(acts, "detail.grids", form.join("|"));
-                dv.forms.grids = None;
-            }
-            note(
-                ui,
-                tk,
-                &format!(
-                    "{} 1 2 3 {} 6000 6000. {}",
-                    t0("page.left.grids.note.a"),
-                    t0("page.left.grids.note.and"),
-                    t0("page.left.grids.note.b")
-                ),
-            );
-        },
-    );
-    egui::CollapsingHeader::new(RichText::new(t0("page.left.levels.title")).strong()).id_salt("dc_levels").default_open(true).show(
-        ui,
-        |ui| {
-            let cur: Vec<(String, String)> =
-                arr(s.get("levels")).iter().map(|l| (string_of(l.get("name")), num_to_string(cc_detail::js::num(l.get("z"))))).collect();
-            let mut rows = dv.forms.levels.clone().unwrap_or_else(|| cur.clone());
-            let mut remove = None;
-            let mut touched = false;
-            for (i, (n, z)) in rows.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    let l = ui.label(RichText::new((i + 1).to_string()).color(tk.text_dim)).on_hover_text(t0("app.levels.name"));
-                    touched |= ui
-                        .add(crate::shell::field(n).desired_width(104.0))
-                        .labelled_by(l.id)
-                        .on_hover_text(t0("app.levels.name"))
-                        .changed();
-                    touched |=
-                        ui.add(crate::shell::field(z).desired_width(64.0)).labelled_by(l.id).on_hover_text(t0("app.levels.z")).changed();
-                    if ui.small_button("×").on_hover_text(t("app.levels.remove", &[("n", F::N((i + 1) as f64))])).clicked() {
-                        remove = Some(i);
-                    }
-                });
-            }
-            if let Some(i) = remove {
-                rows.remove(i);
-                touched = true;
-            }
-            ui.horizontal(|ui| {
-                if ui.link(format!("+ {}", t0("page.left.levels.add"))).clicked() {
-                    let zs: Vec<f64> =
-                        rows.iter().map(|r| cc_detail::js::str_to_number(&r.1)).map(|z| if z.is_finite() { z } else { 0.0 }).collect();
-                    let z = if zs.is_empty() { 0.0 } else { zs.iter().copied().fold(f64::NEG_INFINITY, f64::max) + 4000.0 };
-                    rows.push((t("app.levels.default", &[("n", F::N((zs.len() + 1) as f64))]), num_to_string(z)));
+    crate::shell::fold(ui, tk, "dc_grids", &t0("page.left.grids.title"), true, |ui| {
+        let gx = arr(s.get("grids").and_then(|g| g.get("x")));
+        let gy = arr(s.get("grids").and_then(|g| g.get("y")));
+        let labels = |l: &[Value]| l.iter().map(|g| string_of(g.get("label"))).collect::<Vec<_>>().join(" ");
+        let cur = [labels(gx), cc_detail::model::spacings_of(gx), labels(gy), cc_detail::model::spacings_of(gy)];
+        let mut form = dv.forms.grids.clone().unwrap_or_else(|| cur.clone());
+        let mut touched = false;
+        for (i, label) in ["page.left.grids.numbered", "page.left.grids.spacings", "page.left.grids.lettered", "page.left.grids.spacings"]
+            .iter()
+            .enumerate()
+        {
+            row(ui, tk, &t0(label), |ui, lid| {
+                if let Some(v) = form.get_mut(i)
+                    && ui.add(crate::shell::field(v).desired_width(130.0)).labelled_by(lid).changed()
+                {
                     touched = true;
                 }
-                if ui.add(crate::shell::Btn::new(t0("page.left.levels.apply"))).clicked() {
-                    let spec: Vec<String> = rows.iter().map(|(n, z)| format!("{n}={z}")).collect();
-                    run(acts, "detail.levels", spec.join(";"));
-                    dv.forms.levels = None;
-                    touched = false;
+            });
+        }
+        if touched || dv.forms.grids.is_some() {
+            dv.forms.grids = Some(form.clone());
+        }
+        if ui.add(crate::shell::Btn::new(t0("page.left.grids.apply"))).clicked() {
+            run(acts, "detail.grids", form.join("|"));
+            dv.forms.grids = None;
+        }
+        note(
+            ui,
+            tk,
+            &format!(
+                "{} 1 2 3 {} 6000 6000. {}",
+                t0("page.left.grids.note.a"),
+                t0("page.left.grids.note.and"),
+                t0("page.left.grids.note.b")
+            ),
+        );
+    });
+    crate::shell::fold(ui, tk, "dc_levels", &t0("page.left.levels.title"), true, |ui| {
+        let cur: Vec<(String, String)> =
+            arr(s.get("levels")).iter().map(|l| (string_of(l.get("name")), num_to_string(cc_detail::js::num(l.get("z"))))).collect();
+        let mut rows = dv.forms.levels.clone().unwrap_or_else(|| cur.clone());
+        let mut remove = None;
+        let mut touched = false;
+        for (i, (n, z)) in rows.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                let l = ui.label(RichText::new((i + 1).to_string()).color(tk.text_dim)).on_hover_text(t0("app.levels.name"));
+                touched |=
+                    ui.add(crate::shell::field(n).desired_width(104.0)).labelled_by(l.id).on_hover_text(t0("app.levels.name")).changed();
+                touched |= ui.add(crate::shell::field(z).desired_width(64.0)).labelled_by(l.id).on_hover_text(t0("app.levels.z")).changed();
+                if ui.small_button("×").on_hover_text(t("app.levels.remove", &[("n", F::N((i + 1) as f64))])).clicked() {
+                    remove = Some(i);
                 }
             });
-            if touched {
-                dv.forms.levels = Some(rows);
+        }
+        if let Some(i) = remove {
+            rows.remove(i);
+            touched = true;
+        }
+        ui.horizontal(|ui| {
+            if ui.link(format!("+ {}", t0("page.left.levels.add"))).clicked() {
+                let zs: Vec<f64> =
+                    rows.iter().map(|r| cc_detail::js::str_to_number(&r.1)).map(|z| if z.is_finite() { z } else { 0.0 }).collect();
+                let z = if zs.is_empty() { 0.0 } else { zs.iter().copied().fold(f64::NEG_INFINITY, f64::max) + 4000.0 };
+                rows.push((t("app.levels.default", &[("n", F::N((zs.len() + 1) as f64))]), num_to_string(z)));
+                touched = true;
             }
-        },
-    );
-    egui::CollapsingHeader::new(RichText::new(t0("phase.title")).strong()).id_salt("dc_phases").default_open(true).show(ui, |ui| {
+            if ui.add(crate::shell::Btn::new(t0("page.left.levels.apply"))).clicked() {
+                let spec: Vec<String> = rows.iter().map(|(n, z)| format!("{n}={z}")).collect();
+                run(acts, "detail.levels", spec.join(";"));
+                dv.forms.levels = None;
+                touched = false;
+            }
+        });
+        if touched {
+            dv.forms.levels = Some(rows);
+        }
+    });
+    crate::shell::fold(ui, tk, "dc_phases", &t0("phase.title"), true, |ui| {
         let count = |n: f64| -> usize {
             let of = |k: &str| arr(s.get(k)).iter().filter(|x| cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0) == n).count();
             of("members") + of("footings")
@@ -1236,7 +1223,9 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
                     run(acts, "detail.phase", num_to_string(n));
                 }
                 // the phase's number names its name field (phase.name)
-                let l = ui.label(RichText::new(num_to_string(n)).monospace().strong()).on_hover_text(t("phase.name", &[("n", F::N(n))]));
+                let l = ui
+                    .label(RichText::new(num_to_string(n)).monospace().strong().family(crate::theme::bold_family()))
+                    .on_hover_text(t("phase.name", &[("n", F::N(n))]));
                 if let Some(v) = text_field(dv, ui, &format!("phase.{n}"), &nm, 100.0, l.id) {
                     run(acts, "detail.phases", format!("rename:{}={v}", num_to_string(n)));
                 }
@@ -1261,63 +1250,60 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
         }
         note(ui, tk, &t0("phase.per.hint"));
     });
-    egui::CollapsingHeader::new(RichText::new(t0("page.left.profile.title")).strong()).id_salt("dc_profile").default_open(false).show(
-        ui,
-        |ui| {
-            if dv.forms.pkind.is_empty() {
-                dv.forms.pkind = "I".into();
+    crate::shell::fold(ui, tk, "dc_profile", &t0("page.left.profile.title"), false, |ui| {
+        if dv.forms.pkind.is_empty() {
+            dv.forms.pkind = "I".into();
+        }
+        row(ui, tk, &t0("page.left.profile.name"), |ui, lid| form_text(ui, &mut dv.forms.pname, 120.0, lid));
+        let kinds: Vec<(String, String)> = [("I", "i"), ("C", "c"), ("L", "l"), ("RHS", "rhs"), ("CHS", "chs"), ("FLAT", "flat")]
+            .iter()
+            .map(|(k, l)| (k.to_string(), t0(&format!("page.left.profile.shape.{l}"))))
+            .collect();
+        let cur = dv.forms.pkind.clone();
+        row(ui, tk, &t0("page.left.profile.shape"), |ui, lid| {
+            if let Some(v) = combo(ui, "dc_pkind", lid, &cur, &kinds, 130.0) {
+                dv.forms.pkind = v;
             }
-            row(ui, tk, &t0("page.left.profile.name"), |ui, lid| form_text(ui, &mut dv.forms.pname, 120.0, lid));
-            let kinds: Vec<(String, String)> = [("I", "i"), ("C", "c"), ("L", "l"), ("RHS", "rhs"), ("CHS", "chs"), ("FLAT", "flat")]
-                .iter()
-                .map(|(k, l)| (k.to_string(), t0(&format!("page.left.profile.shape.{l}"))))
-                .collect();
-            let cur = dv.forms.pkind.clone();
-            row(ui, tk, &t0("page.left.profile.shape"), |ui, lid| {
-                if let Some(v) = combo(ui, "dc_pkind", lid, &cur, &kinds, 130.0) {
-                    dv.forms.pkind = v;
+        });
+        let keys = cc_detail::profiles::custom_kind_keys(&dv.forms.pkind).unwrap_or(&[]);
+        dv.forms.pdims.retain(|(k, _)| keys.contains(&k.as_str()));
+        for k in keys {
+            if !dv.forms.pdims.iter().any(|(a, _)| a == k) {
+                dv.forms.pdims.push((k.to_string(), String::new()));
+            }
+            let label = t0(&format!(
+                "app.dim.{}",
+                match *k {
+                    "d" => "depth",
+                    "bf" => "flange-width",
+                    "tw" => "web",
+                    "tf" => "flange",
+                    "r" => "fillet",
+                    "b" => "width",
+                    "t" => "thickness",
+                    "h" => "height",
+                    _ => "diameter",
+                }
+            ));
+            row(ui, tk, &label, |ui, lid| {
+                if let Some((_, v)) = dv.forms.pdims.iter_mut().find(|(a, _)| a == k) {
+                    form_text(ui, v, 70.0, lid);
                 }
             });
-            let keys = cc_detail::profiles::custom_kind_keys(&dv.forms.pkind).unwrap_or(&[]);
-            dv.forms.pdims.retain(|(k, _)| keys.contains(&k.as_str()));
-            for k in keys {
-                if !dv.forms.pdims.iter().any(|(a, _)| a == k) {
-                    dv.forms.pdims.push((k.to_string(), String::new()));
-                }
-                let label = t0(&format!(
-                    "app.dim.{}",
-                    match *k {
-                        "d" => "depth",
-                        "bf" => "flange-width",
-                        "tw" => "web",
-                        "tf" => "flange",
-                        "r" => "fillet",
-                        "b" => "width",
-                        "t" => "thickness",
-                        "h" => "height",
-                        _ => "diameter",
-                    }
-                ));
-                row(ui, tk, &label, |ui, lid| {
-                    if let Some((_, v)) = dv.forms.pdims.iter_mut().find(|(a, _)| a == k) {
-                        form_text(ui, v, 70.0, lid);
-                    }
-                });
-            }
-            if ui.add(crate::shell::Btn::new(t0("page.left.profile.add"))).clicked() {
-                let dims: Vec<String> = dv.forms.pdims.iter().map(|(k, v)| format!("{k}={v}")).collect();
-                run(acts, "detail.profile", format!("{};{};{}", dv.forms.pname, dv.forms.pkind, dims.join(";")));
-            }
-            for p in arr(s.get("profiles")) {
-                let kind = string_of(p.get("kind"));
-                let key = format!("app.kind.{}", kind.to_lowercase());
-                ui.horizontal(|ui| {
-                    ui.label(string_of(p.get("name")));
-                    ui.label(RichText::new(if cc_detail::i18n::has(&key) { t0(&key) } else { kind.clone() }).color(tk.text_dim));
-                });
-            }
-        },
-    );
+        }
+        if ui.add(crate::shell::Btn::new(t0("page.left.profile.add"))).clicked() {
+            let dims: Vec<String> = dv.forms.pdims.iter().map(|(k, v)| format!("{k}={v}")).collect();
+            run(acts, "detail.profile", format!("{};{};{}", dv.forms.pname, dv.forms.pkind, dims.join(";")));
+        }
+        for p in arr(s.get("profiles")) {
+            let kind = string_of(p.get("kind"));
+            let key = format!("app.kind.{}", kind.to_lowercase());
+            ui.horizontal(|ui| {
+                ui.label(string_of(p.get("name")));
+                ui.label(RichText::new(if cc_detail::i18n::has(&key) { t0(&key) } else { kind.clone() }).color(tk.text_dim));
+            });
+        }
+    });
     ui.add_space(6.0);
 }
 

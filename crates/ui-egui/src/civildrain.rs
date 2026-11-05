@@ -15,7 +15,7 @@ use cc_civil::units::fixed;
 use egui::{Pos2, RichText, Stroke};
 use serde_json::{Map, Value};
 
-use crate::civilpanel::{Act, head, link, note, prop_fact, prop_row, report_pub};
+use crate::civilpanel::{Act, head, link, note, prop_fact, prop_row, report_pub, sub};
 use crate::civiltools::DraftPt;
 use crate::civilview::{CivilView, Sel, t0};
 use crate::theme::Tokens;
@@ -569,7 +569,7 @@ impl CivilView {
 
 /// The Drainage block under the network (drainage-ui.js `block()`).
 pub fn block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
-    head(ui, tk, &t0("dr.head"));
+    sub(ui, tk, &t0("dr.head"));
     if cv.network_json().is_none() {
         return;
     }
@@ -596,7 +596,7 @@ pub fn block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
     } else {
         egui::Grid::new("cv_dr_catchments").num_columns(5).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
             for h in [t0("dr.c.name"), tr!("dr.c.area", u = a_u(&units)), "C".into(), t0("dr.c.tc"), t0("dr.c.to")] {
-                ui.label(RichText::new(h).small().strong().color(tk.text_dim));
+                ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
             }
             ui.end_row();
             for (id, r) in &cs {
@@ -614,7 +614,7 @@ pub fn block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
         });
     }
     let Some(r) = cv.dr_results().filter(|_| cv.has_catch()) else { return };
-    head(ui, tk, &t0("dr.results"));
+    sub(ui, tk, &t0("dr.results"));
     let rows = cv.result_rows(&r);
     egui::Grid::new("cv_dr_results").num_columns(6).spacing([10.0, 2.0]).striped(true).show(ui, |ui| {
         for h in [
@@ -625,7 +625,7 @@ pub fn block(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<
             t0("dr.r.hgl"),
             t0("dr.r.state"),
         ] {
-            ui.label(RichText::new(h).small().strong().color(tk.text_dim));
+            ui.label(RichText::new(h).small().strong().family(crate::theme::bold_family()).color(tk.text_dim));
         }
         ui.end_row();
         for (id, full, row) in &rows {
@@ -671,7 +671,7 @@ pub fn rows_block(ui: &mut egui::Ui, tk: &Tokens, rows: &[(String, String)], pro
     if rows.is_empty() {
         return;
     }
-    head(ui, tk, &t0("dr.head"));
+    sub(ui, tk, &t0("dr.head"));
     egui::Grid::new(("cv_dr_rows", id)).num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
         for (k, v) in rows {
             prop_fact(ui, tk, k, v);

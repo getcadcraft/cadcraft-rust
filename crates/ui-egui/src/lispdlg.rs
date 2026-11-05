@@ -489,7 +489,7 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.label(RichText::new(&app.lisp.msg).color(tok.text));
         }
         ui.separator();
-        ui.label(RichText::new(t("appload.loaded.title")).strong());
+        ui.label(RichText::new(t("appload.loaded.title")).strong().family(crate::theme::bold_family()));
         if loaded.is_empty() {
             ui.label(RichText::new(t("appload.loaded.none")).color(tok.text_dim));
         }
@@ -515,7 +515,7 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
             });
         }
         ui.separator();
-        ui.label(RichText::new(t("appload.startup.title")).strong());
+        ui.label(RichText::new(t("appload.startup.title")).strong().family(crate::theme::bold_family()));
         ui.label(RichText::new(t("appload.startup.note")).small().color(tok.text_dim));
         if app.lisp.startup.is_empty() {
             ui.label(RichText::new(t("appload.startup.none")).color(tok.text_dim));
@@ -529,7 +529,7 @@ fn appload_window(app: &mut UiApp, ctx: &egui::Context) {
             });
         }
         ui.separator();
-        ui.label(RichText::new(t("appload.history.title")).strong());
+        ui.label(RichText::new(t("appload.history.title")).strong().family(crate::theme::bold_family()));
         if app.lisp.history.is_empty() {
             ui.label(RichText::new(t("appload.history.none")).color(tok.text_dim));
         }

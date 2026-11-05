@@ -235,19 +235,18 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
 /// The left panel's head: the model's name.
 pub fn left_head(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let st = &dv.model.state;
-    let head = ui.label(RichText::new(t0("page.left.model")).strong().color(tk.text_strong));
+    let head = crate::shell::h(ui, tk, &t0("page.left.model"));
     let name = st.get("name").and_then(Value::as_str).unwrap_or("").to_string();
     let key = "model.name".to_string();
     if let Some(v) = text_field(dv, ui, &key, &name, 200.0, head.id) {
         acts.push(Act::Run("detail.set", format!("model.name={v}")));
     }
-    ui.label(RichText::new(t0("page.left.model.note")).small().color(tk.text_dim));
-    ui.add_space(6.0);
+    crate::shell::note(ui, tk, &t0("page.left.model.note"));
 }
 
 /// The left panel: part marks and the members by type.
 pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
-    ui.label(RichText::new(t0("page.left.marks.title")).strong().color(tk.text_strong));
+    crate::shell::h(ui, tk, &t0("page.left.marks.title"));
     if dv.marks.parts.is_empty() {
         ui.label(RichText::new(t0("app.marks.none")).color(tk.text_dim));
     }
@@ -266,7 +265,7 @@ pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
         }
     }
     ui.add_space(6.0);
-    ui.label(RichText::new(t0("app.k.members")).strong().color(tk.text_strong));
+    crate::shell::h3(ui, tk, &t0("app.k.members"));
     let members = cc_detail::js::arr(dv.model.state.get("members"));
     for kind in cc_detail::model::MEMBER_TYPES {
         let list: Vec<&Value> = members.iter().filter(|m| m.get("type").and_then(Value::as_str) == Some(kind)).collect();
@@ -334,8 +333,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     let Some(m) = dv.member(id).cloned() else { return };
     let kind = cc_detail::js::string_of(m.get("type"));
     let mark = dv.marks.part_mark(id).map(|x| format!(" {x}")).unwrap_or_default();
-    ui.label(RichText::new(format!("{}{mark}", type_name(&kind))).strong().color(tk.text_strong));
-    ui.add_space(4.0);
+    crate::shell::h(ui, tk, &format!("{}{mark}", type_name(&kind)));
     let s = |k: &str| cc_detail::js::string_of(m.get(k));
     let n = |k: &str| m.get(k).and_then(Value::as_f64).unwrap_or(0.0);
     let set = |acts: &mut Vec<Act>, field: &str, v: String| acts.push(Act::Run("detail.set", format!("{id}.{field}={v}")));
@@ -498,7 +496,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
 
 /// detailcraft.js `modelSummary()`.
 pub(crate) fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
-    ui.label(RichText::new(t0("app.props.model")).strong().color(tk.text_strong));
+    crate::shell::h(ui, tk, &t0("app.props.model"));
     let st = &dv.model.state;
     let len = |k: &str| cc_detail::js::arr(st.get(k)).len();
     let steel: f64 = dv.built.parts.iter().fold(0.0, |s, p| s + p.weight);
@@ -525,8 +523,7 @@ pub(crate) fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
             ui.end_row();
         }
     });
-    ui.add_space(4.0);
-    ui.label(RichText::new(t0("app.model.note")).small().color(tk.text_dim));
+    crate::shell::note(ui, tk, &t0("app.model.note"));
 }
 
 /// A report table: the first row is the head; numeric columns right-aligned; a click on a first cell selects.
@@ -534,7 +531,7 @@ fn table(ui: &mut Ui, tk: &Tokens, id: &str, rows: &[Vec<String>], numeric: &[us
     let Some((head, body)) = rows.split_first() else { return };
     egui::Grid::new(("detail_table", id)).striped(true).spacing([14.0, 2.0]).show(ui, |ui| {
         for h in head {
-            ui.label(RichText::new(h).strong().size(11.0).color(tk.text_strong));
+            ui.label(RichText::new(h).strong().family(crate::theme::bold_family()).size(11.0).color(tk.text_strong));
         }
         ui.end_row();
         for r in body {
@@ -558,7 +555,7 @@ fn table(ui: &mut Ui, tk: &Tokens, id: &str, rows: &[Vec<String>], numeric: &[us
 /// The reports (detailcraft.js `renderReport`).
 pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(t0("page.rep.label")).strong().color(tk.text_strong));
+        ui.label(RichText::new(t0("page.rep.label")).strong().family(crate::theme::bold_family()).color(tk.text_strong));
         ui.separator();
         let np = dv.built.problems.len();
         let nc = dv.clash.as_ref().map_or(0, |c| c.clashes.len());
@@ -608,7 +605,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
             }
             let Some(tt) = dv.tables.as_ref() else { return };
             ui.horizontal(|ui| {
-                ui.label(RichText::new(&tt.title).strong());
+                ui.label(RichText::new(&tt.title).strong().family(crate::theme::bold_family()));
                 for (label, kind) in &tt.links {
                     if ui.link(t0(label)).clicked() {
                         acts.push(Act::Run("detail.export", (*kind).into()));
@@ -625,7 +622,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
             let built = &dv.built;
             for (i, (head, rows, numeric)) in tt.blocks.iter().enumerate() {
                 if let Some(h) = head {
-                    ui.label(RichText::new(h).strong());
+                    ui.label(RichText::new(h).strong().family(crate::theme::bold_family()));
                 }
                 let links = dv.tab == Tab::Bom && i == 0;
                 table(ui, tk, &format!("detail_tab{i}"), rows, numeric, |mark| {
@@ -650,7 +647,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
         }
         Tab::Clashes => {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(t0("clash.title")).strong());
+                ui.label(RichText::new(t0("clash.title")).strong().family(crate::theme::bold_family()));
                 ui.label(RichText::new(t0("clash.tol")).color(tk.text_dim));
                 let mut tol = dv.clash_tol;
                 ui.add(egui::DragValue::new(&mut tol).range(0.0..=50.0).speed(0.5));
@@ -697,7 +694,7 @@ pub fn reports(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                         };
                         egui::Grid::new("detail_clashes").striped(true).spacing([14.0, 2.0]).show(ui, |ui| {
                             for h in ["clash.col.a", "clash.col.b", "clash.col.depth", "clash.col.at"] {
-                                ui.label(RichText::new(t0(h)).strong().size(11.0));
+                                ui.label(RichText::new(t0(h)).strong().family(crate::theme::bold_family()).size(11.0));
                             }
                             ui.end_row();
                             for c in &c.clashes {

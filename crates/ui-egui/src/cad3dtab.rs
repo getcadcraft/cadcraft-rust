@@ -345,7 +345,7 @@ fn toolbar(app: &mut UiApp, ui: &mut egui::Ui) {
     let style_key = app.editor.as_ref().and_then(|e| e.eng.with_ws3d(|ws, _| ws.style_key.clone())).unwrap_or_default();
     let persp = app.editor.as_ref().and_then(|e| e.eng.with_ws3d(|ws, _| ws.tools.host.cam.persp)).unwrap_or(true);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("3D").small().strong().color(app.tokens.text_dim));
+        ui.label(egui::RichText::new("3D").small().strong().family(crate::theme::bold_family()).color(app.tokens.text_dim));
         for (cmd, label, title) in TOOLS3D {
             if ui.small_button(tr(label)).on_hover_text(tr(title)).clicked() {
                 pick = Some((*cmd).to_string());

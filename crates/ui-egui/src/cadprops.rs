@@ -1098,9 +1098,13 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut asks = Asks::default();
     let frame = crate::shell::panel_frame(&t);
     if !app.cadprops.autohide {
-        egui::Panel::right("cad_props").default_size(280.0).size_range(200.0..=440.0).resizable(true).frame(frame).show(ui, |ui| {
-            grip_and_body(app, ui, &mut asks);
-        });
+        crate::shell::side(
+            ui,
+            egui::Panel::right("cad_props").default_size(280.0).size_range(200.0..=440.0).resizable(true).frame(frame),
+            |ui| {
+                grip_and_body(app, ui, &mut asks);
+            },
+        );
         apply(app, asks);
         return;
     }
@@ -1109,25 +1113,29 @@ pub fn panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let pointer = ui.input(|i| i.pointer.hover_pos());
     let mut strip_rect = egui::Rect::NOTHING;
     let mut strip_click = false;
-    egui::Panel::right("cad_props_strip").exact_size(24.0).resizable(false).frame(egui::Frame::new().fill(t.panel_darker)).show(ui, |ui| {
-        let rect = ui.max_rect();
-        let r = ui.allocate_rect(rect, egui::Sense::click()).on_hover_text(lang().s("props.autohide.open"));
-        strip_rect = rect;
-        strip_click = r.clicked();
-        let p = ui.painter();
-        let col = if r.hovered() { t.accent } else { t.text };
-        // the icon (sliders) and the panel's name read upwards, as the 0.5 strip
-        let c = egui::pos2(rect.center().x, rect.min.y + 16.0);
-        for (i, x) in [-4.0_f32, 0.0, 4.0].iter().enumerate() {
-            p.line_segment([egui::pos2(c.x + x, c.y - 6.0), egui::pos2(c.x + x, c.y + 6.0)], egui::Stroke::new(1.2, col));
-            let ky = [-2.0_f32, 3.0, -4.0].get(i).copied().unwrap_or(0.0);
-            p.rect_filled(egui::Rect::from_center_size(egui::pos2(c.x + x, c.y + ky), egui::vec2(3.5, 2.5)), 0.5, col);
-        }
-        let g = p.layout_no_wrap(lang().s("props.title"), egui::FontId::proportional(12.0), col);
-        let w = g.size().x;
-        let at = egui::pos2(rect.center().x - g.size().y / 2.0, rect.min.y + 32.0 + w);
-        p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
-    });
+    crate::shell::side(
+        ui,
+        egui::Panel::right("cad_props_strip").exact_size(24.0).resizable(false).frame(egui::Frame::new().fill(t.panel_darker)),
+        |ui| {
+            let rect = ui.max_rect();
+            let r = ui.allocate_rect(rect, egui::Sense::click()).on_hover_text(lang().s("props.autohide.open"));
+            strip_rect = rect;
+            strip_click = r.clicked();
+            let p = ui.painter();
+            let col = if r.hovered() { t.accent } else { t.text };
+            // the icon (sliders) and the panel's name read upwards, as the 0.5 strip
+            let c = egui::pos2(rect.center().x, rect.min.y + 16.0);
+            for (i, x) in [-4.0_f32, 0.0, 4.0].iter().enumerate() {
+                p.line_segment([egui::pos2(c.x + x, c.y - 6.0), egui::pos2(c.x + x, c.y + 6.0)], egui::Stroke::new(1.2, col));
+                let ky = [-2.0_f32, 3.0, -4.0].get(i).copied().unwrap_or(0.0);
+                p.rect_filled(egui::Rect::from_center_size(egui::pos2(c.x + x, c.y + ky), egui::vec2(3.5, 2.5)), 0.5, col);
+            }
+            let g = p.layout_no_wrap(lang().s("props.title"), egui::FontId::proportional(12.0), col);
+            let w = g.size().x;
+            let at = egui::pos2(rect.center().x - g.size().y / 2.0, rect.min.y + 32.0 + w);
+            p.add(egui::epaint::TextShape::new(at, g, col).with_angle(-std::f32::consts::FRAC_PI_2));
+        },
+    );
     if strip_click || pointer.is_some_and(|q| strip_rect.contains(q)) {
         app.cadprops.flyout = true;
         app.cadprops.left_at = None;
@@ -1321,9 +1329,9 @@ pub fn custom_window(app: &mut UiApp, ctx: &egui::Context) {
             ui.add_space(4.0);
             egui::ScrollArea::vertical().max_height(360.0).show(ui, |ui| {
                 egui::Grid::new("props_custom_grid").striped(true).num_columns(3).show(ui, |ui| {
-                    ui.label(RichText::new(l.s("props.custom.field")).strong());
-                    ui.label(RichText::new(l.s("props.title")).strong());
-                    ui.label(RichText::new(l.s("props.qp.title")).strong());
+                    ui.label(RichText::new(l.s("props.custom.field")).strong().family(crate::theme::bold_family()));
+                    ui.label(RichText::new(l.s("props.title")).strong().family(crate::theme::bold_family()));
+                    ui.label(RichText::new(l.s("props.qp.title")).strong().family(crate::theme::bold_family()));
                     ui.end_row();
                     for (k, label, panel, qp) in &rows {
                         let lab = ui.label(label);

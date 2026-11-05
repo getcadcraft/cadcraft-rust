@@ -672,9 +672,13 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let t = app.tokens;
     if crate::dwg3d::showing(app) {
         let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
-        egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::dwg3d::panel(app, ui));
-        });
+        crate::shell::side(
+            ui,
+            egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame),
+            |ui| {
+                egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| crate::dwg3d::panel(app, ui));
+            },
+        );
         return;
     }
     let Some(d) = app.doc.as_ref() else { return };
@@ -734,115 +738,119 @@ pub fn info_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let can_folder = app.services.pick_folder.is_some() && app.services.list_dir.is_some();
     let mut act: Option<(&str, &str)> = None;
     let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
-    egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            ui.label(RichText::new(w("info.h.drawing")).strong().color(t.text_strong));
-            egui::Grid::new("viewer_info_grid").num_columns(2).spacing([10.0, 3.0]).show(ui, |ui| {
-                for (k, v) in &rows {
-                    ui.label(RichText::new(k).small().color(t.text_dim));
-                    ui.label(RichText::new(v).small().color(t.text));
-                    ui.end_row();
-                }
-            });
-            ui.add_space(6.0);
-            ui.label(RichText::new(w("dwg.hint")).small().color(t.text_dim));
-            // ok: green; similar: amber; missing: red (bc-pill is-ok / is-warn / is-bad)
-            let pill = |ui: &mut egui::Ui, state: u8, text: String| {
-                let c = match state {
-                    0 => egui::Color32::from_rgb(0x3c, 0xb0, 0x60),
-                    1 => egui::Color32::from_rgb(0xd8, 0x9a, 0x2a),
-                    _ => egui::Color32::from_rgb(0xe0, 0x6c, 0x5c),
-                };
-                ui.label(RichText::new(text).small().color(c));
-            };
-            if !xrefs.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(w("dwg.linked.title")).strong().color(t.text_strong));
-                for (n, ok, at) in &xrefs {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(format!("{n}.dwg")).small().color(t.text));
-                        pill(ui, if *ok { 0 } else { 2 }, w(if *ok { "dwg.linked.shown" } else { "dwg.linked.notfound" }));
-                        if let (true, Some(at)) = (*ok, at) {
-                            ui.label(RichText::new(at).small().color(t.text_dim));
-                        }
-                    });
-                }
-                if xrefs.iter().any(|x| !x.1) {
-                    ui.label(
-                        RichText::new(w(if from_folder { "dwg.linked.missing.folder" } else { "dwg.linked.missing.file" }))
-                            .small()
-                            .color(t.text_dim),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add(crate::shell::Btn::new(w("dwg.linked.add"))).clicked() {
-                            act = Some(("viewer.add", "drawing"));
-                        }
-                        if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
-                            act = Some(("viewer.folder", ""));
-                        }
-                    });
-                }
-            }
-            if !pictures.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(w("dwg.images.title")).strong().color(t.text_strong));
-                for p in &pictures {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(&p.name).small().color(t.text));
-                        match (p.why, &p.hit) {
-                            (None, Some((_, true))) => pill(ui, 0, w("dwg.img.shown")),
-                            (None, _) => pill(ui, 1, w("dwg.img.similar")),
-                            (Some(k), _) => pill(ui, 2, w(k)),
-                        }
-                        if let Some((at, _)) = &p.hit {
-                            ui.label(RichText::new(at).small().color(t.text_dim));
-                        }
-                    });
-                }
-                if pictures.iter().any(|p| p.hit.is_none()) {
-                    ui.label(
-                        RichText::new(w(if from_folder { "dwg.img.missing.folder" } else { "dwg.img.missing.file" }))
-                            .small()
-                            .color(t.text_dim),
-                    );
-                    ui.horizontal_wrapped(|ui| {
-                        if ui.add(crate::shell::Btn::new(w("dwg.img.add"))).clicked() {
-                            act = Some(("viewer.add", "pictures"));
-                        }
-                        if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
-                            act = Some(("viewer.folder", ""));
-                        }
-                    });
-                }
-            }
-            if !notdrawn.is_empty() {
-                ui.separator();
-                ui.label(RichText::new(w("dwg.notdrawn.title")).strong().color(t.text_strong));
-                egui::Grid::new("viewer_notdrawn").num_columns(2).show(ui, |ui| {
-                    for (k, n) in &notdrawn {
-                        ui.label(RichText::new(k).small().color(t.text));
-                        ui.label(RichText::new(num(*n)).small().color(t.text_dim));
+    crate::shell::side(
+        ui,
+        egui::Panel::right("viewer_info").default_size(270.0).size_range(200.0..=420.0).resizable(true).frame(frame),
+        |ui| {
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                ui.label(RichText::new(w("info.h.drawing")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                egui::Grid::new("viewer_info_grid").num_columns(2).spacing([10.0, 3.0]).show(ui, |ui| {
+                    for (k, v) in &rows {
+                        ui.label(RichText::new(k).small().color(t.text_dim));
+                        ui.label(RichText::new(v).small().color(t.text));
                         ui.end_row();
                     }
                 });
-                ui.label(RichText::new(w("dwg.notdrawn.note")).small().color(t.text_dim));
-            }
-            if let Some(dv) = &dynv {
-                ui.separator();
-                ui.label(RichText::new(&dv.title).strong().color(t.text_strong));
-                for (name, lines) in &dv.items {
-                    ui.label(RichText::new(name).small().color(t.text));
-                    for l in lines {
-                        ui.label(RichText::new(format!("   {l}")).small().color(t.text_dim));
+                ui.add_space(6.0);
+                ui.label(RichText::new(w("dwg.hint")).small().color(t.text_dim));
+                // ok: green; similar: amber; missing: red (bc-pill is-ok / is-warn / is-bad)
+                let pill = |ui: &mut egui::Ui, state: u8, text: String| {
+                    let c = match state {
+                        0 => egui::Color32::from_rgb(0x3c, 0xb0, 0x60),
+                        1 => egui::Color32::from_rgb(0xd8, 0x9a, 0x2a),
+                        _ => egui::Color32::from_rgb(0xe0, 0x6c, 0x5c),
+                    };
+                    ui.label(RichText::new(text).small().color(c));
+                };
+                if !xrefs.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new(w("dwg.linked.title")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                    for (n, ok, at) in &xrefs {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(format!("{n}.dwg")).small().color(t.text));
+                            pill(ui, if *ok { 0 } else { 2 }, w(if *ok { "dwg.linked.shown" } else { "dwg.linked.notfound" }));
+                            if let (true, Some(at)) = (*ok, at) {
+                                ui.label(RichText::new(at).small().color(t.text_dim));
+                            }
+                        });
+                    }
+                    if xrefs.iter().any(|x| !x.1) {
+                        ui.label(
+                            RichText::new(w(if from_folder { "dwg.linked.missing.folder" } else { "dwg.linked.missing.file" }))
+                                .small()
+                                .color(t.text_dim),
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.add(crate::shell::Btn::new(w("dwg.linked.add"))).clicked() {
+                                act = Some(("viewer.add", "drawing"));
+                            }
+                            if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
+                                act = Some(("viewer.folder", ""));
+                            }
+                        });
                     }
                 }
-                ui.label(RichText::new(&dv.note).small().color(t.text_dim));
-            }
-            if truncated {
-                ui.label(RichText::new(w("dwg.truncated")).small().color(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c)));
-            }
-        });
-    });
+                if !pictures.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new(w("dwg.images.title")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                    for p in &pictures {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(&p.name).small().color(t.text));
+                            match (p.why, &p.hit) {
+                                (None, Some((_, true))) => pill(ui, 0, w("dwg.img.shown")),
+                                (None, _) => pill(ui, 1, w("dwg.img.similar")),
+                                (Some(k), _) => pill(ui, 2, w(k)),
+                            }
+                            if let Some((at, _)) = &p.hit {
+                                ui.label(RichText::new(at).small().color(t.text_dim));
+                            }
+                        });
+                    }
+                    if pictures.iter().any(|p| p.hit.is_none()) {
+                        ui.label(
+                            RichText::new(w(if from_folder { "dwg.img.missing.folder" } else { "dwg.img.missing.file" }))
+                                .small()
+                                .color(t.text_dim),
+                        );
+                        ui.horizontal_wrapped(|ui| {
+                            if ui.add(crate::shell::Btn::new(w("dwg.img.add"))).clicked() {
+                                act = Some(("viewer.add", "pictures"));
+                            }
+                            if can_folder && ui.add(crate::shell::Btn::new(w("ui.open.folder"))).clicked() {
+                                act = Some(("viewer.folder", ""));
+                            }
+                        });
+                    }
+                }
+                if !notdrawn.is_empty() {
+                    ui.separator();
+                    ui.label(RichText::new(w("dwg.notdrawn.title")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                    egui::Grid::new("viewer_notdrawn").num_columns(2).show(ui, |ui| {
+                        for (k, n) in &notdrawn {
+                            ui.label(RichText::new(k).small().color(t.text));
+                            ui.label(RichText::new(num(*n)).small().color(t.text_dim));
+                            ui.end_row();
+                        }
+                    });
+                    ui.label(RichText::new(w("dwg.notdrawn.note")).small().color(t.text_dim));
+                }
+                if let Some(dv) = &dynv {
+                    ui.separator();
+                    ui.label(RichText::new(&dv.title).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                    for (name, lines) in &dv.items {
+                        ui.label(RichText::new(name).small().color(t.text));
+                        for l in lines {
+                            ui.label(RichText::new(format!("   {l}")).small().color(t.text_dim));
+                        }
+                    }
+                    ui.label(RichText::new(&dv.note).small().color(t.text_dim));
+                }
+                if truncated {
+                    ui.label(RichText::new(w("dwg.truncated")).small().color(egui::Color32::from_rgb(0xe0, 0x6c, 0x5c)));
+                }
+            });
+        },
+    );
     if let Some((id, name)) = act {
         let p = Params { name: if name.is_empty() { None } else { Some(name.into()) }, ..Default::default() };
         if let Err(e) = app.run(id, &p) {
@@ -862,55 +870,62 @@ pub fn find_panel(app: &mut UiApp, ui: &mut egui::Ui) {
     let mut q = f.query.clone();
     let mut act: Option<(String, Params)> = None;
     let frame = egui::Frame::new().fill(t.panel).inner_margin(8);
-    egui::Panel::right("viewer_find").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame).show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(c("dlg.find.what")).strong().color(t.text_strong));
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("×").on_hover_text(c("dlg.find.close")).clicked() {
-                    act = Some(("viewer.find.close".into(), Params::default()));
+    crate::shell::side(
+        ui,
+        egui::Panel::right("viewer_find").default_size(260.0).size_range(200.0..=420.0).resizable(true).frame(frame),
+        |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(c("dlg.find.what")).strong().family(crate::theme::bold_family()).color(t.text_strong));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("×").on_hover_text(c("dlg.find.close")).clicked() {
+                        act = Some(("viewer.find.close".into(), Params::default()));
+                    }
+                });
+            });
+            let id = ui.make_persistent_id("viewer.find.q");
+            let r = ui.add(crate::shell::field(&mut q).id(id).desired_width(f32::INFINITY));
+            if !f.ran && q.is_empty() {
+                r.request_focus();
+            }
+            if r.changed() {
+                act = Some(("viewer.find".into(), Params { name: Some(q.clone()), ..Default::default() }));
+            }
+            let (mut case, mut whole) = (f.case, f.whole);
+            if ui.checkbox(&mut case, c("dlg.find.case")).changed() {
+                act = Some(("viewer.find.set".into(), Params { name: Some(format!("case={case}")), ..Default::default() }));
+            }
+            if ui.checkbox(&mut whole, c("dlg.find.whole")).changed() {
+                act = Some(("viewer.find.set".into(), Params { name: Some(format!("whole={whole}")), ..Default::default() }));
+            }
+            if f.ran && !f.query.is_empty() {
+                ui.label(
+                    RichText::new(lang::t(&CADCRAFT, "dlg.find.results", &[("n", f.hits.len().to_string())])).small().color(t.text_dim),
+                );
+            }
+            ui.separator();
+            let names: Vec<String> = app
+                .doc
+                .as_ref()
+                .map(|d| {
+                    d.drawing
+                        .spaces
+                        .iter()
+                        .map(|s| if s.kind == cc_drawing::SpaceKind::Model { lang::cad("app.tab.model") } else { s.name.clone() })
+                        .collect()
+                })
+                .unwrap_or_default();
+            egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                for (i, h) in f.hits.iter().enumerate() {
+                    let on = app.viewer.mark.is_some_and(|(s, x, y)| s == h.space && x == h.x && y == h.y);
+                    let label =
+                        format!("{}  ·  {}", h.s.chars().take(80).collect::<String>(), names.get(h.space).cloned().unwrap_or_default());
+                    if ui.selectable_label(on, RichText::new(label).small()).clicked() {
+                        act = Some(("viewer.find.show".into(), Params { index: Some(i), ..Default::default() }));
+                    }
                 }
             });
-        });
-        let id = ui.make_persistent_id("viewer.find.q");
-        let r = ui.add(crate::shell::field(&mut q).id(id).desired_width(f32::INFINITY));
-        if !f.ran && q.is_empty() {
-            r.request_focus();
-        }
-        if r.changed() {
-            act = Some(("viewer.find".into(), Params { name: Some(q.clone()), ..Default::default() }));
-        }
-        let (mut case, mut whole) = (f.case, f.whole);
-        if ui.checkbox(&mut case, c("dlg.find.case")).changed() {
-            act = Some(("viewer.find.set".into(), Params { name: Some(format!("case={case}")), ..Default::default() }));
-        }
-        if ui.checkbox(&mut whole, c("dlg.find.whole")).changed() {
-            act = Some(("viewer.find.set".into(), Params { name: Some(format!("whole={whole}")), ..Default::default() }));
-        }
-        if f.ran && !f.query.is_empty() {
-            ui.label(RichText::new(lang::t(&CADCRAFT, "dlg.find.results", &[("n", f.hits.len().to_string())])).small().color(t.text_dim));
-        }
-        ui.separator();
-        let names: Vec<String> = app
-            .doc
-            .as_ref()
-            .map(|d| {
-                d.drawing
-                    .spaces
-                    .iter()
-                    .map(|s| if s.kind == cc_drawing::SpaceKind::Model { lang::cad("app.tab.model") } else { s.name.clone() })
-                    .collect()
-            })
-            .unwrap_or_default();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (i, h) in f.hits.iter().enumerate() {
-                let on = app.viewer.mark.is_some_and(|(s, x, y)| s == h.space && x == h.x && y == h.y);
-                let label = format!("{}  ·  {}", h.s.chars().take(80).collect::<String>(), names.get(h.space).cloned().unwrap_or_default());
-                if ui.selectable_label(on, RichText::new(label).small()).clicked() {
-                    act = Some(("viewer.find.show".into(), Params { index: Some(i), ..Default::default() }));
-                }
-            }
-        });
-    });
+        },
+    );
     if let Some((id, p)) = act
         && let Err(e) = app.run(&id, &p)
     {

@@ -298,7 +298,7 @@ pub fn why_ui(
     }
     let col = if error { ui.visuals().error_fg_color } else { tk.text_strong };
     egui::Frame::new().stroke(egui::Stroke::new(1.0, col)).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
-        ui.label(egui::RichText::new(head).strong().color(col));
+        ui.label(egui::RichText::new(head).strong().family(crate::theme::bold_family()).color(col));
         for it in items {
             ui.add(egui::Label::new(egui::RichText::new(format!("• {}", it.said)).color(tk.text)).wrap());
             for n in &it.notes {

@@ -884,7 +884,7 @@ fn measure_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd)
     let rows = pv.measure_rows();
     ui.horizontal(|ui| {
         let head = if pv.measure.mass.is_some() { tr("ui.measure.mass") } else { tr("ui.measure.title") };
-        ui.label(RichText::new(head).strong().color(t.text_strong));
+        ui.label(RichText::new(head).strong().family(crate::theme::bold_family()).color(t.text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button(tr("ui.measure.close")).on_hover_text(tr("ui.measure.close.title")).clicked() {
                 *act = cmd("part.measure", "off");
@@ -892,7 +892,7 @@ fn measure_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd)
         });
     });
     if rows.is_empty() {
-        ui.label(RichText::new(tr("ui.measure.empty")).small().color(t.text_dim));
+        crate::shell::note(ui, t, &tr("ui.measure.empty"));
     } else {
         egui::Grid::new("pc-measure-rows").num_columns(2).spacing([8.0, 2.0]).show(ui, |ui| {
             for (k, v) in &rows {
@@ -947,7 +947,7 @@ fn measure_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd)
 
 fn section_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(tr("section.title")).strong().color(t.text_strong));
+        ui.label(RichText::new(tr("section.title")).strong().family(crate::theme::bold_family()).color(t.text_strong));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button(tr("section.close")).on_hover_text(tr("section.close.title")).clicked() {
                 *act = cmd("part.section", "off");

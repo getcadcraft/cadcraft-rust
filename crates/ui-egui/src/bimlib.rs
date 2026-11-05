@@ -757,7 +757,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             }
                             ui.vertical(|ui| {
                                 let name = if c.name.is_empty() { bt("clip.unnamed", &[]) } else { c.name.clone() };
-                                ui.label(RichText::new(name).strong().color(t.text_strong));
+                                ui.label(RichText::new(name).strong().family(crate::theme::bold_family()).color(t.text_strong));
                                 if !c.sub.is_empty() && c.sub != c.name {
                                     ui.label(RichText::new(&c.sub).small().color(t.text_dim));
                                 }
@@ -852,7 +852,7 @@ fn detail(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Detail, mode: &str, s
     }
     let Some(it) = &d.item else { return };
     preview(ui, it, 200.0, t.text, t.panel_darker);
-    ui.label(RichText::new(s_of(it, "name")).strong().color(t.text_strong));
+    ui.label(RichText::new(s_of(it, "name")).strong().family(crate::theme::bold_family()).color(t.text_strong));
     let withdrawn = d.meta.withdrawn || d.card.withdrawn;
     if withdrawn {
         let w = if d.meta.withdrawn_reason.is_empty() {
@@ -909,7 +909,7 @@ fn detail(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Detail, mode: &str, s
             ui.end_row();
         }
     });
-    ui.label(RichText::new(bt("lib.license.heading", &[])).strong());
+    ui.label(RichText::new(bt("lib.license.heading", &[])).strong().family(crate::theme::bold_family()));
     match it.get("license").filter(|l| l.is_object()) {
         Some(l) => {
             let g = |k: &str| l.get(k).and_then(J::as_str).unwrap_or("").to_string();

@@ -26,10 +26,14 @@ pub enum Act {
     Run(&'static str, String),
 }
 
+/// A section head (ui.inc `.cv-h`): a new section under a rule (shell::h).
 pub(crate) fn head(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
-    ui.add_space(6.0);
-    ui.label(RichText::new(s).strong().color(tk.text_strong));
-    ui.add_space(2.0);
+    crate::shell::h(ui, tk, s);
+}
+
+/// A head inside a section (`.cv-h3`).
+pub(crate) fn sub(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
+    crate::shell::h3(ui, tk, s);
 }
 
 fn rows(ui: &mut egui::Ui, tk: &Tokens, id: &str, list: &[(String, String)]) {
@@ -42,8 +46,9 @@ fn rows(ui: &mut egui::Ui, tk: &Tokens, id: &str, list: &[(String, String)]) {
     });
 }
 
+/// A note (`.cv-note`: 14 px, ink-2, line height 1.6).
 pub(crate) fn note(ui: &mut egui::Ui, tk: &Tokens, s: &str) {
-    ui.label(RichText::new(s).small().color(tk.text_dim));
+    crate::shell::note(ui, tk, s);
 }
 
 /// The red / amber report box, for the other panel modules.
@@ -117,9 +122,9 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     if !groups.is_empty() {
         ui.add_space(4.0);
         egui::Grid::new("cv_groups").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
-            ui.label(RichText::new(t0("ui.groups.group")).small().color(tk.text_dim));
-            ui.label(RichText::new(t0("ui.groups.points")).small().color(tk.text_dim));
-            ui.label(RichText::new(t0("ui.groups.surface")).small().color(tk.text_dim));
+            crate::shell::note(ui, tk, &t0("ui.groups.group"));
+            crate::shell::note(ui, tk, &t0("ui.groups.points"));
+            crate::shell::note(ui, tk, &t0("ui.groups.surface"));
             ui.end_row();
             for (g, count, use_) in groups.iter().take(200) {
                 ui.label(RichText::new(g).color(tk.text));
@@ -266,7 +271,7 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
 /// paper / scale / ink; GLB from the 3D bar; Save).
 fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     use cc_io_civil::plot;
-    head(ui, tk, &t0("ui.tb.group.export"));
+    sub(ui, tk, &t0("ui.tb.group.export"));
     let units = cv.project.units().to_string();
     let mut btn = |ui: &mut egui::Ui, label: &str, tip: &str, name: &str| {
         if ui.add(crate::shell::Btn::new(label)).on_hover_text(tip).clicked() {
@@ -402,7 +407,7 @@ fn objects(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
 
 /// The Parcels and Traverse blocks (parcels-ui.js `block`, traverse-ui.js `block`): draw, deed calls, traverse.
 fn parcel_blocks(ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
-    head(ui, tk, &t0("pc.head"));
+    sub(ui, tk, &t0("pc.head"));
     ui.horizontal_wrapped(|ui| {
         if ui.add(crate::shell::Btn::new(t0("pc.draw"))).on_hover_text(t0("pc.hint")).clicked() {
             acts.push(Act::Run("civil.tool", "parcel".into()));
@@ -411,7 +416,7 @@ fn parcel_blocks(ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
             acts.push(Act::Run("civil.calls", String::new()));
         }
     });
-    head(ui, tk, &t0("tv.head"));
+    sub(ui, tk, &t0("tv.head"));
     note(ui, tk, &t0("tv.lede"));
     if ui.add(crate::shell::Btn::new(t0("tv.open"))).clicked() {
         acts.push(Act::Run("civil.traverse", String::new()));
@@ -462,7 +467,7 @@ fn project(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     let u = cc_civil::units::unit_of(cv.project.units()).short.to_string();
     let als = arr(st.get("alignments"));
     if !als.is_empty() {
-        head(ui, tk, &t0("cv.props.alignments"));
+        sub(ui, tk, &t0("cv.props.alignments"));
         for a in als {
             let al = cv.project.alignment(a);
             ui.horizontal(|ui| {
@@ -478,7 +483,7 @@ fn project(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     }
     let pads = arr(st.get("pads"));
     if !pads.is_empty() {
-        head(ui, tk, &t0("cv.props.pads"));
+        sub(ui, tk, &t0("cv.props.pads"));
         for d in pads {
             ui.horizontal(|ui| {
                 if link(ui, tk, &string_or_empty(d.get("name")), false) {
@@ -494,7 +499,7 @@ fn project(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     }
     let parcels = arr(st.get("parcels"));
     if !parcels.is_empty() {
-        head(ui, tk, &t0("pc.head"));
+        sub(ui, tk, &t0("pc.head"));
         for pc in parcels {
             let parcel = cc_civil::parcels::read_parcel(pc);
             ui.horizontal(|ui| {
@@ -518,7 +523,7 @@ fn project(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
 
 /// civilcraft.js `volumeBlock`: earthwork by the grid method.
 fn volumes(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens) {
-    head(ui, tk, &t0("cv.ew.head"));
+    sub(ui, tk, &t0("cv.ew.head"));
     report(ui, tk, &cv.facts.graded_problems, true);
     let units = cv.project.units().to_string();
     let Some(v) = cv.facts.volumes.clone() else {
@@ -563,7 +568,7 @@ fn volumes(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens) {
 fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let Some(n) = cv.project.state.get("network").cloned() else { return };
     let u = cc_civil::units::unit_of(cv.project.units()).short.to_string();
-    head(ui, tk, &t0("cv.net.head"));
+    sub(ui, tk, &t0("cv.net.head"));
     let r = n.get("rules").cloned().unwrap_or(Value::Null);
     let sanitary = n.get("type").and_then(Value::as_str) == Some("sanitary");
     egui::Grid::new("cv_net").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
@@ -666,7 +671,7 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
     } else {
         crate::civilprops::why_ui(ui, tk, &why.curve, &crate::civilprops::curve_head(why.curve_error), why.curve_error, &mut wacts);
     }
-    head(ui, tk, &t0("cv.al.pis"));
+    sub(ui, tk, &t0("cv.al.pis"));
     egui::Grid::new("cv_al_pis").num_columns(5).spacing([6.0, 2.0]).show(ui, |ui| {
         for h in ["#".to_string(), t0("pt.props.easting"), t0("pt.props.northing"), t0("se.c.r"), String::new()] {
             ui.label(RichText::new(h).small().color(tk.text_dim));
@@ -702,7 +707,7 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
         let arcs: Vec<&cc_civil::alignment::Arc> =
             al.elements.iter().filter_map(|e| if let cc_civil::alignment::Element::Arc(c) = e { Some(c) } else { None }).collect();
         if !arcs.is_empty() {
-            head(ui, tk, &t0("cv.al.curves"));
+            sub(ui, tk, &t0("cv.al.curves"));
             for c in arcs {
                 ui.label(
                     RichText::new(tr!(
@@ -742,7 +747,7 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
             note(ui, tk, &tr!("cv.al.tangent", b = bearing(dir)));
         }
         // profile: design PVIs with grades, and the existing ground's range along it
-        head(ui, tk, &t0("cv.prof.head"));
+        sub(ui, tk, &t0("cv.prof.head"));
         let prof = cv.project.design_profile(a);
         let egp = cv.project.eg_profile(a);
         let zs: Vec<f64> = egp.iter().filter_map(|s| s.z).collect();
@@ -846,7 +851,7 @@ fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts:
     let units = cv.project.units().to_string();
     let u = cc_civil::units::unit_of(&units).short.to_string();
     let aid = string_of(a.get("id"));
-    head(ui, tk, &t0("cv.co.head"));
+    sub(ui, tk, &t0("cv.co.head"));
     let co = a.get("corridor").cloned().unwrap_or(Value::Null);
     let on = co.get("on") == Some(&Value::Bool(true));
     prop_check(ui, &t0("cv.co.on"), on, "corridor", acts);
@@ -873,7 +878,7 @@ fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts:
     note(ui, tk, &t0("co.note"));
     let facts = cv.corridor_facts(a);
     crate::civilsuper::corridor_block(ui, tk, &facts);
-    head(ui, tk, &t0("se.head"));
+    sub(ui, tk, &t0("se.head"));
     let sp = co.get("super").cloned().unwrap_or(Value::Null);
     let se_on = sp.get("on") == Some(&Value::Bool(true));
     prop_check(ui, &t0("se.on"), se_on, "se", acts);
@@ -897,7 +902,7 @@ fn corridor(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts:
     let rate = arr(sp.get("rate")).to_vec();
     egui::Grid::new("cv_se_rate").num_columns(3).spacing([6.0, 2.0]).show(ui, |ui| {
         ui.label(RichText::new(tr!("se.rate.r", u = if units == "m" { "m" } else { "ft" })).small().color(tk.text_dim));
-        ui.label(RichText::new(t0("se.rate.e")).small().color(tk.text_dim));
+        crate::shell::note(ui, tk, &t0("se.rate.e"));
         ui.label("");
         ui.end_row();
         for (i, row) in rate.iter().enumerate() {
@@ -1272,7 +1277,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
             });
         }
     }
-    head(ui, tk, &t0("fl.props.vertices"));
+    sub(ui, tk, &t0("fl.props.vertices"));
     egui::Grid::new("cv_fl_v").num_columns(4).spacing([6.0, 2.0]).show(ui, |ui| {
         for h in ["#".to_string(), t0("fl.props.station"), t0("fl.props.elev"), t0("fl.props.grade")] {
             ui.label(RichText::new(h).small().color(tk.text_dim));
@@ -1312,7 +1317,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
             acts.push(Act::Run("civil.prop", "even=".into()));
         }
     });
-    head(ui, tk, &t0("fl.props.offset"));
+    sub(ui, tk, &t0("fl.props.offset"));
     let d0 = if units == "m" { "1" } else { "3" };
     let (mut dist, mut how, mut amt) = match &cv.profile.offset_form {
         Some((k, d, h, a)) if *k == id => (d.clone(), h.clone(), a.clone()),
@@ -1402,7 +1407,7 @@ fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &
         }
     });
     note(ui, tk, &t0("pc.c.note"));
-    head(ui, tk, &t0("pc.legal"));
+    sub(ui, tk, &t0("pc.legal"));
     let mut legal = cc_civil::parcels::legal_description(&pc, &units, pc.pob.as_deref());
     ui.add(
         egui::TextEdit::multiline(&mut legal).desired_rows(10).desired_width(f32::INFINITY).font(egui::TextStyle::Small).interactive(true),

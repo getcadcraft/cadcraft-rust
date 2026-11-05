@@ -1864,7 +1864,13 @@ pub fn bar_row(app: &mut UiApp, ui: &mut egui::Ui, run: &mut Vec<(&'static str, 
             let shown = bt(&format!("res.el.kind.{}", res.el.kind), &[]);
             egui::ComboBox::new("bim_res_elk", bt("res.el.device", &[])).selected_text(shown).show_ui(ui, |ui| {
                 for g in cc_bim::draw::reselec::GROUPS {
-                    ui.label(RichText::new(bt(&format!("res.el.group.{g}"), &[])).small().strong().color(t.text_dim));
+                    ui.label(
+                        RichText::new(bt(&format!("res.el.group.{g}"), &[]))
+                            .small()
+                            .strong()
+                            .family(crate::theme::bold_family())
+                            .color(t.text_dim),
+                    );
                     for k in cc_bim::draw::reselec::kinds_in(g) {
                         if ui.selectable_label(k == res.el.kind, bt(&format!("res.el.kind.{k}"), &[])).clicked() {
                             run.push(("bim.set", format!("el.kind={k}")));
@@ -2592,7 +2598,7 @@ pub fn props(app: &mut UiApp, ui: &mut egui::Ui) -> bool {
         }
         _ => {}
     };
-    ui.label(RichText::new(&title).strong().color(t.text_strong));
+    ui.label(RichText::new(&title).strong().family(crate::theme::bold_family()).color(t.text_strong));
     body(app, ui);
     ui.separator();
     if let Some(name) = out {
