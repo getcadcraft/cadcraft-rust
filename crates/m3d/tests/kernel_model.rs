@@ -700,3 +700,62 @@ fn scenes_remember() {
     let old = clean_scene(&json!({ "name": "Old", "cam": { "eye": [1, -5, 3], "target": [0, 0, 0] } })).unwrap();
     assert!(old.vis.is_none(), "a scene from an older file has no visibility");
 }
+
+/// S.12: a whole-model Snap gives, from its parts, the JSON its text reads back as (CadCraft's 3D tab restores the
+/// preview's start that way instead of reading the text); a name holding the placeholder text falls back to the text.
+#[test]
+fn snap_value_reads_as_its_text() {
+    let mut m = Model::new();
+    {
+        let d = root(&mut m);
+        rect(d, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 4.0, 3.0);
+        let f = first_face(d);
+        push_pull(d, f, 2.5);
+        rect(d, [-0.0, 1e-300, 7.25], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], 0.1, 12345.678);
+        draw_circle(d, [9.0, 9.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0], 1.5, 24.0);
+        for e in d.edges.values_mut().take(3) {
+            e.soft = true;
+        }
+        if let Some((_, fc)) = d.faces.iter_mut().next() {
+            fc.color = Some("#a0b0c0".into());
+        }
+    }
+    let comp = m.new_def("component", Some("Post \"x\" é"));
+    if let Some(d) = m.defs.get_mut(&comp) {
+        rect(d, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 0.2, 0.2);
+        let f = first_face(d);
+        push_pull(d, f, 2.0);
+    }
+    for x in [1.0, -2.5] {
+        let r = m.root_mut().unwrap();
+        place(r, &comp, &translation([x, 0.0, 0.0]));
+    }
+    let check = |m: &mut Model, what: &str| {
+        let sn = m.snap();
+        let cc_m3d::model::SnapRef::Snap(c) = &sn else { panic!("a Snap") };
+        let text: Value = serde_json::from_str(&sn.s()).unwrap();
+        match c.read() {
+            Some(r) => {
+                let (j, defs) = r.unwrap();
+                let from_text = text["defs"].as_array().unwrap();
+                assert_eq!(defs.len(), from_text.len(), "{what}");
+                for (k, (d, dj)) in defs.iter().zip(from_text).enumerate() {
+                    let t = cc_m3d::file::def_of(dj, cc_m3d::file::Fail::File).unwrap();
+                    let d = d.as_ref().unwrap();
+                    assert_eq!(cc_m3d::file::def_string(d), cc_m3d::file::def_string(&t), "{what}: definition {k}");
+                    assert_eq!(j["defs"][k]["id"], dj["id"], "{what}: entry {k}");
+                }
+                let mut head = j.clone();
+                let mut th = text.clone();
+                head.as_object_mut().unwrap().remove("defs");
+                th.as_object_mut().unwrap().remove("defs");
+                assert_eq!(head, th, "{what}: the head");
+            }
+            None => assert!(what.contains("placeholder"), "{what}: the parts should do"),
+        }
+    };
+    check(&mut m, "boxes, a circle, soft edges, paint, a component placed twice");
+    let tricky = m.new_def("group", Some("\"defs\":0"));
+    let _ = tricky;
+    check(&mut m, "a name with the placeholder text");
+}

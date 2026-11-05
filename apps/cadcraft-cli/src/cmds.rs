@@ -700,10 +700,24 @@ pub fn cmds(rest: &[&str]) -> ExitCode {
             }
         };
     // `tzName`: the zone CDATE reads (an IANA name), as the harness runs the JS under TZ=…
-    let records = match script.get("tzName").and_then(Value::as_str) {
+    let run = || match script.get("tzName").and_then(Value::as_str) {
         Some(tz) => cc_clock::with_zone_name(tz, || run_script(&script)).unwrap_or_else(|_| run_script(&script)),
         None => run_script(&script),
     };
+    let mut records = run();
+    // `--best N` (timed scripts, S.13): the script N times in this process from a fresh drawing each time, as the
+    // harness runs the JS N times in one Node process; each input's `ms` is the best of the runs
+    let best = rest.iter().position(|a| *a == "--best").and_then(|i| rest.get(i + 1)).and_then(|n| n.parse::<usize>().ok()).unwrap_or(1);
+    for _ in 1..best.min(100) {
+        let again = run();
+        for (r, a) in records.iter_mut().zip(&again) {
+            if let (Some(m), Some(b)) = (r.get("ms").and_then(Value::as_f64), a.get("ms").and_then(Value::as_f64))
+                && let Some(o) = r.as_object_mut()
+            {
+                o.insert("ms".into(), json!(m.min(b)));
+            }
+        }
+    }
     println!("{}", Value::Array(records));
     ExitCode::SUCCESS
 }

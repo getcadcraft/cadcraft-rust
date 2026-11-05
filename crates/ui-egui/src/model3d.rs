@@ -62,8 +62,69 @@ impl ImgLayers {
     }
 }
 
-/// Decoded pictures kept between scenes: image id → (key of its data, its texture, or None when it cannot be read).
-pub type ImgCache = HashMap<String, (u64, Option<std::sync::Arc<Vec<u8>>>)>;
+/// A picture's texture layer: its pixels, or None when it cannot be read.
+type Px = Option<std::sync::Arc<Vec<u8>>>;
+
+/// Decoded pictures kept between scenes: image id → (key of its data, its texture). In the background mode (the
+/// desktop window, S.11) a picture not decoded yet is decoded on Rayon's threads and the scene shows it once it has
+/// come, as a browser shows an image once loaded (view3d.js); until then its faces show their average colour.
+#[derive(Default)]
+pub struct ImgCache {
+    done: HashMap<String, (u64, Px)>,
+    background: bool,
+    inbox: std::sync::Arc<std::sync::Mutex<Vec<(String, u64, Px)>>>,
+    asked: std::collections::HashSet<(String, u64)>,
+}
+
+impl Clone for ImgCache {
+    /// The decoded pictures; the copy decodes in the call (a render job needs every picture now).
+    fn clone(&self) -> Self {
+        ImgCache { done: self.done.clone(), ..ImgCache::default() }
+    }
+}
+
+impl std::fmt::Debug for ImgCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ImgCache").field("decoded", &self.done.len()).field("waiting", &self.asked.len()).finish()
+    }
+}
+
+impl ImgCache {
+    /// Pictures decoded in the call.
+    pub fn new() -> Self {
+        Self::default()
+    }
+    /// Pictures decoded on other threads (desktop; the web build decodes in the call).
+    pub fn background() -> Self {
+        ImgCache { background: cfg!(not(target_arch = "wasm32")), ..Self::default() }
+    }
+    /// Pictures still being decoded.
+    pub fn waiting(&self) -> bool {
+        !self.asked.is_empty()
+    }
+    /// Takes the pictures decoded since the last call: true when any came (the scene should be made again).
+    pub fn collect(&mut self) -> bool {
+        if self.asked.is_empty() {
+            return false;
+        }
+        let got = std::mem::take(&mut *self.inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        let any = !got.is_empty();
+        for (id, key, px) in got {
+            self.asked.remove(&(id.clone(), key));
+            self.done.insert(id, (key, px));
+        }
+        any
+    }
+    fn get(&self, id: &str) -> Option<&(u64, Px)> {
+        self.done.get(id)
+    }
+}
+
+/// A picture (data URL parts) as a texture layer.
+fn decode_picture(mime: &str, data: &str) -> Px {
+    let url = format!("data:{mime};base64,{data}");
+    cc_io_markup::picture::decode_rgba(&url).and_then(|(w, h, p)| picture_layer(w, h, &p)).map(std::sync::Arc::new)
+}
 
 fn data_key(im: &cc_m3d::model::Image) -> u64 {
     use std::hash::{Hash, Hasher};
@@ -84,29 +145,27 @@ pub fn picture_layer(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
         return None;
     }
     let mut out = vec![0u8; n * n * 4];
-    for ty in 0..n {
+    // the box of picture pixels under each texel, summed a row slice at a time (S.11: the same sums as one pixel at a
+    // time, without a bounds check per pixel)
+    let xs: Vec<(usize, usize)> = (0..n).map(|tx| (tx * w / n, ((tx + 1) * w).div_ceil(n).max(tx * w / n + 1).min(w))).collect();
+    for (ty, orow) in out.chunks_exact_mut(n * 4).enumerate() {
         // texel row ty (v = ty / n) samples the picture's row from the bottom
         let (y0, y1) = ((n - 1 - ty) * h / n, ((n - ty) * h).div_ceil(n).max((n - 1 - ty) * h / n + 1).min(h));
-        for tx in 0..n {
-            let (x0, x1) = (tx * w / n, ((tx + 1) * w).div_ceil(n).max(tx * w / n + 1).min(w));
+        for (&(x0, x1), d) in xs.iter().zip(orow.as_chunks_mut::<4>().0) {
             let mut s = [0u32; 4];
             let mut cnt = 0u32;
             for y in y0..y1 {
-                for x in x0..x1 {
-                    let o = (y * w + x) * 4;
-                    if let Some(p) = rgba.get(o..o + 4) {
-                        for (a, b) in s.iter_mut().zip(p) {
-                            *a += u32::from(*b);
-                        }
-                        cnt += 1;
+                let Some(row) = rgba.get((y * w + x0) * 4..(y * w + x1) * 4) else { continue };
+                for p in row.as_chunks::<4>().0 {
+                    for (a, b) in s.iter_mut().zip(p) {
+                        *a += u32::from(*b);
                     }
                 }
+                cnt += u32::try_from(x1.saturating_sub(x0)).unwrap_or(0);
             }
             let cnt = cnt.max(1);
-            if let Some(d) = out.get_mut((ty * n + tx) * 4..(ty * n + tx) * 4 + 4) {
-                for (a, b) in d.iter_mut().zip(s) {
-                    *a = ((b + cnt / 2) / cnt) as u8;
-                }
+            for (a, b) in d.iter_mut().zip(s) {
+                *a = ((b + cnt / 2) / cnt) as u8;
             }
         }
     }
@@ -137,21 +196,58 @@ pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
         }
     }
     let room = (cc_render::mesh3d::TEX_LAYERS as usize).saturating_sub(IMG_LAYER0);
+    cache.collect();
     let mut list = Vec::new();
-    for id in ids {
-        if list.len() >= room {
-            break;
+    let mut next = 0usize;
+    // pictures being decoded in the background, counted as filling a layer (so no more are decoded than in the call)
+    let mut promised = 0usize;
+    // in runs of as many pictures as there are layers left (each fills at most one), the ones not decoded yet (or
+    // changed) decoded side by side on the desktop (S.11): the same pictures as decoding one at a time
+    while list.len().saturating_add(promised) < room && next < ids.len() {
+        let left = room.saturating_sub(list.len()).saturating_sub(promised);
+        let batch = ids.get(next..next.saturating_add(left).min(ids.len())).unwrap_or(&[]);
+        next = next.saturating_add(batch.len().max(1));
+        let todo: Vec<(&String, u64, &cc_m3d::model::Image)> = batch
+            .iter()
+            .filter_map(|id| model.images.get(id).map(|im| (id, data_key(im), im)))
+            .filter(|(id, key, _)| cache.get(id).is_none_or(|(k, _)| k != key))
+            .collect();
+        #[cfg(not(target_arch = "wasm32"))]
+        if cache.background {
+            for (id, key, im) in &todo {
+                if !cache.asked.insert(((*id).clone(), *key)) {
+                    continue;
+                }
+                let (id, key, mime, data, inbox) = ((*id).clone(), *key, im.mime.clone(), im.data.clone(), cache.inbox.clone());
+                rayon::spawn(move || {
+                    // a picture is outside input: a panic in its decoder leaves it without a layer, not the app dead
+                    let px = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_picture(&mime, &data))).unwrap_or(None);
+                    inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id, key, px));
+                });
+            }
+        } else {
+            use rayon::prelude::*;
+            let done: Vec<(String, u64, Px)> =
+                todo.par_iter().map(|(id, key, im)| ((*id).clone(), *key, decode_picture(&im.mime, &im.data))).collect();
+            for (id, key, px) in done {
+                cache.done.insert(id, (key, px));
+            }
         }
-        let Some(im) = model.images.get(&id) else { continue };
-        let key = data_key(im);
-        let fresh = cache.get(&id).is_none_or(|(k, _)| *k != key);
-        if fresh {
-            let url = format!("data:{};base64,{}", im.mime, im.data);
-            let px = cc_io_markup::picture::decode_rgba(&url).and_then(|(w, h, p)| picture_layer(w, h, &p)).map(std::sync::Arc::new);
-            cache.insert(id.clone(), (key, px));
+        #[cfg(target_arch = "wasm32")]
+        for (id, key, im) in &todo {
+            let px = decode_picture(&im.mime, &im.data);
+            cache.done.insert((*id).clone(), (*key, px));
         }
-        if let Some((_, Some(px))) = cache.get(&id) {
-            list.push(ImgTex { id, key, rgba: px.clone() });
+        for id in batch {
+            let Some(im) = model.images.get(id) else { continue };
+            let key = data_key(im);
+            if let Some((k, Some(px))) = cache.get(id)
+                && *k == key
+            {
+                list.push(ImgTex { id: id.clone(), key, rgba: px.clone() });
+            } else if cache.asked.contains(&(id.clone(), key)) {
+                promised = promised.saturating_add(1);
+            }
         }
     }
     ImgLayers { list }
@@ -182,7 +278,7 @@ pub fn def_mesh_with(
     per_vertex: &mut dyn FnMut(Option<&str>),
 ) -> MeshData {
     let fill = dflt.and_then(paint_rgba).unwrap_or(front);
-    let smooth = cc_m3d::edges::smooth_normals(def);
+    let smooth = cc_m3d::edges::smooth_normals_ids(def);
     // the definition's own origin: the middle of its vertices' box (positions are f32 relative to it)
     let mut lo = [f64::INFINITY; 3];
     let mut hi = [f64::NEG_INFINITY; 3];
@@ -211,7 +307,7 @@ pub fn def_mesh_with(
         });
         let mut tile0: Option<[f64; 2]> = None;
         // a face's corners are shared by its triangles (same normal and colour): each is stored once
-        let mut at: HashMap<u64, u32> = HashMap::new();
+        let mut at: cc_m3d::omap::FxMap<u64, u32> = cc_m3d::omap::FxMap::default();
         for t in face_tris(def, f) {
             for v in t {
                 let j = match at.get(&v.to_bits()) {
@@ -219,10 +315,7 @@ pub fn def_mesh_with(
                     None => {
                         let j = m.positions.len() as u32;
                         at.insert(v.to_bits(), j);
-                        let mut key = cc_m3d::js::num_str(fid);
-                        key.push('|');
-                        cc_m3d::js::push_num(&mut key, v);
-                        let q = smooth.get(&key).copied().unwrap_or(n);
+                        let q = smooth.get(&(cc_m3d::omap::kb(fid), cc_m3d::omap::kb(v))).copied().unwrap_or(n);
                         m.positions.push(rel(def.v(v), origin));
                         m.normals.push([q[0] as f32, q[1] as f32, q[2] as f32]);
                         m.colors.push(c);
@@ -264,7 +357,8 @@ pub fn def_mesh_with(
 pub fn scene_of(model: &Model, id: u64, dark: bool, cache: &mut ImgCache) -> Scene3D {
     let front = if dark { FRONT_MODEL } else { FRONT_PAPER };
     let imgs = img_layers(model, cache);
-    let mut meshes: Vec<MeshData> = Vec::new();
+    // (definition id, placement colour) of each mesh, first seen first; the meshes made after the walk
+    let mut keys: Vec<(String, Option<String>)> = Vec::new();
     let mut index: HashMap<(String, String), usize> = HashMap::new();
     let mut instances: Vec<Instance3> = Vec::new();
     let mut lo = [f64::INFINITY; 3];
@@ -275,8 +369,8 @@ pub fn scene_of(model: &Model, id: u64, dark: bool, cache: &mut ImgCache) -> Sce
         }
         let key = (def.id.clone(), color.unwrap_or("").to_string());
         let mi = *index.entry(key).or_insert_with(|| {
-            meshes.push(def_mesh(def, color, front, &imgs));
-            meshes.len() - 1
+            keys.push((def.id.clone(), color.map(str::to_string)));
+            keys.len() - 1
         });
         for (_, p) in def.verts.iter() {
             let w = [
@@ -289,6 +383,22 @@ pub fn scene_of(model: &Model, id: u64, dark: bool, cache: &mut ImgCache) -> Sce
         instances.push(Instance3 { mesh: mi, m: *m, tint: None, hidden: false });
         true
     });
+    // made side by side on the desktop (S.11: one definition's mesh does not depend on another's)
+    let jobs: Vec<(Option<&Def>, Option<&str>)> = keys.iter().map(|(d, c)| (model.defs.get(d), c.as_deref())).collect();
+    // the triangulation mode of this thread goes with the work (cc-m3d's with_plain_face_tris)
+    let plain = cc_m3d::def::plain_face_tris();
+    let mesh_of = |(def, color): &(Option<&Def>, Option<&str>)| match def {
+        Some(def) if plain => cc_m3d::def::with_plain_face_tris(|| def_mesh(def, *color, front, &imgs)),
+        Some(def) => def_mesh(def, *color, front, &imgs),
+        None => MeshData::default(),
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let meshes: Vec<MeshData> = {
+        use rayon::prelude::*;
+        if jobs.len() > 1 { jobs.par_iter().map(mesh_of).collect() } else { jobs.iter().map(mesh_of).collect() }
+    };
+    #[cfg(target_arch = "wasm32")]
+    let meshes: Vec<MeshData> = jobs.iter().map(mesh_of).collect();
     if !lo[0].is_finite() {
         // an empty model: a 10 m square around the origin to look at
         lo = [-5.0, -5.0, 0.0];
@@ -359,6 +469,51 @@ pub fn sample_model() -> Model {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// S.11: the row-slice box filter gives the texel sums of the one-pixel-at-a-time filter it replaced.
+    #[test]
+    fn picture_layer_rows_match_pixel_by_pixel() {
+        fn reference(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+            let n = cc_render::mesh3d::TEX_SIZE as usize;
+            let (w, h) = (w as usize, h as usize);
+            let mut out = vec![0u8; n * n * 4];
+            for ty in 0..n {
+                let (y0, y1) = ((n - 1 - ty) * h / n, ((n - ty) * h).div_ceil(n).max((n - 1 - ty) * h / n + 1).min(h));
+                for tx in 0..n {
+                    let (x0, x1) = (tx * w / n, ((tx + 1) * w).div_ceil(n).max(tx * w / n + 1).min(w));
+                    let mut s = [0u32; 4];
+                    let mut cnt = 0u32;
+                    for y in y0..y1 {
+                        for x in x0..x1 {
+                            let o = (y * w + x) * 4;
+                            for (a, b) in s.iter_mut().zip(&rgba[o..o + 4]) {
+                                *a += u32::from(*b);
+                            }
+                            cnt += 1;
+                        }
+                    }
+                    let cnt = cnt.max(1);
+                    for (k, b) in s.iter().enumerate() {
+                        out[(ty * n + tx) * 4 + k] = ((b + cnt / 2) / cnt) as u8;
+                    }
+                }
+            }
+            out
+        }
+        let mut seed = 0x9e37_79b9u32;
+        for (w, h) in [(1, 1), (3, 700), (256, 256), (255, 257), (1000, 333), (513, 1024), (40, 9)] {
+            let px: Vec<u8> = (0..w * h * 4)
+                .map(|_| {
+                    seed ^= seed << 13;
+                    seed ^= seed >> 17;
+                    seed ^= seed << 5;
+                    (seed >> 24) as u8
+                })
+                .collect();
+            assert_eq!(picture_layer(w, h, &px).unwrap(), reference(w, h, &px), "{w} x {h}");
+        }
+        assert!(picture_layer(4, 4, &[0; 10]).is_none());
+    }
 
     #[test]
     fn a_face_painted_with_a_material_carries_texture_coordinates() {

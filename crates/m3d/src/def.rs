@@ -487,6 +487,11 @@ thread_local! {
     static PLAIN_TRIS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
+/// Is this thread inside [`with_plain_face_tris`]? (Work handed to other threads takes the mode with it.)
+pub fn plain_face_tris() -> bool {
+    PLAIN_TRIS.with(std::cell::Cell::get)
+}
+
 /// Run `f` with [`face_tris`] as the copy of m3d/model.js that CadCraft 0.5 bundles has it: every face through earcut,
 /// without the triangle / quad shortcut ModelCraft added later (CadCraft's 3D exports and 3DFACE output, M4.24).
 pub fn with_plain_face_tris<R>(f: impl FnOnce() -> R) -> R {
@@ -631,3 +636,9 @@ pub fn loops2(def: &Def, f: &Face, fr: &Frame) -> Vec<Vec<P2>> {
 pub fn find_vert_eps(def: &Def, p: P3) -> Option<f64> {
     find_vert(def, p, EPS)
 }
+
+// S.11: a definition can be read from several threads (the 3D view builds its meshes side by side)
+const _: () = {
+    const fn shared<T: Send + Sync>() {}
+    shared::<Def>();
+};

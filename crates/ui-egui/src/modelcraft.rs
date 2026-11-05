@@ -202,11 +202,17 @@ fn kind_color(kind: &str, t: &Tokens) -> Color32 {
 
 impl ModelView {
     pub fn new(model: Model, name: &str, dark: bool) -> Result<ModelView, String> {
+        Self::with_pictures(model, name, dark, model3d::ImgCache::new())
+    }
+
+    /// [`ModelView::new`] with its picture cache (`ImgCache::background()`: the window shows the model at once and its
+    /// pictures as they are decoded).
+    pub fn with_pictures(model: Model, name: &str, dark: bool, img_cache: model3d::ImgCache) -> Result<ModelView, String> {
         let mut tools = Tools::new(Host::new(model, Camera::new())).map_err(|e| format!("{e:?}"))?;
         // the page's settings (modelcraft.js SET_DEFAULTS, applySettings): snapping on, collisions on
         tools.snapping = true;
         tools.collide = true;
-        let mut img_cache = model3d::ImgCache::new();
+        let mut img_cache = img_cache;
         let scene = model3d::scene_of(&tools.host.model, 1, dark, &mut img_cache);
         let built = (tools.host.model.version(), tools.host.model_gen());
         let mut v = ModelView {
@@ -300,7 +306,9 @@ impl ModelView {
     /// The scene again when the model changed (a new version, undo, another model).
     fn rebuild(&mut self) {
         let key = (self.tools.host.model.version(), self.tools.host.model_gen());
-        if key.0 == self.built.0 && key.1 == self.built.1 {
+        // pictures decoded in the background since: the scene again, with them
+        let pictures = self.img_cache.collect();
+        if key.0 == self.built.0 && key.1 == self.built.1 && !pictures {
             return;
         }
         self.seq = self.seq.wrapping_add(1);
@@ -482,6 +490,9 @@ impl ModelView {
         self.step_anim(ui);
         self.step_record(ui.ctx());
         self.rebuild();
+        if self.img_cache.waiting() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(15));
+        }
         let c = &self.tools.host.cam;
         let cam = Cam3 {
             eye: c.eye,

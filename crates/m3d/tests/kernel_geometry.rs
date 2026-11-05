@@ -782,6 +782,15 @@ fn soften_and_smooth() {
     assert!(n == 12.0 && soft_n(&model) == 12, "soften up to 31°: the 12 side edges go soft, the 24 rim edges stay hard");
     let d = model.root().unwrap();
     let sm = smooth_normals(d);
+    // S.11: the id-keyed map holds the same corners and normals
+    let ids = cc_m3d::edges::smooth_normals_ids(d);
+    assert_eq!(ids.len(), sm.len());
+    for (fid, f) in d.faces.iter() {
+        for &v in f.loops.iter().flatten() {
+            let k = format!("{}|{}", cc_m3d::js::num_str(fid), cc_m3d::js::num_str(v));
+            assert_eq!(sm.get(&k).copied(), ids.get(&(cc_m3d::omap::kb(fid), cc_m3d::omap::kb(v))).copied(), "{k}");
+        }
+    }
     let (sid, side) = d.faces.iter().find(|(_, f)| face_normal(d, f)[2].abs() < 1e-9).unwrap();
     let corner = side.loops[0][0];
     let q = *sm.get(&format!("{}|{}", cc_m3d::js::num_str(sid), cc_m3d::js::num_str(corner))).unwrap();

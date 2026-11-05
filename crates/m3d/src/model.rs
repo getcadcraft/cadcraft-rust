@@ -136,6 +136,45 @@ pub struct Snap {
     pub parts: Vec<(String, PartRef)>,
 }
 impl Snap {
+    /// What `load(JSON.parse(self.s()))` reads, from the parts: the head's JSON with each definition's entry (its id
+    /// alone for a structural part, which is read without its text by [`crate::file::def_of_view`]) and the
+    /// definitions as `defOf` makes them. None when the head's `"defs":0` is not the one place [`Snap::s`] fills (then
+    /// the text is read).
+    pub fn read(&self) -> Option<Res<(Value, Vec<Res<Def>>)>> {
+        if self.head.matches("\"defs\":0").count() != 1 {
+            return None;
+        }
+        let mut j: Value = match serde_json::from_str(&self.head) {
+            Ok(j) => j,
+            Err(_) => return Some(Err(Error::Type)),
+        };
+        let slot = j.as_object_mut()?.get_mut("defs")?;
+        if slot.as_u64() != Some(0) {
+            return None;
+        }
+        let mut entries = Vec::with_capacity(self.parts.len());
+        let mut defs = Vec::with_capacity(self.parts.len());
+        for (_, p) in &self.parts {
+            match p.view() {
+                Some(d) => {
+                    let mut o = serde_json::Map::new();
+                    o.insert("id".into(), Value::String(crate::def::DefView::id(d).to_string()));
+                    entries.push(Value::Object(o));
+                    defs.push(crate::file::def_of_view(d, crate::file::Fail::File));
+                }
+                None => {
+                    let dj: Value = match serde_json::from_str(&p.text()) {
+                        Ok(v) => v,
+                        Err(_) => return Some(Err(Error::Type)),
+                    };
+                    defs.push(crate::file::def_of(&dj, crate::file::Fail::File));
+                    entries.push(dj);
+                }
+            }
+        }
+        *slot = Value::Array(entries);
+        Some(Ok((j, defs)))
+    }
     /// The whole model as one JSON string (the snapshot).
     pub fn s(&self) -> String {
         let mut defs = String::from("\"defs\":[");
@@ -192,6 +231,8 @@ pub struct Step {
 #[derive(Clone, Debug)]
 struct Preview {
     full: Option<Rc<str>>,
+    /// (old previews) the Snap `full` was written from: restoring `full` reads the JSON from its parts (S.12)
+    copy: Option<(Rc<str>, Rc<Snap>)>,
     defs: OMap<String, Value>,
     strs: OMap<String, PartRef>,
     ids: Option<Vec<String>>,
@@ -269,6 +310,27 @@ pub struct Model {
     /// CadCraft 0.5 bundles an older copy of model.js whose `begin()` takes the whole model as a snapshot string and
     /// whose previews and `abort()` restore from it (each restore reads, and checks, the whole model again)
     pub old_previews: bool,
+    /// With `old_previews`: the last whole-model string read back, as read (S.12).
+    pub(crate) read_back: ReadBack,
+}
+
+/// The last whole-model snapshot string [`Model::restore`] read (CadCraft 0.5's older model.js restores the same one
+/// on every preview frame and on abort): from its second read, its JSON and its definitions as read, so restoring that
+/// string again copies them instead of reading the text again (the same text gives the same definitions). A copy of the model starts with
+/// none; holding the string keeps its address from being reused.
+#[derive(Default)]
+pub(crate) struct ReadBack(pub(crate) Option<(Rc<str>, Option<ReadAs>)>);
+/// What a snapshot string read back as: its JSON and its definitions.
+pub(crate) type ReadAs = (Value, Vec<Def>);
+impl Clone for ReadBack {
+    fn clone(&self) -> Self {
+        ReadBack(None)
+    }
+}
+impl std::fmt::Debug for ReadBack {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ReadBack({})", self.0.is_some())
+    }
 }
 
 /// See [`Model::trash`]. A copy of the model starts with none.
@@ -318,6 +380,7 @@ impl Model {
             uid: String::new(),
             serial: 0,
             trash: Trash::default(),
+            read_back: ReadBack::default(),
             old_previews: false,
         };
         m.reset();
@@ -711,13 +774,13 @@ impl Model {
                 all = false;
                 continue;
             };
-            if Rc::ptr_eq(old, part) {
+            if std::sync::Arc::ptr_eq(old, part) {
                 continue;
             }
             if crate::part::same(old, part) {
                 if let Some(d) = self.defs.get_mut(id.as_str())
                     && let Some((_, c)) = d.cache.as_mut()
-                    && Rc::ptr_eq(c, part)
+                    && std::sync::Arc::ptr_eq(c, part)
                 {
                     *c = old.clone();
                 }
@@ -793,12 +856,18 @@ impl Model {
 
     pub fn begin(&mut self) {
         if self.old_previews {
-            let full: Rc<str> = self.snapshot().into();
-            self.pv = Some(Preview { full: Some(full), defs: OMap::new(), strs: OMap::new(), ids: None, next_id: None, mixed: true });
+            let sn = self.snap();
+            let full: Rc<str> = sn.s().into();
+            let copy = match sn {
+                SnapRef::Snap(c) => Some((full.clone(), c)),
+                SnapRef::Str(_) => None,
+            };
+            self.pv = Some(Preview { full: Some(full), copy, defs: OMap::new(), strs: OMap::new(), ids: None, next_id: None, mixed: true });
             return;
         }
         self.pv = Some(Preview {
             full: None,
+            copy: None,
             defs: OMap::new(),
             strs: OMap::new(),
             ids: Some(self.defs.keys().cloned().collect()),
@@ -861,14 +930,22 @@ impl Model {
     }
     /// `set _base(s)`.
     pub fn set_base(&mut self, s: Option<&str>) {
-        self.pv = s.map(|s| Preview { full: Some(s.into()), defs: OMap::new(), strs: OMap::new(), ids: None, next_id: None, mixed: true });
+        self.pv = s.map(|s| Preview {
+            full: Some(s.into()),
+            copy: None,
+            defs: OMap::new(),
+            strs: OMap::new(),
+            ids: None,
+            next_id: None,
+            mixed: true,
+        });
     }
     /// Back to the preview's start: scoped (the definitions changed so far, plus `more`) or whole.
     fn revert_preview(&mut self, more: &[String]) -> Res<bool> {
         let Some(pv) = self.pv.as_ref() else { return Err(Error::Type) };
         if pv.mixed {
             let Some(full) = pv.full.clone() else { return Err(Error::Type) };
-            self.restore(&SnapRef::Str(full))?;
+            self.restore_base(&full)?;
             return Ok(false);
         }
         let ids = pv.ids.clone().unwrap_or_default();
@@ -913,7 +990,7 @@ impl Model {
             _ => {
                 let full = self.base()?;
                 let Some(full) = full else { return Err(Error::Type) };
-                self.restore(&SnapRef::Str(full))?;
+                self.restore_base(&full)?;
                 if let Some(pv) = self.pv.as_mut() {
                     pv.mixed = true;
                 }
@@ -937,6 +1014,7 @@ impl Model {
         Ok(r)
     }
     pub fn commit(&mut self, label: &str) -> Res<()> {
+        self.read_back.0 = None;
         if self.pv.is_some() {
             let before = self.base_snap()?;
             let after = self.snap();
@@ -1020,13 +1098,43 @@ impl Model {
     pub fn snapshot(&mut self) -> String {
         self.snap().s()
     }
+    /// `load(JSON.parse(st), {keepHistory})`. `copy`: the Snap `st` was written from, whose parts give the same JSON
+    /// without reading the text (S.12); a string read back last time is copied from what it gave then.
+    fn restore_text(&mut self, st: &Rc<str>, copy: Option<&Snap>) -> Res<()> {
+        let mut again = false;
+        match self.read_back.0.take() {
+            Some((k, Some((j, defs)))) if Rc::ptr_eq(&k, st) => {
+                let r = self.load_read(&j, true, None, Some(defs.iter().cloned().map(Ok).collect()));
+                self.read_back.0 = Some((k, Some((j, defs))));
+                return r;
+            }
+            Some((k, None)) => again = Rc::ptr_eq(&k, st),
+            _ => {}
+        }
+        let (j, read) = match copy.and_then(Snap::read) {
+            Some(r) => {
+                let (j, read) = r?;
+                (j, Some(read))
+            }
+            None => (serde_json::from_str(st).map_err(|_| Error::Type)?, None),
+        };
+        self.load_read(&j, true, None, read)?;
+        if self.old_previews {
+            // the first read of a string only notes it (a typed value restores it once); a second keeps what it gave
+            let kept = again.then(|| (j, self.defs.values().cloned().collect::<Vec<Def>>()));
+            self.read_back.0 = Some((st.clone(), kept));
+        }
+        Ok(())
+    }
+    /// The preview's whole-model start (`this.load(JSON.parse(this._base))`), read from its Snap when it has one.
+    fn restore_base(&mut self, full: &Rc<str>) -> Res<()> {
+        let copy = self.pv.as_ref().and_then(|p| p.copy.as_ref()).filter(|(f, _)| Rc::ptr_eq(f, full)).map(|(_, c)| c.clone());
+        self.restore_text(full, copy.as_deref())
+    }
     /// Back to a copy (a Snap or a snapshot string).
     pub fn restore(&mut self, s: &SnapRef) -> Res<()> {
         let snap = match s {
-            SnapRef::Str(st) => {
-                let j: Value = serde_json::from_str(st).map_err(|_| Error::Type)?;
-                return self.load_with(&j, true, None);
-            }
+            SnapRef::Str(st) => return self.restore_text(st, None),
             SnapRef::Snap(sn) => sn.clone(),
         };
         let mut list: Vec<(String, Option<Def>)> = Vec::with_capacity(snap.parts.len());

@@ -100,6 +100,10 @@ pub async fn undo(c: Ctx) -> R {
         return Ok(());
     }
     let l = c.sh().doc.borrow_mut().undo();
+    // the 3D tab's model follows now (Model3D.onUndo restores it in the undo, as 0.5 does), not at its next use
+    if c.sh().in3d() {
+        c.sh().with_ws(|_, _| ());
+    }
     let msg = match l {
         Some(l) if !l.is_empty() => format!("Undid {l}"),
         _ => c.t("cmd.undo.nothing_undo"),
@@ -114,6 +118,9 @@ pub async fn redo(c: Ctx) -> R {
         return Ok(());
     }
     let l = c.sh().doc.borrow_mut().redo();
+    if c.sh().in3d() {
+        c.sh().with_ws(|_, _| ());
+    }
     let msg = match l {
         Some(l) if !l.is_empty() => format!("Redid {l}"),
         _ => c.t("cmd.redo.nothing_redo"),

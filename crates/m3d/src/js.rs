@@ -280,6 +280,11 @@ pub fn to_fixed(x: f64, f: usize) -> String {
         return num_str(x);
     }
     let neg = x < 0.0;
+    // no exact tie at digit f: Rust's correctly rounded `{:.f}` is toFixed's nearest n (S.11)
+    if f <= 100 && !half_at(x.abs(), i64::try_from(f).unwrap_or(i64::MAX)) {
+        let t = format!("{:.*}", f, x.abs());
+        return if neg { format!("-{t}") } else { t };
+    }
     // the exact decimal expansion (a double has at most 1074 digits after the point)
     let s = format!("{:.1100}", x.abs());
     let (ip, fp) = s.split_once('.').unwrap_or((s.as_str(), ""));
@@ -302,6 +307,51 @@ pub fn to_fixed(x: f64, f: usize) -> String {
     out
 }
 
+/// Is ax · 10^q (ax finite, > 0) exactly half an odd integer, where toFixed / toPrecision take the larger neighbour and
+/// Rust's formatting the even one? With ax = m · 2^k, m odd: ax · 2 · 10^q is an odd integer only when k = −(q + 1)
+/// and, for q < 0, 5^−q divides m.
+pub fn half_at(ax: f64, q: i64) -> bool {
+    if !ax.is_finite() || ax <= 0.0 {
+        return false;
+    }
+    const FRAC: u64 = 0x000f_ffff_ffff_ffff;
+    const HIDDEN: u64 = 0x0010_0000_0000_0000;
+    let bits = ax.to_bits();
+    let exp = i64::try_from(bits.wrapping_shr(52) & 0x7ff).unwrap_or(0);
+    let frac = bits & FRAC;
+    let (m, k) = if exp == 0 { (frac, -1074i64) } else { (frac | HIDDEN, exp.saturating_sub(1075)) };
+    let tz = m.trailing_zeros();
+    let (m, k) = (m.wrapping_shr(tz), k.saturating_add(i64::from(tz)));
+    if k != q.saturating_add(1).saturating_neg() {
+        return false;
+    }
+    if q >= 0 {
+        return true;
+    }
+    // m < 2^53 < 5^23
+    match u32::try_from(q.saturating_neg()) {
+        Ok(d) if d < 23 => m.checked_rem(5u64.pow(d)) == Some(0),
+        _ => false,
+    }
+}
+
+/// toPrecision's p digits of ax > 0 and the exponent of the first, from Rust's correctly rounded `{:.(p−1)e}`, when
+/// no exact tie can be in play (the exponent of ax is the formatted one or one less, after a carry): None otherwise.
+fn precision_fast(ax: f64, p: usize) -> Option<(Vec<u8>, i64)> {
+    if !(1..=100).contains(&p) {
+        return None;
+    }
+    let s = format!("{:.*e}", p.saturating_sub(1), ax);
+    let (mant, exp) = s.split_once('e')?;
+    let e: i64 = exp.parse().ok()?;
+    let q = i64::try_from(p).ok()?.saturating_sub(1).saturating_sub(e);
+    if half_at(ax, q) || half_at(ax, q.saturating_add(1)) {
+        return None;
+    }
+    let d: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+    (d.len() == p).then_some((d, e))
+}
+
 /// `x.toPrecision(p)` (1 ≤ p ≤ 100): the exact value rounded half up to p significant digits.
 pub fn to_precision(x: f64, p: usize) -> String {
     if !x.is_finite() {
@@ -314,6 +364,8 @@ pub fn to_precision(x: f64, p: usize) -> String {
     }
     let (digits, e) = if x == 0.0 {
         (vec![b'0'; p], 0i64)
+    } else if let Some(r) = precision_fast(x.abs(), p) {
+        r
     } else {
         let s = format!("{:.1100e}", x.abs());
         let (mant, exp) = s.split_once('e').unwrap_or((s.as_str(), "0"));
@@ -446,6 +498,78 @@ pub fn sorted_join(ids: &[f64]) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// S.11: toFixed / toPrecision from Rust's formatting (no exact tie) give what the exact expansion rounded half up
+    /// gives, ties included.
+    #[test]
+    fn fixed_and_precision_fast_paths_match_the_exact_expansion() {
+        fn exact_digits(ax: f64, p: usize) -> (Vec<u8>, i64) {
+            let s = format!("{:.1100e}", ax);
+            let (mant, exp) = s.split_once('e').unwrap();
+            let all: Vec<u8> = mant.bytes().filter(u8::is_ascii_digit).collect();
+            let mut e: i64 = exp.parse().unwrap();
+            let mut d: Vec<u8> = all.iter().copied().take(p).collect();
+            if all.get(p).copied().unwrap_or(b'0') >= b'5' && bump(&mut d) {
+                d.insert(0, b'1');
+                d.truncate(p);
+                e += 1;
+            }
+            (d, e)
+        }
+        fn exact_fixed(x: f64, f: usize) -> String {
+            let s = format!("{:.1100}", x.abs());
+            let (ip, fp) = s.split_once('.').unwrap();
+            let mut digits: Vec<u8> = ip.bytes().chain(fp.bytes().take(f)).collect();
+            let mut int_len = ip.len();
+            if fp.as_bytes().get(f).copied().unwrap_or(b'0') >= b'5' && bump(&mut digits) {
+                digits.insert(0, b'1');
+                int_len += 1;
+            }
+            let mut out = String::new();
+            if x < 0.0 {
+                out.push('-');
+            }
+            push_digits(&mut out, &digits[..int_len]);
+            if f > 0 {
+                out.push('.');
+                push_digits(&mut out, &digits[int_len..]);
+            }
+            out
+        }
+        let mut s = 0x2545_f491_4f6c_dd1du64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let mut vals: Vec<f64> =
+            vec![0.5, 1.5, 2.5, 0.125, 1.25, 9.9996, 9.5, 99.5, 0.05, 1e20, 123456789012345680.0, 25.0, 250.0, 1e-7, 4.35];
+        for _ in 0..3000 {
+            let r = next();
+            vals.push(f64::from_bits(r >> 2));
+            vals.push(f64::from(f32::from_bits((r >> 32) as u32)).abs());
+            vals.push((r % 20_000_000) as f64 / 10_000.0);
+            let k = (r % 4096) as f64 * 2.0 + 1.0;
+            let half = k / 2.0f64.powi(((r >> 40) % 31) as i32 + 1);
+            vals.extend([half, f64::from_bits(half.to_bits() + 1), f64::from_bits(half.to_bits() - 1)]);
+            // integers ending in 5 at some digit (ties for toPrecision with q < 0)
+            vals.push(((r % 1_000_000) * 10 + 5) as f64 * 10f64.powi((r >> 50) as i32 % 6));
+        }
+        for x in vals.into_iter().filter(|v| v.is_finite() && *v > 0.0) {
+            for p in [1usize, 2, 3, 5, 7, 10, 15, 17, 21] {
+                if let Some(got) = precision_fast(x, p) {
+                    assert_eq!(got, exact_digits(x, p), "{x:e} toPrecision({p})");
+                }
+            }
+            if x < 1e21 {
+                for f in [0usize, 1, 2, 3, 4, 6, 8, 12, 20] {
+                    assert_eq!(to_fixed(x, f), exact_fixed(x, f), "{x:e} toFixed({f})");
+                    assert_eq!(to_fixed(-x, f), exact_fixed(-x, f), "-{x:e} toFixed({f})");
+                }
+            }
+        }
+    }
+
     use super::*;
     #[test]
     fn number_strings() {

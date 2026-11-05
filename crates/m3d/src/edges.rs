@@ -689,8 +689,29 @@ pub fn soften_edges(def: &mut Def, eids: &[f64], deg: f64) -> f64 {
 /// Faces with no soft edge are left out.
 pub fn smooth_normals(def: &Def) -> OMap<String, P3> {
     let mut out: OMap<String, P3> = OMap::new();
+    smooth_each(def, &mut |fid, v, n| {
+        let mut k = js::num_str(fid);
+        k.push('|');
+        js::push_num(&mut k, v);
+        out.set(k, n);
+    });
+    out
+}
+
+/// [`smooth_normals`] keyed by (`kb(face id)`, `kb(vertex id)`): the same corners and normals, without a key text to
+/// make and hash per corner (the 3D view's meshes, S.11). `kb` equates the ids the key text equates (0 and −0).
+pub fn smooth_normals_ids(def: &Def) -> FxMap<(u64, u64), P3> {
+    let mut out: FxMap<(u64, u64), P3> = FxMap::default();
+    smooth_each(def, &mut |fid, v, n| {
+        out.insert((kb(fid), kb(v)), n);
+    });
+    out
+}
+
+/// Each corner of [`smooth_normals`] in its order: (face id, vertex id, normal).
+fn smooth_each(def: &Def, emit: &mut dyn FnMut(f64, f64, P3)) {
     if !def.edges.values().any(|e| e.soft) {
-        return out;
+        return;
     }
     let ef = edge_faces(def);
     let mut up: FxMap<u64, f64> = FxMap::default();
@@ -747,14 +768,10 @@ pub fn smooth_normals(def: &Def) -> OMap<String, P3> {
             for &v in l {
                 let s = acc.get(&(kb(r), kb(v))).copied().unwrap_or([f64::NAN; 3]);
                 let ll = len(s);
-                let mut k = js::num_str(fid);
-                k.push('|');
-                js::push_num(&mut k, v);
-                out.set(k, if ll > 1e-12 { mul(s, 1.0 / ll) } else { fnn });
+                emit(fid, v, if ll > 1e-12 { mul(s, 1.0 / ll) } else { fnn });
             }
         }
     }
-    out
 }
 
 /// Remove the edge between two coplanar faces facing the same way, merging them.

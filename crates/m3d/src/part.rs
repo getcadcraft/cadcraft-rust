@@ -7,41 +7,47 @@
 //! - restoring is `defOf(JSON.parse(text))`: the copy goes through the same checks as a file, with −0 read back as 0
 //!   and a non-finite number read back as `null` (which those checks refuse, as the JS does).
 
-use std::cell::OnceCell;
-use std::rc::Rc;
+use std::sync::{Arc, OnceLock};
 
 use crate::def::{Def, DefJson, Edge, Face, Inst, Rule, Spline};
 use crate::error::{Error, Res};
-use crate::file::{Fail, def_of, def_string, def_value_text};
+use crate::file::{Fail, def_of, def_string};
 
 /// A snapshot entry: a structural copy, or (a part made from a preview's JSON) the text alone.
 #[derive(Debug)]
 pub struct Part {
     def: Option<DefJson>,
-    text: OnceCell<Rc<str>>,
+    text: OnceLock<Arc<str>>,
 }
 
-pub type PartRef = Rc<Part>;
+/// Shared between threads (S.11: a definition holds its entry, and the 3D view builds definitions' meshes side by
+/// side).
+pub type PartRef = Arc<Part>;
 
 impl Part {
     /// The entry for a definition as it is now.
     pub fn of(d: &Def) -> PartRef {
-        Rc::new(Part { def: Some(DefJson::of(d)), text: OnceCell::new() })
+        Arc::new(Part { def: Some(DefJson::of(d)), text: OnceLock::new() })
     }
     /// An entry that is only text.
-    pub fn text_only(s: Rc<str>) -> PartRef {
-        let text = OnceCell::new();
+    pub fn text_only(s: Arc<str>) -> PartRef {
+        let text = OnceLock::new();
         let _ = text.set(s);
-        Rc::new(Part { def: None, text })
+        Arc::new(Part { def: None, text })
     }
     /// `JSON.stringify(defToJSON(d))`.
-    pub fn text(&self) -> Rc<str> {
-        self.text.get_or_init(|| self.def.as_ref().map_or_else(|| Rc::from(""), |d| Rc::from(def_string(d)))).clone()
+    pub fn text(&self) -> Arc<str> {
+        self.text.get_or_init(|| self.def.as_ref().map_or_else(|| Arc::from(""), |d| Arc::from(def_string(d)))).clone()
+    }
+    /// The structural copy, when the entry has one (else it is text only).
+    pub fn view(&self) -> Option<&DefJson> {
+        self.def.as_ref()
     }
     /// `defOf(JSON.parse(text))`.
     pub fn restore(&self) -> Res<Def> {
         match &self.def {
-            Some(d) => def_of(&def_value_text(d), Fail::Plain),
+            // the same definition as def_of(def_value_text(d)), read without the JSON (S.12)
+            Some(d) => crate::file::def_of_view(d, Fail::Plain),
             None => {
                 let j: serde_json::Value = serde_json::from_str(&self.text()).map_err(|_| Error::Type)?;
                 def_of(&j, Fail::Plain)
@@ -52,7 +58,7 @@ impl Part {
 
 /// Do two entries have the same JSON text?
 pub fn same(a: &PartRef, b: &PartRef) -> bool {
-    if Rc::ptr_eq(a, b) {
+    if Arc::ptr_eq(a, b) {
         return true;
     }
     match (&a.def, &b.def) {

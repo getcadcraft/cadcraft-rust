@@ -453,7 +453,11 @@ fn main() -> eframe::Result {
             };
             // big parts rebuild on a thread in the window (PartCraft; headless runs rebuild in place)
             cc_ui_egui::partview::BACKGROUND_REBUILDS.store(true, std::sync::atomic::Ordering::Relaxed);
+            // the worker threads start with the window, not at the first big drawing (S.13)
+            cc_engine::warm_threads();
             let mut app = UiApp::new(services);
+            // the window shows a model at once and its pictures as they are decoded (S.11)
+            app.bg_pictures = true;
             load_recent(&mut app);
             load_mc_prefs(&mut app);
             load_cv_prefs(&mut app);

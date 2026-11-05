@@ -57,3 +57,13 @@ pub mod ws3d;
 
 pub use engine::{Ctx, Engine, Host, IdSet, Opts, Pick, PickedDrawing, PickedFile, Reply, Sel, Tan};
 pub use lang::Lang;
+
+/// Starts Rayon's worker threads now (desktop), so the first parallel step a user meets (a big drawing's display, a
+/// point cloud's picture, a model's meshes) does not wait for 32 threads to start (S.11): the window calls it as it
+/// starts up (it has threads from the start; the CLI and the headless shot stay single-threaded until a parallel step,
+/// as glibc's allocator is faster in a process with one thread). Does nothing on the web.
+pub fn warm_threads() {
+    // every worker starts and makes its first allocation (a thread's first one sets up its heap) in the background
+    #[cfg(not(target_arch = "wasm32"))]
+    rayon::spawn_broadcast(|_| drop(std::hint::black_box(Vec::<u64>::with_capacity(512))));
+}

@@ -367,6 +367,8 @@ pub struct UiApp {
     pub mc: Option<modelcraft::ModelView>,
     /// how the last model open split its time (benchmarks)
     pub open_split: String,
+    /// ModelCraft's pictures decoded on other threads, the model shown at once (the desktop window; S.11)
+    pub bg_pictures: bool,
     /// scene ids: a new id = new GPU meshes
     scene_seq: u64,
     /// the IFC file shown (for properties) and each scene instance's product line
@@ -523,6 +525,7 @@ impl Default for UiApp {
             model3: None,
             mc: None,
             open_split: String::new(),
+            bg_pictures: false,
             scene_seq: 0,
             ifc3: None,
             ifc_groups: Vec::new(),
@@ -769,6 +772,8 @@ impl UiApp {
                     mc.apply_view(&j);
                     mc.message = modelcraft::mt("app.open.done", &[("file", &f.name)]);
                 }
+                // freeing the file's JSON tree takes a while (a 1 MB model: ~3 ms): on the desktop it goes on a thread
+                free_aside(j);
             }
             Err(e) => self.error = Some(format!("{}: {e}", f.name)),
         }
@@ -841,7 +846,9 @@ impl UiApp {
                         mc.message = format!("Imported {} in {ms:.0} ms", f.name);
                     }
                 } else {
+                    let t1 = web_time::Instant::now();
                     self.show_model(model, &name);
+                    self.open_split = format!("import {ms:.1} ms, view {:.1} ms", t1.elapsed().as_secs_f64() * 1000.0);
                     self.message = format!("Opened {} in {ms:.0} ms", f.name);
                 }
             }
@@ -917,7 +924,8 @@ impl UiApp {
         // before (Settings › ModelCraft)
         let set = self.mcset_now();
         self.mcset = set.clone();
-        match modelcraft::ModelView::new(model, name, self.preset.is_dark()) {
+        let pictures = if self.bg_pictures { model3d::ImgCache::background() } else { model3d::ImgCache::new() };
+        match modelcraft::ModelView::with_pictures(model, name, self.preset.is_dark(), pictures) {
             Ok(mut mv) => {
                 mv.apply_settings(&set);
                 let mut v = view3d::View3::default();
@@ -4131,6 +4139,36 @@ fn deliver_pick(ed: &mut edit::Editor, req: edit::PickReq, files: Vec<ImportedFi
         }
         edit::PickReq::Pictures { .. } | edit::PickReq::Cloud => {
             ed.eng.deliver_files(files.into_iter().map(|f| cc_engine::PickedFile { name: f.name, bytes: f.bytes }).collect());
+        }
+    }
+}
+
+/// Frees on another thread (desktop): what a big open leaves behind (a model file's JSON tree) without the wait.
+#[cfg(not(target_arch = "wasm32"))]
+static FREES: std::sync::Mutex<Vec<std::thread::JoinHandle<()>>> = std::sync::Mutex::new(Vec::new());
+
+/// `x` freed on another thread on the desktop (in place on the web).
+pub(crate) fn free_aside<T: Send + 'static>(x: T) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut jobs = FREES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        jobs.retain(|h| !h.is_finished());
+        if let Ok(h) = std::thread::Builder::new().name("cc-free".into()).spawn(move || drop(x)) {
+            jobs.push(h);
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    drop(x);
+}
+
+/// Waits for the frees [`free_aside`] handed to other threads (benchmarks: the next step timed alone, as in the
+/// window, where frames pass before the next action).
+pub fn settle_frees() {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let jobs = std::mem::take(&mut *FREES.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+        for h in jobs {
+            let _ = h.join();
         }
     }
 }

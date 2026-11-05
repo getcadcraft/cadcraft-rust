@@ -536,9 +536,14 @@ fn mcbench(args: &[String]) -> Result<(), String> {
     let mut faces = 0usize;
     for _ in 0..runs {
         let mut app = UiApp::default();
+        // as the desktop window opens a model: its pictures decoded on other threads (MCBENCH_SYNC=1: in the call)
+        app.bg_pictures = std::env::var_os("MCBENCH_SYNC").is_none();
         let t = Instant::now();
         app.open_bytes(&name, &bytes);
         let open = t.elapsed().as_secs_f64() * 1000.0;
+        // as in the window, where frames pass before the next action: what the open handed to other threads (freeing
+        // the file's JSON) finishes and the worker threads go idle before the edits are timed
+        settle_open();
         if std::env::var_os("MCBENCH_SPLIT").is_some() {
             eprintln!("open total {open:.1} ms; {}", app.open_split.clone());
         }
@@ -573,6 +578,13 @@ fn mcbench(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// After a timed open (mcbench, mcacts): the frees it handed to other threads done, and 100 ms for Rayon's workers to
+/// stop spinning (a window draws frames before the next action; timed at once, the next step ran up to 30 % slower).
+fn settle_open() {
+    cc_ui_egui::settle_frees();
+    std::thread::sleep(std::time::Duration::from_millis(100));
+}
+
 fn mcacts(args: &[String]) -> Result<(), String> {
     let f = args.get(1).ok_or("usage: cadcraft-shot mcacts <file> --acts \"a|b|…\" [--runs N]")?;
     let acts: Vec<String> = arg(args, "--acts").ok_or("mcacts: --acts is required")?.split('|').map(str::to_string).collect();
@@ -584,6 +596,7 @@ fn mcacts(args: &[String]) -> Result<(), String> {
     for _ in 0..runs {
         let mut app = UiApp::default();
         app.open_bytes(&name, &bytes);
+        settle_open();
         if let Some(e) = &app.error {
             return Err(e.clone());
         }

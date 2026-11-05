@@ -500,6 +500,11 @@ pub fn def_from_json(d: &mut Def, j: &Value, fail: Fail) -> Res<()> {
     Ok(())
 }
 
+/// `defOf(dj, File)` for each definition of a file, in order (all of them: the checks then run in file order).
+fn read_defs(list: &[Value]) -> Vec<Res<Def>> {
+    list.iter().map(|dj| def_of(dj, Fail::File)).collect()
+}
+
 /// `defOf(dj, fail)`: a new definition from its file form.
 pub fn def_of(dj: &Value, fail: Fail) -> Res<Def> {
     let id = json::str(dj.get("id")).unwrap_or("");
@@ -521,6 +526,140 @@ pub fn def_of(dj: &Value, fail: Fail) -> Res<Def> {
     }
     let mut d = Def::new(id, kind, &name);
     def_from_json(&mut d, dj, fail)?;
+    Ok(d)
+}
+
+/// `defOf(JSON.parse(JSON.stringify(defToJSON(d))), fail)` without the JSON (S.12): [`def_of`] over
+/// [`def_value_text`]'s value of `d`, read field by field as def_from_json reads that value (the same checks in the
+/// same order, so the same definition or the same first error). A number reads back as the text gives it: −0 as 0, a
+/// non-finite one as null. Tested against def_of(def_value_text(d)) on random and broken definitions.
+pub fn def_of_view<D: DefView>(src: &D, fail: Fail) -> Res<Def> {
+    // a number as JSON.parse(JSON.stringify(x)) gives it (Value::as_f64 of jn(x))
+    let nv = |x: f64| -> Option<f64> { x.is_finite().then_some(if x == 0.0 { 0.0 } else { x }) };
+    let int_id = |x: f64| nv(x).filter(|x| js::is_integer(*x)).filter(|&x| x > 0.0 && x < 1e9);
+    let is_num = |x: f64| nv(x).filter(|x| x.is_finite() && x.abs() < 1e7);
+    let id = src.id();
+    let kind = if id == "root" {
+        "root"
+    } else if src.kind() == "component" {
+        "component"
+    } else {
+        "group"
+    };
+    let mut name = js::clean_text(src.name(), 120);
+    if name.is_empty() {
+        name = match kind {
+            "root" => "Model",
+            "component" => "Component",
+            _ => "Group",
+        }
+        .to_string();
+    }
+    let mut d = Def::new(id, kind, &name);
+    if let Some(s) = src.starter()
+        && (1..=32).contains(&s.len())
+        && s.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+    {
+        d.starter = Some(s.clone());
+    }
+    if let Some(dy) = src.dyn_info()
+        && is_def_id(&dy.src)
+        && dy.size.len() == 3
+        && dy.size.iter().all(|&x| nv(x).is_some_and(|x| x >= 0.0))
+    {
+        d.dyn_ = Some(Dyn { src: dy.src.clone(), size: dy.size.iter().filter_map(|&x| nv(x)).collect() });
+    }
+    let mut max = 0.0f64;
+    for (vid, p) in src.verts() {
+        let (Some(vid), Some(x), Some(y), Some(z)) = (int_id(vid), is_num(p[0]), is_num(p[1]), is_num(p[2])) else {
+            return Err(fail.err("m3d.model.a_vertex_is_wrong"));
+        };
+        d.verts.set(vid, [x, y, z]);
+        max = js::max(max, vid);
+    }
+    for (eid, e) in src.edges() {
+        let vk = |d: &Def, x: f64| nv(x).filter(|&x| d.verts.has(x));
+        let (Some(eid), Some(va), Some(vb)) = (int_id(eid), vk(&d, e.a), vk(&d, e.b)) else {
+            return Err(fail.err("m3d.model.an_edge_is_wrong"));
+        };
+        if va == vb {
+            return Err(fail.err("m3d.model.an_edge_is_wrong"));
+        }
+        if edge_between(&mut d, va, vb).is_some() {
+            continue;
+        }
+        let curve = e.curve.as_deref().filter(|c| is_curve_id(c)).map(str::to_string);
+        let ed = Edge { a: va, b: vb, soft: e.soft, curve, hidden: e.hidden };
+        d.edges.set(eid, ed);
+        ek(&mut d).insert(key(va, vb), eid);
+        max = js::max(max, eid);
+    }
+    for (fid, f) in src.faces() {
+        let Some(fid) = int_id(fid).filter(|_| !f.loops.is_empty()) else { return Err(fail.err("m3d.model.a_face_is_wrong")) };
+        let mut ls: Vec<Vec<f64>> = Vec::with_capacity(f.loops.len());
+        for l in &f.loops {
+            if l.len() < 3 {
+                return Err(fail.err("m3d.model.a_face_is_wrong"));
+            }
+            let mut out = Vec::with_capacity(l.len());
+            for &v in l {
+                let Some(x) = nv(v).filter(|&x| d.verts.has(x)) else { return Err(fail.err("m3d.model.a_face_is_wrong")) };
+                out.push(x);
+            }
+            ls.push(out);
+        }
+        max = js::max(max, fid);
+        d.next = js::max(d.next, max + 1.0);
+        let color = f.color.as_deref().filter(|c| is_paint(c)).map(str::to_ascii_lowercase);
+        f_add(&mut d, ls, color, Some(fid), f.hidden);
+    }
+    for (iid, i) in src.insts() {
+        let Some(iid) = int_id(iid) else { return Err(fail.err("m3d.model.an_instance_is_wrong")) };
+        let mut mm = [0.0f64; 16];
+        for (k, &x) in i.m.iter().enumerate() {
+            let Some(v) = is_num(x) else { return Err(fail.err("m3d.model.an_instance_is_wrong")) };
+            if let Some(slot) = mm.get_mut(k) {
+                *slot = v;
+            }
+        }
+        let mut ins = Inst::new(i.def.clone(), mm);
+        if let Some(n) = i.name.as_deref().filter(|n| !n.is_empty()) {
+            ins.name = Some(js::clean_text(n, 120));
+        }
+        if let Some(c) = i.color.as_deref().filter(|c| !c.is_empty() && is_paint(c)) {
+            ins.color = Some(c.to_ascii_lowercase());
+        }
+        ins.hidden = i.hidden;
+        if let Some(tg) = i.tag.as_deref().filter(|t| !t.is_empty()) {
+            let c = js::clean_text(tg, 80);
+            if !c.is_empty() {
+                ins.tag = Some(c);
+            }
+        }
+        if let Some(r) = &i.rule {
+            let word = |w: &Option<String>| w.as_deref().filter(|w| RULE_WORDS.contains(w)).map(str::to_string);
+            let scale = |x: Option<f64>| x.and_then(nv).filter(|&x| x > 0.0 && x < 1e6);
+            let rule = Rule { x: word(&r.x), y: word(&r.y), z: word(&r.z), sx: scale(r.sx), sy: scale(r.sy), sz: scale(r.sz), order: None };
+            if rule != Rule::default() {
+                ins.rule = Some(rule);
+            }
+        }
+        d.insts.set(iid, ins);
+        max = js::max(max, iid);
+    }
+    if src.has_splines() {
+        for (sid, sp) in src.splines() {
+            if !is_curve_id(sid) || !(2..=10000).contains(&sp.pts.len()) {
+                continue;
+            }
+            let pp: Option<Vec<P3>> = sp.pts.iter().map(|p| Some([is_num(p[0])?, is_num(p[1])?, is_num(p[2])?])).collect();
+            let Some(pp) = pp else { continue };
+            let segs = nv(sp.segs).filter(|x| js::is_integer(*x)).filter(|&s| (1.0..=64.0).contains(&s)).unwrap_or(SPLINE_SEGS);
+            d.splines.set(sid.clone(), Spline { pts: pp, closed: sp.closed, segs });
+        }
+    }
+    let jnext = nv(src.next()).filter(|x| js::is_integer(*x)).unwrap_or(1.0);
+    d.next = js::max(js::max(jnext, max + 1.0), d.next);
     Ok(d)
 }
 
@@ -1040,6 +1179,18 @@ impl Model {
     /// `load(j, {keepHistory, defs})`: `made` (restore from a Snap) = the definitions in order, each either a new one or
     /// the current definition of that id kept as it is.
     pub(crate) fn load_with(&mut self, j: &Value, keep_history: bool, made: Option<Vec<(String, Option<Def>)>>) -> Res<()> {
+        self.load_read(j, keep_history, made, None)
+    }
+
+    /// [`Model::load_with`]; `read` = the definitions `defOf` made from this very `j` before, in its order (a
+    /// restore of the same snapshot string: they are taken instead of read again).
+    pub(crate) fn load_read(
+        &mut self,
+        j: &Value,
+        keep_history: bool,
+        made: Option<Vec<(String, Option<Def>)>>,
+        read: Option<Vec<Res<Def>>>,
+    ) -> Res<()> {
         let fail = |k: &str| Err(Fail::File.err(k));
         let restoring = made.is_some();
         if !j.is_object() || json::str(j.get("format")) != Some(FORMAT) {
@@ -1062,13 +1213,22 @@ impl Model {
                 }
             }
             None => {
-                for dj in jdefs.map_or(&[][..], |a| a.get(..100_000).unwrap_or(a)) {
+                let list = jdefs.map_or(&[][..], |a| a.get(..100_000).unwrap_or(a));
+                // each definition read (or, restoring a string read before, taken as it was read: S.11); then the
+                // checks in file order, so the first problem met is the one the JS reports
+                let mut made = match read {
+                    Some(v) if v.len() == list.len() => v,
+                    _ => read_defs(list),
+                }
+                .into_iter();
+                for dj in list {
+                    let d = made.next().unwrap_or(Err(Error::Type));
                     let id = if json::truthy(Some(dj)) { json::str(dj.get("id")) } else { None };
                     let Some(id) = id.filter(|s| *s == "root" || is_def_id(s)) else { return fail("m3d.model.a_definition_id_is_wrong") };
                     if fresh.has(id) {
                         return fail("m3d.model.a_definition_appears_twice");
                     }
-                    let d = def_of(dj, Fail::File)?;
+                    let d = d?;
                     fresh.set(d.id.clone(), Some(d));
                 }
             }
@@ -1310,3 +1470,174 @@ impl Model {
 
 /// The parts of a Snap: a definition's JSON string.
 pub type Part = (String, Rc<str>);
+
+#[cfg(test)]
+#[allow(clippy::cast_possible_truncation, clippy::arithmetic_side_effects, clippy::cast_sign_loss, clippy::cast_possible_wrap)]
+mod view_tests {
+    use super::*;
+
+    /// S.12: def_of_view reads a definition as def_of reads its JSON text: the same definition, or the same first
+    /// error, on random definitions full of what the text changes or refuses (−0, NaN, ∞, sizes past 1e7, ids that
+    /// are not whole or not positive, missing vertices, short loops, odd paints, names and tags with control
+    /// characters, rules, splines, starters, stretched copies).
+    #[test]
+    fn def_of_view_reads_as_the_text_does() {
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = move || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let nums = [
+            0.0,
+            -0.0,
+            1.0,
+            2.0,
+            3.0,
+            0.5,
+            -1.0,
+            7.25,
+            9_999_999.0,
+            1e7,
+            -1e7,
+            1e9,
+            999_999_999.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            1e-300,
+            42.0,
+        ];
+        let strs = [
+            "",
+            "Box",
+            "a\u{1}b\u{7f}c",
+            "  spaced  ",
+            "#AABBCC",
+            "#aabbcc",
+            "mat:wood-oak",
+            "img:p1",
+            "bogus",
+            "circle:5",
+            "arc:x",
+            "stretch",
+            "repeat",
+            "nope",
+            "d3",
+            "d0012",
+            "toolong_toolong_toolong_toolong_x",
+            "abc_1",
+        ];
+        let mut same = 0;
+        for round in 0..20_000u32 {
+            let mut r = || next();
+            let pick_n = |r: &mut dyn FnMut() -> u64| nums[(r() % nums.len() as u64) as usize];
+            let pick_s = |r: &mut dyn FnMut() -> u64| strs[(r() % strs.len() as u64) as usize].to_string();
+            let small = |r: &mut dyn FnMut() -> u64, n: u64| (r() % n) as f64 + 1.0;
+            let mut d =
+                Def::new(if round % 7 == 0 { "root" } else { "d5" }, if round % 3 == 0 { "component" } else { "group" }, &pick_s(&mut r));
+            d.next = if r() % 4 == 0 { pick_n(&mut r) } else { small(&mut r, 40) };
+            if r() % 5 == 0 {
+                d.starter = Some(pick_s(&mut r));
+            }
+            if r() % 6 == 0 {
+                d.dyn_ = Some(Dyn { src: pick_s(&mut r), size: (0..(r() % 4)).map(|_| pick_n(&mut r)).collect() });
+            }
+            let nv = r() % 9;
+            for _ in 0..nv {
+                let id = if r() % 10 == 0 { pick_n(&mut r) } else { small(&mut r, 12) };
+                let p = [
+                    if r() % 8 == 0 { pick_n(&mut r) } else { small(&mut r, 9) - 4.5 },
+                    small(&mut r, 5),
+                    if r() % 9 == 0 { pick_n(&mut r) } else { 0.0 },
+                ];
+                d.verts.set(id, p);
+            }
+            for _ in 0..(r() % 8) {
+                let id = if r() % 10 == 0 { pick_n(&mut r) } else { small(&mut r, 30) + 12.0 };
+                let (a, b) = (small(&mut r, 12), small(&mut r, 12));
+                let a = if r() % 15 == 0 { pick_n(&mut r) } else { a };
+                d.edges.set(id, Edge { a, b, soft: r() % 3 == 0, curve: (r() % 4 == 0).then(|| pick_s(&mut r)), hidden: r() % 5 == 0 });
+            }
+            for _ in 0..(r() % 4) {
+                let id = if r() % 10 == 0 { pick_n(&mut r) } else { small(&mut r, 20) + 50.0 };
+                let loops: Vec<Vec<f64>> = (0..(r() % 3))
+                    .map(|_| (0..(r() % 6)).map(|_| if r() % 12 == 0 { pick_n(&mut r) } else { small(&mut r, 12) }).collect())
+                    .collect();
+                d.faces.set(id, Face { loops, color: (r() % 3 == 0).then(|| pick_s(&mut r)), hidden: r() % 6 == 0 });
+            }
+            for _ in 0..(r() % 3) {
+                let id = if r() % 10 == 0 { pick_n(&mut r) } else { small(&mut r, 20) + 80.0 };
+                let mut m = crate::vec::ident();
+                if r() % 4 == 0 {
+                    let k = (r() % 16) as usize;
+                    m[k] = pick_n(&mut r);
+                }
+                let mut i = Inst::new(pick_s(&mut r), m);
+                i.name = (r() % 3 == 0).then(|| pick_s(&mut r));
+                i.color = (r() % 3 == 0).then(|| pick_s(&mut r));
+                i.tag = (r() % 3 == 0).then(|| pick_s(&mut r));
+                i.hidden = r() % 4 == 0;
+                if r() % 3 == 0 {
+                    i.rule = Some(Rule {
+                        x: (r() % 2 == 0).then(|| pick_s(&mut r)),
+                        y: None,
+                        z: (r() % 2 == 0).then(|| pick_s(&mut r)),
+                        sx: (r() % 2 == 0).then(|| pick_n(&mut r)),
+                        sy: (r() % 3 == 0).then(|| small(&mut r, 3)),
+                        sz: None,
+                        order: None,
+                    });
+                }
+                d.insts.set(id, i);
+            }
+            for k in 0..(r() % 3) {
+                let pts: Vec<P3> =
+                    (0..(r() % 5)).map(|_| [small(&mut r, 4), if r() % 10 == 0 { pick_n(&mut r) } else { 1.0 }, 0.0]).collect();
+                let id = if k == 0 { pick_s(&mut r) } else { format!("spline:{k}") };
+                d.splines
+                    .set(id, Spline { pts, closed: r() % 2 == 0, segs: if r() % 3 == 0 { pick_n(&mut r) } else { small(&mut r, 70) } });
+            }
+            if round % 2 == 0 {
+                // a tidy one: what a model holds (every reference good), with now and then −0 or a fraction
+                d.verts = IdMap::new();
+                d.edges = IdMap::new();
+                d.faces = IdMap::new();
+                for v in 1..=8u32 {
+                    let z = if r() % 9 == 0 { -0.0 } else { f64::from(v % 3) * 0.25 };
+                    d.verts.set(f64::from(v), [f64::from(v % 4), f64::from(v / 4), z]);
+                }
+                for e in 0..(r() % 10) {
+                    let (a, b) = (small(&mut r, 8), small(&mut r, 8));
+                    d.edges.set(
+                        20.0 + e as f64,
+                        Edge { a, b, soft: r() % 2 == 0, curve: (r() % 4 == 0).then(|| "circle:5".to_string()), hidden: r() % 7 == 0 },
+                    );
+                }
+                for f in 0..(r() % 4) {
+                    let n = 3 + r() % 3;
+                    let l: Vec<f64> = (0..n).map(|k| ((k + r() % 2) % 8 + 1) as f64).collect();
+                    d.faces
+                        .set(40.0 + f as f64, Face { loops: vec![l], color: (r() % 3 == 0).then(|| pick_s(&mut r)), hidden: r() % 6 == 0 });
+                }
+                let ids: Vec<f64> = d.insts.keys().collect();
+                for id in ids {
+                    if let Some(i) = d.insts.get_mut(id) {
+                        i.m = crate::vec::ident();
+                    }
+                }
+            }
+            for fail in [Fail::File, Fail::Plain] {
+                let dj = DefJson::of(&d);
+                let a = def_of(&def_value_text(&dj), fail);
+                let b = def_of_view(&dj, fail);
+                assert_eq!(format!("{a:?}"), format!("{b:?}"), "round {round}");
+                let c = def_of_view(&d, fail);
+                assert_eq!(format!("{a:?}"), format!("{c:?}"), "round {round} (the definition itself)");
+                same += usize::from(a.is_ok());
+            }
+        }
+        assert!(same > 8_000, "enough of them read without an error: {same}");
+    }
+}
