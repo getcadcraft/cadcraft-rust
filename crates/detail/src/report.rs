@@ -86,9 +86,9 @@ pub fn phase_report(state: &crate::store::State, built: &Built, marks: &Marks, s
                 let Some(ph) = phases.get_mut(pi) else { continue };
                 ph.rows.push(Row {
                     mark,
-                    kind: part.kind.clone(),
+                    kind: part.kind.to_string(),
                     profile: part.profile_name.clone(),
-                    material: part.material.clone(),
+                    material: part.material.to_string(),
                     length: part.length,
                     count: 0,
                     unit_weight: part.weight,

@@ -167,7 +167,7 @@ fn part_sig(p: &Part, v: &str, tol: f64) -> String {
         })
         .collect();
     cuts.sort_by(|a, b| cmp_arr(a, b));
-    let kind = if p.kind == "plate" { "plate".to_string() } else { p.kind.clone() };
+    let kind = if p.kind == "plate" { "plate".to_string() } else { p.kind.to_string() };
     stringify(&Value::Array(vec![
         Value::from(kind),
         Value::from(upper(&p.profile_name)),
@@ -317,9 +317,9 @@ pub fn mark_parts(built: &Built, tol: f64, per_phase: bool) -> Marks {
         }
         out.parts.push(PartRow {
             mark: g.mark.clone(),
-            kind: g.first.kind.clone(),
+            kind: g.first.kind.to_string(),
             profile: g.first.profile_name.clone(),
-            material: g.first.material.clone(),
+            material: g.first.material.to_string(),
             length: g.first.length,
             count: g.ids.len(),
             unit_weight: g.first.weight,

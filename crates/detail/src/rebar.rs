@@ -327,17 +327,17 @@ impl Footing {
 }
 
 /// `num(v, lo, hi)`.
-fn numr(v: Option<&Value>, lo: f64, hi: f64) -> Option<f64> {
+fn numr<T: Jsv>(v: Option<&T>, lo: f64, hi: f64) -> Option<f64> {
     let n = num(v);
     if n.is_finite() && n >= lo && n <= hi { Some(n) } else { None }
 }
-fn field<'a>(o: Option<&'a Value>, k: &str) -> Option<&'a Value> {
-    o.and_then(Value::as_object).and_then(|m| m.get(k))
+fn field<'a, T: Jsv>(o: Option<&'a T>, k: &str) -> Option<&'a T::Item> {
+    o.and_then(|o| o.js_get(k))
 }
 
 /// `cleanFooting(f)` → the footing, or the error text.
-pub fn clean_footing(f: &Value) -> Res<Footing> {
-    if !(f.is_object() || f.is_array()) {
+pub fn clean_footing<T: Jsv>(f: &T) -> Res<Footing> {
+    if !f.js_composite() {
         return Err(t0("rebar.err.not-footing"));
     }
     let mut vals = [0.0f64; 7];

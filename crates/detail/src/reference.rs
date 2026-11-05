@@ -613,7 +613,7 @@ pub fn clean_issue(x: &Value) -> Option<Map<String, Value>> {
 fn clean_hole(h: Option<&Value>) -> Option<Map<String, Value>> {
     clean_hole_s(h?)
 }
-fn clean_hole_s<S: Src>(h: &S) -> Option<Map<String, Value>> {
+fn clean_hole_s<S: Src<V = Value>>(h: &S) -> Option<Map<String, Value>> {
     if !h.truthy() {
         return None;
     }
@@ -634,7 +634,7 @@ fn clean_hole_s<S: Src>(h: &S) -> Option<Map<String, Value>> {
 fn clean_cut(c: Option<&Value>) -> Option<Map<String, Value>> {
     clean_cut_s(c?)
 }
-fn clean_cut_s<S: Src>(c: &S) -> Option<Map<String, Value>> {
+fn clean_cut_s<S: Src<V = Value>>(c: &S) -> Option<Map<String, Value>> {
     if !c.truthy() {
         return None;
     }
@@ -1343,23 +1343,15 @@ impl Tx<'_> {
 }
 
 /// `readModel(text)` → (state, warnings), or the refusal.
+/// `readModel(text)` → (state, warnings), or the refusal: the text parsed as JSON, then read (S.15 showed its typed
+/// read of the text gives the same).
 pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
-    // S.15: a file's text is read typed (members and connections straight into their fields); text that is not a
-    // JSON object, or that the typed read refuses, is read as JSON below, which gives the same result or error
-    if let Value::String(text) = input
-        && let Some(f) = crate::read_typed::parse_file(text)
-    {
-        let j = Value::Object(f.rest);
-        return read_core(&j, &f.members.0, &f.connections.0);
-    }
     match input {
         Value::String(text) => read_model_json(text),
         j => read_value(j),
     }
 }
 
-/// readModel of a file's text through the JSON tree (the whole text parsed into values, then read): what the typed
-/// read is checked against (tests, fuzz target `detail_read_typed`), and the route for text it refuses.
 pub fn read_model_json(text: &str) -> Res<(Value, Vec<String>)> {
     let j = parse(text).map_err(|_| t0("model.err.not-json"))?;
     read_value(&j)
@@ -1370,7 +1362,11 @@ fn read_value(j: &Value) -> Res<(Value, Vec<String>)> {
 }
 
 /// readModel after the parse: `j` the file's fields (members and connections given apart, already capped).
-fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[C]) -> Res<(Value, Vec<String>)> {
+fn read_core<M: MemberSrc<V = Value, Item = Value>, C: ConnSrc<V = Value>>(
+    j: &Value,
+    members_in: &[M],
+    conns_in: &[C],
+) -> Res<(Value, Vec<String>)> {
     if !truthy(Some(j)) || j.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(t0("model.err.not-model"));
     }
@@ -1640,11 +1636,11 @@ fn id_key(v: &str) -> Option<u128> {
 }
 
 /// `isBeamEnd(c)` of a connection being read.
-fn is_beam_end_s<S: Src>(c: &S) -> bool {
+fn is_beam_end_s<S: Src<V = Value>>(c: &S) -> bool {
     matches!(c.get("type").and_then(Value::as_str), Some("endplate" | "sheartab"))
 }
 /// `membersOf(c)` of a connection being read (as state.rs `members_of_v`).
-fn members_of_s<S: Src>(c: &S) -> Vec<Option<&Value>> {
+fn members_of_s<S: Src<V = Value>>(c: &S) -> Vec<Option<&Value>> {
     let g = |k: &str| c.get(k);
     match c.get("type").and_then(Value::as_str) {
         Some("splice") => vec![g("a"), g("b")],

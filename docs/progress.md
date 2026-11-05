@@ -2,6 +2,49 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — S.16–S.17 DetailCraft's state held as records; open + build at or above V8 at its best of 100 (agent, work/dettyped)
+
+- S.16 the state (cc-detail store.rs, jv.rs): model.js's plain object is now a `State`: members, connections and
+  footings are lists of compact records (`JVal`: the JSON kinds and insertion order of `serde_json::Value`, but an
+  object is a short list of `(key, value)` pairs with no hash table, and keys and the model's words — types,
+  materials, positions, faces, param names and texts, bar sizes, the section table's names — point at one static
+  copy); every other field stays JSON in its place. Its text is the state's JSON byte for byte (`stringify`,
+  `stringify_indent`, `to_value`, `Serialize`), so the file, the undo snapshots (parsed straight back into records),
+  Studio Live (the JSON boundary: ops applied to the state's value) and the MCP / harness answers are unchanged. The
+  edits (`Tx`) work on the records (one record through JSON for the patch-shaped edits); the build, marks, drawings,
+  clash, clipboard, transform, agents and every DetailCraft panel read them; the js.rs helpers are generic over both
+  kinds (`Jsv`). The old model (S.15's model.rs, one JSON value) is kept as `reference` (tests and fuzz only):
+  `state_reads_as_the_reference` (24,000 random and broken files: the same state text and warnings or the same error)
+  and `edits_as_the_reference` (2,000 sequences, 64,000+ random edits of every Tx method with arguments of every kind,
+  undo and redo, from the sample, the starter state, broken states and 400 read files: the same results, errors and
+  state text after every step); new fuzz target `detail_state` (a text read both ways, then edits both ways) with
+  seeds.
+- S.17 the read straight into records: the typed parse's slots, params and footings are `JVal`s (no allocation for
+  the model's words; ids skip the word table), params found by number (a table per kind), footings typed in the read
+  (`clean_footing` generic); the build makes room at once (each part's holes counted first, the parts, the index),
+  holes share one copy of their connection's id (`Arc<str>`), and members' and parts' type, profile, material,
+  position and name are `JStr` (a word is never copied). `typed_read_reads_as_the_json_does` and both reference
+  tests unchanged.
+- Timing (tools/dcuibench-fixfin.mjs `--warm`, the app's `detail.bench`: the model's own file read and built in one
+  process, best of N; JS: the frozen 0.5 modules in one Node process, best of N; ms, open + build; workstation with
+  other jobs, three rounds, best of each):
+
+  | model | S.15 Rust | now Rust | JS best of 5 / 20 / 100 | × at 5 / 20 / 100 |
+  |---|---:|---:|---:|---:|
+  | sample | 0.15 | 0.10 | 0.5 / 0.3 / 0.12–0.13 | 5 / 3 / 1.3 |
+  | frames13 | 1.75 | 1.13 | 4.8 / 2.0 / 1.23–1.26 | 4.3 / 1.8 / 1.1 |
+  | grid10x6x4 | 4.1 | 2.40 | 6.3 / 5.5 / 3.4–3.8 | 2.6 / 2.3 / 1.4 |
+  | grid24x12x5 | 40.6 | 24.4 | 47 / 38 / 33–36 | 1.9 / 1.6 / 1.4 |
+
+  With marks and the bending schedule (dcuibench's total) 1.8–4.5× the JS at every count (grid24 44 vs 112 ms). The
+  engine alone (crates/detail/examples/dcbench.rs) is faster still: frames13 0.96, grid24 18.2 ms. Edits did not get
+  slower (crates/detail/examples/dcedits.rs, a member moved, undo, redo, the old model against the new in one
+  process): frames13 0.24 / 0.71 / 0.72 → 0.21 / 0.42 / 0.43 ms, grid24 10.1 / 20.4 / 24.8 → 4.5 / 7.5 / 8.5 ms.
+- Parity (0 differences): dcuidiff and dcuidiff-detailfin, 15 runs (sample, frames13, grid10x6x4, every step file,
+  en and es-MX), 1,312 / 1,312 identical; dcdiff seeds 1–8 exact, 44,589 calls; dclive-interop (live-studiofin,
+  `LIVE_SERVER` the fork's server) 9 / 9; mcpdiff 304 / 304 messages, 43 live tool definitions the same.
+- Left: in the app the build is slower than the engine alone (grid24 15–17 vs 10.6 ms; other threads and the heap of
+  a running window); open on frames13 is still a little under V8 (0.55 vs 0.50 ms), the build wins it back.
 ## 2026-11-05 — M6.38 ModelCraft numpad with Num Lock on (desktop), the loupe's marks cut at the disc (agent, work/closea)
 
 - apps/cadcraft numpad.rs: the window runs eframe on the app's own winit event loop (`eframe::create_native`,

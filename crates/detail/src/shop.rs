@@ -345,7 +345,7 @@ pub fn shop_drawing(part: &Part, info: &Info) -> Result<Shop, String> {
         } else if h.face == "web" {
             "web".to_string()
         } else {
-            h.face.clone()
+            h.face.to_string()
         };
         let key = format!("{where_}|{}", num_to_string(h.d));
         match groups.iter_mut().find(|(k, _)| *k == key) {
@@ -385,7 +385,7 @@ pub fn shop_drawing(part: &Part, info: &Info) -> Result<Shop, String> {
     let count = info.count.filter(|c| *c != 0.0 && !c.is_nan()).unwrap_or(1.0);
     let rows = [
         [t0("shopdwg.tb.part-mark"), info.mark.clone(), t0("shopdwg.tb.assembly"), info.asm_mark.clone()],
-        [t0("shopdwg.tb.profile"), part.profile_name.clone(), t0("shopdwg.tb.material"), part.material.clone()],
+        [t0("shopdwg.tb.profile"), part.profile_name.clone(), t0("shopdwg.tb.material"), part.material.to_string()],
         [t0("shopdwg.tb.length"), format!("{} mm", fmt_len(l)), t0("shopdwg.tb.quantity"), num_to_string(count)],
         [
             t0("shopdwg.tb.weight-each"),

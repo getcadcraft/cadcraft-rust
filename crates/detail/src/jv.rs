@@ -87,6 +87,16 @@ impl fmt::Display for JStr {
         f.write_str(self.as_str())
     }
 }
+impl cc_civil::js::J for JStr {
+    fn j(&self) -> Value {
+        Value::String(self.as_str().to_string())
+    }
+}
+impl serde::Serialize for JStr {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.as_str())
+    }
+}
 impl From<&str> for JStr {
     fn from(s: &str) -> JStr {
         JStr::new(s)
@@ -205,10 +215,18 @@ fn words() -> &'static std::collections::HashSet<&'static str, cc_m3d::omap::FxB
 /// The static copy of one of the model's words.
 #[inline]
 fn word(s: &str) -> Option<&'static str> {
-    if s.len() > 24 {
+    if s.len() > 24 || is_id(s) {
         return None;
     }
     words().get(s).copied()
+}
+/// A letter and digits (`m17`, `j4`): an id, never one of the words (`ids_are_no_words`).
+#[inline]
+fn is_id(s: &str) -> bool {
+    match s.as_bytes().split_first() {
+        Some((c, rest)) => c.is_ascii_lowercase() && !rest.is_empty() && rest.iter().all(u8::is_ascii_digit),
+        None => false,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -775,6 +793,8 @@ pub trait Jsv {
     fn js_composite(&self) -> bool;
     /// the value as a `Value` (for what only the `Value` helpers do: `String([..])`, `Number([..])`)
     fn js_value(&self) -> std::borrow::Cow<'_, Value>;
+    /// the value as a record's [`JVal`]
+    fn js_jval(&self) -> JVal;
 }
 impl<T: Jsv> Jsv for &T {
     type Item = T::Item;
@@ -809,6 +829,10 @@ impl<T: Jsv> Jsv for &T {
     #[inline]
     fn js_value(&self) -> std::borrow::Cow<'_, Value> {
         (**self).js_value()
+    }
+    #[inline]
+    fn js_jval(&self) -> JVal {
+        (**self).js_jval()
     }
 }
 impl Jsv for Value {
@@ -845,6 +869,10 @@ impl Jsv for Value {
     fn js_value(&self) -> std::borrow::Cow<'_, Value> {
         std::borrow::Cow::Borrowed(self)
     }
+    #[inline]
+    fn js_jval(&self) -> JVal {
+        JVal::from_value(self)
+    }
 }
 impl Jsv for JVal {
     type Item = JVal;
@@ -879,6 +907,10 @@ impl Jsv for JVal {
     #[inline]
     fn js_value(&self) -> std::borrow::Cow<'_, Value> {
         std::borrow::Cow::Owned(self.to_value())
+    }
+    #[inline]
+    fn js_jval(&self) -> JVal {
+        self.clone()
     }
 }
 
@@ -941,5 +973,13 @@ mod tests {
         assert!(matches!(JStr::new("A992"), JStr::S(_)));
         assert!(matches!(JStr::new("m17"), JStr::H(_)));
         assert!(JVal::num(f64::NAN).is_null());
+    }
+
+    #[test]
+    fn ids_are_no_words() {
+        assert!(words().len() > 300);
+        for w in words() {
+            assert!(!is_id(w), "{w}");
+        }
     }
 }

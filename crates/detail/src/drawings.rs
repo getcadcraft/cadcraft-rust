@@ -1484,7 +1484,7 @@ fn assembly_sheet(ctx: &Ctx, built: &Built, marks: &Marks, row: &crate::marks::A
             n.to_string(),
             q.profile_name.clone(),
             fmt(q.length),
-            q.material.clone(),
+            q.material.to_string(),
             to_fixed(q.weight, 1),
             to_fixed(nf * q.weight, 1),
         ]);
@@ -1990,7 +1990,7 @@ pub fn part_prints(
     for p in &built.parts {
         let body = vec![
             Value::from(p.profile_name.clone()),
-            Value::from(p.material.clone()),
+            Value::from(p.material.as_str()),
             json!(p.start.map(r)),
             json!(p.end.map(r)),
             r(crate::js::or(p.rotation, 0.0)),

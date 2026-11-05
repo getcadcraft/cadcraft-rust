@@ -4,7 +4,7 @@
 
 use crate::geom::V3;
 use crate::js::{f, or, p3_of, s};
-use crate::jv::{JObj, JVal, Jsv};
+use crate::jv::{JObj, JStr, JVal, Jsv};
 use crate::store::State;
 use serde_json::{Map, Value};
 
@@ -53,18 +53,25 @@ impl Cut {
     }
 }
 
+/// The text of a string value, else "" (a record's own copy when it has one: a word is never copied).
+fn word_of<T: Jsv>(v: Option<&T>) -> JStr {
+    match v.filter(|v| v.js_str().is_some()).map(Jsv::js_jval) {
+        Some(JVal::Str(w)) => w,
+        _ => JStr::S(""),
+    }
+}
 /// A stored member.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mem {
     pub id: String,
-    pub kind: String,
-    pub profile: String,
-    pub material: String,
+    pub kind: JStr,
+    pub profile: JStr,
+    pub material: JStr,
     pub start: V3,
     pub end: V3,
     pub rotation: f64,
-    pub position: String,
-    pub name: String,
+    pub position: JStr,
+    pub name: JStr,
     pub cuts: Vec<Cut>,
     pub holes: Vec<HoleS>,
     /// `m.phase` as stored (`|| 1` where the JS says so).
@@ -74,14 +81,14 @@ impl Mem {
     pub fn from_value<T: Jsv>(v: &T) -> Mem {
         Mem {
             id: s(v.js_get("id")).into(),
-            kind: s(v.js_get("type")).into(),
-            profile: s(v.js_get("profile")).into(),
-            material: s(v.js_get("material")).into(),
+            kind: word_of(v.js_get("type")),
+            profile: word_of(v.js_get("profile")),
+            material: word_of(v.js_get("material")),
             start: p3_of(v.js_get("start")),
             end: p3_of(v.js_get("end")),
             rotation: f(v.js_get("rotation")),
-            position: s(v.js_get("position")).into(),
-            name: s(v.js_get("name")).into(),
+            position: word_of(v.js_get("position")),
+            name: word_of(v.js_get("name")),
             cuts: crate::js::arr(v.js_get("cuts")).iter().map(Cut::from_value).collect(),
             holes: crate::js::arr(v.js_get("holes"))
                 .iter()
@@ -139,6 +146,32 @@ impl Params {
     pub fn get(&self, k: &str) -> Option<&JVal> {
         self.0.iter().find(|(n, _)| n.as_str() == k).map(|(_, v)| v)
     }
+}
+/// A param name's number in [`param_names`].
+#[inline]
+pub(crate) fn param_index(k: &str) -> Option<u16> {
+    static IX: std::sync::OnceLock<std::collections::HashMap<&'static str, u16, cc_m3d::omap::FxBuild>> = std::sync::OnceLock::new();
+    IX.get_or_init(|| param_names().iter().enumerate().filter_map(|(i, n)| Some((*n, u16::try_from(i).ok()?))).collect()).get(k).copied()
+}
+/// A connection kind's defaults in their order: (name, default, the name's number in [`param_names`]).
+pub(crate) fn kind_params(kind: &str) -> &'static [(&'static str, &'static Value, u16)] {
+    type Table = Vec<(&'static str, Vec<(&'static str, &'static Value, u16)>)>;
+    static T: std::sync::OnceLock<Table> = std::sync::OnceLock::new();
+    let t = T.get_or_init(|| {
+        ["endplate", "sheartab", "baseplate", "splice", "gusset"]
+            .into_iter()
+            .map(|kind| {
+                let list = crate::connections::defaults_ref(kind)
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(k, v)| Some((k.as_str(), v, param_index(k)?)))
+                    .collect();
+                (kind, list)
+            })
+            .collect()
+    });
+    t.iter().find(|(k, _)| *k == kind).map_or(&[], |(_, l)| l.as_slice())
 }
 /// Every param name of the connection kinds' defaults.
 pub(crate) fn param_names() -> &'static [&'static str] {

@@ -515,9 +515,9 @@ fn vec3(p: Option<&Value>) -> Res<Value> {
     Ok(Value::Array(v.into_iter().map(n).collect()))
 }
 /// [`vec3`]'s point as numbers.
-fn vec3_p(p: Option<&Value>) -> Res<[f64; 3]> {
-    let a = match p {
-        Some(Value::Array(a)) if a.len() == 3 => a,
+fn vec3_p<T: Jsv>(p: Option<&T>) -> Res<[f64; 3]> {
+    let a = match p.and_then(Jsv::js_arr) {
+        Some(a) if a.len() == 3 => a,
         _ => return Err(t0("model.err.point")),
     };
     let v = [num(a.first()), num(a.get(1)), num(a.get(2))];
@@ -664,7 +664,7 @@ fn clean_hole_s<S: Src>(h: &S) -> Option<JObj> {
         return None;
     }
     let mut o = JObj::with_capacity(5);
-    o.0.push((JStr::S("face"), h.get("face").map_or(JVal::Null, JVal::from_value)));
+    o.0.push((JStr::S("face"), h.get("face").map_or(JVal::Null, Jsv::js_jval)));
     o.0.push((JStr::S("x"), JVal::num(x)));
     o.0.push((JStr::S("y"), JVal::num(y)));
     o.0.push((JStr::S("d"), JVal::num(d)));
@@ -674,7 +674,7 @@ fn clean_cut_s<S: Src>(c: &S) -> Option<JObj> {
     if !c.truthy() {
         return None;
     }
-    if c.get("kind").and_then(Value::as_str) != Some("cope")
+    if c.get("kind").and_then(Jsv::js_str) != Some("cope")
         || !includes(&["start", "end"], c.get("end"))
         || !includes(&["top", "bottom"], c.get("side"))
     {
@@ -686,8 +686,8 @@ fn clean_cut_s<S: Src>(c: &S) -> Option<JObj> {
     }
     let mut o = JObj::with_capacity(6);
     o.0.push((JStr::S("kind"), JVal::Str(JStr::S("cope"))));
-    o.0.push((JStr::S("end"), c.get("end").map_or(JVal::Null, JVal::from_value)));
-    o.0.push((JStr::S("side"), c.get("side").map_or(JVal::Null, JVal::from_value)));
+    o.0.push((JStr::S("end"), c.get("end").map_or(JVal::Null, Jsv::js_jval)));
+    o.0.push((JStr::S("side"), c.get("side").map_or(JVal::Null, Jsv::js_jval)));
     o.0.push((JStr::S("length"), JVal::num(length)));
     o.0.push((JStr::S("depth"), JVal::num(depth)));
     Some(o)
@@ -1393,7 +1393,7 @@ pub fn read_model(input: &Value) -> Res<(State, Vec<String>)> {
         && let Some(f) = crate::read_typed::parse_file(text)
     {
         let j = Value::Object(f.rest);
-        return read_core(&j, &f.members.0, &f.connections.0);
+        return read_core(&j, &f.members.0, &f.connections.0, &f.footings.0);
     }
     match input {
         Value::String(text) => read_model_json(text),
@@ -1409,11 +1409,16 @@ pub fn read_model_json(text: &str) -> Res<(State, Vec<String>)> {
 }
 
 fn read_value(j: &Value) -> Res<(State, Vec<String>)> {
-    read_core(j, list_of(j.get("members"), 20000), list_of(j.get("connections"), 20000))
+    read_core(j, list_of(j.get("members"), 20000), list_of(j.get("connections"), 20000), list_of(j.get("footings"), 5000))
 }
 
 /// readModel after the parse: `j` the file's fields (members and connections given apart, already capped).
-fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[C]) -> Res<(State, Vec<String>)> {
+fn read_core<M: MemberSrc, C: ConnSrc, FT: Jsv>(
+    j: &Value,
+    members_in: &[M],
+    conns_in: &[C],
+    footings_in: &[FT],
+) -> Res<(State, Vec<String>)> {
     if !truthy(Some(j)) || j.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(t0("model.err.not-model"));
     }
@@ -1464,8 +1469,9 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
     // every kept id is a letter and digits (the check below, or made so): kept as a number, no copy of the text
     let mut id_set: std::collections::HashSet<u128, cc_m3d::omap::FxBuild> = std::collections::HashSet::default();
     id_set.reserve(members_in.len().saturating_add(conns_in.len()));
-    let mut uid = |id: Option<&Value>, prefix: &str| -> String {
-        let mut v = clean_text(id, 20);
+    // `uid(cleanText(id, 20), prefix)`
+    let mut uid = |cleaned: String, prefix: &str| -> String {
+        let mut v = cleaned;
         // /^[a-z]\d+$/ (a letter, then ASCII digits: bytes are enough)
         let ok = match v.as_bytes() {
             [c, rest @ ..] => c.is_ascii_lowercase() && !rest.is_empty() && rest.iter().all(u8::is_ascii_digit),
@@ -1492,8 +1498,8 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
             dropped = dropped.saturating_add(1);
             continue;
         }
-        let id = JStr::from_string(uid(Src::get(m, "id"), "m"));
-        let ty = match Src::get(m, "type").and_then(Value::as_str) {
+        let id = JStr::from_string(uid(clean_text(Src::get(m, "id"), 20), "m"));
+        let ty = match Src::get(m, "type").and_then(Jsv::js_str) {
             Some(t) if MEMBER_TYPES.contains(&t) => JStr::new(t),
             _ => JStr::S("beam"),
         };
@@ -1506,7 +1512,7 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
             continue;
         };
         let rot = num_or0(Src::get(m, "rotation"));
-        let pos = match Src::get(m, "position").and_then(Value::as_str) {
+        let pos = match Src::get(m, "position").and_then(Jsv::js_str) {
             Some(p) if ["top", "middle", "bottom"].contains(&p) => JStr::new(p),
             _ => JStr::S("middle"),
         };
@@ -1514,14 +1520,14 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         let mut cuts = Vec::new();
         for c in m.list("cuts", 50) {
             if let Some(mut k) = clean_cut_s(c) {
-                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(Src::get(c, "id"), "k")))));
+                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(clean_text(Src::get(c, "id"), 20), "k")))));
                 cuts.push(JVal::Obj(k));
             }
         }
         let mut holes = Vec::new();
         for h in m.list("holes", 2000) {
             if let Some(mut k) = clean_hole_s(h) {
-                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(Src::get(h, "id"), "h")))));
+                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(clean_text(Src::get(h, "id"), 20), "h")))));
                 holes.push(JVal::Obj(k));
             }
         }
@@ -1560,28 +1566,29 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         warnings.push(t("model.warn.members", &[("n", F::N(dropped as f64))]));
     }
     let member_ids: std::collections::HashSet<&str, cc_m3d::omap::FxBuild> = members.iter().map(|m| crate::js::s(m.get("id"))).collect();
-    let has_member = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|x| member_ids.contains(x));
+    let has_member = |v: Option<&str>| v.is_some_and(|x| member_ids.contains(x));
     let mut conns: Vec<JVal> = Vec::with_capacity(conns_in.len());
     let mut dropped_c = 0usize;
     for c in conns_in {
-        let ty = Src::get(c, "type").and_then(Value::as_str).unwrap_or("");
-        let base = Src::get(c, "type").and_then(Value::as_str).and_then(crate::connections::defaults_ref);
+        let ty = Src::get(c, "type").and_then(Jsv::js_str).unwrap_or("");
+        let base = Src::get(c, "type").and_then(Jsv::js_str).and_then(crate::connections::defaults_ref);
         let Some(base) = base else {
             dropped_c = dropped_c.saturating_add(1);
             continue;
         };
-        if !members_of_s(c).iter().all(|id| has_member(*id))
+        if !members_of_s(c).iter().all(|id| has_member(id.and_then(Jsv::js_str)))
             || (ty == "splice" && strict_eq(Src::get(c, "a"), Src::get(c, "b")))
             || (ty == "gusset" && strict_eq(Src::get(c, "brace"), Src::get(c, "support")))
         {
             dropped_c = dropped_c.saturating_add(1);
             continue;
         }
-        let bo = base.as_object();
-        let mut params = JObj::with_capacity(bo.map_or(0, Map::len));
+        let kp = crate::state::kind_params(ty);
+        let mut params = JObj::with_capacity(kp.len());
         // params: the defaults' keys in their order, each the file's value when it is a good one
-        for (k, bv) in bo.into_iter().flatten() {
-            let v = match c.param(k) {
+        let _ = base;
+        for &(k, bv, i) in kp {
+            let v = match c.param_i(k, i) {
                 None => JVal::from_value(bv),
                 Some(v) if bv.is_number() => {
                     let x = num(Some(v));
@@ -1592,13 +1599,13 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
                     if cv.is_empty() { JVal::from_value(bv) } else { JVal::Str(cv) }
                 }
             };
-            params.0.push((JStr::S(k.as_str()), v));
+            params.0.push((JStr::S(k), v));
         }
         let mut o = JObj::with_capacity(7);
         let g = |k: &str| Src::get(c, k);
-        let gv = |k: &str| g(k).map_or(JVal::Null, JVal::from_value);
-        let end_of = |k: &str| JVal::Str(JStr::S(if g(k).and_then(Value::as_str) == Some("start") { "start" } else { "end" }));
-        o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(g("id"), "j")))));
+        let gv = |k: &str| g(k).map_or(JVal::Null, Jsv::js_jval);
+        let end_of = |k: &str| JVal::Str(JStr::S(if g(k).and_then(Jsv::js_str) == Some("start") { "start" } else { "end" }));
+        o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(clean_text(g("id"), 20), "j")))));
         match ty {
             "splice" => {
                 o.0.push((JStr::S("type"), JVal::Str(JStr::S("splice"))));
@@ -1617,7 +1624,7 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
             _ => {
                 o.0.push((JStr::S("type"), JVal::str(ty)));
                 if let Some(v) = g("column") {
-                    o.0.push((JStr::S("column"), JVal::from_value(v)));
+                    o.0.push((JStr::S("column"), v.js_jval()));
                 }
                 o.0.push((JStr::S("params"), JVal::Obj(params)));
             }
@@ -1632,11 +1639,11 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         warnings.push(t("model.warn.connections", &[("n", F::N(dropped_c as f64))]));
     }
     let mut footings: Vec<JVal> = Vec::new();
-    for f in list_of(j.get("footings"), 5000) {
+    for f in footings_in {
         match clean_footing(f) {
             Ok(r) => {
                 let mut o = JObj::with_capacity(12);
-                o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(field(Some(f), "id"), "f")))));
+                o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(clean_text(field(Some(f), "id"), 20), "f")))));
                 r.fields_j(&mut o);
                 o.insert("phase", JVal::num(clean_phase(field(Some(f), "phase")).unwrap_or(1.0)));
                 footings.push(JVal::Obj(o));
@@ -1648,7 +1655,7 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
     for b in list_of(j.get("bolts"), 200_000) {
         if let Some(c) = clean_bolt(b) {
             let mut o = Map::new();
-            o.insert("id".into(), Value::from(uid(field(Some(b), "id"), "k")));
+            o.insert("id".into(), Value::from(uid(clean_text(field(Some(b), "id"), 20), "k")));
             o.extend(c);
             bolts.push(Value::Object(o));
         }
@@ -1658,7 +1665,7 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         match clean_stair(x) {
             Ok(r) => {
                 let mut o = Map::new();
-                o.insert("id".into(), Value::from(uid(field(Some(x), "id"), "s")));
+                o.insert("id".into(), Value::from(uid(clean_text(field(Some(x), "id"), 20), "s")));
                 o.extend(r.fields());
                 o.insert("phase".into(), n(clean_phase(field(Some(x), "phase")).unwrap_or(1.0)));
                 stairs.push(Value::Object(o));
@@ -1704,12 +1711,12 @@ fn id_key(v: &str) -> Option<u128> {
 
 /// `isBeamEnd(c)` of a connection being read.
 fn is_beam_end_s<S: Src>(c: &S) -> bool {
-    matches!(c.get("type").and_then(Value::as_str), Some("endplate" | "sheartab"))
+    matches!(c.get("type").and_then(Jsv::js_str), Some("endplate" | "sheartab"))
 }
 /// `membersOf(c)` of a connection being read (as state.rs `members_of_v`).
-fn members_of_s<S: Src>(c: &S) -> Vec<Option<&Value>> {
+fn members_of_s<S: Src>(c: &S) -> Vec<Option<&S::V>> {
     let g = |k: &str| c.get(k);
-    match c.get("type").and_then(Value::as_str) {
+    match c.get("type").and_then(Jsv::js_str) {
         Some("splice") => vec![g("a"), g("b")],
         Some("gusset") => vec![g("support"), g("brace")],
         _ if is_beam_end_s(c) => vec![g("beam"), g("column")],

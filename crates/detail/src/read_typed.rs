@@ -6,6 +6,7 @@
 //! (`typed_read_reads_as_the_json_does`: 20,000+ random and broken files give the same state and warnings, or the
 //! same error).
 
+use crate::jv::{JVal, Jsv};
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde_json::{Map, Value};
@@ -15,11 +16,14 @@ use std::fmt;
 /// What the reader asks of a JSON value it walks (a member, a hole, a cope, a connection): `truthy(v)`, `v === null`
 /// and `v.k` (only objects have fields).
 pub trait Src {
+    /// what its fields are (a `Value`, or the typed read's [`JVal`])
+    type V: Jsv;
     fn is_null(&self) -> bool;
     fn truthy(&self) -> bool;
-    fn get(&self, k: &str) -> Option<&Value>;
+    fn get(&self, k: &str) -> Option<&Self::V>;
 }
 impl Src for Value {
+    type V = Value;
     fn is_null(&self) -> bool {
         Value::is_null(self)
     }
@@ -44,7 +48,11 @@ impl MemberSrc for Value {
 }
 /// A connection: its fields, and `c.params?.[k]` (only an object's).
 pub trait ConnSrc: Src {
-    fn param(&self, k: &str) -> Option<&Value>;
+    fn param(&self, k: &str) -> Option<&Self::V>;
+    /// [`ConnSrc::param`] given the name's number in `param_names` too.
+    fn param_i(&self, k: &str, _i: u16) -> Option<&Self::V> {
+        self.param(k)
+    }
 }
 impl ConnSrc for Value {
     fn param(&self, k: &str) -> Option<&Value> {
@@ -138,7 +146,7 @@ impl<'de> Visitor<'de> for SkipV {
 pub trait Slots: Default {
     const KEYS: &'static [&'static str];
     fn kind_mut(&mut self) -> &mut Kind;
-    fn slot(&mut self, i: usize) -> Option<&mut Option<Value>>;
+    fn slot(&mut self, i: usize) -> Option<&mut Option<JVal>>;
     /// A key with its own reader (lists, params): read it and say so, else false.
     fn special<'de, A: MapAccess<'de>>(&mut self, _k: &str, _a: &mut A) -> Result<bool, A::Error> {
         Ok(false)
@@ -185,7 +193,7 @@ impl<'de, T: Slots> Visitor<'de> for SlotsV<T> {
             }
             match T::KEYS.iter().position(|x| *x == k) {
                 Some(i) => {
-                    let v = a.next_value::<Value>()?;
+                    let v = a.next_value::<JVal>()?;
                     if let Some(s) = t.slot(i) {
                         *s = Some(v);
                     }
@@ -212,14 +220,14 @@ macro_rules! slotted {
         #[derive(Default, Debug)]
         pub struct $name {
             kind: Kind,
-            v: [Option<Value>; $n],
+            v: [Option<JVal>; $n],
         }
         impl Slots for $name {
             const KEYS: &'static [&'static str] = &[$($k),*];
             fn kind_mut(&mut self) -> &mut Kind {
                 &mut self.kind
             }
-            fn slot(&mut self, i: usize) -> Option<&mut Option<Value>> {
+            fn slot(&mut self, i: usize) -> Option<&mut Option<JVal>> {
                 self.v.get_mut(i)
             }
         }
@@ -229,6 +237,7 @@ macro_rules! slotted {
             }
         }
         impl Src for $name {
+            type V = JVal;
             fn is_null(&self) -> bool {
                 self.kind == Kind::Null
             }
@@ -239,7 +248,7 @@ macro_rules! slotted {
                     Kind::Other(t) => t,
                 }
             }
-            fn get(&self, k: &str) -> Option<&Value> {
+            fn get(&self, k: &str) -> Option<&JVal> {
                 let i = Self::KEYS.iter().position(|x| *x == k)?;
                 self.v.get(i).and_then(Option::as_ref)
             }
@@ -313,7 +322,7 @@ const MEM_KEYS: [&str; 10] = ["id", "type", "profile", "material", "start", "end
 #[derive(Default, Debug)]
 pub struct MemberIn {
     kind: Kind,
-    v: [Option<Value>; 10],
+    v: [Option<JVal>; 10],
     cuts: Option<List<Part, 50>>,
     holes: Option<List<Part, 2000>>,
 }
@@ -322,7 +331,7 @@ impl Slots for MemberIn {
     fn kind_mut(&mut self) -> &mut Kind {
         &mut self.kind
     }
-    fn slot(&mut self, i: usize) -> Option<&mut Option<Value>> {
+    fn slot(&mut self, i: usize) -> Option<&mut Option<JVal>> {
         self.v.get_mut(i)
     }
     fn special<'de, A: MapAccess<'de>>(&mut self, k: &str, a: &mut A) -> Result<bool, A::Error> {
@@ -340,6 +349,7 @@ impl<'de> Deserialize<'de> for MemberIn {
     }
 }
 impl Src for MemberIn {
+    type V = JVal;
     fn is_null(&self) -> bool {
         self.kind == Kind::Null
     }
@@ -350,7 +360,7 @@ impl Src for MemberIn {
             Kind::Other(t) => t,
         }
     }
-    fn get(&self, k: &str) -> Option<&Value> {
+    fn get(&self, k: &str) -> Option<&JVal> {
         let i = MEM_KEYS.iter().position(|x| *x == k)?;
         self.v.get(i).and_then(Option::as_ref)
     }
@@ -373,7 +383,7 @@ const CONN_KEYS: [&str; 10] = ["id", "type", "a", "aEnd", "b", "brace", "support
 #[derive(Default, Debug)]
 pub struct ConnIn {
     kind: Kind,
-    v: [Option<Value>; 10],
+    v: [Option<JVal>; 10],
     params: Option<Params>,
 }
 impl Slots for ConnIn {
@@ -381,7 +391,7 @@ impl Slots for ConnIn {
     fn kind_mut(&mut self) -> &mut Kind {
         &mut self.kind
     }
-    fn slot(&mut self, i: usize) -> Option<&mut Option<Value>> {
+    fn slot(&mut self, i: usize) -> Option<&mut Option<JVal>> {
         self.v.get_mut(i)
     }
     fn special<'de, A: MapAccess<'de>>(&mut self, k: &str, a: &mut A) -> Result<bool, A::Error> {
@@ -398,6 +408,7 @@ impl<'de> Deserialize<'de> for ConnIn {
     }
 }
 impl Src for ConnIn {
+    type V = JVal;
     fn is_null(&self) -> bool {
         self.kind == Kind::Null
     }
@@ -408,22 +419,24 @@ impl Src for ConnIn {
             Kind::Other(t) => t,
         }
     }
-    fn get(&self, k: &str) -> Option<&Value> {
+    fn get(&self, k: &str) -> Option<&JVal> {
         let i = CONN_KEYS.iter().position(|x| *x == k)?;
         self.v.get(i).and_then(Option::as_ref)
     }
 }
 impl ConnSrc for ConnIn {
-    fn param(&self, k: &str) -> Option<&Value> {
-        let i = crate::state::param_names().iter().position(|n| *n == k)?;
-        self.params.as_ref()?.0.iter().rev().find(|(x, _)| usize::from(*x) == i).map(|(_, v)| v)
+    fn param(&self, k: &str) -> Option<&JVal> {
+        self.param_i(k, crate::state::param_index(k)?)
+    }
+    fn param_i(&self, _k: &str, i: u16) -> Option<&JVal> {
+        self.params.as_ref()?.0.iter().rev().find(|(x, _)| *x == i).map(|(_, v)| v)
     }
 }
 
 /// A connection's params: an object's entries for the defaults' names (by their number in
 /// [`crate::state::param_names`], in order; the reader asks for no other name), nothing for anything but an object.
 #[derive(Default, Debug)]
-pub struct Params(Vec<(u16, Value)>);
+pub struct Params(Vec<(u16, JVal)>);
 impl<'de> Deserialize<'de> for Params {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         struct V;
@@ -458,11 +471,10 @@ impl<'de> Deserialize<'de> for Params {
                 Ok(Params::default())
             }
             fn visit_map<A: MapAccess<'de>>(self, mut a: A) -> Result<Params, A::Error> {
-                let names = crate::state::param_names();
-                let mut out = Vec::with_capacity(names.len().min(24));
+                let mut out = Vec::with_capacity(24);
                 while let Some(Key(k)) = a.next_key::<Key<'de>>()? {
-                    match names.iter().position(|n| *n == k).and_then(|i| u16::try_from(i).ok()) {
-                        Some(i) => out.push((i, a.next_value::<Value>()?)),
+                    match crate::state::param_index(&k) {
+                        Some(i) => out.push((i, a.next_value::<JVal>()?)),
                         None => {
                             a.next_value::<Skip>()?;
                         }
@@ -475,12 +487,13 @@ impl<'de> Deserialize<'de> for Params {
     }
 }
 
-/// The file: its members and connections typed, every other field as JSON (only an object is a file here).
+/// The file: its members, connections and footings typed, every other field as JSON (only an object is a file here).
 #[derive(Default, Debug)]
 pub struct FileIn {
     pub rest: Map<String, Value>,
     pub members: List<MemberIn, 20000>,
     pub connections: List<ConnIn, 20000>,
+    pub footings: List<JVal, 5000>,
 }
 impl<'de> Deserialize<'de> for FileIn {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
@@ -496,6 +509,7 @@ impl<'de> Deserialize<'de> for FileIn {
                     match &*k {
                         "members" => out.members = a.next_value()?,
                         "connections" => out.connections = a.next_value()?,
+                        "footings" => out.footings = a.next_value()?,
                         _ => {
                             let v = a.next_value::<Value>()?;
                             out.rest.insert(k.into_owned(), v);

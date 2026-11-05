@@ -8,6 +8,7 @@ use crate::connections::{
 use crate::geom::{Frame, V3, add, frame, mul, to_local, voff_for};
 use crate::i18n::{F, t, t0};
 use crate::js::{Obj, Res, or, p3v};
+use crate::jv::JStr;
 use crate::profiles::{P, get_profile_str};
 use crate::rebar::{BarGroup, Footing, Problem, footing_bars, footing_problems};
 use crate::stair::{Stair, stair_geometry};
@@ -38,12 +39,13 @@ fn role_key(kind: &str) -> Option<&'static str> {
 /// A hole on a part: x along from the cut start, y across the face.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hole {
-    pub face: String,
+    pub face: crate::jv::JStr,
     pub x: f64,
     pub y: f64,
     pub d: f64,
     pub id: Option<String>,
-    pub conn: Option<String>,
+    /// the connection that made it (one shared copy of its id for all its holes)
+    pub conn: Option<std::sync::Arc<str>>,
 }
 impl Hole {
     pub fn j(&self) -> Value {
@@ -53,7 +55,7 @@ impl Hole {
             .set("y", self.y)
             .set("d", self.d)
             .opt("id", self.id.clone())
-            .opt("conn", self.conn.clone())
+            .opt("conn", self.conn.as_deref())
             .done()
     }
 }
@@ -65,19 +67,19 @@ pub struct Part {
     pub member: Option<String>,
     pub conn: Option<String>,
     pub stair: Option<String>,
-    pub kind: String,
+    pub kind: crate::jv::JStr,
     pub role: Option<String>,
     pub ifc: Option<&'static str>,
-    pub name: Option<String>,
+    pub name: Option<crate::jv::JStr>,
     pub profile: P,
     pub profile_name: String,
-    pub material: String,
+    pub material: crate::jv::JStr,
     pub frame: Frame,
     pub voff: f64,
     pub length: f64,
     pub start: V3,
     pub end: V3,
-    pub position: String,
+    pub position: crate::jv::JStr,
     pub rotation: f64,
     pub phase: f64,
     pub holes: Vec<Hole>,
@@ -153,7 +155,7 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
         drafts.insert(Draft { m, profile, frame: f, voff, setback: [0.0, 0.0] });
     }
     let mut plates: Vec<(PlateDraft, String)> = Vec::new();
-    let mut world_holes: Vec<(WHole, String)> = Vec::new();
+    let mut world_holes: Vec<(WHole, std::sync::Arc<str>)> = Vec::new();
     let mut bolts: Vec<Bolt> = Vec::new();
     let mut welds: Vec<Weld> = Vec::new();
     // each connection is made from the drafts alone (in parallel on the desktop), then applied in order
@@ -191,8 +193,12 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
         for p in r.plates.drain(..) {
             plates.push((p, c.id.clone()));
         }
-        for h in r.holes.drain(..) {
-            world_holes.push((h, c.id.clone()));
+        if !r.holes.is_empty() {
+            // one copy of the connection's id for all its holes
+            let cid: std::sync::Arc<str> = std::sync::Arc::from(c.id.as_str());
+            for h in r.holes.drain(..) {
+                world_holes.push((h, cid.clone()));
+            }
         }
         let phase = drafts.get(c.main_of()).map_or(1.0, |d| d.m.phase1());
         for mut b in r.bolts.drain(..) {
@@ -205,6 +211,8 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
     drop(spent);
 
     let mut out = Built::default();
+    out.parts.reserve(drafts.list.len().saturating_add(plates.len()));
+    out.by_id.reserve(drafts.list.len().saturating_add(plates.len()));
     let finish = |out: &mut Built, part: Part| {
         out.by_id.insert(part.id.clone(), out.parts.len());
         out.parts.push(part);
@@ -243,7 +251,7 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
                 holes: m
                     .holes
                     .iter()
-                    .map(|h| Hole { face: h.face.clone(), x: h.x, y: h.y, d: h.d, id: h.id.clone(), conn: None })
+                    .map(|h| Hole { face: crate::jv::JStr::new(&h.face), x: h.x, y: h.y, d: h.d, id: h.id.clone(), conn: None })
                     .collect(),
                 cuts: m.cuts.clone(),
                 setback: d.setback,
@@ -267,10 +275,10 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
                 kind: "plate".into(),
                 role: Some(p.role.clone()),
                 ifc: Some("IfcPlate"),
-                name: Some(p.role.clone()),
+                name: Some(JStr::new(&p.role)),
                 profile_name: profile.name.clone(),
                 profile,
-                material: p.material.clone(),
+                material: JStr::new(&p.material),
                 frame: f,
                 voff: 0.0,
                 length: f.len,
@@ -324,10 +332,10 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
                     kind: q.kind.into(),
                     role: Some(q.role.clone()),
                     ifc: Some(if q.kind == "stringer" { "IfcMember" } else { "IfcPlate" }),
-                    name: Some(q.role.clone()),
+                    name: Some(JStr::new(&q.role)),
                     profile_name: profile.name.clone(),
                     profile,
-                    material: q.material.clone(),
+                    material: JStr::new(&q.material),
                     frame: f,
                     voff: 0.0,
                     length: f.len,
@@ -358,12 +366,23 @@ pub fn build(state: &crate::store::State) -> Res<Built> {
             });
         }
     }
-    for (h, cid) in &world_holes {
-        let Some(&i) = out.by_id.get(&h.target) else { continue };
+    // each part's holes made room for at once
+    let at: Vec<Option<usize>> = world_holes.iter().map(|(h, _)| out.by_id.get(&h.target).copied()).collect();
+    let mut more = vec![0usize; out.parts.len()];
+    for i in at.iter().flatten() {
+        if let Some(n) = more.get_mut(*i) {
+            *n = n.saturating_add(1);
+        }
+    }
+    for (p, n) in out.parts.iter_mut().zip(&more) {
+        p.holes.reserve(*n);
+    }
+    for ((h, cid), i) in world_holes.iter().zip(&at) {
+        let Some(i) = *i else { continue };
         let Some(part) = out.parts.get_mut(i) else { continue };
         let l = to_local(&part.frame, h.world, part.voff);
         part.holes.push(Hole {
-            face: h.face.into(),
+            face: crate::jv::JStr::S(h.face),
             x: l.x,
             y: if h.face == "web" { l.v } else { l.u },
             d: h.d,

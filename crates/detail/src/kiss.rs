@@ -5,6 +5,7 @@
 use crate::build::{Built, Part};
 use crate::drawings::assembly_geometry;
 use crate::js::{Obj, num_to_string, round, slice16, str_to_number, to_fixed, trim};
+use crate::jv::JStr;
 use crate::marks::{Marks, bolt_list};
 use crate::profiles::Profile;
 use serde_json::{Value, json};
@@ -263,7 +264,7 @@ pub fn kiss_file(
     let dline = |put: &mut dyn FnMut(Vec<String>), dwg: &str, rev: &str, asm: &str, mark: &str, qty: f64, part: &Part| {
         let (ty, size) = kiss_shape(&part.profile, metric);
         let role = part.role.clone().filter(|r| !r.is_empty()).or_else(|| role_of(&part.kind).map(str::to_string)).unwrap_or_default();
-        let pname = part.name.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| role.clone());
+        let pname = part.name.clone().filter(|r| !r.is_empty()).unwrap_or_else(|| JStr::new(&role));
         put(vec![
             s("D"),
             clean(dwg, 30),

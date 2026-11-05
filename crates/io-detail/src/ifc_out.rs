@@ -285,7 +285,7 @@ pub fn write_ifc(
         let solid = extrude(&mut w, &pd, part.length);
         let mark = marks.part_mark(&part.id).unwrap_or("").to_string();
         let nm = match &part.name {
-            Some(n) if !n.is_empty() => n.clone(),
+            Some(n) if !n.is_empty() => n.to_string(),
             _ => part.role.clone().unwrap_or_default(),
         };
         let ifc = part.ifc.ok_or("Cannot read properties of undefined (reading 'toUpperCase')")?;
