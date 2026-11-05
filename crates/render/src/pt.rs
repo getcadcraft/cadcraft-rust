@@ -308,6 +308,7 @@ pub struct PtRenderer {
     uni: wgpu::Buffer,
     post: wgpu::Buffer,
     textures: wgpu::Texture,
+    pictures: crate::mesh3d::PicArray,
     out_tex: wgpu::Texture,
     out_view: wgpu::TextureView,
     origin: [f64; 3],
@@ -324,7 +325,8 @@ impl std::fmt::Debug for PtRenderer {
 const PT_UNIFORM: u64 = 64 + 16 * 9 + 64 * 80;
 
 impl PtRenderer {
-    pub fn new(device: &wgpu::Device, w: u32, h: u32, scene: &PtScene) -> PtRenderer {
+    /// `pics`: the side and the number of the scene's picture layers (see `mesh3d::PicArray`).
+    pub fn new(device: &wgpu::Device, w: u32, h: u32, scene: &PtScene, pics: (u32, u32)) -> PtRenderer {
         let (w, h) = (w.clamp(1, 4096), h.clamp(1, 4096));
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("cc pt"),
@@ -425,8 +427,19 @@ impl PtRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: cs,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
+        let pictures = crate::mesh3d::PicArray::new(device, pics.0, pics.1);
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pt"),
             layout: &bgl,
@@ -438,6 +451,7 @@ impl PtRenderer {
                 wgpu::BindGroupEntry { binding: 4, resource: acc.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&tex_view) },
                 wgpu::BindGroupEntry { binding: 6, resource: wgpu::BindingResource::Sampler(&samp) },
+                wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&pictures.view) },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -515,6 +529,7 @@ impl PtRenderer {
             uni,
             post,
             textures,
+            pictures,
             out_tex,
             out_view,
             origin: scene.origin,
@@ -525,6 +540,11 @@ impl PtRenderer {
 
     pub fn set_texture(&self, queue: &wgpu::Queue, layer: u32, rgba: &[u8]) {
         crate::mesh3d::write_texture_layer(queue, &self.textures, layer, rgba);
+    }
+
+    /// Picture `k` into its layer (see `Renderer3::set_picture`).
+    pub fn set_picture(&self, queue: &wgpu::Queue, k: u32, rgba: &[u8]) {
+        self.pictures.set(queue, k, rgba);
     }
 
     /// Add one sample to every pixel.
@@ -678,7 +698,7 @@ mod gpu_tests {
             Some(([0.0, 0.0, -1.0], 60.0, [0.6, 0.58, 0.55])),
         );
         assert_eq!(scene.pos.len() / 3, 12 + 96);
-        let mut r = PtRenderer::new(&device, 64, 48, &scene);
+        let mut r = PtRenderer::new(&device, 64, 48, &scene, (4, 1));
         for _ in 0..64 {
             r.sample(&device, &queue, &j);
         }

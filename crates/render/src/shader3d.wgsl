@@ -32,6 +32,8 @@ struct Frame {
 @group(1) @binding(1) var ssamp: sampler_comparison;
 @group(1) @binding(2) var mtex: texture_2d_array<f32>;
 @group(1) @binding(3) var msamp: sampler;
+// the scene's pictures: a vertex layer from 4096 on (mesh3d.rs PIC_LAYER0) is picture (layer - 4096)
+@group(1) @binding(4) var ptex: texture_2d_array<f32>;
 
 // How much of the sun reaches a point (1 = all), 3 x 3 filtered taps (three.js PCF soft shadows); outside the map: lit.
 fn sunlit(rel: vec3<f32>, n: vec3<f32>) -> f32 {
@@ -94,7 +96,10 @@ fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c:
 @fragment
 fn fs_face(v: FaceOut, @builtin(front_facing) front: bool) -> @location(0) vec4<f32> {
     // sampled before any branch (implicit derivatives need uniform control flow)
-    let texel = textureSample(mtex, msamp, v.uvl.xy, max(i32(round(v.uvl.z)), 0));
+    let layer = i32(round(v.uvl.z));
+    let mt = textureSample(mtex, msamp, v.uvl.xy, clamp(layer, 0, 4095));
+    let pt = textureSample(ptex, msamp, v.uvl.xy, max(layer - 4096, 0));
+    let texel = select(mt, pt, layer >= 4096);
     if cut(v.rel) {
         discard;
     }

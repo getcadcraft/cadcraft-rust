@@ -68,6 +68,8 @@ struct LampShadows {
 @group(1) @binding(4) var msamp: sampler;
 @group(1) @binding(5) var lmaps: texture_depth_2d_array;
 @group(1) @binding(6) var<uniform> ls: LampShadows;
+// the scene's pictures: a vertex layer from 4096 on is picture (layer - 4096)
+@group(1) @binding(7) var ptex: texture_2d_array<f32>;
 
 const PI: f32 = 3.14159265;
 
@@ -204,7 +206,10 @@ fn vs_face(@location(0) p: vec3<f32>, @location(1) n: vec3<f32>, @location(2) c:
 }
 
 fn shade(v: FaceOut, front: bool) -> vec4<f32> {
-    let texel = textureSample(mtex, msamp, v.uvl.xy, max(i32(round(v.uvl.z)), 0));
+    let layer = i32(round(v.uvl.z));
+    let mt = textureSample(mtex, msamp, v.uvl.xy, clamp(layer, 0, 4095));
+    let pt = textureSample(ptex, msamp, v.uvl.xy, max(layer - 4096, 0));
+    let texel = select(mt, pt, layer >= 4096);
     let len_n = length(v.n);
     var n = select(vec3<f32>(0.0, 0.0, 1.0), v.n / len_n, len_n > 1e-12);
     if !front {

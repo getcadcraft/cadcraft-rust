@@ -41,6 +41,8 @@ struct Pt {
 @group(0) @binding(4) var<storage, read_write> acc: array<vec4<f32>>;
 @group(0) @binding(5) var mtex: texture_2d_array<f32>;
 @group(0) @binding(6) var msamp: sampler;
+// the scene's pictures: a layer from 4096 on is picture (layer - 4096)
+@group(0) @binding(7) var ptex: texture_2d_array<f32>;
 
 const PI: f32 = 3.14159265;
 const BIG: f32 = 1e30;
@@ -178,7 +180,12 @@ fn surface(h: Hit) -> Surf {
     s.solid = m.w > 0.5;
     if m.z >= 0.0 && pt.env.y > 0.0 {
         let uv = vec2<f32>(n0.w * w0 + n1.w * h.b1 + n2.w * h.b2, vv.x * w0 + vv.y * h.b1 + vv.z * h.b2);
-        s.albedo = srgb_to_linear(textureSampleLevel(mtex, msamp, uv, i32(round(m.z)), 0.0).rgb);
+        let layer = i32(round(m.z));
+        if layer >= 4096 {
+            s.albedo = srgb_to_linear(textureSampleLevel(ptex, msamp, uv, layer - 4096, 0.0).rgb);
+        } else {
+            s.albedo = srgb_to_linear(textureSampleLevel(mtex, msamp, uv, layer, 0.0).rgb);
+        }
     }
     return s;
 }

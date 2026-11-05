@@ -253,6 +253,7 @@ pub struct StillRenderer {
     maps_bind: wgpu::BindGroup,
     map_views: [wgpu::TextureView; 2],
     textures: wgpu::Texture,
+    pictures: crate::mesh3d::PicArray,
     pass_view: wgpu::TextureView,
     depth_view: wgpu::TextureView,
     acc_view: wgpu::TextureView,
@@ -280,7 +281,16 @@ pub const STILL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 impl StillRenderer {
     /// For a picture of `w × h` (each side 1…4096) of `meshes` (with their looks) placed by `instances`, relative to
     /// `origin` (the scene's box centre).
-    pub fn new(device: &wgpu::Device, w: u32, h: u32, meshes: Vec<StillMesh>, instances: &[Instance3], origin: [f64; 3]) -> StillRenderer {
+    /// `pics`: the side and the number of the scene's picture layers (see `mesh3d::PicArray`).
+    pub fn new(
+        device: &wgpu::Device,
+        w: u32,
+        h: u32,
+        meshes: Vec<StillMesh>,
+        instances: &[Instance3],
+        origin: [f64; 3],
+        pics: (u32, u32),
+    ) -> StillRenderer {
         let (w, h) = (w.clamp(1, 4096), h.clamp(1, 4096));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("cc still"),
@@ -415,8 +425,10 @@ impl StillRenderer {
                     },
                     count: None,
                 },
+                fs_tex(7, wgpu::TextureSampleType::Float { filterable: true }, wgpu::TextureViewDimension::D2Array),
             ],
         });
+        let pictures = crate::mesh3d::PicArray::new(device, pics.0, pics.1);
         let cmp = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("still shadow"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -446,6 +458,7 @@ impl StillRenderer {
                 wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::Sampler(&tsamp) },
                 wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::TextureView(&lamp_array) },
                 wgpu::BindGroupEntry { binding: 6, resource: lamp_cams.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 7, resource: wgpu::BindingResource::TextureView(&pictures.view) },
             ],
         });
         let main_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -669,6 +682,7 @@ impl StillRenderer {
             maps_bind,
             map_views,
             textures,
+            pictures,
             pass_view,
             depth_view,
             acc_view,
@@ -686,6 +700,11 @@ impl StillRenderer {
     /// A material texture into its layer (see `Renderer3::set_texture`).
     pub fn set_texture(&self, queue: &wgpu::Queue, layer: u32, rgba: &[u8]) {
         crate::mesh3d::write_texture_layer(queue, &self.textures, layer, rgba);
+    }
+
+    /// Picture `k` into its layer (see `Renderer3::set_picture`).
+    pub fn set_picture(&self, queue: &wgpu::Queue, k: u32, rgba: &[u8]) {
+        self.pictures.set(queue, k, rgba);
     }
 
     /// Add pass `i` (0-based) of `job` to the sum.
@@ -1126,8 +1145,15 @@ pub(crate) mod gpu_tests {
         let looks = vec![[199u8, 0, 0, 0]; m.positions.len()];
         let mesh = StillMesh::upload(&device, &m, &looks);
         let j = job(96, 64);
-        let mut r =
-            StillRenderer::new(&device, 96, 64, vec![mesh], &[Instance3 { mesh: 0, m: IDENT, tint: None, hidden: false }], [0.0, 0.0, 1.0]);
+        let mut r = StillRenderer::new(
+            &device,
+            96,
+            64,
+            vec![mesh],
+            &[Instance3 { mesh: 0, m: IDENT, tint: None, hidden: false }],
+            [0.0, 0.0, 1.0],
+            (4, 1),
+        );
         for _ in 0..j.passes {
             r.pass(&device, &queue, &j);
         }

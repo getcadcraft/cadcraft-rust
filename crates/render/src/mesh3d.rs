@@ -450,8 +450,49 @@ pub const SHADOW_SIZE: u32 = 2048;
 /// A material texture's side (texels; three-mats.js libTextures' default size) and its mip levels.
 pub const TEX_SIZE: u32 = 256;
 const TEX_MIPS: u32 = 9;
-/// Layers of the material texture array: the library's textured materials (30), then imported pictures (ModelCraft `img:` paints).
+/// Layers of the material texture array: the library's textured materials (30) and a scene's own layers (a map drape).
 pub const TEX_LAYERS: u32 = 64;
+/// A vertex's texture layer from here on is a picture (ModelCraft `img:` paints): layer `PIC_LAYER0 + k` of the
+/// picture array (made per scene at the size its pictures need, see [`PicArray`]).
+pub const PIC_LAYER0: u32 = 4096;
+/// Most pictures one scene shows as textures: WebGPU's default maxTextureArrayLayers, so the web build has them too.
+pub const PIC_MAX_LAYERS: u32 = 256;
+
+/// The picture texture array: `layers` squares of `side` texels (with mips), Rgba8Unorm as the material textures.
+/// Made again when a scene needs more layers or another size (0.5 gives each picture its own texture at its size; one
+/// array per scene keeps the shaders' single texture lookup).
+#[derive(Debug)]
+pub struct PicArray {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub side: u32,
+    pub layers: u32,
+}
+
+impl PicArray {
+    /// An array of `layers` (1 … PIC_MAX_LAYERS) squares of `side` (a power of two, 4 … 2048) texels.
+    pub fn new(device: &wgpu::Device, side: u32, layers: u32) -> PicArray {
+        let side = side.clamp(4, 2048).next_power_of_two();
+        let layers = layers.clamp(1, PIC_MAX_LAYERS);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("cc3 pictures"),
+            size: wgpu::Extent3d { width: side, height: side, depth_or_array_layers: layers },
+            mip_level_count: side.ilog2() + 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture
+            .create_view(&wgpu::TextureViewDescriptor { dimension: Some(wgpu::TextureViewDimension::D2Array), ..Default::default() });
+        PicArray { texture, view, side, layers }
+    }
+    /// Picture `k` (side² RGBA, rows from v = 0) into its layer, with its mips.
+    pub fn set(&self, queue: &wgpu::Queue, k: u32, rgba: &[u8]) {
+        write_layer(queue, &self.texture, self.side, self.layers, self.side.ilog2() + 1, k, rgba);
+    }
+}
 
 impl Default for Style3 {
     fn default() -> Self {
@@ -540,6 +581,12 @@ pub struct Renderer3 {
     shadow_bind: wgpu::BindGroup,
     /// the material textures: one layer of TEX_SIZE² (with mips) per library material
     textures: wgpu::Texture,
+    /// the scene's pictures, and what the shadow bind group is made again from when they change
+    pictures: PicArray,
+    sbgl: wgpu::BindGroupLayout,
+    shadow_sampler: wgpu::Sampler,
+    tex_view: wgpu::TextureView,
+    tex_sampler: wgpu::Sampler,
 }
 
 impl std::fmt::Debug for Renderer3 {
@@ -688,6 +735,16 @@ impl Renderer3 {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         // material textures: Rgba8Unorm (the texel bytes read as the vertex colours' bytes are), repeating, mipmapped
@@ -731,16 +788,8 @@ impl Renderer3 {
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
-        let shadow_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("cc3 shadow map"),
-            layout: &sbgl,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&shadow_view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&shadow_sampler) },
-                wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&tex_view) },
-                wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&tex_sampler) },
-            ],
-        });
+        let pictures = PicArray::new(device, 4, 1);
+        let shadow_bind = shadow_group(device, &sbgl, &shadow_view, &shadow_sampler, &tex_view, &tex_sampler, &pictures.view);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("cc3"),
             bind_group_layouts: &[Some(&bgl), Some(&sbgl)],
@@ -930,7 +979,49 @@ impl Renderer3 {
             multiview_mask: None,
             cache: None,
         });
-        Renderer3 { face, face_xray, edge, edge_col, shadow, ground, frame, bind, shadow_view, shadow_bind, textures }
+        Renderer3 {
+            face,
+            face_xray,
+            edge,
+            edge_col,
+            shadow,
+            ground,
+            frame,
+            bind,
+            shadow_view,
+            shadow_bind,
+            textures,
+            pictures,
+            sbgl,
+            shadow_sampler,
+            tex_view,
+            tex_sampler,
+        }
+    }
+
+    /// A picture array of `layers` squares of `side` texels for the scene's pictures (made again only when it changes)
+    /// → true when it was made again: every picture must be put in again.
+    pub fn ensure_pictures(&mut self, device: &wgpu::Device, side: u32, layers: u32) -> bool {
+        let want = PicArray::new_size(side, layers);
+        if (self.pictures.side, self.pictures.layers) == want {
+            return false;
+        }
+        self.pictures = PicArray::new(device, want.0, want.1);
+        self.shadow_bind = shadow_group(
+            device,
+            &self.sbgl,
+            &self.shadow_view,
+            &self.shadow_sampler,
+            &self.tex_view,
+            &self.tex_sampler,
+            &self.pictures.view,
+        );
+        true
+    }
+
+    /// Picture `k` (side² RGBA of the array [`Renderer3::ensure_pictures`] made) into its layer.
+    pub fn set_picture(&self, queue: &wgpu::Queue, k: u32, rgba: &[u8]) {
+        self.pictures.set(queue, k, rgba);
     }
 
     /// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
@@ -1248,15 +1339,62 @@ impl Blit {
     }
 }
 
+/// The shadow map, the material textures and the pictures, as the main pass's group 1.
+fn shadow_group(
+    device: &wgpu::Device,
+    sbgl: &wgpu::BindGroupLayout,
+    shadow_view: &wgpu::TextureView,
+    shadow_sampler: &wgpu::Sampler,
+    tex_view: &wgpu::TextureView,
+    tex_sampler: &wgpu::Sampler,
+    pic_view: &wgpu::TextureView,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("cc3 shadow map"),
+        layout: sbgl,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(shadow_view) },
+            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(shadow_sampler) },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(tex_view) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(tex_sampler) },
+            wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(pic_view) },
+        ],
+    })
+}
+
+impl PicArray {
+    /// The (side, layers) [`PicArray::new`] makes of these.
+    pub fn new_size(side: u32, layers: u32) -> (u32, u32) {
+        (side.clamp(4, 2048).next_power_of_two(), layers.clamp(1, PIC_MAX_LAYERS))
+    }
+}
+
+/// The side of a scene's picture layers for `n` pictures: 1024 texels for a few, 512 up to 48, else 256 — the array
+/// stays within 64 MB (bar the 256-texel floor: 256 pictures take 89 MB), as WebGPU in a browser has room for.
+pub fn picture_side(n: usize) -> u32 {
+    if n <= 12 {
+        1024
+    } else if n <= 48 {
+        512
+    } else {
+        256
+    }
+}
+
 /// Put a material texture (TEX_SIZE² RGBA, rows from v = 0) into layer `layer`, with its mips (2 × 2 averages).
 pub fn write_texture_layer(queue: &wgpu::Queue, textures: &wgpu::Texture, layer: u32, rgba: &[u8]) {
-    let n = TEX_SIZE as usize;
-    if layer >= TEX_LAYERS || rgba.len() != n * n * 4 {
+    write_layer(queue, textures, TEX_SIZE, TEX_LAYERS, TEX_MIPS, layer, rgba);
+}
+
+/// One layer (side² RGBA) of an array of `layers` with `mips` levels, its mips made by 2 × 2 averages.
+pub fn write_layer(queue: &wgpu::Queue, textures: &wgpu::Texture, side_px: u32, layers: u32, mips: u32, layer: u32, rgba: &[u8]) {
+    let n = side_px as usize;
+    if layer >= layers || rgba.len() != n * n * 4 {
         return;
     }
     let mut level = rgba.to_vec();
     let mut side = n;
-    for mip in 0..TEX_MIPS {
+    for mip in 0..mips {
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: textures,

@@ -50,8 +50,10 @@ pub struct JobInput {
     pub looks: Vec<Vec<[u8; 4]>>,
     pub instances: Vec<Instance3>,
     pub origin: [f64; 3],
-    /// imported pictures: (layer, key, TEX_SIZE² RGBA)
+    /// imported pictures: (layer of the picture array, key, pic_side² RGBA)
     pub images: Vec<(u32, u64, Arc<Vec<u8>>)>,
+    /// the side of the picture layers (texels)
+    pub pic_side: u32,
 }
 
 /// A render under way, shared by the dialog and the GPU callback.
@@ -146,7 +148,7 @@ impl egui_wgpu::CallbackTrait for StillCallback {
                         gcol,
                     ));
                     let scene = PtScene::build(&inp.meshes, &inp.looks, &inp.instances, inp.origin, st.clip, ground);
-                    Gpu::Hq(Box::new(PtRenderer::new(device, st.w, st.h, &scene)))
+                    Gpu::Hq(Box::new(PtRenderer::new(device, st.w, st.h, &scene, (inp.pic_side, inp.images.len() as u32))))
                 } else {
                     let meshes: Vec<StillMesh> = inp
                         .meshes
@@ -154,7 +156,15 @@ impl egui_wgpu::CallbackTrait for StillCallback {
                         .enumerate()
                         .map(|(k, m)| StillMesh::upload(device, m, inp.looks.get(k).map_or(&[][..], |v| v.as_slice())))
                         .collect();
-                    Gpu::Fast(Box::new(StillRenderer::new(device, inp.still.w, inp.still.h, meshes, &inp.instances, inp.origin)))
+                    Gpu::Fast(Box::new(StillRenderer::new(
+                        device,
+                        inp.still.w,
+                        inp.still.h,
+                        meshes,
+                        &inp.instances,
+                        inp.origin,
+                        (inp.pic_side, inp.images.len() as u32),
+                    )))
                 };
                 // the material textures the scene uses
                 let mut loaded = 0u64;
@@ -179,8 +189,8 @@ impl egui_wgpu::CallbackTrait for StillCallback {
                 // imported pictures
                 for (layer, _, px) in &inp.images {
                     match &r {
-                        Gpu::Fast(x) => x.set_texture(queue, *layer, px),
-                        Gpu::Hq(x) => x.set_texture(queue, *layer, px),
+                        Gpu::Fast(x) => x.set_picture(queue, *layer, px),
+                        Gpu::Hq(x) => x.set_picture(queue, *layer, px),
                     }
                 }
                 slot.r = Some((r, inp.still));
@@ -411,7 +421,7 @@ impl ModelView {
             lamps,
         };
         let origin = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
-        Some(JobInput { still, meshes, looks: mlooks, instances, origin, images: imgs.layers() })
+        Some(JobInput { still, meshes, looks: mlooks, instances, origin, images: imgs.layers(), pic_side: imgs.side })
     }
 
     /// The render actions; None when `name` is not one of them.

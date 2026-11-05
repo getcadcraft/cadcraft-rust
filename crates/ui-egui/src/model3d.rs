@@ -34,10 +34,8 @@ fn paint_rgba(c: &str) -> Option<[u8; 4]> {
     hex_rgba(&hex)
 }
 
-/// The texture array's layers for imported pictures (`img:` paints): after the library materials' layers.
-pub const IMG_LAYER0: usize = cc_m3d_tools::matlib::TEXTURED.len();
-
-/// One imported picture as a texture layer: its image id, a key of its data, its pixels (TEX_SIZE², rows from v = 0).
+/// One imported picture as a texture layer: its image id, a key of its data (and the layer's size), its pixels (the
+/// scene's picture side², rows from v = 0).
 #[derive(Clone, Debug)]
 pub struct ImgTex {
     pub id: String,
@@ -45,20 +43,21 @@ pub struct ImgTex {
     pub rgba: std::sync::Arc<Vec<u8>>,
 }
 
-/// The pictures a scene shows as textures, in layer order from [`IMG_LAYER0`].
+/// The pictures a scene shows as textures, in the picture array's layer order, and the layers' side (texels).
 #[derive(Clone, Debug, Default)]
 pub struct ImgLayers {
     pub list: Vec<ImgTex>,
+    pub side: u32,
 }
 
 impl ImgLayers {
-    /// The layer of an image id, if it has one.
+    /// The vertex layer of an image id (`mesh3d::PIC_LAYER0` + its layer in the picture array), if it has one.
     pub fn layer(&self, id: &str) -> Option<f32> {
-        self.list.iter().position(|t| t.id == id).map(|k| (IMG_LAYER0 + k) as f32)
+        self.list.iter().position(|t| t.id == id).map(|k| (cc_render::mesh3d::PIC_LAYER0 as usize + k) as f32)
     }
-    /// (layer, key, pixels) for the renderers.
+    /// (picture array layer, key, pixels) for the renderers.
     pub fn layers(&self) -> Vec<(u32, u64, std::sync::Arc<Vec<u8>>)> {
-        self.list.iter().enumerate().map(|(k, t)| ((IMG_LAYER0 + k) as u32, t.key, t.rgba.clone())).collect()
+        self.list.iter().enumerate().map(|(k, t)| (k as u32, t.key, t.rgba.clone())).collect()
     }
 }
 
@@ -120,10 +119,15 @@ impl ImgCache {
     }
 }
 
-/// A picture (data URL parts) as a texture layer.
-fn decode_picture(mime: &str, data: &str) -> Px {
+/// A picture (data URL parts) as a texture layer of `side` texels.
+fn decode_picture(mime: &str, data: &str, side: u32) -> Px {
     let url = format!("data:{mime};base64,{data}");
-    cc_io_markup::picture::decode_rgba(&url).and_then(|(w, h, p)| picture_layer(w, h, &p)).map(std::sync::Arc::new)
+    cc_io_markup::picture::decode_rgba(&url).and_then(|(w, h, p)| picture_layer_at(w, h, &p, side as usize)).map(std::sync::Arc::new)
+}
+
+/// A picture's data key at a layer size (a picture decoded for another size is decoded again).
+fn layer_key(im: &cc_m3d::model::Image, side: u32) -> u64 {
+    data_key(im).rotate_left(11) ^ u64::from(side)
 }
 
 fn data_key(im: &cc_m3d::model::Image) -> u64 {
@@ -136,13 +140,21 @@ fn data_key(im: &cc_m3d::model::Image) -> u64 {
     h.finish()
 }
 
-/// A picture's pixels resampled to the texture layer's square (box filter), rows flipped so v = 0 is the bottom row,
-/// as three.js uploads an Image (flipY).
+/// A picture's pixels resampled to a 256² layer ([`picture_layer_at`]).
 pub fn picture_layer(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
-    let n = cc_render::mesh3d::TEX_SIZE as usize;
+    picture_layer_at(w, h, rgba, cc_render::mesh3d::TEX_SIZE as usize)
+}
+
+/// A picture's pixels resampled to an n² layer, rows flipped so v = 0 is the bottom row, as three.js uploads an Image
+/// (flipY): a box filter where the picture is bigger than the layer, along an axis where it is smaller the picture's
+/// texels interpolated (wrapping round, as 0.5's RepeatWrapping texture is magnified with LinearFilter).
+pub fn picture_layer_at(w: u32, h: u32, rgba: &[u8], n: usize) -> Option<Vec<u8>> {
     let (w, h) = (w as usize, h as usize);
-    if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+    if w == 0 || h == 0 || n == 0 || rgba.len() < w * h * 4 {
         return None;
+    }
+    if w < n || h < n {
+        return Some(resample_up(w, h, rgba, n));
     }
     let mut out = vec![0u8; n * n * 4];
     // the box of picture pixels under each texel, summed a row slice at a time (S.11: the same sums as one pixel at a
@@ -172,6 +184,61 @@ pub fn picture_layer(w: u32, h: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// [`picture_layer_at`] when the picture is smaller than the layer along an axis: separable, a box along an axis it
+/// is bigger on, linear (wrapping) along one it is smaller on; rows flipped.
+fn resample_up(w: usize, h: usize, rgba: &[u8], n: usize) -> Vec<u8> {
+    // the weights of each output texel along an axis of `len` source texels: (source index, weight)
+    let taps = |len: usize| -> Vec<Vec<(usize, f32)>> {
+        (0..n)
+            .map(|t| {
+                if len >= n {
+                    let (a, b) = (t * len / n, ((t + 1) * len).div_ceil(n).max(t * len / n + 1).min(len));
+                    let k = 1.0 / (b - a) as f32;
+                    (a..b).map(|i| (i, k)).collect()
+                } else {
+                    let x = (t as f32 + 0.5) * len as f32 / n as f32 - 0.5;
+                    let f = x.floor();
+                    let fr = x - f;
+                    let i0 = (f as i64).rem_euclid(len as i64) as usize;
+                    let i1 = (i0 + 1) % len;
+                    vec![(i0, 1.0 - fr), (i1, fr)]
+                }
+            })
+            .collect()
+    };
+    let (tx, ty) = (taps(w), taps(h));
+    // along x first: h rows of n texels (f32, RGBA)
+    let mut mid = vec![0f32; h * n * 4];
+    for y in 0..h {
+        for (x, t) in tx.iter().enumerate() {
+            for &(i, k) in t {
+                for c in 0..4 {
+                    if let (Some(o), Some(v)) = (mid.get_mut((y * n + x) * 4 + c), rgba.get((y * w + i) * 4 + c)) {
+                        *o += k * f32::from(*v);
+                    }
+                }
+            }
+        }
+    }
+    let mut out = vec![0u8; n * n * 4];
+    for (oy, t) in ty.iter().enumerate() {
+        // texel row oy (v = oy / n) from the picture's rows counted from the bottom
+        let row = n - 1 - oy;
+        for x in 0..n {
+            for c in 0..4 {
+                let mut v = 0f32;
+                for &(i, k) in t {
+                    v += k * mid.get((i * n + x) * 4 + c).copied().unwrap_or(0.0);
+                }
+                if let Some(o) = out.get_mut((row * n + x) * 4 + c) {
+                    *o = v.round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// The pictures the shown model paints with (faces and placements), first seen first, each decoded once (`cache`);
 /// as many as the texture array has room for (the rest show their average colour).
 pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
@@ -195,7 +262,8 @@ pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
             see(i.color.as_deref());
         }
     }
-    let room = (cc_render::mesh3d::TEX_LAYERS as usize).saturating_sub(IMG_LAYER0);
+    let room = cc_render::mesh3d::PIC_MAX_LAYERS as usize;
+    let side = cc_render::mesh3d::picture_side(ids.len().min(room));
     cache.collect();
     let mut list = Vec::new();
     let mut next = 0usize;
@@ -209,7 +277,7 @@ pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
         next = next.saturating_add(batch.len().max(1));
         let todo: Vec<(&String, u64, &cc_m3d::model::Image)> = batch
             .iter()
-            .filter_map(|id| model.images.get(id).map(|im| (id, data_key(im), im)))
+            .filter_map(|id| model.images.get(id).map(|im| (id, layer_key(im, side), im)))
             .filter(|(id, key, _)| cache.get(id).is_none_or(|(k, _)| k != key))
             .collect();
         #[cfg(not(target_arch = "wasm32"))]
@@ -221,26 +289,26 @@ pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
                 let (id, key, mime, data, inbox) = ((*id).clone(), *key, im.mime.clone(), im.data.clone(), cache.inbox.clone());
                 rayon::spawn(move || {
                     // a picture is outside input: a panic in its decoder leaves it without a layer, not the app dead
-                    let px = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_picture(&mime, &data))).unwrap_or(None);
+                    let px = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_picture(&mime, &data, side))).unwrap_or(None);
                     inbox.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id, key, px));
                 });
             }
         } else {
             use rayon::prelude::*;
             let done: Vec<(String, u64, Px)> =
-                todo.par_iter().map(|(id, key, im)| ((*id).clone(), *key, decode_picture(&im.mime, &im.data))).collect();
+                todo.par_iter().map(|(id, key, im)| ((*id).clone(), *key, decode_picture(&im.mime, &im.data, side))).collect();
             for (id, key, px) in done {
                 cache.done.insert(id, (key, px));
             }
         }
         #[cfg(target_arch = "wasm32")]
         for (id, key, im) in &todo {
-            let px = decode_picture(&im.mime, &im.data);
+            let px = decode_picture(&im.mime, &im.data, side);
             cache.done.insert((*id).clone(), (*key, px));
         }
         for id in batch {
             let Some(im) = model.images.get(id) else { continue };
-            let key = data_key(im);
+            let key = layer_key(im, side);
             if let Some((k, Some(px))) = cache.get(id)
                 && *k == key
             {
@@ -250,7 +318,7 @@ pub fn img_layers(model: &Model, cache: &mut ImgCache) -> ImgLayers {
             }
         }
     }
-    ImgLayers { list }
+    ImgLayers { list, side }
 }
 
 fn grow(lo: &mut [f64; 3], hi: &mut [f64; 3], p: [f64; 3]) {
@@ -406,6 +474,7 @@ pub fn scene_of(model: &Model, id: u64, dark: bool, cache: &mut ImgCache) -> Sce
     }
     let mut s = Scene3D::new(id, meshes, instances, lo, hi);
     s.images = imgs.layers();
+    s.pic_side = imgs.side;
     s
 }
 
@@ -501,7 +570,7 @@ mod tests {
             out
         }
         let mut seed = 0x9e37_79b9u32;
-        for (w, h) in [(1, 1), (3, 700), (256, 256), (255, 257), (1000, 333), (513, 1024), (40, 9)] {
+        for (w, h) in [(256, 256), (1000, 333), (513, 1024), (300, 257)] {
             let px: Vec<u8> = (0..w * h * 4)
                 .map(|_| {
                     seed ^= seed << 13;
@@ -513,6 +582,94 @@ mod tests {
             assert_eq!(picture_layer(w, h, &px).unwrap(), reference(w, h, &px), "{w} x {h}");
         }
         assert!(picture_layer(4, 4, &[0; 10]).is_none());
+    }
+
+    /// A model of `n` squares in a row, each painted with a picture of its own (a numbered colour tile).
+    pub(crate) fn pictures_model(n: usize) -> Model {
+        let mut model = Model::new();
+        let _ = model.change("Pictures", |m: &mut Model| {
+            for k in 0..n {
+                let (w, h) = (96u32, 64u32);
+                let hue = (k * 37 % 360) as f32;
+                let px: Vec<u8> = (0..w * h)
+                    .flat_map(|i| {
+                        let (x, y) = (i % w, i / w);
+                        let band = ((x / 12 + y / 12) % 2) as f32;
+                        let r = (127.0 + 120.0 * (hue.to_radians()).cos() * (0.6 + 0.4 * band)) as u8;
+                        let g = (127.0 + 120.0 * ((hue + 120.0).to_radians()).cos()) as u8;
+                        let b = (127.0 + 120.0 * ((hue + 240.0).to_radians()).cos()) as u8;
+                        // a frame round the picture, and a dot that moves with k
+                        let edge = x < 3 || y < 3 || x >= w - 3 || y >= h - 3;
+                        let dot = (x as i32 - (10 + (k as i32 * 7) % 76)).pow(2) + (y as i32 - 32).pow(2) < 49;
+                        if edge || dot { [20, 20, 20, 255] } else { [r, g, b, 255] }
+                    })
+                    .collect();
+                let png = cc_io_markup::picture::encode_png(w, h, &px).ok_or(cc_m3d::error::Error::Type)?;
+                let id = format!("pic{k}");
+                m.images.set(
+                    id.clone(),
+                    cc_m3d::model::Image {
+                        name: format!("{id}.png"),
+                        mime: "image/png".into(),
+                        data: cc_markup::imagestamp::b64_encode(&png),
+                        avg: None,
+                    },
+                );
+                let d = m.root_mut().ok_or(cc_m3d::error::Error::Type)?;
+                let (x0, y0) = ((k % 10) as f64 * 1.6, (k / 10) as f64 * 1.2);
+                let pts = cc_m3d::ops::rect_pts([x0, y0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], 1.5, 1.0);
+                let before: Vec<f64> = d.faces.keys().collect();
+                cc_m3d::ops::add_polygon(d, &pts, None)?;
+                let paint = cc_m3d::paint::image_paint(&id, &[1.0 / 1.5, 0.0, 0.0, -x0 / 1.5], &[0.0, 1.0, 0.0, -y0], None);
+                let new: Vec<f64> = d.faces.keys().filter(|f| !before.contains(f)).collect();
+                for f in new {
+                    if let Some(face) = d.faces.get_mut(f) {
+                        face.color = Some(paint.clone());
+                    }
+                }
+            }
+            Ok(())
+        });
+        model
+    }
+
+    /// M6.37: more pictures than the 34 the shared array had room for, each its own layer of the picture array, the
+    /// layers larger when there are few (0.5 shows each picture at its own size); a small picture magnified smoothly.
+    /// `CC_PICTURES_OUT=<file>` keeps a 60-picture model (the screenshot's fixture).
+    #[test]
+    fn many_pictures_get_layers_of_their_own() {
+        for (n, side) in [(4usize, 1024u32), (40, 512), (60, 256), (300, 256)] {
+            let model = pictures_model(n);
+            let painted = model
+                .defs
+                .values()
+                .flat_map(|d| d.faces.iter().map(|(_, f)| f.color.clone()))
+                .flatten()
+                .filter(|c| cc_m3d::paint::is_image_paint(c))
+                .count();
+            assert_eq!((model.images.len(), painted), (n, n), "the model's pictures and painted faces");
+            let imgs = img_layers(&model, &mut ImgCache::new());
+            assert_eq!(imgs.list.len(), n.min(256), "{n} pictures");
+            assert_eq!(imgs.side, side);
+            assert!(imgs.list.iter().all(|t| t.rgba.len() == (side * side * 4) as usize));
+            assert_eq!(imgs.layer("pic0"), Some(cc_render::mesh3d::PIC_LAYER0 as f32));
+            assert_eq!(
+                imgs.layer(&format!("pic{}", n.min(256) - 1)),
+                Some((cc_render::mesh3d::PIC_LAYER0 as usize + n.min(256) - 1) as f32)
+            );
+            if n == 60
+                && let Ok(p) = std::env::var("CC_PICTURES_OUT")
+            {
+                std::fs::write(p, cc_m3d_files::export(&mut model.clone(), "modelcraft", &Default::default()).unwrap().0).unwrap();
+            }
+        }
+        // a 2 × 1 picture up to 8 texels: interpolated between its two texels (wrapping), rows flipped
+        let up = picture_layer_at(2, 1, &[0, 0, 0, 255, 200, 200, 200, 255], 8).unwrap();
+        let reds: Vec<u8> = (0..8).map(|x| up[x * 4]).collect();
+        assert_eq!(reds, vec![75, 25, 25, 75, 125, 175, 175, 125]);
+        // bigger than the layer both ways: the box filter as before
+        let big: Vec<u8> = (0..300 * 300 * 4).map(|i| (i % 251) as u8).collect();
+        assert_eq!(picture_layer_at(300, 300, &big, 256), picture_layer(300, 300, &big));
     }
 
     #[test]
