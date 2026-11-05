@@ -28,3 +28,7 @@ serde_json.workspace = true
 eframe = { version = "0.37", default-features = false, features = ["wgpu_no_default_features", "x11", "wayland"] }
 rfd = { version = "0.17", default-features = false, features = ["xdg-portal", "pollster", "wayland"] }
 egui = { version = "0.37", default-features = false }
+
+# eframe on our own event loop to read each key's physical code (numpad.rs); the version already in the tree, exactly
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+winit = { version = "=0.30.13", default-features = false }

@@ -2,6 +2,23 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — M6.38 ModelCraft numpad with Num Lock on (desktop), the loupe's marks cut at the disc (agent, work/closea)
+
+- apps/cadcraft numpad.rs: the window runs eframe on the app's own winit event loop (`eframe::create_native`,
+  `EventLoop::run_app`) and every event goes on to it unchanged; a key press whose `KeyEvent::location` is
+  `KeyLocation::Numpad` is reported first by its code (winit's `KeyCode` names are the W3C `KeyboardEvent.code`
+  ones: "Numpad7", "NumpadDecimal") to cc_ui_egui::keycode, which pairs it with egui's press as on the web. winit
+  is now a direct dependency of apps/cadcraft only (desktop only, `=0.30.13`, the version and features already in
+  the tree through eframe: nothing new built; THIRD_PARTY.md row; cargo deny green). Checked: the window starts and
+  runs on the new loop; no key-injection tool on this machine, so the numpad itself was pressed only through the
+  tests (`numpad::tests`, keycode's).
+- modelcraft.rs `mesh_in_disc`: the loupe's copied marks are tessellated as egui does and every triangle clipped to
+  the disc (a 256-sided polygon, under 0.01 px off the circle; uv and colour carried), as 0.5 clips its canvas —
+  no mark is dropped any more; test `loupe_tests`.
+- Parity: mcuidiff-modelfin `--edit --lights --play --terrain --starter --keys`: en and es-MX 1320 / 1320 status
+  lines, 1285 / 1285 files each; gate green (cargo deny: advisories, bans, licences, sources ok). Shot:
+  forks/lead/shots/closea/loupe-top.png (the label past the disc's edge is cut, not shown outside it).
+
 ## 2026-11-05 — M13.14 PartCraft's move / turn gizmo, M6.37 ModelCraft numpad views and touch loupe, M4.62 point cloud overscan (agent, work/closea)
 
 - M13.14 (gizmo3.rs, partgizmo.rs; cc-render lines3 `render_on_top`, view3d `top_lines`): asm-ui.js's gizmo — three.js's

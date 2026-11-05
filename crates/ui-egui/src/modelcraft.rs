@@ -741,23 +741,39 @@ impl ModelView {
         let fill = egui::Color32::from_rgb((bg[0] * 255.0) as u8, (bg[1] * 255.0) as u8, (bg[2] * 255.0) as u8);
         painter.circle_filled(c, R, fill);
         view3d::paint_loupe(ui, rect, f, c, R, ZOOM);
-        // the marks over the view, magnified with it (clipped to the loupe's square)
+        // the marks over the view, magnified with it and cut at the disc's edge (0.5 clips its canvas to the circle):
+        // tessellated as egui would, each triangle clipped to the disc
         let layer = ui.layer_id();
         let sq = Rect::from_center_size(c, egui::vec2(R * 2.0, R * 2.0)).intersect(rect);
         let tf = egui::emath::TSTransform::new(c.to_vec2() - f.to_vec2() * ZOOM, ZOOM);
+        let n = marks.1.0.saturating_sub(marks.0.0);
+        let copies: Vec<egui::epaint::ClippedShape> = ui.ctx().graphics_mut(|g| {
+            g.entry(layer)
+                .all_entries()
+                .skip(marks.0.0)
+                .take(n)
+                .filter(|s| !matches!(s.shape, egui::Shape::Callback(_)))
+                .cloned()
+                .map(|mut s| {
+                    s.transform(tf);
+                    s.clip_rect = s.clip_rect.intersect(sq);
+                    s
+                })
+                .collect()
+        });
+        let prims = ui.ctx().tessellate(copies, ui.ctx().pixels_per_point());
+        let meshes: Vec<(Rect, egui::Mesh)> = prims
+            .into_iter()
+            .filter_map(|p| match p.primitive {
+                egui::epaint::Primitive::Mesh(m) => Some((p.clip_rect, mesh_in_disc(&m, c, R))),
+                egui::epaint::Primitive::Callback(_) => None,
+            })
+            .filter(|(_, m)| !m.indices.is_empty())
+            .collect();
         ui.ctx().graphics_mut(|g| {
             let list = g.entry(layer);
-            let n = marks.1.0.saturating_sub(marks.0.0);
-            let copies: Vec<egui::epaint::ClippedShape> = list.all_entries().skip(marks.0.0).take(n).cloned().collect();
-            for mut s in copies {
-                if matches!(s.shape, egui::Shape::Callback(_)) {
-                    continue;
-                }
-                s.transform(tf);
-                let clip = s.clip_rect.intersect(sq);
-                for shape in in_disc(s.shape, c, R) {
-                    list.add(clip, shape);
-                }
+            for (clip, m) in meshes {
+                list.add(clip, egui::Shape::mesh(m));
             }
         });
         let ink = t.accent;
@@ -1492,48 +1508,100 @@ impl ModelView {
     }
 }
 
-/// What of a shape lies in a disc (the loupe's): lines cut at its edge, anything else kept only when it fits inside.
-fn in_disc(shape: egui::Shape, c: Pos2, r: f32) -> Vec<egui::Shape> {
-    let inside = |p: Pos2| p.distance(c) <= r;
-    let cut = |a: Pos2, b: Pos2| -> Option<(Pos2, Pos2)> {
-        // the part of a→b within the disc: |a + t (b − a) − c| ≤ r
-        let d = b - a;
-        let f = a - c;
-        let (qa, qb, qc) = (d.dot(d), 2.0 * f.dot(d), f.dot(f) - r * r);
-        if qa <= f32::EPSILON {
-            return inside(a).then_some((a, b));
+/// A mesh cut at a disc (the loupe's edge): each triangle clipped to a 256-sided polygon round the circle (under
+/// 0.01 px from it at 64 px), texture coordinates and colours carried along.
+fn mesh_in_disc(m: &egui::Mesh, c: Pos2, r: f32) -> egui::Mesh {
+    use egui::epaint::Vertex;
+    const N: usize = 256;
+    let step = std::f32::consts::TAU / N as f32;
+    // the polygon round the circle: inside an edge when n·(p − c) ≤ r
+    let edges: Vec<egui::Vec2> = (0..N).map(|k| egui::Vec2::angled(step * k as f32)).collect();
+    let inner = r * (step / 2.0).cos();
+    let outer = r / (step / 2.0).cos();
+    let mix = |a: &Vertex, b: &Vertex, t: f32| -> Vertex {
+        let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round().clamp(0.0, 255.0) as u8;
+        Vertex {
+            pos: a.pos + (b.pos - a.pos) * t,
+            uv: a.uv + (b.uv - a.uv) * t,
+            color: egui::Color32::from_rgba_premultiplied(
+                ch(a.color.r(), b.color.r()),
+                ch(a.color.g(), b.color.g()),
+                ch(a.color.b(), b.color.b()),
+                ch(a.color.a(), b.color.a()),
+            ),
         }
-        let disc = qb * qb - 4.0 * qa * qc;
-        if disc < 0.0 {
-            return None;
-        }
-        let sq = disc.sqrt();
-        let (t0, t1) = (((-qb - sq) / (2.0 * qa)).max(0.0), ((-qb + sq) / (2.0 * qa)).min(1.0));
-        (t0 < t1).then(|| (a + d * t0, a + d * t1))
     };
-    match shape {
-        egui::Shape::LineSegment { points: [a, b], stroke } => {
-            cut(a, b).map(|(a, b)| egui::Shape::LineSegment { points: [a, b], stroke }).into_iter().collect()
+    let mut out = egui::Mesh::with_texture(m.texture_id);
+    for tri in m.indices.as_chunks::<3>().0 {
+        let Some(vs) = tri.iter().map(|i| m.vertices.get(*i as usize).copied()).collect::<Option<Vec<Vertex>>>() else { continue };
+        if vs.iter().all(|v| (v.pos - c).length() <= inner) {
+            let base = out.vertices.len() as u32;
+            out.vertices.extend(vs);
+            out.indices.extend_from_slice(&[base, base + 1, base + 2]);
+            continue;
         }
-        egui::Shape::Path(p) if !p.closed => p
-            .points
-            .windows(2)
-            .filter_map(|w| match w {
-                [a, b] => cut(*a, *b).map(|(a, b)| {
-                    let color = match &p.stroke.color {
-                        egui::epaint::ColorMode::Solid(c) => *c,
-                        egui::epaint::ColorMode::UV(_) => egui::Color32::GRAY,
-                    };
-                    egui::Shape::line_segment([a, b], egui::Stroke::new(p.stroke.width, color))
-                }),
-                _ => None,
+        // wholly beyond one side of the disc's square: nothing of it is inside
+        let beyond = |f: &dyn Fn(&Vertex) -> f32| vs.iter().all(|v| f(v) > outer);
+        if beyond(&|v| v.pos.x - c.x) || beyond(&|v| c.x - v.pos.x) || beyond(&|v| v.pos.y - c.y) || beyond(&|v| c.y - v.pos.y) {
+            continue;
+        }
+        let mut poly = vs;
+        for nrm in &edges {
+            if poly.len() < 3 {
+                break;
+            }
+            let side = |v: &Vertex| nrm.dot(v.pos - c) - r;
+            let mut next = Vec::with_capacity(poly.len() + 1);
+            for k in 0..poly.len() {
+                let (Some(a), Some(b)) = (poly.get(k), poly.get((k + 1) % poly.len())) else { continue };
+                let (sa, sb) = (side(a), side(b));
+                if sa <= 0.0 {
+                    next.push(*a);
+                }
+                if (sa <= 0.0) != (sb <= 0.0) {
+                    next.push(mix(a, b, sa / (sa - sb)));
+                }
+            }
+            poly = next;
+        }
+        if poly.len() >= 3 {
+            let base = out.vertices.len() as u32;
+            out.vertices.extend_from_slice(&poly);
+            for k in 1..(poly.len() as u32).saturating_sub(1) {
+                out.indices.extend_from_slice(&[base, base + k, base + k + 1]);
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod loupe_tests {
+    #[test]
+    fn marks_are_cut_at_the_disc() {
+        // a square 200 px across centred on the disc: what is left lies within the circle and covers nearly all of it
+        let mut m = egui::Mesh::default();
+        m.add_colored_rect(egui::Rect::from_center_size(egui::pos2(100.0, 100.0), egui::vec2(200.0, 200.0)), egui::Color32::RED);
+        let cut = super::mesh_in_disc(&m, egui::pos2(100.0, 100.0), 64.0);
+        assert!(cut.vertices.iter().all(|v| (v.pos - egui::pos2(100.0, 100.0)).length() <= 64.01));
+        let area: f32 = cut
+            .indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|t| {
+                let [a, b, c] = t.map(|i| cut.vertices[i as usize].pos);
+                ((b - a).x * (c - a).y - (b - a).y * (c - a).x).abs() / 2.0
             })
-            .collect(),
-        egui::Shape::Vec(v) => v.into_iter().flat_map(|s| in_disc(s, c, r)).collect(),
-        other => {
-            let b = other.visual_bounding_rect();
-            let fits = b.is_finite() && [b.left_top(), b.right_top(), b.left_bottom(), b.right_bottom()].into_iter().all(inside);
-            if fits { vec![other] } else { Vec::new() }
-        }
+            .sum();
+        let disc = std::f32::consts::PI * 64.0 * 64.0;
+        assert!((area - disc).abs() / disc < 0.001, "{area} vs {disc}");
+        // wholly outside: nothing; wholly inside: as it was
+        let mut far = egui::Mesh::default();
+        far.add_colored_rect(egui::Rect::from_min_size(egui::pos2(300.0, 300.0), egui::vec2(10.0, 10.0)), egui::Color32::RED);
+        assert!(super::mesh_in_disc(&far, egui::pos2(100.0, 100.0), 64.0).indices.is_empty());
+        let mut near = egui::Mesh::default();
+        near.add_colored_rect(egui::Rect::from_center_size(egui::pos2(100.0, 100.0), egui::vec2(10.0, 10.0)), egui::Color32::RED);
+        assert_eq!(super::mesh_in_disc(&near, egui::pos2(100.0, 100.0), 64.0).indices.len(), 6);
     }
 }

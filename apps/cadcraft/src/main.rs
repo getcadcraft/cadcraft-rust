@@ -10,6 +10,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod control;
+mod numpad;
 
 use cc_ui_egui::{ImportedFile, Services, UiApp};
 
@@ -427,7 +428,10 @@ fn main() -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
-    eframe::run_native(
+    // eframe on our own event loop, only to read each key's physical code (numpad.rs: the numpad's digits with Num
+    // Lock on, which egui reports as the number row's)
+    let event_loop = winit::event_loop::EventLoop::<eframe::UserEvent>::with_user_event().build()?;
+    let mut win = numpad::KeyCodes(eframe::create_native(
         "CadCraft (Rust test version)",
         options,
         Box::new(move |cc| {
@@ -481,5 +485,8 @@ fn main() -> eframe::Result {
             }
             Ok(Box::new(App { app, bench_exit: bench, control: channel.take() }))
         }),
-    )
+        &event_loop,
+    ));
+    event_loop.run_app(&mut win)?;
+    Ok(())
 }
