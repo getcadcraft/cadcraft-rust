@@ -1948,9 +1948,9 @@ mod tests {
         // b had no copy of its own: it pastes a's, in place, as one step
         b.tools.clip_seen.0 = f64::NEG_INFINITY;
         assert!(b.can_paste());
-        let n = arr(a.model.state.get("members")).len();
+        let n = a.model.state.list("members").len();
         b.act("paste-in-place");
-        assert_eq!(arr(b.model.state.get("members")).len(), n);
+        assert_eq!(b.model.state.list("members").len(), n);
         assert_eq!(b.model.undo_stack.len(), 1);
         // a damaged copy in the store: said once, nothing pasted, the window's own copy kept
         let mut c = DetailView::empty();
@@ -1959,7 +1959,7 @@ mod tests {
         c.act("paste");
         assert_eq!(c.message, t("app.paste.bad", &[("error", F::S(t0("clip.err.not-parts")))]));
         b.act("paste-in-place");
-        assert_eq!(arr(b.model.state.get("members")).len(), 2 * n, "b still has the copy it read");
+        assert_eq!(b.model.state.list("members").len(), 2 * n, "b still has the copy it read");
         // too big for the store (localStorage's quota): this window keeps it, the store forgets the old one
         store.set(CLIP_KEY, &"x".repeat(crate::SHARED_STORE_MAX + 1)).unwrap_err();
         drop(mem);
