@@ -186,7 +186,7 @@ pub struct Kiss {
 }
 
 pub fn kiss_file(
-    state: &Value,
+    state: &crate::store::State,
     built: &Built,
     marks: &Marks,
     metric: Option<bool>,

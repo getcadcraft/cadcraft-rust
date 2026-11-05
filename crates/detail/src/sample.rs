@@ -4,6 +4,7 @@
 
 use crate::i18n::{F, t, t0};
 use crate::js::Res;
+use crate::jv::JVal;
 use crate::model::{Model, grids_from_spacings, point_at};
 use serde_json::{Value, json};
 
@@ -16,7 +17,9 @@ pub fn sample_model(name: &str) -> Res<Model> {
         tx.set_name(Some(&Value::from(name)));
         tx.set_grids(Some(&grids_from_spacings("1 2 3", "6000 6000", "A B", "7000")?))?;
         tx.set_levels(Some(&json!([{ "name": l1, "z": 0 }, { "name": l2, "z": 4000 }])))?;
-        let at = |s: &Value, gy: &str, gx: &str, lv: &str| point_at(s, &Value::from(gy), &Value::from(gx), &Value::from(lv)).map(|p| json!(p));
+        let at = |s: &crate::store::State, gy: &str, gx: &str, lv: &str| {
+            point_at(s, &Value::from(gy), &Value::from(gx), &Value::from(lv)).map(|p| json!(p))
+        };
         let mut cols = Vec::new();
         for gy in ["A", "B"] {
             for gx in ["1", "2", "3"] {
@@ -35,14 +38,14 @@ pub fn sample_model(name: &str) -> Res<Model> {
         tx.add_member(Some(&json!({ "type": "brace", "profile": "HSS4x4x1/4", "start": p, "end": q })))?;
         for id in &beams {
             for end in ["start", "end"] {
-                let members = crate::js::arr(tx.s.get("members")).to_vec();
-                let Some(m) = members.iter().find(|x| x.get("id") == Some(id)) else { continue };
+                let members = tx.s.list("members");
+                let Some(m) = members.iter().find(|x| x.get("id").and_then(JVal::as_str) == id.as_str()) else { continue };
                 let pe = crate::js::p3_of(m.get(end));
                 let col = members.iter().find(|c| {
                     let cs = crate::js::p3_of(c.get("start"));
-                    c.get("type").and_then(Value::as_str) == Some("column") && (cs[0] - pe[0]).abs() < 1.0 && (cs[1] - pe[1]).abs() < 1.0
+                    c.get("type").and_then(JVal::as_str) == Some("column") && (cs[0] - pe[0]).abs() < 1.0 && (cs[1] - pe[1]).abs() < 1.0
                 });
-                let colid = col.and_then(|c| c.get("id")).cloned().unwrap_or(Value::Null);
+                let colid = col.and_then(|c| c.get("id")).map_or(Value::Null, JVal::to_value);
                 tx.add_connection(Some(&json!({ "type": "endplate", "beam": id, "end": end, "column": colid })))?;
             }
         }
@@ -50,8 +53,8 @@ pub fn sample_model(name: &str) -> Res<Model> {
             tx.add_connection(Some(&json!({ "type": "baseplate", "column": id })))?;
         }
         for id in &cols {
-            let members = crate::js::arr(tx.s.get("members")).to_vec();
-            let Some(c) = members.iter().find(|x| x.get("id") == Some(id)) else { continue };
+            let members = tx.s.list("members");
+            let Some(c) = members.iter().find(|x| x.get("id").and_then(JVal::as_str) == id.as_str()) else { continue };
             let s = crate::js::p3_of(c.get("start"));
             tx.add_footing(Some(&json!({ "x": s[0], "y": s[1], "top": s[2], "L": 2000, "B": 2000, "H": 600, "starters": { "on": false } })))?;
         }

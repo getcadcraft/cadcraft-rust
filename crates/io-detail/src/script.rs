@@ -23,7 +23,7 @@ fn ifc_text(reg: &Registry, c: &Call) -> Result<String, String> {
     let b: &Built = built_arg(reg, c.raw(1))?;
     let m = get::<Marks>(reg, c.raw(2).and_then(Value::as_str))?;
     let o = c.arg(3);
-    let footings = arr(st.get("footings")).to_vec();
+    let footings = st.list("footings").to_vec();
     let fm = if opt(o, "footingMark").is_some_and(|v| truthy(Some(v))) {
         Some(mark_footings(&footings, opt(o, "perPhase").is_some_and(|v| truthy(Some(v)))))
     } else {

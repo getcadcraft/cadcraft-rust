@@ -7,9 +7,9 @@ use cc_detail::model::read_model;
 use libfuzzer_sys::fuzz_target;
 use serde_json::Value;
 
-fn show(r: Result<(Value, Vec<String>), String>) -> String {
+fn show(r: Result<(cc_detail::store::State, Vec<String>), String>) -> String {
     match r {
-        Ok((s, w)) => format!("ok {} {}", cc_detail::js::stringify(&s), w.join("|")),
+        Ok((s, w)) => format!("ok {} {}", s.stringify(), w.join("|")),
         Err(e) => format!("err {e}"),
     }
 }

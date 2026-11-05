@@ -1,9 +1,11 @@
-//! Typed views of the stored model (`state`, a JSON value: model.js keeps it as plain data and so does the port, so
-//! the untrusted-file checks, the undo snapshots and the saved file are the JS's own). The derived modules (build,
+//! Typed views of the stored model (the [`State`]'s records: model.js keeps them as plain data and so does the port,
+//! so the untrusted-file checks, the undo snapshots and the saved file are the JS's own). The derived modules (build,
 //! connections, marks, drawings …) read the state once through these views: members, holes, copes, connections.
 
 use crate::geom::V3;
 use crate::js::{f, or, p3_of, s};
+use crate::jv::{JObj, JVal, Jsv};
+use crate::store::State;
 use serde_json::{Map, Value};
 
 /// A stored hole: `{ face, x, y, d, id }`.
@@ -26,14 +28,14 @@ pub struct Cut {
     pub depth: f64,
 }
 impl Cut {
-    pub fn from_value(v: &Value) -> Cut {
+    pub fn from_value<T: Jsv>(v: &T) -> Cut {
         Cut {
-            id: v.get("id").and_then(Value::as_str).map(str::to_string),
-            kind: s(v.get("kind")).into(),
-            end: s(v.get("end")).into(),
-            side: s(v.get("side")).into(),
-            length: f(v.get("length")),
-            depth: f(v.get("depth")),
+            id: v.js_get("id").and_then(Jsv::js_str).map(str::to_string),
+            kind: s(v.js_get("kind")).into(),
+            end: s(v.js_get("end")).into(),
+            side: s(v.js_get("side")).into(),
+            length: f(v.js_get("length")),
+            depth: f(v.js_get("depth")),
         }
     }
     /// `{ ...c }` in the stored key order.
@@ -69,29 +71,29 @@ pub struct Mem {
     pub phase: f64,
 }
 impl Mem {
-    pub fn from_value(v: &Value) -> Mem {
+    pub fn from_value<T: Jsv>(v: &T) -> Mem {
         Mem {
-            id: s(v.get("id")).into(),
-            kind: s(v.get("type")).into(),
-            profile: s(v.get("profile")).into(),
-            material: s(v.get("material")).into(),
-            start: p3_of(v.get("start")),
-            end: p3_of(v.get("end")),
-            rotation: f(v.get("rotation")),
-            position: s(v.get("position")).into(),
-            name: s(v.get("name")).into(),
-            cuts: crate::js::arr(v.get("cuts")).iter().map(Cut::from_value).collect(),
-            holes: crate::js::arr(v.get("holes"))
+            id: s(v.js_get("id")).into(),
+            kind: s(v.js_get("type")).into(),
+            profile: s(v.js_get("profile")).into(),
+            material: s(v.js_get("material")).into(),
+            start: p3_of(v.js_get("start")),
+            end: p3_of(v.js_get("end")),
+            rotation: f(v.js_get("rotation")),
+            position: s(v.js_get("position")).into(),
+            name: s(v.js_get("name")).into(),
+            cuts: crate::js::arr(v.js_get("cuts")).iter().map(Cut::from_value).collect(),
+            holes: crate::js::arr(v.js_get("holes"))
                 .iter()
                 .map(|h| HoleS {
-                    id: h.get("id").and_then(Value::as_str).map(str::to_string),
-                    face: s(h.get("face")).into(),
-                    x: f(h.get("x")),
-                    y: f(h.get("y")),
-                    d: f(h.get("d")),
+                    id: h.js_get("id").and_then(Jsv::js_str).map(str::to_string),
+                    face: s(h.js_get("face")).into(),
+                    x: f(h.js_get("x")),
+                    y: f(h.js_get("y")),
+                    d: f(h.js_get("d")),
                 })
                 .collect(),
-            phase: f(v.get("phase")),
+            phase: f(v.js_get("phase")),
         }
     }
     /// `m[end]` ('start' | anything else = 'end').
@@ -123,30 +125,20 @@ pub struct Conn {
 /// A connection's params as stored, for lookups by name (S.15: the names the connection kinds' defaults use are not
 /// copied, only pointed at; a build used to copy every connection's params map).
 #[derive(Clone, Debug, Default)]
-pub struct Params(Vec<(std::borrow::Cow<'static, str>, Value)>);
+pub struct Params(Vec<(crate::jv::JStr, JVal)>);
 impl Params {
-    /// The entries of a params object.
-    pub fn of(m: &Map<String, Value>) -> Params {
-        let names = param_name_index();
-        Params(
-            m.iter()
-                .map(|(k, v)| {
-                    let k = names.get(k.as_str()).map_or_else(|| k.clone().into(), |n| std::borrow::Cow::Borrowed(*n));
-                    (k, v.clone())
-                })
-                .collect(),
-        )
+    /// The entries of a params object (the record's words are static: nothing is copied but other text).
+    pub fn of(m: &JObj) -> Params {
+        Params(m.0.clone())
+    }
+    /// The entries of a params object given as JSON.
+    pub fn of_map(m: &Map<String, Value>) -> Params {
+        Params::of(&JObj::from_map(m))
     }
     /// `p[k]`.
-    pub fn get(&self, k: &str) -> Option<&Value> {
-        self.0.iter().find(|(n, _)| n == k).map(|(_, v)| v)
+    pub fn get(&self, k: &str) -> Option<&JVal> {
+        self.0.iter().find(|(n, _)| n.as_str() == k).map(|(_, v)| v)
     }
-}
-/// [`param_names`] by name.
-fn param_name_index() -> &'static std::collections::HashMap<&'static str, &'static str, cc_m3d::omap::FxBuild> {
-    static INDEX: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static str, cc_m3d::omap::FxBuild>> =
-        std::sync::OnceLock::new();
-    INDEX.get_or_init(|| param_names().iter().map(|n| (*n, *n)).collect())
 }
 /// Every param name of the connection kinds' defaults.
 pub(crate) fn param_names() -> &'static [&'static str] {
@@ -164,8 +156,12 @@ pub(crate) fn param_names() -> &'static [&'static str] {
     })
 }
 impl Conn {
-    pub fn from_value(v: &Value) -> Conn {
-        let o = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+    /// A stored connection as JSON (see [`Conn::from_value`]).
+    pub fn from_json(v: &Value) -> Conn {
+        Conn::from_value(&JVal::from_value(v))
+    }
+    pub fn from_value(v: &JVal) -> Conn {
+        let o = |k: &str| v.get(k).and_then(JVal::as_str).map(str::to_string);
         Conn {
             id: s(v.get("id")).into(),
             kind: s(v.get("type")).into(),
@@ -177,7 +173,7 @@ impl Conn {
             b: o("b"),
             brace: o("brace"),
             support: o("support"),
-            params: v.get("params").and_then(Value::as_object).map(Params::of).unwrap_or_default(),
+            params: v.get("params").and_then(JVal::as_object).map(Params::of).unwrap_or_default(),
         }
     }
     /// A numeric parameter (`p.k`; NaN when absent).
@@ -215,13 +211,13 @@ impl Conn {
 }
 
 /// `isBeamEnd(c)` of a stored value.
-pub fn is_beam_end_v(c: &Value) -> bool {
-    matches!(c.get("type").and_then(Value::as_str), Some("endplate" | "sheartab"))
+pub fn is_beam_end_v<T: Jsv>(c: &T) -> bool {
+    matches!(c.js_get("type").and_then(Jsv::js_str), Some("endplate" | "sheartab"))
 }
 /// `membersOf(c)` of a stored value (the ids as values; absent = `None`).
-pub fn members_of_v(c: &Value) -> Vec<Option<&Value>> {
-    let g = |k: &str| c.get(k);
-    match c.get("type").and_then(Value::as_str) {
+pub fn members_of_v<T: Jsv>(c: &T) -> Vec<Option<&T::Item>> {
+    let g = |k: &str| c.js_get(k);
+    match c.js_get("type").and_then(Jsv::js_str) {
         Some("splice") => vec![g("a"), g("b")],
         Some("gusset") => vec![g("support"), g("brace")],
         _ if is_beam_end_v(c) => vec![g("beam"), g("column")],
@@ -230,10 +226,10 @@ pub fn members_of_v(c: &Value) -> Vec<Option<&Value>> {
 }
 
 /// The members of a state.
-pub fn members(state: &Value) -> Vec<Mem> {
-    crate::js::arr(state.get("members")).iter().map(Mem::from_value).collect()
+pub fn members(state: &State) -> Vec<Mem> {
+    state.list("members").iter().map(Mem::from_value).collect()
 }
 /// The connections of a state.
-pub fn conns(state: &Value) -> Vec<Conn> {
-    crate::js::arr(state.get("connections")).iter().map(Conn::from_value).collect()
+pub fn conns(state: &State) -> Vec<Conn> {
+    state.list("connections").iter().map(Conn::from_value).collect()
 }

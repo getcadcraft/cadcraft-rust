@@ -53,7 +53,7 @@ impl AgentApp {
         if self.cache.as_ref().is_none_or(|c| c.0 != self.model.version) {
             let b = build(&self.model.state)?;
             let k = mark_parts(&b, 1.0, false);
-            let fm = mark_footings(arr(self.model.state.get("footings")), false);
+            let fm = mark_footings(self.model.state.list("footings"), false);
             self.cache = Some((self.model.version, b, k, fm));
         }
         Ok(())
@@ -93,7 +93,7 @@ fn count(keys: impl IntoIterator<Item = String>) -> Vec<Value> {
 /// `modelSummary(model, built, marks)`.
 pub fn model_summary(model: &Model, built: &Built, marks: &Marks) -> Value {
     let st = &model.state;
-    let len = |k: &str| arr(st.get(k)).len();
+    let len = |k: &str| if crate::store::LISTS.contains(&k) { st.list(k).len() } else { arr(st.get(k)).len() };
     json!({
         "name": st.get("name"), "unsaved": model.dirty(), "members": len("members"), "connections": len("connections"), "footings": len("footings"),
         "stairs": len("stairs"), "looseBolts": len("bolts"), "parts": built.parts.len(), "partMarks": marks.parts.len(), "assemblies": marks.assemblies.len(),
@@ -104,8 +104,8 @@ pub fn model_summary(model: &Model, built: &Built, marks: &Marks) -> Value {
 /// `describeModel(model)`.
 pub fn describe_model(model: &Model) -> Value {
     let st = &model.state;
-    let mut by_type: Vec<(String, Vec<&Value>)> = Vec::new();
-    for m in arr(st.get("members")) {
+    let mut by_type: Vec<(String, Vec<&crate::jv::JVal>)> = Vec::new();
+    for m in st.list("members") {
         let ty = string_of(m.get("type"));
         match by_type.iter_mut().find(|x| x.0 == ty) {
             Some(x) => x.1.push(m),
@@ -122,8 +122,8 @@ pub fn describe_model(model: &Model) -> Value {
         "levels": arr(st.get("levels")).iter().map(|l| json!({ "name": l.get("name"), "z": l.get("z") })).collect::<Vec<_>>(),
         "phases": arr(st.get("phases")).iter().map(|p| json!({ "n": p.get("n"), "name": p.get("name") })).collect::<Vec<_>>(),
         "members": by_type.iter().map(|(ty, list)| json!({ "type": ty, "count": list.len(), "profiles": count(list.iter().map(|m| string_of(m.get("profile")))) })).collect::<Vec<_>>(),
-        "connections": count(arr(st.get("connections")).iter().map(|c| string_of(c.get("type")))).into_iter().map(|x| json!({ "type": x.get("name"), "count": x.get("count") })).collect::<Vec<_>>(),
-        "footings": arr(st.get("footings")).len(),
+        "connections": count(st.list("connections").iter().map(|c| string_of(c.get("type")))).into_iter().map(|x| json!({ "type": x.get("name"), "count": x.get("count") })).collect::<Vec<_>>(),
+        "footings": st.list("footings").len(),
         "stairs": arr(st.get("stairs")).iter().map(|x| json!({ "id": x.get("id"), "foot": [x.get("x"), x.get("y"), x.get("z")], "rise": x.get("rise"), "width": x.get("width"), "direction": x.get("dir") })).collect::<Vec<_>>(),
     })
 }
@@ -285,18 +285,22 @@ pub fn tool_defs() -> Vec<ToolDef> {
     ]
 }
 
-fn ref_ok(st: &Value, r: &Value) -> bool {
+fn ref_ok(st: &crate::store::State, r: &Value) -> bool {
     let id = r.get("id");
     let key = match r.get("kind").and_then(Value::as_str) {
         Some("member") => "members",
         Some("conn") => "connections",
         Some("footing") => "footings",
-        _ => "stairs",
+        _ => return arr(st.get("stairs")).iter().any(|x| crate::model::strict_eq(x.get("id"), id)),
     };
-    arr(st.get(key)).iter().any(|x| crate::model::strict_eq(x.get("id"), id))
+    st.list(key).iter().any(|x| crate::model::strict_eq(x.get("id"), id))
 }
-fn find<'a>(st: &'a Value, key: &str, id: Option<&Value>) -> Option<&'a Value> {
-    arr(st.get(key)).iter().find(|x| crate::model::strict_eq(x.get("id"), id))
+/// The record or stair with the id, as JSON.
+fn find(st: &crate::store::State, key: &str, id: Option<&Value>) -> Option<Value> {
+    if key == "stairs" {
+        return arr(st.get(key)).iter().find(|x| crate::model::strict_eq(x.get("id"), id)).cloned();
+    }
+    st.list(key).iter().find(|x| crate::model::strict_eq(x.get("id"), id)).map(crate::jv::JVal::to_value)
 }
 
 impl AgentApp {
@@ -311,7 +315,7 @@ impl AgentApp {
         let ids = id.and_then(Value::as_str).unwrap_or("");
         match r.get("kind").and_then(Value::as_str) {
             Some("member") => {
-                let m = find(&st, "members", id).cloned().unwrap_or(Value::Null);
+                let m = find(&st, "members", id).unwrap_or(Value::Null);
                 o.insert("type".into(), m.get("type").cloned().unwrap_or(Value::Null));
                 o.insert("profile".into(), m.get("profile").cloned().unwrap_or(Value::Null));
                 o.insert("mark".into(), mk.part_mark(ids).filter(|x| !x.is_empty()).map_or(Value::Null, Value::from));
@@ -319,7 +323,7 @@ impl AgentApp {
                 o.insert("end".into(), m.get("end").cloned().unwrap_or(Value::Null));
             }
             Some("conn") => {
-                let c = find(&st, "connections", id).cloned().unwrap_or(Value::Null);
+                let c = find(&st, "connections", id).unwrap_or(Value::Null);
                 o.insert("type".into(), c.get("type").cloned().unwrap_or(Value::Null));
                 let ms: Vec<Value> = ["beam", "column", "a", "b", "brace", "support"]
                     .iter()
@@ -330,14 +334,14 @@ impl AgentApp {
                 o.insert("members".into(), Value::Array(ms));
             }
             Some("footing") => {
-                let f = find(&st, "footings", id).cloned().unwrap_or(Value::Null);
+                let f = find(&st, "footings", id).unwrap_or(Value::Null);
                 let mark = fm.iter().find(|(k, _)| k == ids).map(|(_, v)| v.clone()).filter(|x| !x.is_empty());
                 o.insert("mark".into(), mark.map_or(Value::Null, Value::from));
                 o.insert("center".into(), json!([f.get("x"), f.get("y"), f.get("top")]));
                 o.insert("size".into(), json!([f.get("L"), f.get("B"), f.get("H")]));
             }
             _ => {
-                let x = find(&st, "stairs", id).cloned().unwrap_or(Value::Null);
+                let x = find(&st, "stairs", id).unwrap_or(Value::Null);
                 o.insert("foot".into(), json!([x.get("x"), x.get("y"), x.get("z")]));
                 o.insert("rise".into(), x.get("rise").cloned().unwrap_or(Value::Null));
                 o.insert("width".into(), x.get("width").cloned().unwrap_or(Value::Null));
@@ -347,7 +351,7 @@ impl AgentApp {
     }
     fn by_mark(&mut self, mark: &Value) -> Res<Vec<Value>> {
         let want = string_of(Some(mark)).to_lowercase();
-        let st_members = arr(self.model.state.get("members")).to_vec();
+        let st_members = self.model.state.list("members").to_vec();
         let (_, _, mk, _) = {
             self.ensure()?;
             self.cached()?

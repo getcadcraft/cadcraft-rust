@@ -254,7 +254,7 @@ pub struct DetailView {
     /// the Live window is open
     pub live_window: bool,
     /// the footings the footing marks and the bending schedule were made from (they change less often than members)
-    foot_key: Option<(Value, bool)>,
+    foot_key: Option<(Vec<cc_detail::jv::JVal>, bool)>,
 }
 
 /// The view's mode (detailcraft.js `viewMode`).
@@ -394,12 +394,12 @@ impl DetailView {
         let state = r.get("state").cloned().unwrap_or(Value::Null);
         let report = r.get("report").cloned().unwrap_or(Value::Null);
         let open = ms(t1);
-        let mut m = Model::new(state);
+        let mut m = Model::new(cc_detail::store::State::from_value(state));
         m.version = 1; // an imported model is not saved yet
         let mut v = DetailView::new(m, name);
         v.timings.insert(0, ("open", open));
         let st = &v.model.state;
-        let n = cc_detail::js::arr(st.get("members")).len();
+        let n = st.list("members").len();
         let levels = cc_detail::js::arr(st.get("levels")).len();
         let grids = cc_detail::js::arr(st.get("grids").and_then(|g| g.get("x"))).len()
             + cc_detail::js::arr(st.get("grids").and_then(|g| g.get("y"))).len();
@@ -448,13 +448,12 @@ impl DetailView {
         #[cfg(target_arch = "wasm32")]
         drop(old_marks);
         // the footing marks and the bending schedule depend on the footings only: made again when they changed
-        let fv = st.get("footings").cloned().unwrap_or(Value::Null);
-        if self.foot_key.as_ref().is_none_or(|(v, pp)| *pp != per_phase || *v != fv) {
-            let footings = cc_detail::js::arr(Some(&fv));
+        let footings = st.list("footings");
+        if self.foot_key.as_ref().is_none_or(|(v, pp)| *pp != per_phase || v.as_slice() != footings) {
             self.footing_marks = cc_detail::marks::mark_footings(footings, per_phase);
             let typed: Vec<cc_detail::rebar::Footing> = footings.iter().map(cc_detail::rebar::Footing::from_value).collect();
             self.schedule = cc_detail::rebar::bending_schedule(&typed);
-            self.foot_key = Some((fv, per_phase));
+            self.foot_key = Some((footings.to_vec(), per_phase));
         }
         let phases: Vec<f64> = cc_detail::js::arr(st.get("phases")).iter().filter_map(|p| p.get("n").and_then(Value::as_f64)).collect();
         self.built_version = self.model.version;
@@ -501,7 +500,7 @@ impl DetailView {
             let st = &m.state;
             let per_phase = st.get("numbering").and_then(|n| n.get("perPhase")) != Some(&Value::Bool(false));
             let marks = cc_detail::marks::mark_parts(&built, 1.0, per_phase);
-            let footings = cc_detail::js::arr(st.get("footings"));
+            let footings = st.list("footings");
             let fm = cc_detail::marks::mark_footings(footings, per_phase);
             let typed: Vec<cc_detail::rebar::Footing> = footings.iter().map(cc_detail::rebar::Footing::from_value).collect();
             let sched = cc_detail::rebar::bending_schedule(&typed);
@@ -524,7 +523,7 @@ impl DetailView {
     }
 
     fn list_has(&self, key: &str, id: &str) -> bool {
-        cc_detail::js::arr(self.model.state.get(key)).iter().any(|x| x.get("id").and_then(Value::as_str) == Some(id))
+        self.model.state.has_id(key, id)
     }
 
     /// detailcraft.js `exists(ref)`.
@@ -537,8 +536,8 @@ impl DetailView {
         }
     }
 
-    pub fn member(&self, id: &str) -> Option<&Value> {
-        cc_detail::js::arr(self.model.state.get("members")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(id))
+    pub fn member(&self, id: &str) -> Option<&cc_detail::jv::JVal> {
+        self.model.state.list("members").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(id))
     }
 
     /// detailcraft.js `selectedPart()`.
@@ -556,7 +555,7 @@ impl DetailView {
         match r {
             Ref::Member(i) => {
                 let Some(m) = self.member(i) else { return String::new() };
-                let ty = type_name(m.get("type").and_then(Value::as_str).unwrap_or(""));
+                let ty = type_name(m.get("type").and_then(cc_detail::jv::JVal::as_str).unwrap_or(""));
                 let profile = cc_detail::js::string_of(m.get("profile"));
                 match self.marks.part_mark(i) {
                     Some(mk) => t(
@@ -572,9 +571,8 @@ impl DetailView {
                 }
             }
             Ref::Conn(i) => {
-                let c =
-                    cc_detail::js::arr(self.model.state.get("connections")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(i));
-                let ty = c.and_then(|c| c.get("type")).and_then(Value::as_str).unwrap_or("");
+                let c = self.model.state.list("connections").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(i));
+                let ty = c.and_then(|c| c.get("type")).and_then(cc_detail::jv::JVal::as_str).unwrap_or("");
                 t(&format!("app.ref.{ty}"), &[("id", F::S(i.clone()))])
             }
             Ref::Stair(i) => {
@@ -590,9 +588,8 @@ impl DetailView {
                 )
             }
             Ref::Footing(i) => {
-                let f =
-                    cc_detail::js::arr(self.model.state.get("footings")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(i));
-                let g = |k: &str| f.and_then(|f| f.get(k)).and_then(Value::as_f64).unwrap_or(f64::NAN);
+                let f = self.model.state.list("footings").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(i));
+                let g = |k: &str| f.and_then(|f| f.get(k)).and_then(cc_detail::jv::JVal::as_f64).unwrap_or(f64::NAN);
                 let mark = self.footing_marks.iter().find(|(k, _)| k == i).map_or("", |(_, v)| v.as_str());
                 t(
                     "app.ref.footing",
@@ -637,7 +634,7 @@ impl DetailView {
             "rotation" => upd(self, &t0("app.undo.rotate"), json!({ "rotation": num(value)? })),
             "thickness" | "width" => {
                 let custom = cc_detail::js::arr(self.model.state.get("profiles")).to_vec();
-                let pr = cc_detail::profiles::get_profile(m.get("profile").unwrap_or(&Value::Null), &custom);
+                let pr = cc_detail::profiles::get_profile_opt(m.get("profile"), &custom);
                 let (tk, w) = (pr.as_ref().and_then(|p| p.t).unwrap_or(20.0), pr.as_ref().and_then(|p| p.b).unwrap_or(200.0));
                 let v = num(value)?;
                 let name =
@@ -1384,8 +1381,8 @@ impl DetailView {
                 }
             }
         }
-        if self.model.state.get("members").and_then(Value::as_array).is_some_and(Vec::is_empty)
-            && self.model.state.get("footings").and_then(Value::as_array).is_some_and(Vec::is_empty)
+        if self.model.state.held_list("members").is_some_and(<[_]>::is_empty)
+            && self.model.state.held_list("footings").is_some_and(<[_]>::is_empty)
             && self.tools.tool == "select"
         {
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, t0("page.hint.start"), egui::FontId::proportional(18.0), t.text_dim);
@@ -1905,7 +1902,7 @@ mod tests {
     #[test]
     fn the_sample_opens_builds_and_marks() {
         let v = DetailView::sample().unwrap();
-        assert_eq!(cc_detail::js::arr(v.model.state.get("members")).len(), 11);
+        assert_eq!(v.model.state.list("members").len(), 11);
         assert!(v.built.parts.len() > 11, "members and plates");
         assert!(!v.marks.parts.is_empty());
         assert!(!v.schedule.rows.is_empty(), "the footings have bars");
@@ -1919,9 +1916,11 @@ mod tests {
         assert!(v.shop.is_none(), "nothing selected: refused");
         assert!(!v.message.is_empty());
         let beam = cc_detail::js::string_of(
-            cc_detail::js::arr(v.model.state.get("members"))
+            v.model
+                .state
+                .list("members")
                 .iter()
-                .find(|m| m.get("type").and_then(Value::as_str) == Some("beam"))
+                .find(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str) == Some("beam"))
                 .unwrap()
                 .get("id"),
         );
@@ -1978,10 +1977,13 @@ mod tests {
     #[test]
     fn an_edit_is_one_undo_step_and_rebuilds() {
         let mut v = DetailView::sample().unwrap();
-        let beam = cc_detail::js::arr(v.model.state.get("members"))
+        let beam = v
+            .model
+            .state
+            .list("members")
             .iter()
-            .find(|m| m.get("type").and_then(Value::as_str) == Some("beam"))
-            .and_then(|m| m.get("id").and_then(Value::as_str))
+            .find(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str) == Some("beam"))
+            .and_then(|m| m.get("id").and_then(cc_detail::jv::JVal::as_str))
             .unwrap()
             .to_string();
         let w0: f64 = v.built.parts.iter().map(|p| p.weight).sum();
@@ -2022,7 +2024,7 @@ mod tests {
                 .unwrap();
         let imp = DetailView::import_ifc("frame.ifc", ifc.as_bytes()).unwrap();
         // every part comes back as a member (plates as plate members)
-        assert_eq!(cc_detail::js::arr(imp.model.state.get("members")).len(), v.built.parts.len());
+        assert_eq!(imp.model.state.list("members").len(), v.built.parts.len());
         assert!(imp.model.dirty(), "an imported model is not saved yet");
         assert!(!imp.report.is_empty());
     }

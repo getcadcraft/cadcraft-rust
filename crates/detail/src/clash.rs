@@ -34,7 +34,7 @@ struct Solid {
     bx: Obb,
 }
 
-fn solids(state: &Value, built: &Built, phases: Option<&[f64]>) -> Vec<Solid> {
+fn solids(state: &crate::store::State, built: &Built, phases: Option<&[f64]>) -> Vec<Solid> {
     let keep = |ph: f64| phases.is_none_or(|p| p.contains(&crate::js::or(ph, 1.0)));
     let mut out = Vec::new();
     for p in &built.parts {
@@ -64,7 +64,7 @@ fn solids(state: &Value, built: &Built, phases: Option<&[f64]>) -> Vec<Solid> {
             bx: Obb { c, ax: [p.frame.x, p.frame.u, p.frame.v], h: [p.length / 2.0, w / 2.0, d / 2.0] },
         });
     }
-    for f in crate::js::arr(state.get("footings")) {
+    for f in state.list("footings") {
         if !keep(crate::js::f(f.get("phase"))) {
             continue;
         }
@@ -294,7 +294,7 @@ fn reach(a: &Solid, b: &Solid) -> Option<[f64; 2]> {
     if t1 > t0 { Some([t0, t1]) } else { None }
 }
 
-fn intended(conns: &[Value], built: &Built) -> std::collections::HashSet<String> {
+fn intended(conns: &[crate::jv::JVal], built: &Built) -> std::collections::HashSet<String> {
     let mut ok = std::collections::HashSet::new();
     let mut pair = |a: &str, b: &str| {
         ok.insert(format!("{a}|{b}"));
@@ -329,9 +329,9 @@ pub struct Clash {
     pub concrete: bool,
 }
 /// `clashCheck(state, built, { tol, phases })` → (clashes, pairs, checked).
-pub fn clash_check(state: &Value, built: &Built, tol: f64, phases: Option<&[f64]>) -> (Vec<Clash>, usize, usize) {
+pub fn clash_check(state: &crate::store::State, built: &Built, tol: f64, phases: Option<&[f64]>) -> (Vec<Clash>, usize, usize) {
     let s = solids(state, built, phases);
-    let skip = intended(crate::js::arr(state.get("connections")), built);
+    let skip = intended(state.list("connections"), built);
     let mut clashes = Vec::new();
     let mut pairs = 0usize;
     for (i, a) in s.iter().enumerate() {

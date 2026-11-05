@@ -2,9 +2,11 @@
 //! (`public_html/assets/apps/detailcraft/dev/`), one module per JS file, the same floating-point order, checked
 //! against the frozen JS at zero tolerance by `forks/tools/dcdiff.mjs` (`cadcraft-cli detail <script.json>`).
 //!
-//! Millimetres throughout, z up. The model's state is plain JSON (as in the JS), so the untrusted-file checks
-//! ([`model::read_model`]), the undo snapshots and the saved file are the JS's own, byte for byte; the derived
-//! modules read it through typed views ([`state`]).
+//! Millimetres throughout, z up. The model's state ([`store::State`]) is the JS's plain object: its members,
+//! connections and footings held as compact records ([`jv::JVal`]: no map, no allocation per key or per word), every
+//! other field as JSON; its text is the JS's, byte for byte, so the untrusted-file checks ([`model::read_model`]),
+//! the undo snapshots, the saved file and Studio Live are the JS's own. The derived modules read it through typed
+//! views ([`state`]).
 //!
 //! - [`sections`] (the shared section table) + [`profiles`], [`geom`], [`model`], [`connections`], [`build`],
 //!   [`marks`], [`rebar`], [`stair`], [`csv`], [`zip`], [`sample`] …
@@ -39,6 +41,7 @@ pub mod geom;
 pub mod i18n;
 pub mod issues;
 pub mod js;
+pub mod jv;
 pub mod kiss;
 pub mod lasso_core;
 pub mod marks;
@@ -49,6 +52,9 @@ pub mod pdf;
 pub mod profiles;
 pub mod read_typed;
 pub mod rebar;
+#[cfg(any(test, feature = "reference"))]
+#[doc(hidden)]
+pub mod reference;
 pub mod report;
 pub mod sample;
 pub mod script;
@@ -59,6 +65,7 @@ pub mod sections;
 pub mod shop;
 pub mod stair;
 pub mod state;
+pub mod store;
 pub mod transform;
 pub mod winsel;
 pub mod zip;

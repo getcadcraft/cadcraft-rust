@@ -35,7 +35,7 @@ pub fn box_segs(o: V3, x: V3, u: V3, v: V3, xr: [f64; 2], ur: [f64; 2], vr: [f64
 }
 
 /// `selectionItems(state, built, hiddenPhases)`.
-pub fn selection_items(state: &Value, built: &Built, hidden: Option<&[f64]>) -> Vec<Item> {
+pub fn selection_items(state: &crate::store::State, built: &Built, hidden: Option<&[f64]>) -> Vec<Item> {
     let mut items: Vec<Item> = Vec::new();
     let mut by: Vec<String> = Vec::new();
     let mut push = |items: &mut Vec<Item>, r: Value, segs: Vec<[V3; 2]>| {
@@ -67,7 +67,7 @@ pub fn selection_items(state: &Value, built: &Built, hidden: Option<&[f64]>) -> 
         };
         push(&mut items, r, segs);
     }
-    for fv in crate::js::arr(state.get("footings")) {
+    for fv in state.list("footings") {
         if !shown(crate::js::f(fv.get("phase"))) {
             continue;
         }

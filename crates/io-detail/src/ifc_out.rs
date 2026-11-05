@@ -9,7 +9,6 @@ use cc_detail::i18n::{F, t};
 use cc_detail::js::{arr, cos, f as fnum, num_to_string, round, sin, string_of};
 use cc_detail::marks::Marks;
 use cc_detail::rebar::{Schedule, Seg, bar, centerline2d};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
@@ -160,7 +159,7 @@ fn pred(ifc: &str) -> &'static str {
 
 /// `writeIfc(state, built, marks, schedule, { name, now })`; `footing_mark` is `marks.footingMark` (None = absent).
 pub fn write_ifc(
-    state: &Value,
+    state: &cc_detail::store::State,
     built: &Built,
     marks: &Marks,
     footing_mark: Option<&[(String, String)]>,

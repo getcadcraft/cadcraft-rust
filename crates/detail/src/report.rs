@@ -61,7 +61,7 @@ pub struct Report {
     pub totals: Totals,
 }
 
-pub fn phase_report(state: &Value, built: &Built, marks: &Marks, schedule: &Schedule) -> Report {
+pub fn phase_report(state: &crate::store::State, built: &Built, marks: &Marks, schedule: &Schedule) -> Report {
     let src = crate::js::arr(state.get("phases"));
     let list: Vec<(Value, Value)> = if src.is_empty() {
         vec![(Value::from(1), Value::from(""))]
@@ -113,7 +113,7 @@ pub fn phase_report(state: &Value, built: &Built, marks: &Marks, schedule: &Sche
         "plate" => 3.0,
         _ => f64::NAN,
     };
-    let footings = crate::js::arr(state.get("footings"));
+    let footings = state.list("footings");
     let nph = phases.len();
     for i in 0..nph {
         let bolts: Vec<crate::connections::Bolt> = built.bolts.iter().filter(|b| of(&phases, b.phase) == i).cloned().collect();

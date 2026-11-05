@@ -176,7 +176,7 @@ fn sync_forms(dv: &mut DetailView) {
     let face = match &dv.sel {
         Some(Ref::Member(id)) => {
             let custom = arr(s.get("profiles")).to_vec();
-            let p = dv.member(id).and_then(|m| cc_detail::profiles::get_profile(m.get("profile").unwrap_or(&Value::Null), &custom));
+            let p = dv.member(id).and_then(|m| cc_detail::profiles::get_profile_opt(m.get("profile"), &custom));
             cc_detail::profiles::hole_faces(p.as_deref()).first().map(|f| f.to_string()).unwrap_or_default()
         }
         _ => String::new(),
@@ -587,7 +587,7 @@ fn phase_field(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
 /// detailcraft.js `multiProps()`.
 fn multi_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) {
     let multi = dv.multi.clone();
-    let mem: Vec<Value> = multi
+    let mem: Vec<cc_detail::jv::JVal> = multi
         .iter()
         .filter_map(|r| match r {
             Ref::Member(i) => dv.member(i).cloned(),
@@ -628,14 +628,15 @@ fn multi_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
     if mem.len() + foots.len() > 0 {
         let mut phs: Vec<f64> = mem.iter().map(|m| cc_detail::js::or(cc_detail::js::f(m.get("phase")), 1.0)).collect();
         for id in &foots {
-            let f = arr(dv.model.state.get("footings")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(*id)).cloned();
+            let f =
+                dv.model.state.list("footings").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(*id)).cloned();
             phs.push(f.map_or(1.0, |f| cc_detail::js::or(cc_detail::js::f(f.get("phase")), 1.0)));
         }
         phs.dedup();
         let one = phs.first().copied().filter(|p| phs.iter().all(|x| x == p));
         phase_field(dv, ui, tk, acts, one);
     }
-    let ids: Vec<Value> = mem.iter().filter_map(|m| m.get("id").cloned()).collect();
+    let ids: Vec<Value> = mem.iter().filter_map(|m| m.get("id").map(cc_detail::jv::JVal::to_value)).collect();
     if ids.len() >= 2 {
         many_editor(dv, ui, tk, acts, &ids);
     }
@@ -765,7 +766,7 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
 fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, id: &str) {
     let Some(m) = dv.member(id).cloned() else { return };
     let custom = arr(dv.model.state.get("profiles")).to_vec();
-    let prof = cc_detail::profiles::get_profile(m.get("profile").unwrap_or(&Value::Null), &custom);
+    let prof = cc_detail::profiles::get_profile_opt(m.get("profile"), &custom);
     let face_name = |f: &str| t0(&format!("app.face.{f}"));
     // holes (detailcraft.js holeEditor)
     sub(ui, tk, &t0("app.holes.title"));
@@ -894,7 +895,9 @@ fn part_label(dv: &DetailView, id: &str) -> String {
 
 /// detailcraft.js `connProps(c)`.
 fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, id: &str) {
-    let Some(c) = arr(dv.model.state.get("connections")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(id)).cloned() else {
+    let Some(c) =
+        dv.model.state.list("connections").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(id)).cloned()
+    else {
         return;
     };
     let kind = string_of(c.get("type"));
@@ -920,7 +923,7 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
     };
     kv(ui, tk, "dc_conn_joined", &joined);
     sub(ui, tk, &t0("app.conn.params"));
-    let params = c.get("params").and_then(Value::as_object).cloned().unwrap_or_default();
+    let params = c.get("params").and_then(cc_detail::jv::JVal::as_object).cloned().unwrap_or_default();
     for (k, v) in &params {
         let label = param_label(k);
         let help = param_help_key(k).map(t0);
@@ -1022,7 +1025,8 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
 
 /// detailcraft.js `footingProps(f)`.
 fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, id: &str) {
-    let Some(f) = arr(dv.model.state.get("footings")).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(id)).cloned() else {
+    let Some(f) = dv.model.state.list("footings").iter().find(|x| x.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(id)).cloned()
+    else {
         return;
     };
     let mark = dv.footing_marks.iter().find(|(k, _)| k == id).map_or("", |(_, v)| v.as_str()).to_string();
@@ -1034,7 +1038,7 @@ fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
             run(acts, "detail.set", format!("{id}.phase={v}"));
         }
     });
-    footing_form(dv, ui, tk, acts, &f, Some(id));
+    footing_form(dv, ui, tk, acts, &f.to_value(), Some(id));
     sub(ui, tk, &t0("app.bars.title"));
     let list: Vec<(String, String, String, String)> = dv
         .schedule
@@ -1211,7 +1215,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
     });
     crate::shell::fold(ui, tk, "dc_phases", &t0("phase.title"), true, |ui| {
         let count = |n: f64| -> usize {
-            let of = |k: &str| arr(s.get(k)).iter().filter(|x| cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0) == n).count();
+            let of = |k: &str| s.list(k).iter().filter(|x| cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0) == n).count();
             of("members") + of("footings")
         };
         for p in arr(s.get("phases")) {
@@ -1331,7 +1335,9 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     };
     let has_type = |tys: &[&str]| {
         picked.iter().any(|r| match r {
-            Ref::Member(i) => dv.member(i).is_some_and(|m| tys.contains(&m.get("type").and_then(Value::as_str).unwrap_or(""))),
+            Ref::Member(i) => {
+                dv.member(i).is_some_and(|m| tys.contains(&m.get("type").and_then(cc_detail::jv::JVal::as_str).unwrap_or("")))
+            }
             _ => false,
         })
     };
@@ -1376,7 +1382,7 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     {
         run(acts, "detail.act", "paste".into());
     }
-    let any = arr(dv.model.state.get("members")).len() + arr(dv.model.state.get("footings")).len() > 0;
+    let any = dv.model.state.list("members").len() + dv.model.state.list("footings").len() > 0;
     ui.menu_button(t0("page.edit.more"), |ui| {
         for (a, label, key, on) in [
             ("cut", "page.edit.cut", "Ctrl+X", copyable),

@@ -5,6 +5,7 @@
 
 use crate::i18n::{F, t, t0};
 use crate::js::{Res, arr, jnum, num, parse, round, s, string_or_empty, stringify, upper};
+use crate::jv::JVal;
 use crate::model::{Tx, read_model, strict_eq};
 use crate::state::members_of_v;
 use crate::transform::stair_outline;
@@ -30,13 +31,13 @@ fn add(p: Option<&Value>, o: [f64; 3]) -> Value {
     let a = arr(p);
     json!([jnum(num(a.first()) + o[0]), jnum(num(a.get(1)) + o[1]), jnum(num(a.get(2)) + o[2])])
 }
-fn has(ids: &[Value], v: Option<&Value>) -> bool {
+fn has<T: crate::jv::Jsv>(ids: &[Value], v: Option<&T>) -> bool {
     ids.iter().any(|x| strict_eq(Some(x), v))
 }
 
 /// `copyClip(state, refs, { connections })` → `{ clip, counts }` or None (nothing to copy). `source` (the time and a
 /// random tag in the JS) is the caller's.
-pub fn copy_clip(state: &Value, refs: &[Value], connections: bool, source: &str) -> Option<Value> {
+pub fn copy_clip(state: &crate::store::State, refs: &[Value], connections: bool, source: &str) -> Option<Value> {
     let want = |kind: &str| -> Vec<Value> {
         refs.iter()
             .filter(|r| crate::js::truthy(Some(r)) && r.get("kind").and_then(Value::as_str) == Some(kind))
@@ -44,17 +45,17 @@ pub fn copy_clip(state: &Value, refs: &[Value], connections: bool, source: &str)
             .collect()
     };
     let (m_ids, f_ids, c_ids, s_ids) = (want("member"), want("footing"), want("conn"), want("stair"));
-    let members: Vec<Value> = arr(state.get("members")).iter().filter(|m| has(&m_ids, m.get("id"))).cloned().collect();
-    let footings: Vec<Value> = arr(state.get("footings")).iter().filter(|f| has(&f_ids, f.get("id"))).cloned().collect();
+    let members: Vec<Value> = state.list("members").iter().filter(|m| has(&m_ids, m.get("id"))).map(JVal::to_value).collect();
+    let footings: Vec<Value> = state.list("footings").iter().filter(|f| has(&f_ids, f.get("id"))).map(JVal::to_value).collect();
     let stairs: Vec<Value> = arr(state.get("stairs")).iter().filter(|x| has(&s_ids, x.get("id"))).cloned().collect();
     if members.is_empty() && footings.is_empty() && stairs.is_empty() {
         return None;
     }
-    let in_set = |c: &Value| members_of_v(c).iter().all(|id| has(&m_ids, *id));
-    let touches = |c: &Value| members_of_v(c).iter().any(|id| has(&m_ids, *id)) || has(&c_ids, c.get("id"));
-    let all_conns = arr(state.get("connections"));
+    let in_set = |c: &JVal| members_of_v(c).iter().all(|id| has(&m_ids, *id));
+    let touches = |c: &JVal| members_of_v(c).iter().any(|id| has(&m_ids, *id)) || has(&c_ids, c.get("id"));
+    let all_conns = state.list("connections");
     let take: Vec<bool> = all_conns.iter().map(|c| connections && in_set(c)).collect();
-    let conns: Vec<Value> = all_conns.iter().zip(&take).filter(|(_, k)| **k).map(|(c, _)| c.clone()).collect();
+    let conns: Vec<Value> = all_conns.iter().zip(&take).filter(|(_, k)| **k).map(|(c, _)| c.to_value()).collect();
     let left_out = all_conns.iter().zip(&take).filter(|(c, k)| touches(c) && !**k).count();
     let mut used: Vec<String> = members.iter().map(|m| upper(&crate::js::string_of(m.get("profile")))).collect();
     used.extend(stairs.iter().map(|x| upper(&crate::js::string_of(x.get("stringer")))));
@@ -134,7 +135,7 @@ pub fn read_clip(obj: &Value) -> Res<Value> {
         "members": list("members")?, "connections": list("connections")?, "footings": list("footings")?, "stairs": list("stairs")?, "profiles": list("profiles")?, "seq": 1,
     });
     let (state, warnings) = read_model(&input)?;
-    let empty = |k: &str| arr(state.get(k)).is_empty();
+    let empty = |k: &str| if crate::store::LISTS.contains(&k) { state.list(k).is_empty() } else { arr(state.get(k)).is_empty() };
     if empty("members") && empty("footings") && empty("stairs") {
         return Err(t0("clip.err.empty"));
     }
@@ -144,7 +145,7 @@ pub fn read_clip(obj: &Value) -> Res<Value> {
         crate::js::slice16(&kept, 40)
     };
     let from = crate::js::slice16(&crate::js::strip_controls(&string_or_empty(j.get("from"))), 80);
-    let g = |k: &str| state.get(k).cloned().unwrap_or(json!([]));
+    let g = |k: &str| state.field_value(k).map_or_else(|| json!([]), std::borrow::Cow::into_owned);
     Ok(json!({
         "format": CLIP_FORMAT, "version": 1, "source": source, "from": from,
         "base": base.iter().map(|x| jnum(*x)).collect::<Vec<_>>(),
@@ -284,20 +285,20 @@ pub fn clip_segments(clip: &Value) -> Vec<[[f64; 3]; 2]> {
 }
 
 /// `overlaps(state, clip, offset)`.
-pub fn overlaps(state: &Value, clip: &Value, offset: Option<&Value>) -> usize {
+pub fn overlaps(state: &crate::store::State, clip: &Value, offset: Option<&Value>) -> usize {
     let o = {
         let a = arr(offset);
         [num(a.first()), num(a.get(1)), num(a.get(2))]
     };
-    let key = |m: &Value, o: [f64; 3]| -> String {
-        let (st, en) = (arr(m.get("start")), arr(m.get("end")));
+    fn key<T: crate::jv::Jsv>(m: &T, o: [f64; 3]) -> String {
+        let (st, en) = (arr(m.js_get("start")), arr(m.js_get("end")));
         let vals: Vec<String> = (0..3)
             .map(|i| num(st.get(i)) + crate::js::g3(o, i))
             .chain((0..3).map(|i| num(en.get(i)) + crate::js::g3(o, i)))
             .map(|v| crate::js::num_to_string(round(v)))
             .collect();
-        format!("{}|{}", crate::js::string_of(m.get("profile")), vals.join(","))
-    };
-    let have: Vec<String> = arr(state.get("members")).iter().map(|m| key(m, [0.0; 3])).collect();
+        format!("{}|{}", crate::js::string_of(m.js_get("profile")), vals.join(","))
+    }
+    let have: Vec<String> = state.list("members").iter().map(|m| key(m, [0.0; 3])).collect();
     arr(clip.get("members")).iter().filter(|m| have.contains(&key(m, o))).count()
 }

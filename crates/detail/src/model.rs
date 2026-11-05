@@ -1,4 +1,5 @@
-//! model.js — the DetailCraft model and its one edit path. The state is plain JSON data, as in the JS: every edit goes
+//! model.js — the DetailCraft model and its one edit path. The state is the JS's plain data ([`State`]: members,
+//! connections and footings as compact records, the rest JSON; its text the JS's): every edit goes
 //! through [`Model::change`] (JSON-text snapshots, 200 deep; an edit that fails changes nothing), the edit vocabulary is
 //! [`Tx`], and [`read_model`] checks an untrusted file field by field (controls stripped, bad parts dropped with
 //! warnings, ids made unique, a newer version refused). Millimetres, z up.
@@ -6,14 +7,16 @@
 use crate::connections::defaults_of;
 use crate::i18n::{F, t, t0};
 use crate::js::{
-    Res, arr, clean_text, hypot3, is_integer, num, num_or0, num_to_string, parse, round, s, spread, str_to_number, stringify,
-    stringify_indent, to_js_string, truthy, upper,
+    Res, arr, clean_text, hypot3, is_integer, num, num_or0, num_to_string, parse, round, s, spread, str_to_number, to_js_string, truthy,
+    upper,
 };
-use crate::profiles::{clean_custom, get_profile};
+use crate::jv::{JObj, JStr, JVal, Jsv};
+use crate::profiles::{clean_custom, get_profile, get_profile_str};
 use crate::read_typed::{ConnSrc, MemberSrc, Src};
 use crate::rebar::{clean_footing, footing_defaults};
 use crate::stair::{clean_stair, stair_defaults};
 use crate::state::{is_beam_end_v, members_of_v};
+use crate::store::State;
 use serde_json::{Map, Value, json};
 
 pub const FORMAT: &str = "detailcraft";
@@ -29,40 +32,46 @@ const MAX_LIST: usize = 1_000_000;
 // JS value helpers
 
 /// `o.k` for any JS value (only objects have the fields asked for here).
-pub fn field<'a>(v: Option<&'a Value>, k: &str) -> Option<&'a Value> {
-    v.and_then(Value::as_object).and_then(|m| m.get(k))
+#[inline]
+pub fn field<'a, T: Jsv>(v: Option<&'a T>, k: &str) -> Option<&'a T::Item> {
+    v.and_then(|v| v.js_get(k))
 }
 /// `a === b` (absent = undefined; objects never equal: they are distinct references here).
-pub fn strict_eq(a: Option<&Value>, b: Option<&Value>) -> bool {
+pub fn strict_eq<A: Jsv, B: Jsv>(a: Option<&A>, b: Option<&B>) -> bool {
     match (a, b) {
-        (None, None) | (Some(Value::Null), Some(Value::Null)) => true,
-        (Some(Value::Bool(x)), Some(Value::Bool(y))) => x == y,
-        (Some(Value::Number(x)), Some(Value::Number(y))) => x.as_f64() == y.as_f64(),
-        (Some(Value::String(x)), Some(Value::String(y))) => x == y,
+        (None, None) => true,
+        (Some(x), Some(y)) => {
+            if let (Some(p), Some(q)) = (x.js_str(), y.js_str()) {
+                p == q
+            } else if let (Some(p), Some(q)) = (x.js_f64(), y.js_f64()) {
+                p == q
+            } else if x.js_null() && y.js_null() {
+                true
+            } else if let (Some(p), Some(q)) = (x.js_bool(), y.js_bool()) {
+                p == q
+            } else {
+                false
+            }
+        }
         _ => false,
     }
 }
 /// A value as `===` tells values apart (None: equal to nothing, as NaN or an object).
-fn eq_key(v: Option<&Value>) -> Option<String> {
-    Some(match v {
-        None => "u".into(),
-        Some(Value::Null) => "z".into(),
-        Some(Value::Bool(b)) => {
-            if *b {
-                "b1".into()
-            } else {
-                "b0".into()
-            }
+fn eq_key<T: Jsv>(v: Option<&T>) -> Option<String> {
+    let Some(v) = v else { return Some("u".into()) };
+    Some(if let Some(s) = v.js_str() {
+        format!("s{s}")
+    } else if let Some(f) = v.js_f64() {
+        if f.is_nan() {
+            return None;
         }
-        Some(Value::Number(n)) => {
-            let f = n.as_f64()?;
-            if f.is_nan() {
-                return None;
-            }
-            format!("n{}", if f == 0.0 { 0.0f64 } else { f }.to_bits())
-        }
-        Some(Value::String(s)) => format!("s{s}"),
-        Some(_) => return None,
+        format!("n{}", if f == 0.0 { 0.0f64 } else { f }.to_bits())
+    } else if v.js_null() {
+        "z".into()
+    } else if v.js_bool()? {
+        "b1".into()
+    } else {
+        "b0".into()
     })
 }
 
@@ -81,28 +90,28 @@ pub struct ConnIndex {
 
 impl ConnIndex {
     /// The index of a state's connections and members.
-    pub fn of(state: &Value) -> ConnIndex {
+    pub fn of(state: &State) -> ConnIndex {
         let mut ix = ConnIndex::default();
-        for m in arr(state.get("members")) {
+        for m in state.list("members") {
             if let Some(k) = eq_key(m.get("id")) {
-                ix.members.entry(k).or_insert_with(|| m.get("type").and_then(Value::as_str).unwrap_or("\u{0}").to_string());
+                ix.members.entry(k).or_insert_with(|| m.get("type").and_then(JVal::as_str).unwrap_or("\u{0}").to_string());
             }
         }
-        for c in arr(state.get("connections")) {
+        for c in state.list("connections") {
             ix.learn(c);
         }
         ix
     }
-    fn learn(&mut self, x: &Value) {
-        let k2 = |a: &str, b: &str| eq_key(x.get(a)).zip(eq_key(x.get(b)));
+    fn learn<T: Jsv>(&mut self, x: &T) {
+        let k2 = |a: &str, b: &str| eq_key(x.js_get(a)).zip(eq_key(x.js_get(b)));
         if is_beam_end_v(x)
             && let Some(p) = k2("beam", "end")
         {
             self.beam_ends.insert(p);
         }
-        match x.get("type").and_then(Value::as_str) {
+        match x.js_get("type").and_then(Jsv::js_str) {
             Some("baseplate") => {
-                if let Some(k) = eq_key(x.get("column")) {
+                if let Some(k) = eq_key(x.js_get("column")) {
                     self.bases.insert(k);
                 }
             }
@@ -145,17 +154,46 @@ impl ConnIndex {
 }
 
 /// `new Set(list).has(v)`.
-fn set_has(list: &[Value], v: Option<&Value>) -> bool {
+fn set_has<T: Jsv>(list: &[Value], v: Option<&T>) -> bool {
     v.is_some_and(|v| list.iter().any(|x| strict_eq(Some(x), Some(v))))
 }
 /// `[...list].includes(v)` for a string list.
-fn includes(list: &[&str], v: Option<&Value>) -> bool {
-    v.and_then(Value::as_str).is_some_and(|s| list.contains(&s))
+fn includes<T: Jsv>(list: &[&str], v: Option<&T>) -> bool {
+    v.and_then(Jsv::js_str).is_some_and(|s| list.contains(&s))
 }
 /// `Array.isArray(v) ? v : []`, capped.
-fn list_of(v: Option<&Value>, cap: usize) -> &[Value] {
+fn list_of<T: Jsv>(v: Option<&T>, cap: usize) -> &[T::Item] {
     let a = arr(v);
     a.get(..a.len().min(cap)).unwrap_or(a)
+}
+/// A record as an object to change (anything else becomes `{}` first, as `m_of`).
+fn jm_of(v: &mut JVal) -> &mut JObj {
+    if !v.is_object() {
+        *v = JVal::Obj(JObj::new());
+    }
+    match v {
+        JVal::Obj(m) => m,
+        // replaced by an object just above
+        _ => unreachable_jmap(),
+    }
+}
+#[allow(clippy::unreachable)]
+fn unreachable_jmap() -> &'static mut JObj {
+    unreachable!("jm_of makes the value an object first")
+}
+/// A record's list field to change (made an array first, as `arr_mut`).
+fn jarr_mut<'a>(m: &'a mut JObj, k: &str) -> &'a mut Vec<JVal> {
+    if !m.get(k).is_some_and(JVal::is_array) {
+        m.insert(k, JVal::Arr(Vec::new()));
+    }
+    match m.get_mut(k) {
+        Some(JVal::Arr(a)) => a,
+        _ => unreachable_jvec(),
+    }
+}
+#[allow(clippy::unreachable)]
+fn unreachable_jvec() -> &'static mut Vec<JVal> {
+    unreachable!("jarr_mut makes the value an array first")
 }
 fn m_of(v: &mut Value) -> &mut Map<String, Value> {
     if !v.is_object() {
@@ -171,35 +209,22 @@ fn m_of(v: &mut Value) -> &mut Map<String, Value> {
 fn unreachable_map() -> &'static mut Map<String, Value> {
     unreachable!("m_of makes the value an object first")
 }
-fn arr_mut<'a>(m: &'a mut Map<String, Value>, k: &str) -> &'a mut Vec<Value> {
-    let e = m.entry(k.to_string()).or_insert_with(|| Value::Array(vec![]));
-    if !e.is_array() {
-        *e = Value::Array(vec![]);
-    }
-    match e {
-        Value::Array(a) => a,
-        _ => unreachable_vec(),
-    }
-}
-#[allow(clippy::unreachable)]
-fn unreachable_vec() -> &'static mut Vec<Value> {
-    unreachable!("arr_mut makes the value an array first")
-}
 /// `Object.entries(v)` for a value spread or walked as entries (objects; strings and arrays by index).
 fn entries(v: Option<&Value>) -> Vec<(String, Value)> {
     spread(v, None).into_iter().collect()
 }
 /// `s[k] = v` on an object state.
-fn put(s: &mut Value, k: &str, v: Value) {
-    m_of(s).insert(k.to_string(), v);
+fn put(s: &mut State, k: &str, v: Value) {
+    s.insert(k, v);
 }
 fn n(x: f64) -> Value {
     Value::from(x)
 }
 /// A fill from a JS value: undefined and null leave the `{name}` in the text, as i18n.js `fill` does.
-fn fill_of<'a>(k: &'a str, v: Option<&Value>) -> Option<(&'a str, F)> {
+fn fill_of<'a, T: Jsv>(k: &'a str, v: Option<&T>) -> Option<(&'a str, F)> {
     match v {
-        None | Some(Value::Null) => None,
+        None => None,
+        Some(x) if x.js_null() => None,
         Some(x) => Some((k, F::S(to_js_string(x)))),
     }
 }
@@ -207,52 +232,58 @@ fn fill_of<'a>(k: &'a str, v: Option<&Value>) -> Option<(&'a str, F)> {
 // ---------------------------------------------------------------------------------------------------------------
 
 /// `emptyState(name)`.
-pub fn empty_state(name: &str) -> Value {
-    json!({
+pub fn empty_state(name: &str) -> State {
+    State::from_value(json!({
         "format": FORMAT, "version": 2, "name": name,
         "grids": { "x": [], "y": [] }, "levels": [{ "name": t("model.level", &[("n", F::N(1.0))]), "z": 0 }],
         "members": [], "connections": [], "footings": [], "stairs": [], "bolts": [], "profiles": [], "seq": 1,
         "phases": [{ "n": 1, "name": "" }], "numbering": { "perPhase": true }, "issues": [],
-    })
+    }))
 }
 /// `emptyState()` with the default name.
-pub fn empty_state_default() -> Value {
+pub fn empty_state_default() -> State {
     empty_state(&t0("model.name.untitled"))
 }
 /// `cleanPhase(v)`.
-pub fn clean_phase(v: Option<&Value>) -> Option<f64> {
+pub fn clean_phase<T: Jsv>(v: Option<&T>) -> Option<f64> {
     let x = num(v);
     if is_integer(x) && (1.0..=MAX_PHASE).contains(&x) { Some(x) } else { None }
 }
-fn with_used_phases(phases: &[Value], state: &Value) -> Vec<Value> {
+fn with_used_phases(phases: &[Value], state: &State) -> Vec<Value> {
     let mut out: Vec<Value> = phases.iter().map(|p| Value::Object(spread(Some(p), None))).collect();
     // each phase's `n`, beside it (a member's phase is looked up in these, not in the objects' maps)
     let mut ns: Vec<Option<Value>> = out.iter().map(|p| p.get("n").cloned()).collect();
-    let all = arr(state.get("members")).iter().chain(arr(state.get("footings"))).chain(arr(state.get("stairs")));
-    for x in all {
-        let ph = x.get("phase");
+    fn add<T: Jsv>(x: &T, out: &mut Vec<Value>, ns: &mut Vec<Option<Value>>) {
+        let ph = x.js_get("phase");
         if !ns.iter().any(|n| strict_eq(n.as_ref(), ph)) {
             let mut o = Map::new();
-            if let Some(v) = ph {
+            let v = ph.map(|v| v.js_value().into_owned());
+            if let Some(v) = &v {
                 o.insert("n".into(), v.clone());
             }
             o.insert("name".into(), Value::from(""));
             out.push(Value::Object(o));
-            ns.push(ph.cloned());
+            ns.push(v);
         }
+    }
+    for x in state.list("members").iter().chain(state.list("footings")) {
+        add(x, &mut out, &mut ns);
+    }
+    for x in arr(state.get("stairs")) {
+        add(x, &mut out, &mut ns);
     }
     out.sort_by(|a, b| crate::js::ord(num(a.get("n")) - num(b.get("n"))));
     out
 }
 /// `connPhase(state, c)`.
-pub fn conn_phase(state: &Value, c: &Value) -> f64 {
+pub fn conn_phase<T: Jsv>(state: &State, c: &T) -> f64 {
     let main = members_of_v(c).first().copied().flatten();
-    let m = arr(state.get("members")).iter().find(|m| strict_eq(m.get("id"), main));
+    let m = state.list("members").iter().find(|m| strict_eq(m.get("id"), main));
     crate::js::or(m.map_or(f64::NAN, |m| crate::js::f(m.get("phase"))), 1.0)
 }
 
 /// `starterState(name)`.
-pub fn starter_state(name: &str) -> Value {
+pub fn starter_state(name: &str) -> State {
     let mut s = empty_state(name);
     if let Ok(g) = grids_from_spacings("1 2 3", "6000 6000", "A B", "6000") {
         put(&mut s, "grids", g);
@@ -318,7 +349,7 @@ pub fn spacings_of(lines: &[Value]) -> String {
     out.join(" ")
 }
 /// `nodes(state)`.
-pub fn nodes(state: &Value) -> Vec<Value> {
+pub fn nodes(state: &State) -> Vec<Value> {
     let mut out = Vec::new();
     let grids = state.get("grids");
     for lv in arr(state.get("levels")) {
@@ -331,7 +362,7 @@ pub fn nodes(state: &Value) -> Vec<Value> {
     out
 }
 /// `nodeName(state, p)`.
-pub fn node_name(state: &Value, p: [f64; 3]) -> String {
+pub fn node_name(state: &State, p: [f64; 3]) -> String {
     let grids = state.get("grids");
     let gx = arr(field(grids, "x")).iter().find(|g| (num(g.get("at")) - p[0]).abs() < 0.5);
     let gy = arr(field(grids, "y")).iter().find(|g| (num(g.get("at")) - p[1]).abs() < 0.5);
@@ -350,7 +381,7 @@ pub fn node_name(state: &Value, p: [f64; 3]) -> String {
     }
 }
 /// `pointAt(state, gy, gx, level)`.
-pub fn point_at(state: &Value, gy: &Value, gx: &Value, level: &Value) -> Option<[f64; 3]> {
+pub fn point_at(state: &State, gy: &Value, gx: &Value, level: &Value) -> Option<[f64; 3]> {
     let grids = state.get("grids");
     let x = arr(field(grids, "x")).iter().find(|g| strict_eq(g.get("label"), Some(gx)))?;
     let y = arr(field(grids, "y")).iter().find(|g| strict_eq(g.get("label"), Some(gy)))?;
@@ -377,7 +408,7 @@ pub struct Step {
 /// `new Model(state)`.
 #[derive(Clone, Debug)]
 pub struct Model {
-    pub state: Value,
+    pub state: State,
     pub undo_stack: Vec<Step>,
     pub redo_stack: Vec<Step>,
     pub version: u64,
@@ -389,7 +420,7 @@ impl Default for Model {
     }
 }
 impl Model {
-    pub fn new(state: Value) -> Model {
+    pub fn new(state: State) -> Model {
         Model { state, undo_stack: vec![], redo_stack: vec![], version: 0, saved_version: 0 }
     }
     pub fn dirty(&self) -> bool {
@@ -406,7 +437,7 @@ impl Model {
     }
     /// One undo step: `f(tx)` edits through the Tx; an error restores the state and is returned.
     pub fn change<T>(&mut self, label: &str, f: impl FnOnce(&mut Tx) -> Res<T>) -> Res<T> {
-        let before = stringify(&self.state);
+        let before = self.state.stringify();
         let result = {
             let mut tx = Tx { s: &mut self.state };
             f(&mut tx)
@@ -414,11 +445,11 @@ impl Model {
         let result = match result {
             Ok(r) => r,
             Err(e) => {
-                self.state = parse(&before).unwrap_or(Value::Null);
+                self.state = State::parse(&before).unwrap_or_else(|_| State::from_value(Value::Null));
                 return Err(e);
             }
         };
-        let after = stringify(&self.state);
+        let after = self.state.stringify();
         if after == before {
             return Ok(result);
         }
@@ -432,21 +463,21 @@ impl Model {
     }
     pub fn undo(&mut self) -> Option<String> {
         let s = self.undo_stack.pop()?;
-        self.redo_stack.push(Step { label: s.label.clone(), json: stringify(&self.state) });
-        self.state = parse(&s.json).unwrap_or(Value::Null);
+        self.redo_stack.push(Step { label: s.label.clone(), json: self.state.stringify() });
+        self.state = State::parse(&s.json).unwrap_or_else(|_| State::from_value(Value::Null));
         self.version = self.version.saturating_add(1);
         Some(s.label)
     }
     pub fn redo(&mut self) -> Option<String> {
         let s = self.redo_stack.pop()?;
-        self.undo_stack.push(Step { label: s.label.clone(), json: stringify(&self.state) });
-        self.state = parse(&s.json).unwrap_or(Value::Null);
+        self.undo_stack.push(Step { label: s.label.clone(), json: self.state.stringify() });
+        self.state = State::parse(&s.json).unwrap_or_else(|_| State::from_value(Value::Null));
         self.version = self.version.saturating_add(1);
         Some(s.label)
     }
     /// `toJSON()` = `JSON.stringify(state, null, 1)`.
     pub fn to_json(&self) -> String {
-        stringify_indent(&self.state, 1)
+        self.state.stringify_indent(1)
     }
     /// `load(text)` → warnings.
     pub fn load(&mut self, text: &Value) -> Res<Vec<String>> {
@@ -458,7 +489,7 @@ impl Model {
         self.saved_version = self.version;
         Ok(warnings)
     }
-    pub fn reset(&mut self, state: Value) {
+    pub fn reset(&mut self, state: State) {
         self.state = state;
         self.undo_stack.clear();
         self.redo_stack.clear();
@@ -469,7 +500,7 @@ impl Model {
 
 /// The edit vocabulary; each checks its input so a bad edit fails before anything is kept.
 pub struct Tx<'a> {
-    pub s: &'a mut Value,
+    pub s: &'a mut State,
 }
 
 fn vec3(p: Option<&Value>) -> Res<Value> {
@@ -482,6 +513,18 @@ fn vec3(p: Option<&Value>) -> Res<Value> {
         return Err(t0("model.err.coords"));
     }
     Ok(Value::Array(v.into_iter().map(n).collect()))
+}
+/// [`vec3`]'s point as numbers.
+fn vec3_p(p: Option<&Value>) -> Res<[f64; 3]> {
+    let a = match p {
+        Some(Value::Array(a)) if a.len() == 3 => a,
+        _ => return Err(t0("model.err.point")),
+    };
+    let v = [num(a.first()), num(a.get(1)), num(a.get(2))];
+    if v.iter().any(|x| !x.is_finite() || x.abs() > 1e7) {
+        return Err(t0("model.err.coords"));
+    }
+    Ok(v)
 }
 /// `checkMember(m, custom)` on a member object (fixes material and rotation in place).
 fn check_member(m: &mut Map<String, Value>, custom: &[Value]) -> Res<()> {
@@ -609,10 +652,7 @@ pub fn clean_issue(x: &Value) -> Option<Map<String, Value>> {
     }
     Some(out)
 }
-fn clean_hole(h: Option<&Value>) -> Option<Map<String, Value>> {
-    clean_hole_s(h?)
-}
-fn clean_hole_s<S: Src>(h: &S) -> Option<Map<String, Value>> {
+fn clean_hole_s<S: Src>(h: &S) -> Option<JObj> {
     if !h.truthy() {
         return None;
     }
@@ -623,17 +663,14 @@ fn clean_hole_s<S: Src>(h: &S) -> Option<Map<String, Value>> {
     if ![x, y, d].iter().all(|v| v.is_finite()) || d <= 0.0 || d > 200.0 || x.abs() > 1e6 || y.abs() > 1e4 {
         return None;
     }
-    let mut o = Map::new();
-    o.insert("face".into(), h.get("face").cloned().unwrap_or(Value::Null));
-    o.insert("x".into(), n(x));
-    o.insert("y".into(), n(y));
-    o.insert("d".into(), n(d));
+    let mut o = JObj::with_capacity(5);
+    o.0.push((JStr::S("face"), h.get("face").map_or(JVal::Null, JVal::from_value)));
+    o.0.push((JStr::S("x"), JVal::num(x)));
+    o.0.push((JStr::S("y"), JVal::num(y)));
+    o.0.push((JStr::S("d"), JVal::num(d)));
     Some(o)
 }
-fn clean_cut(c: Option<&Value>) -> Option<Map<String, Value>> {
-    clean_cut_s(c?)
-}
-fn clean_cut_s<S: Src>(c: &S) -> Option<Map<String, Value>> {
+fn clean_cut_s<S: Src>(c: &S) -> Option<JObj> {
     if !c.truthy() {
         return None;
     }
@@ -647,21 +684,26 @@ fn clean_cut_s<S: Src>(c: &S) -> Option<Map<String, Value>> {
     if !(length > 0.0 && length < 1e5 && depth > 0.0 && depth < 5000.0) {
         return None;
     }
-    let mut o = Map::new();
-    o.insert("kind".into(), Value::from("cope"));
-    o.insert("end".into(), c.get("end").cloned().unwrap_or(Value::Null));
-    o.insert("side".into(), c.get("side").cloned().unwrap_or(Value::Null));
-    o.insert("length".into(), n(length));
-    o.insert("depth".into(), n(depth));
+    let mut o = JObj::with_capacity(6);
+    o.0.push((JStr::S("kind"), JVal::Str(JStr::S("cope"))));
+    o.0.push((JStr::S("end"), c.get("end").map_or(JVal::Null, JVal::from_value)));
+    o.0.push((JStr::S("side"), c.get("side").map_or(JVal::Null, JVal::from_value)));
+    o.0.push((JStr::S("length"), JVal::num(length)));
+    o.0.push((JStr::S("depth"), JVal::num(depth)));
     Some(o)
 }
 
 impl Tx<'_> {
-    fn st(&mut self) -> &mut Map<String, Value> {
-        m_of(self.s)
+    fn st(&mut self) -> &mut State {
+        self.s.obj_mut()
     }
+    /// A field's list that is not one of the records' (`Array.isArray(s[k]) ? s[k] : []`).
     fn list(&self, k: &str) -> &[Value] {
         arr(self.s.get(k))
+    }
+    /// The members, connections or footings.
+    fn recs(&self, k: &str) -> &[JVal] {
+        self.s.list(k)
     }
     fn profiles(&self) -> Vec<Value> {
         self.list("profiles").to_vec()
@@ -669,23 +711,22 @@ impl Tx<'_> {
     /// `nextId(prefix)`.
     pub fn next_id(&mut self, prefix: &str) -> String {
         let st = self.st();
-        let seq = st.get("seq").cloned().unwrap_or(Value::Null);
-        let x = num(Some(&seq));
+        let x = num(st.get("seq").or(Some(&Value::Null)));
         // `this.s.seq++`: the old value as a number, then one more
-        st.insert("seq".into(), n(x + 1.0));
+        st.insert("seq", n(x + 1.0));
         format!("{prefix}{}", num_to_string(x))
     }
     pub fn set_name(&mut self, name: Option<&Value>) {
         let c = clean_text(name, 80);
         let v = if c.is_empty() { t0("model.name.untitled") } else { c };
-        self.st().insert("name".into(), Value::from(v));
+        self.st().insert("name", Value::from(v));
     }
     pub fn set_grids(&mut self, grids: Option<&Value>) -> Res<()> {
         let x = field(grids, "x").and_then(Value::as_array).ok_or_else(|| "grids.x.map is not a function".to_string())?;
         let y = field(grids, "y").and_then(Value::as_array).ok_or_else(|| "grids.y.map is not a function".to_string())?;
         let cp = |a: &Vec<Value>| Value::Array(a.iter().take(MAX_LIST).map(|g| Value::Object(spread(Some(g), None))).collect());
         let g = json!({ "x": cp(x), "y": cp(y) });
-        self.st().insert("grids".into(), g);
+        self.st().insert("grids", g);
         Ok(())
     }
     pub fn set_levels(&mut self, levels: Option<&Value>) -> Res<()> {
@@ -714,19 +755,19 @@ impl Tx<'_> {
             out.push(json!({ "name": name, "z": z }));
         }
         out.sort_by(|a, b| crate::js::ord(num(a.get("z")) - num(b.get("z"))));
-        self.st().insert("levels".into(), Value::Array(out));
+        self.st().insert("levels", Value::Array(out));
         Ok(())
     }
     /// `ensurePhase(n)`.
     pub fn ensure_phase(&mut self, ph: f64) {
         let st = self.st();
         if !st.get("phases").is_some_and(Value::is_array) {
-            st.insert("phases".into(), json!([{ "n": 1, "name": "" }]));
+            st.insert("phases", json!([{ "n": 1, "name": "" }]));
         }
         if !truthy(st.get("numbering")) {
-            st.insert("numbering".into(), json!({ "perPhase": true }));
+            st.insert("numbering", json!({ "perPhase": true }));
         }
-        let phases = arr_mut(st, "phases");
+        let phases = st.arr_mut("phases");
         if !phases.iter().any(|p| num(p.get("n")) == ph && p.get("n").is_some_and(Value::is_number)) {
             phases.push(json!({ "n": ph, "name": "" }));
             phases.sort_by(|a, b| crate::js::ord(num(a.get("n")) - num(b.get("n"))));
@@ -742,24 +783,19 @@ impl Tx<'_> {
             return Err(t("phase.err.max", &[("max", F::N(MAX_PHASE))]));
         }
         let nm = clean_text(Some(name.unwrap_or(&Value::from(""))), 40);
-        arr_mut(self.st(), "phases").push(json!({ "n": nn, "name": nm }));
+        self.st().arr_mut("phases").push(json!({ "n": nn, "name": nm }));
         Ok(nn)
     }
     pub fn rename_phase(&mut self, ph: Option<&Value>, name: Option<&Value>) -> Res<()> {
         let nm = clean_text(name, 40);
-        let phases = arr_mut(self.st(), "phases");
+        let phases = self.st().arr_mut("phases");
         let p = phases.iter_mut().find(|x| strict_eq(x.get("n"), ph)).ok_or_else(|| t0("phase.err.gone"))?;
         m_of(p).insert("name".into(), Value::from(nm));
         Ok(())
     }
     pub fn remove_phase(&mut self, ph: Option<&Value>) -> Res<()> {
-        let used = self
-            .list("members")
-            .iter()
-            .chain(self.list("footings"))
-            .chain(self.list("stairs"))
-            .filter(|x| strict_eq(x.get("phase"), ph))
-            .count();
+        let used = self.recs("members").iter().chain(self.recs("footings")).filter(|x| strict_eq(x.get("phase"), ph)).count()
+            + self.list("stairs").iter().filter(|x| strict_eq(x.get("phase"), ph)).count();
         if used > 0 {
             let mut vars = vec![("n", F::N(used as f64))];
             vars.extend(fill_of("phase", ph));
@@ -768,22 +804,22 @@ impl Tx<'_> {
         if self.list("phases").len() <= 1 {
             return Err(t0("phase.err.last"));
         }
-        arr_mut(self.st(), "phases").retain(|p| !strict_eq(p.get("n"), ph));
+        self.st().arr_mut("phases").retain(|p| !strict_eq(p.get("n"), ph));
         Ok(())
     }
     pub fn set_numbering(&mut self, o: Option<&Value>) {
         let pp = truthy(field(o, "perPhase"));
-        self.st().insert("numbering".into(), json!({ "perPhase": pp }));
+        self.st().insert("numbering", json!({ "perPhase": pp }));
     }
     pub fn add_issues(&mut self, list: Option<&Value>) -> Res<()> {
         let items = list.and_then(Value::as_array).cloned().unwrap_or_default();
         let st = self.st();
         if !st.get("issues").is_some_and(Value::is_array) {
-            st.insert("issues".into(), json!([]));
+            st.insert("issues", json!([]));
         }
         for x in items.iter().take(MAX_LIST) {
             let c = clean_issue(x).ok_or_else(|| t0("issue.err.bad"))?;
-            arr_mut(self.st(), "issues").push(Value::Object(c));
+            self.st().arr_mut("issues").push(Value::Object(c));
         }
         Ok(())
     }
@@ -795,13 +831,21 @@ impl Tx<'_> {
             .map(|r| format!("{}:{}", crate::js::string_of(field(Some(r), "kind")), crate::js::string_of(field(Some(r), "id"))))
             .collect();
         let st = self.st();
-        for (key, pre) in [("members", "member:"), ("footings", "footing:"), ("stairs", "stair:")] {
-            if let Some(Value::Array(list)) = st.get_mut(key) {
+        for (key, pre) in [("members", "member:"), ("footings", "footing:")] {
+            if let Some(list) = st.held_mut(key) {
                 for x in list.iter_mut() {
                     let k = format!("{pre}{}", crate::js::string_of(x.get("id")));
                     if ids.contains(&k) {
-                        m_of(x).insert("phase".into(), n(p));
+                        jm_of(x).insert("phase", JVal::num(p));
                     }
+                }
+            }
+        }
+        if let Some(Value::Array(list)) = st.get_mut("stairs") {
+            for x in list.iter_mut() {
+                let k = format!("stair:{}", crate::js::string_of(x.get("id")));
+                if ids.contains(&k) {
+                    m_of(x).insert("phase".into(), n(p));
                 }
             }
         }
@@ -847,13 +891,13 @@ impl Tx<'_> {
         let custom = self.profiles();
         check_member(&mut mem, &custom)?;
         self.ensure_phase(phase);
-        arr_mut(self.st(), "members").push(Value::Object(mem));
+        self.st().members_mut().push(JVal::Obj(JObj::from_map_owned(mem)));
         Ok(Value::from(id))
     }
     pub fn update_member(&mut self, id: Option<&Value>, patch: Option<&Value>) -> Res<()> {
         let custom = self.profiles();
-        let idx = self.list("members").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.member-gone"))?;
-        let cur = self.list("members").get(idx).cloned().unwrap_or(Value::Null);
+        let idx = self.recs("members").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.member-gone"))?;
+        let cur = self.recs("members").get(idx).map_or(Value::Null, JVal::to_value);
         let mut next = spread(Some(&cur), patch);
         if truthy(field(patch, "start")) {
             next.insert("start".into(), vec3(field(patch, "start"))?);
@@ -884,12 +928,12 @@ impl Tx<'_> {
             self.ensure_phase(p);
         }
         check_member(&mut next, &custom)?;
-        if let Some(Value::Array(list)) = self.st().get_mut("members")
+        if let Some(list) = self.st().held_mut("members")
             && let Some(m) = list.get_mut(idx)
         {
-            let mm = m_of(m);
+            let mm = jm_of(m);
             for (k, v) in next {
-                mm.insert(k, v);
+                mm.insert(JStr::from_string(k), JVal::from(v));
             }
         }
         Ok(())
@@ -897,45 +941,45 @@ impl Tx<'_> {
     pub fn remove_members(&mut self, ids: Option<&Value>) {
         let set = arr(ids).to_vec();
         let st = self.st();
-        arr_mut(st, "members").retain(|m| !set_has(&set, m.get("id")));
-        arr_mut(st, "connections").retain(|c| !members_of_v(c).iter().any(|id| set_has(&set, *id)));
+        st.members_mut().retain(|m| !set_has(&set, m.get("id")));
+        st.connections_mut().retain(|c| !members_of_v(c).iter().any(|id| set_has(&set, *id)));
     }
     pub fn add_hole(&mut self, member: Option<&Value>, h: Option<&Value>) -> Res<Value> {
-        let idx = self.list("members").iter().position(|x| strict_eq(x.get("id"), member)).ok_or_else(|| t0("model.err.member-gone"))?;
-        let mut hole = clean_hole(h).ok_or_else(|| t0("model.err.hole"))?;
+        let idx = self.recs("members").iter().position(|x| strict_eq(x.get("id"), member)).ok_or_else(|| t0("model.err.member-gone"))?;
+        let mut hole = h.and_then(clean_hole_s).ok_or_else(|| t0("model.err.hole"))?;
         let id = self.next_id("h");
-        hole.insert("id".into(), Value::from(id.clone()));
-        if let Some(Value::Array(list)) = self.st().get_mut("members")
+        hole.insert("id", JVal::from(id.clone()));
+        if let Some(list) = self.st().held_mut("members")
             && let Some(m) = list.get_mut(idx)
         {
-            arr_mut(m_of(m), "holes").push(Value::Object(hole));
+            jarr_mut(jm_of(m), "holes").push(JVal::Obj(hole));
         }
         Ok(Value::from(id))
     }
     pub fn remove_hole(&mut self, member: Option<&Value>, hole: Option<&Value>) {
-        if let Some(Value::Array(list)) = self.st().get_mut("members")
+        if let Some(list) = self.st().held_mut("members")
             && let Some(m) = list.iter_mut().find(|x| strict_eq(x.get("id"), member))
         {
-            arr_mut(m_of(m), "holes").retain(|h| !strict_eq(h.get("id"), hole));
+            jarr_mut(jm_of(m), "holes").retain(|h| !strict_eq(h.get("id"), hole));
         }
     }
     pub fn add_cut(&mut self, member: Option<&Value>, c: Option<&Value>) -> Res<Value> {
-        let idx = self.list("members").iter().position(|x| strict_eq(x.get("id"), member)).ok_or_else(|| t0("model.err.member-gone"))?;
-        let mut cut = clean_cut(c).ok_or_else(|| t0("model.err.cope"))?;
+        let idx = self.recs("members").iter().position(|x| strict_eq(x.get("id"), member)).ok_or_else(|| t0("model.err.member-gone"))?;
+        let mut cut = c.and_then(clean_cut_s).ok_or_else(|| t0("model.err.cope"))?;
         let id = self.next_id("k");
-        cut.insert("id".into(), Value::from(id.clone()));
-        if let Some(Value::Array(list)) = self.st().get_mut("members")
+        cut.insert("id", JVal::from(id.clone()));
+        if let Some(list) = self.st().held_mut("members")
             && let Some(m) = list.get_mut(idx)
         {
-            arr_mut(m_of(m), "cuts").push(Value::Object(cut));
+            jarr_mut(jm_of(m), "cuts").push(JVal::Obj(cut));
         }
         Ok(Value::from(id))
     }
     pub fn remove_cut(&mut self, member: Option<&Value>, cut: Option<&Value>) {
-        if let Some(Value::Array(list)) = self.st().get_mut("members")
+        if let Some(list) = self.st().held_mut("members")
             && let Some(m) = list.iter_mut().find(|x| strict_eq(x.get("id"), member))
         {
-            arr_mut(m_of(m), "cuts").retain(|h| !strict_eq(h.get("id"), cut));
+            jarr_mut(jm_of(m), "cuts").retain(|h| !strict_eq(h.get("id"), cut));
         }
     }
 
@@ -953,7 +997,7 @@ impl Tx<'_> {
             let extra = field(c, "params").filter(|v| truthy(Some(v)));
             Value::Object(spread(Some(&base), extra))
         };
-        let conns = self.list("connections");
+        let conns = self.recs("connections");
         let mut o = Map::new();
         let cv = c.cloned().unwrap_or(Value::Null);
         if is_beam_end_v(&cv) {
@@ -982,7 +1026,7 @@ impl Tx<'_> {
                 Some(ix) => ix.base_taken(field(c, "column")),
                 None => conns
                     .iter()
-                    .any(|x| x.get("type").and_then(Value::as_str) == Some("baseplate") && strict_eq(x.get("column"), field(c, "column"))),
+                    .any(|x| x.get("type").and_then(JVal::as_str) == Some("baseplate") && strict_eq(x.get("column"), field(c, "column"))),
             };
             if taken {
                 return Err(t0("model.err.base-taken"));
@@ -994,7 +1038,7 @@ impl Tx<'_> {
             }
             o.insert("params".into(), params_with("baseplate"));
         } else if ty.and_then(Value::as_str) == Some("splice") {
-            let ms = self.list("members");
+            let ms = self.recs("members");
             let (a, b) = (field(c, "a"), field(c, "b"));
             let has_m = |v: Option<&Value>| match idx.as_deref() {
                 Some(ix) => ix.member_type(v).is_some(),
@@ -1008,7 +1052,7 @@ impl Tx<'_> {
             let taken = match idx.as_deref() {
                 Some(ix) => ix.splice_taken(a, Some(&a_end_v), b),
                 None => conns.iter().any(|x| {
-                    x.get("type").and_then(Value::as_str) == Some("splice")
+                    x.get("type").and_then(JVal::as_str) == Some("splice")
                         && ((strict_eq(x.get("a"), a) && strict_eq(x.get("aEnd"), Some(&a_end_v)))
                             || (strict_eq(x.get("a"), b) && strict_eq(x.get("b"), a))
                             || (strict_eq(x.get("a"), a) && strict_eq(x.get("b"), b)))
@@ -1028,14 +1072,14 @@ impl Tx<'_> {
             }
             o.insert("params".into(), params_with("splice"));
         } else if ty.and_then(Value::as_str) == Some("gusset") {
-            let ms = self.list("members");
+            let ms = self.recs("members");
             let (br, sp) = (field(c, "brace"), field(c, "support"));
             let (br_type, sp_ok) = match idx.as_deref() {
                 Some(ix) => (ix.member_type(br).map(|t| t.to_string()), ix.member_type(sp).is_some()),
                 None => (
                     ms.iter()
                         .find(|m| strict_eq(m.get("id"), br))
-                        .map(|m| m.get("type").and_then(Value::as_str).unwrap_or("\u{0}").to_string()),
+                        .map(|m| m.get("type").and_then(JVal::as_str).unwrap_or("\u{0}").to_string()),
                     ms.iter().any(|m| strict_eq(m.get("id"), sp)),
                 ),
             };
@@ -1047,7 +1091,7 @@ impl Tx<'_> {
             let taken = match idx.as_deref() {
                 Some(ix) => ix.gusset_taken(br, Some(&end_v)),
                 None => conns.iter().any(|x| {
-                    x.get("type").and_then(Value::as_str) == Some("gusset")
+                    x.get("type").and_then(JVal::as_str) == Some("gusset")
                         && strict_eq(x.get("brace"), br)
                         && strict_eq(x.get("end"), Some(&end_v))
                 }),
@@ -1072,12 +1116,12 @@ impl Tx<'_> {
         if let Some(ix) = idx {
             ix.learn(&made);
         }
-        arr_mut(self.st(), "connections").push(made);
+        self.st().connections_mut().push(JVal::from(made));
         Ok(Value::from(id))
     }
     pub fn update_connection(&mut self, id: Option<&Value>, params: Option<&Value>) -> Res<()> {
-        let idx = self.list("connections").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.conn-gone"))?;
-        let cur = self.list("connections").get(idx).cloned().unwrap_or(Value::Null);
+        let idx = self.recs("connections").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.conn-gone"))?;
+        let cur = self.recs("connections").get(idx).map_or(Value::Null, JVal::to_value);
         let mut next = spread(cur.get("params"), None);
         for (k, v) in entries(params) {
             let Some(old) = next.get(&k) else { continue };
@@ -1091,16 +1135,16 @@ impl Tx<'_> {
                 next.insert(k, Value::from(clean_text(Some(&v), 30)));
             }
         }
-        if let Some(Value::Array(list)) = self.st().get_mut("connections")
+        if let Some(list) = self.st().held_mut("connections")
             && let Some(c) = list.get_mut(idx)
         {
-            m_of(c).insert("params".into(), Value::Object(next));
+            jm_of(c).insert("params", JVal::Obj(JObj::from_map_owned(next)));
         }
         Ok(())
     }
     pub fn remove_connections(&mut self, ids: Option<&Value>) {
         let set = arr(ids).to_vec();
-        arr_mut(self.st(), "connections").retain(|c| !set_has(&set, c.get("id")));
+        self.st().connections_mut().retain(|c| !set_has(&set, c.get("id")));
     }
 
     fn footing_input(base: &Value, f: Option<&Value>) -> Value {
@@ -1125,12 +1169,12 @@ impl Tx<'_> {
         o.insert("id".into(), Value::from(id.clone()));
         o.extend(r.fields());
         o.insert("phase".into(), n(phase));
-        arr_mut(self.st(), "footings").push(Value::Object(o));
+        self.st().footings_mut().push(JVal::Obj(JObj::from_map_owned(o)));
         Ok(Value::from(id))
     }
     pub fn update_footing(&mut self, id: Option<&Value>, patch: Option<&Value>) -> Res<()> {
-        let i = self.list("footings").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.footing-gone"))?;
-        let f = self.list("footings").get(i).cloned().unwrap_or(Value::Null);
+        let i = self.recs("footings").iter().position(|x| strict_eq(x.get("id"), id)).ok_or_else(|| t0("model.err.footing-gone"))?;
+        let f = self.recs("footings").get(i).map_or(Value::Null, JVal::to_value);
         let r = clean_footing(&Self::footing_input(&f, patch))?;
         let phase = if field(patch, "phase").is_some() {
             clean_phase(field(patch, "phase"))
@@ -1143,14 +1187,14 @@ impl Tx<'_> {
         o.insert("id".into(), id.cloned().unwrap_or(Value::Null));
         o.extend(r.fields());
         o.insert("phase".into(), n(phase));
-        if let Some(slot) = arr_mut(self.st(), "footings").get_mut(i) {
-            *slot = Value::Object(o);
+        if let Some(slot) = self.st().footings_mut().get_mut(i) {
+            *slot = JVal::Obj(JObj::from_map_owned(o));
         }
         Ok(())
     }
     pub fn remove_footings(&mut self, ids: Option<&Value>) {
         let set = arr(ids).to_vec();
-        arr_mut(self.st(), "footings").retain(|c| !set_has(&set, c.get("id")));
+        self.st().footings_mut().retain(|c| !set_has(&set, c.get("id")));
     }
     fn stair_input(base: &Value, x: Option<&Value>) -> Value {
         let mut m = spread(Some(base), x);
@@ -1168,13 +1212,13 @@ impl Tx<'_> {
         self.ensure_phase(phase);
         let st = self.st();
         if !st.get("stairs").is_some_and(Value::is_array) {
-            st.insert("stairs".into(), json!([]));
+            st.insert("stairs", json!([]));
         }
         let mut o = Map::new();
         o.insert("id".into(), Value::from(id.clone()));
         o.extend(r.fields());
         o.insert("phase".into(), n(phase));
-        arr_mut(self.st(), "stairs").push(Value::Object(o));
+        self.st().arr_mut("stairs").push(Value::Object(o));
         Ok(Value::from(id))
     }
     pub fn update_stair(&mut self, id: Option<&Value>, patch: Option<&Value>) -> Res<()> {
@@ -1192,7 +1236,7 @@ impl Tx<'_> {
         o.insert("id".into(), id.cloned().unwrap_or(Value::Null));
         o.extend(r.fields());
         o.insert("phase".into(), n(phase));
-        if let Some(slot) = arr_mut(self.st(), "stairs").get_mut(i) {
+        if let Some(slot) = self.st().arr_mut("stairs").get_mut(i) {
             *slot = Value::Object(o);
         }
         Ok(())
@@ -1201,13 +1245,13 @@ impl Tx<'_> {
         let c = b.and_then(clean_bolt).ok_or_else(|| t0("model.err.bolt"))?;
         let st = self.st();
         if !st.get("bolts").is_some_and(Value::is_array) {
-            st.insert("bolts".into(), json!([]));
+            st.insert("bolts", json!([]));
         }
         let id = self.next_id("k");
         let mut o = Map::new();
         o.insert("id".into(), Value::from(id.clone()));
         o.extend(c);
-        arr_mut(self.st(), "bolts").push(Value::Object(o));
+        self.st().arr_mut("bolts").push(Value::Object(o));
         Ok(Value::from(id))
     }
     pub fn remove_bolts(&mut self, ids: Option<&Value>) {
@@ -1216,10 +1260,10 @@ impl Tx<'_> {
         match set {
             Some(set) => {
                 let keep: Vec<Value> = arr(st.get("bolts")).iter().filter(|b| !set_has(&set, b.get("id"))).cloned().collect();
-                st.insert("bolts".into(), Value::Array(keep));
+                st.insert("bolts", Value::Array(keep));
             }
             None => {
-                st.insert("bolts".into(), json!([]));
+                st.insert("bolts", json!([]));
             }
         }
     }
@@ -1227,7 +1271,7 @@ impl Tx<'_> {
         let set = arr(ids).to_vec();
         let st = self.st();
         let keep: Vec<Value> = arr(st.get("stairs")).iter().filter(|x| !set_has(&set, x.get("id"))).cloned().collect();
-        st.insert("stairs".into(), Value::Array(keep));
+        st.insert("stairs", Value::Array(keep));
     }
     pub fn add_profile(&mut self, p: Option<&Value>) -> Res<()> {
         let r = clean_custom(p.unwrap_or(&Value::Null), false)?;
@@ -1235,7 +1279,7 @@ impl Tx<'_> {
         if self.list("profiles").iter().any(|x| upper(s(x.get("name"))) == name) {
             return Err(t("model.err.profile-taken", &[("name", F::from(s(r.get("name"))))]));
         }
-        arr_mut(self.st(), "profiles").push(r);
+        self.st().arr_mut("profiles").push(r);
         Ok(())
     }
 
@@ -1342,7 +1386,7 @@ impl Tx<'_> {
 }
 
 /// `readModel(text)` → (state, warnings), or the refusal.
-pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
+pub fn read_model(input: &Value) -> Res<(State, Vec<String>)> {
     // S.15: a file's text is read typed (members and connections straight into their fields); text that is not a
     // JSON object, or that the typed read refuses, is read as JSON below, which gives the same result or error
     if let Value::String(text) = input
@@ -1359,17 +1403,17 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
 
 /// readModel of a file's text through the JSON tree (the whole text parsed into values, then read): what the typed
 /// read is checked against (tests, fuzz target `detail_read_typed`), and the route for text it refuses.
-pub fn read_model_json(text: &str) -> Res<(Value, Vec<String>)> {
+pub fn read_model_json(text: &str) -> Res<(State, Vec<String>)> {
     let j = parse(text).map_err(|_| t0("model.err.not-json"))?;
     read_value(&j)
 }
 
-fn read_value(j: &Value) -> Res<(Value, Vec<String>)> {
+fn read_value(j: &Value) -> Res<(State, Vec<String>)> {
     read_core(j, list_of(j.get("members"), 20000), list_of(j.get("connections"), 20000))
 }
 
 /// readModel after the parse: `j` the file's fields (members and connections given apart, already capped).
-fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[C]) -> Res<(Value, Vec<String>)> {
+fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[C]) -> Res<(State, Vec<String>)> {
     if !truthy(Some(j)) || j.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(t0("model.err.not-model"));
     }
@@ -1439,67 +1483,85 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         }
         v
     };
-    let mut members: Vec<Value> = Vec::new();
+    let mut members: Vec<JVal> = Vec::with_capacity(members_in.len());
     let mut dropped = 0usize;
+    // whether a profile name is one (getProfile against the file's own profiles, which stay as they are here)
+    let mut known: std::collections::HashMap<String, bool, cc_m3d::omap::FxBuild> = std::collections::HashMap::default();
     for m in members_in {
         if Src::is_null(m) {
             dropped = dropped.saturating_add(1);
             continue;
         }
-        let mut mem = Map::with_capacity(12);
-        mem.insert("id".into(), Value::from(uid(Src::get(m, "id"), "m")));
-        let ty = if includes(&MEMBER_TYPES, Src::get(m, "type")) {
-            Src::get(m, "type").cloned().unwrap_or(Value::Null)
-        } else {
-            Value::from("beam")
+        let id = JStr::from_string(uid(Src::get(m, "id"), "m"));
+        let ty = match Src::get(m, "type").and_then(Value::as_str) {
+            Some(t) if MEMBER_TYPES.contains(&t) => JStr::new(t),
+            _ => JStr::S("beam"),
         };
-        mem.insert("type".into(), ty);
-        mem.insert("profile".into(), Value::from(clean_text(Src::get(m, "profile"), 40)));
-        let mat = clean_text(Src::get(m, "material"), 30);
-        mem.insert("material".into(), Value::from(if mat.is_empty() { "A992".to_string() } else { mat }));
-        let (Ok(start), Ok(end)) = (vec3(Src::get(m, "start")), vec3(Src::get(m, "end"))) else {
+        let profile = crate::js::clean_jstr(Src::get(m, "profile"), 40);
+        let mat = crate::js::clean_jstr(Src::get(m, "material"), 30);
+        let mat = if mat.is_empty() { JStr::S("A992") } else { mat };
+        let (Ok(start), Ok(end)) = (vec3_p(Src::get(m, "start")), vec3_p(Src::get(m, "end"))) else {
             // the end's uid calls never happen when start or end throws
             dropped = dropped.saturating_add(1);
             continue;
         };
-        mem.insert("start".into(), start);
-        mem.insert("end".into(), end);
-        mem.insert("rotation".into(), n(num_or0(Src::get(m, "rotation"))));
-        let pos = if includes(&["top", "middle", "bottom"], Src::get(m, "position")) {
-            Src::get(m, "position").cloned().unwrap_or(Value::Null)
-        } else {
-            Value::from("middle")
+        let rot = num_or0(Src::get(m, "rotation"));
+        let pos = match Src::get(m, "position").and_then(Value::as_str) {
+            Some(p) if ["top", "middle", "bottom"].contains(&p) => JStr::new(p),
+            _ => JStr::S("middle"),
         };
-        mem.insert("position".into(), pos);
-        mem.insert("name".into(), Value::from(clean_text(Src::get(m, "name"), 40)));
+        let name = crate::js::clean_jstr(Src::get(m, "name"), 40);
         let mut cuts = Vec::new();
         for c in m.list("cuts", 50) {
             if let Some(mut k) = clean_cut_s(c) {
-                k.insert("id".into(), Value::from(uid(Src::get(c, "id"), "k")));
-                cuts.push(Value::Object(k));
+                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(Src::get(c, "id"), "k")))));
+                cuts.push(JVal::Obj(k));
             }
         }
-        mem.insert("cuts".into(), Value::Array(cuts));
         let mut holes = Vec::new();
         for h in m.list("holes", 2000) {
             if let Some(mut k) = clean_hole_s(h) {
-                k.insert("id".into(), Value::from(uid(Src::get(h, "id"), "h")));
-                holes.push(Value::Object(k));
+                k.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(Src::get(h, "id"), "h")))));
+                holes.push(JVal::Obj(k));
             }
         }
-        mem.insert("holes".into(), Value::Array(holes));
-        mem.insert("phase".into(), n(clean_phase(Src::get(m, "phase")).unwrap_or(1.0)));
-        match check_member(&mut mem, &profiles) {
-            Ok(()) => members.push(Value::Object(mem)),
-            Err(_) => dropped = dropped.saturating_add(1),
+        let phase = clean_phase(Src::get(m, "phase")).unwrap_or(1.0);
+        // checkMember: the profile is one, the material and position are (made so above), the rotation a number
+        // (num || 0 is one unless it is ±∞), start and end apart
+        let ok_profile = match known.get(profile.as_str()) {
+            Some(k) => *k,
+            None => {
+                let k = get_profile_str(&profile, &profiles).is_some();
+                known.insert(profile.as_str().to_string(), k);
+                k
+            }
+        };
+        if !ok_profile || !rot.is_finite() || hypot3(end[0] - start[0], end[1] - start[1], end[2] - start[2]) < 1.0 {
+            dropped = dropped.saturating_add(1);
+            continue;
         }
+        let p3 = |p: [f64; 3]| JVal::Arr(vec![JVal::num(p[0]), JVal::num(p[1]), JVal::num(p[2])]);
+        let mut mem = JObj::with_capacity(12);
+        mem.0.push((JStr::S("id"), JVal::Str(id)));
+        mem.0.push((JStr::S("type"), JVal::Str(ty)));
+        mem.0.push((JStr::S("profile"), JVal::Str(profile)));
+        mem.0.push((JStr::S("material"), JVal::Str(mat)));
+        mem.0.push((JStr::S("start"), p3(start)));
+        mem.0.push((JStr::S("end"), p3(end)));
+        mem.0.push((JStr::S("rotation"), JVal::num(((rot % 360.0) + 360.0) % 360.0)));
+        mem.0.push((JStr::S("position"), JVal::Str(pos)));
+        mem.0.push((JStr::S("name"), JVal::Str(name)));
+        mem.0.push((JStr::S("cuts"), JVal::Arr(cuts)));
+        mem.0.push((JStr::S("holes"), JVal::Arr(holes)));
+        mem.0.push((JStr::S("phase"), JVal::num(phase)));
+        members.push(JVal::Obj(mem));
     }
     if dropped > 0 {
         warnings.push(t("model.warn.members", &[("n", F::N(dropped as f64))]));
     }
-    let member_ids: std::collections::HashSet<&str, cc_m3d::omap::FxBuild> = members.iter().map(|m| s_(m.get("id"))).collect();
+    let member_ids: std::collections::HashSet<&str, cc_m3d::omap::FxBuild> = members.iter().map(|m| crate::js::s(m.get("id"))).collect();
     let has_member = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|x| member_ids.contains(x));
-    let mut conns = Vec::new();
+    let mut conns: Vec<JVal> = Vec::with_capacity(conns_in.len());
     let mut dropped_c = 0usize;
     for c in conns_in {
         let ty = Src::get(c, "type").and_then(Value::as_str).unwrap_or("");
@@ -1515,67 +1577,69 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
             dropped_c = dropped_c.saturating_add(1);
             continue;
         }
-        let mut params = base.as_object().cloned().unwrap_or_default();
-        if let Some(bo) = base.as_object() {
-            // params is a copy of the defaults: the same keys in the same order
-            for ((k, bv), slot) in bo.iter().zip(params.values_mut()) {
-                let Some(v) = c.param(k) else { continue };
-                if bv.is_number() {
+        let bo = base.as_object();
+        let mut params = JObj::with_capacity(bo.map_or(0, Map::len));
+        // params: the defaults' keys in their order, each the file's value when it is a good one
+        for (k, bv) in bo.into_iter().flatten() {
+            let v = match c.param(k) {
+                None => JVal::from_value(bv),
+                Some(v) if bv.is_number() => {
                     let x = num(Some(v));
-                    if x.is_finite() && (0.0..=10000.0).contains(&x) {
-                        *slot = n(x);
-                    }
-                } else {
-                    let cv = clean_text(Some(v), 30);
-                    *slot = if cv.is_empty() { bv.clone() } else { Value::from(cv) };
+                    if x.is_finite() && (0.0..=10000.0).contains(&x) { JVal::num(x) } else { JVal::from_value(bv) }
                 }
-            }
+                Some(v) => {
+                    let cv = crate::js::clean_jstr(Some(v), 30);
+                    if cv.is_empty() { JVal::from_value(bv) } else { JVal::Str(cv) }
+                }
+            };
+            params.0.push((JStr::S(k.as_str()), v));
         }
-        let mut o = Map::with_capacity(7);
+        let mut o = JObj::with_capacity(7);
         let g = |k: &str| Src::get(c, k);
-        let end_of = |k: &str| Value::from(if g(k).and_then(Value::as_str) == Some("start") { "start" } else { "end" });
-        o.insert("id".into(), Value::from(uid(g("id"), "j")));
+        let gv = |k: &str| g(k).map_or(JVal::Null, JVal::from_value);
+        let end_of = |k: &str| JVal::Str(JStr::S(if g(k).and_then(Value::as_str) == Some("start") { "start" } else { "end" }));
+        o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(g("id"), "j")))));
         match ty {
             "splice" => {
-                o.insert("type".into(), Value::from("splice"));
-                o.insert("a".into(), g("a").cloned().unwrap_or(Value::Null));
-                o.insert("aEnd".into(), end_of("aEnd"));
-                o.insert("b".into(), g("b").cloned().unwrap_or(Value::Null));
-                o.insert("params".into(), Value::Object(params));
+                o.0.push((JStr::S("type"), JVal::Str(JStr::S("splice"))));
+                o.0.push((JStr::S("a"), gv("a")));
+                o.0.push((JStr::S("aEnd"), end_of("aEnd")));
+                o.0.push((JStr::S("b"), gv("b")));
+                o.0.push((JStr::S("params"), JVal::Obj(params)));
             }
             "gusset" => {
-                o.insert("type".into(), Value::from("gusset"));
-                o.insert("brace".into(), g("brace").cloned().unwrap_or(Value::Null));
-                o.insert("end".into(), end_of("end"));
-                o.insert("support".into(), g("support").cloned().unwrap_or(Value::Null));
-                o.insert("params".into(), Value::Object(params));
+                o.0.push((JStr::S("type"), JVal::Str(JStr::S("gusset"))));
+                o.0.push((JStr::S("brace"), gv("brace")));
+                o.0.push((JStr::S("end"), end_of("end")));
+                o.0.push((JStr::S("support"), gv("support")));
+                o.0.push((JStr::S("params"), JVal::Obj(params)));
             }
             _ => {
-                o.insert("type".into(), Value::from(ty));
+                o.0.push((JStr::S("type"), JVal::str(ty)));
                 if let Some(v) = g("column") {
-                    o.insert("column".into(), v.clone());
+                    o.0.push((JStr::S("column"), JVal::from_value(v)));
                 }
-                o.insert("params".into(), Value::Object(params));
+                o.0.push((JStr::S("params"), JVal::Obj(params)));
             }
         }
         if is_beam_end_s(c) {
-            o.insert("beam".into(), g("beam").cloned().unwrap_or(Value::Null));
-            o.insert("end".into(), end_of("end"));
+            o.0.push((JStr::S("beam"), gv("beam")));
+            o.0.push((JStr::S("end"), end_of("end")));
         }
-        conns.push(Value::Object(o));
+        conns.push(JVal::Obj(o));
     }
     if dropped_c > 0 {
         warnings.push(t("model.warn.connections", &[("n", F::N(dropped_c as f64))]));
     }
-    let mut footings = Vec::new();
+    let mut footings: Vec<JVal> = Vec::new();
     for f in list_of(j.get("footings"), 5000) {
         match clean_footing(f) {
             Ok(r) => {
-                let mut o = Map::with_capacity(12);
-                o.insert("id".into(), Value::from(uid(field(Some(f), "id"), "f")));
-                r.fields_into(&mut o);
-                o.insert("phase".into(), n(clean_phase(field(Some(f), "phase")).unwrap_or(1.0)));
-                footings.push(Value::Object(o));
+                let mut o = JObj::with_capacity(12);
+                o.0.push((JStr::S("id"), JVal::Str(JStr::from_string(uid(field(Some(f), "id"), "f")))));
+                r.fields_j(&mut o);
+                o.insert("phase", JVal::num(clean_phase(field(Some(f), "phase")).unwrap_or(1.0)));
+                footings.push(JVal::Obj(o));
             }
             Err(e) => warnings.push(t("model.warn.footing", &[("error", F::from(e))])),
         }
@@ -1611,9 +1675,9 @@ fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[
         }
     }
     put(&mut s, "profiles", Value::Array(profiles));
-    put(&mut s, "members", Value::Array(members));
-    put(&mut s, "connections", Value::Array(conns));
-    put(&mut s, "footings", Value::Array(footings));
+    s.set_records("members", members);
+    s.set_records("connections", conns);
+    s.set_records("footings", footings);
     put(&mut s, "bolts", Value::Array(bolts));
     put(&mut s, "stairs", Value::Array(stairs));
     let base_ph = if ph.is_empty() { vec![json!({ "n": 1, "name": "" })] } else { ph };
@@ -1653,7 +1717,7 @@ fn members_of_s<S: Src>(c: &S) -> Vec<Option<&Value>> {
     }
 }
 
-fn s_(v: Option<&Value>) -> &str {
+fn s_<T: Jsv>(v: Option<&T>) -> &str {
     s(v)
 }
 
@@ -1666,7 +1730,7 @@ mod conn_index_tests {
     #[test]
     fn the_index_decides_as_the_scans() {
         let m = crate::sample::sample_model("Sample frame").expect("sample");
-        let conns: Vec<Value> = arr(m.state.get("connections")).to_vec();
+        let conns: Vec<Value> = m.state.list("connections").iter().map(JVal::to_value).collect();
         assert!(!conns.is_empty());
         for c in &conns {
             let mut a = m.state.clone();
@@ -1675,7 +1739,7 @@ mod conn_index_tests {
             let mut ix = ConnIndex::of(&b);
             let fast = Tx { s: &mut b }.add_connection_in(Some(c), Some(&mut ix));
             assert_eq!(slow, fast, "{c}");
-            assert_eq!(stringify(&a), stringify(&b));
+            assert_eq!(a.stringify(), b.stringify());
         }
         // a splice of two members that don't meet still goes through the same member checks
         let s = json!({"type": "splice", "a": "m7", "aEnd": "end", "b": "m404"});
@@ -1708,6 +1772,46 @@ mod typed_read_tests {
             ok += usize::from(a.starts_with("ok"));
         }
         assert!(typed > 17_000 && ok > 15_000, "{typed} typed, {ok} read");
+    }
+
+    /// S.16: the state held as records reads every file as the model before it did (one JSON value): the same state
+    /// text and warnings, or the same error, on 24,000 random and broken files.
+    #[test]
+    fn state_reads_as_the_reference() {
+        for t in corpus(24_000).iter().chain([r#""p""#.to_string(), "[]".into(), "{}".into(), "nul".into(), "5".into()].iter()) {
+            if let Err(e) = crate::reference::check_read(t) {
+                panic!("{e}\n{}", t.get(..t.len().min(400)).unwrap_or(""));
+            }
+        }
+    }
+    /// S.16: random edits (every Tx method, with arguments of every kind; several to a step) with undo and redo, from
+    /// the sample, the starter state, an empty and a broken state and 400 states read from random files: the results,
+    /// errors and state text after every step are the old model's.
+    #[test]
+    fn edits_as_the_reference() {
+        let mut starts: Vec<Value> = vec![
+            crate::sample::sample_model("Sample frame").expect("sample").state.to_value(),
+            starter_state("S").to_value(),
+            json!({}),
+            json!({ "members": 5, "connections": [null, 3, {"id": "j1", "type": "endplate"}], "footings": "x", "seq": "a" }),
+            Value::Null,
+        ];
+        for t in corpus(2_000).iter().step_by(5) {
+            if let Ok((s, _)) = crate::reference::read_model(&Value::String(t.clone())) {
+                starts.push(s);
+            }
+        }
+        let mut steps = 0usize;
+        for (i, st) in starts.iter().enumerate() {
+            for k in 0..4u64 {
+                let mut p = crate::reference::Picks::seeded((i as u64) * 7919 + k * 104_729 + 1);
+                if let Err(e) = crate::reference::check_edits(st, &mut p, 40) {
+                    panic!("start {i} seed {k}: {e}");
+                }
+                steps += 40;
+            }
+        }
+        assert!(steps > 50_000, "{steps}");
     }
 
     /// A small deterministic generator (xorshift64*).
@@ -1887,15 +1991,15 @@ mod typed_read_tests {
         let mut r = Rng(0x9e37_79b9_7f4a_7c15);
         for i in 0..n {
             let v = mutate(&mut r, &sample);
-            let t = if i % 3 == 0 { stringify_indent(&v, 1) } else { stringify(&v) };
+            let t = if i % 3 == 0 { crate::js::stringify_indent(&v, 1) } else { crate::js::stringify(&v) };
             out.push(if r.chance(3) { damage(&mut r, t) } else { t });
         }
         out
     }
 
-    fn show(r: Res<(Value, Vec<String>)>) -> String {
+    fn show(r: Res<(State, Vec<String>)>) -> String {
         match r {
-            Ok((s, w)) => format!("ok {} {}", stringify(&s), w.join("|")),
+            Ok((s, w)) => format!("ok {} {}", s.stringify(), w.join("|")),
             Err(e) => format!("err {e}"),
         }
     }

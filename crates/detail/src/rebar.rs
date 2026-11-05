@@ -5,6 +5,7 @@
 use crate::geom::V3;
 use crate::i18n::{F, t, t0};
 use crate::js::{Obj, Res, atan2, cos, fixed_num, hypot, max, min, num, num_to_string, round, sin, string_of, to_fixed, truthy};
+use crate::jv::Jsv;
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::f64::consts::PI;
@@ -245,15 +246,55 @@ impl Footing {
         m.insert("mat".into(), self.mat.j());
         m.insert("starters".into(), self.starters.j());
     }
+    /// [`Footing::fields_into`] as a record's fields (the same values: `Value::from` for the footing's own numbers,
+    /// `jnum` for the mat's and the starters', as their `j()` makes them).
+    pub fn fields_j(&self, o: &mut crate::jv::JObj) {
+        use crate::jv::{JObj, JStr, JVal};
+        fn jn(x: f64) -> JVal {
+            if x.is_nan() {
+                JVal::Str(JStr::S("$NaN"))
+            } else if x.is_infinite() {
+                JVal::Str(JStr::S(if x > 0.0 { "$Inf" } else { "$-Inf" }))
+            } else {
+                JVal::Num(if x == 0.0 { 0.0 } else { x })
+            }
+        }
+        for (k, v) in
+            [("x", self.x), ("y", self.y), ("top", self.top), ("L", self.l), ("B", self.b), ("H", self.h), ("rotation", self.rotation)]
+        {
+            o.insert(JStr::S(k), JVal::num(v));
+        }
+        o.insert(JStr::S("concrete"), JVal::str(&self.concrete));
+        let m = &self.mat;
+        let mut mo = JObj::with_capacity(6);
+        mo.0.push((JStr::S("barX"), JVal::str(&m.bar_x)));
+        mo.0.push((JStr::S("sX"), jn(m.s_x)));
+        mo.0.push((JStr::S("barY"), JVal::str(&m.bar_y)));
+        mo.0.push((JStr::S("sY"), jn(m.s_y)));
+        mo.0.push((JStr::S("cover"), jn(m.cover)));
+        mo.0.push((JStr::S("hooks"), JVal::Bool(m.hooks)));
+        o.insert(JStr::S("mat"), JVal::Obj(mo));
+        let st = &self.starters;
+        let mut so = JObj::with_capacity(8);
+        so.0.push((JStr::S("on"), JVal::Bool(st.on)));
+        so.0.push((JStr::S("bar"), JVal::str(&st.bar)));
+        so.0.push((JStr::S("nx"), jn(st.nx)));
+        so.0.push((JStr::S("ny"), jn(st.ny)));
+        so.0.push((JStr::S("sx"), jn(st.sx)));
+        so.0.push((JStr::S("sy"), jn(st.sy)));
+        so.0.push((JStr::S("projection"), jn(st.projection)));
+        so.0.push((JStr::S("hook"), JVal::Bool(st.hook)));
+        o.insert(JStr::S("starters"), JVal::Obj(so));
+    }
     /// A stored footing (validated by the model) read back.
-    pub fn from_value(v: &Value) -> Footing {
-        let g = |k: &str| crate::js::f(v.get(k));
-        let m = v.get("mat");
-        let st = v.get("starters");
-        let gm = |k: &str| crate::js::f(m.and_then(|m| m.get(k)));
-        let gs = |k: &str| crate::js::f(st.and_then(|m| m.get(k)));
+    pub fn from_value<T: crate::jv::Jsv>(v: &T) -> Footing {
+        let g = |k: &str| crate::js::f(v.js_get(k));
+        let m = v.js_get("mat");
+        let st = v.js_get("starters");
+        let gm = |k: &str| crate::js::f(m.and_then(|m| m.js_get(k)));
+        let gs = |k: &str| crate::js::f(st.and_then(|m| m.js_get(k)));
         Footing {
-            id: crate::js::s(v.get("id")).to_string(),
+            id: crate::js::s(v.js_get("id")).to_string(),
             x: g("x"),
             y: g("y"),
             top: g("top"),
@@ -261,26 +302,26 @@ impl Footing {
             b: g("B"),
             h: g("H"),
             rotation: g("rotation"),
-            concrete: crate::js::s(v.get("concrete")).to_string(),
+            concrete: crate::js::s(v.js_get("concrete")).to_string(),
             mat: Mat {
-                bar_x: string_of(m.and_then(|m| m.get("barX"))),
+                bar_x: string_of(m.and_then(|m| m.js_get("barX"))),
                 s_x: gm("sX"),
-                bar_y: string_of(m.and_then(|m| m.get("barY"))),
+                bar_y: string_of(m.and_then(|m| m.js_get("barY"))),
                 s_y: gm("sY"),
                 cover: gm("cover"),
-                hooks: truthy(m.and_then(|m| m.get("hooks"))),
+                hooks: truthy(m.and_then(|m| m.js_get("hooks"))),
             },
             starters: Starters {
-                on: truthy(st.and_then(|m| m.get("on"))),
-                bar: string_of(st.and_then(|m| m.get("bar"))),
+                on: truthy(st.and_then(|m| m.js_get("on"))),
+                bar: string_of(st.and_then(|m| m.js_get("bar"))),
                 nx: gs("nx"),
                 ny: gs("ny"),
                 sx: gs("sx"),
                 sy: gs("sy"),
                 projection: gs("projection"),
-                hook: truthy(st.and_then(|m| m.get("hook"))),
+                hook: truthy(st.and_then(|m| m.js_get("hook"))),
             },
-            phase: crate::js::or(crate::js::f(v.get("phase")), 1.0),
+            phase: crate::js::or(crate::js::f(v.js_get("phase")), 1.0),
         }
     }
 }

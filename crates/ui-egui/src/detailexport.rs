@@ -190,7 +190,7 @@ impl Settings {
 
 /// What the exports read: the model state and what `recompute()` made from it.
 pub struct Ctx<'a> {
-    pub state: &'a Value,
+    pub state: &'a cc_detail::store::State,
     pub built: &'a Built,
     pub marks: &'a Marks,
     /// `marks.footingMark`
@@ -268,7 +268,7 @@ impl Clock {
 }
 
 /// detailcraft.js `safeName()`.
-pub fn safe_name(state: &Value) -> String {
+pub fn safe_name(state: &cc_detail::store::State) -> String {
     let name = state.get("name").and_then(Value::as_str).filter(|s| !s.is_empty()).unwrap_or("model");
     let mut out = String::new();
     let mut in_bad = false;
@@ -345,7 +345,7 @@ pub fn run(c: &Ctx, spec: &str, now_ms: f64, fixed: bool, zone: cc_clock::Zone) 
             Outcome::File(name.clone(), project_json(st).into_bytes(), t("app.file.saved", &[("file", F::S(name))]))
         }
         "ifc" => {
-            let footings = cc_detail::js::arr(st.get("footings")).len();
+            let footings = st.list("footings").len();
             if c.built.parts.is_empty() && footings == 0 {
                 return Ok(Outcome::Nothing(t0("app.export.nothing")));
             }
@@ -579,8 +579,8 @@ pub fn shop_of(c: &Ctx, id: Option<&str>, date: &str) -> Result<Result<Shop, Str
 }
 
 /// `model.toJSON()` of a state (`JSON.stringify(state, null, 1)`).
-pub fn project_json(state: &Value) -> String {
-    cc_detail::model::Model::new(state.clone()).to_json()
+pub fn project_json(state: &cc_detail::store::State) -> String {
+    state.stringify_indent(1)
 }
 
 /// '\ufeff' + text
@@ -673,12 +673,12 @@ mod tests {
 
     #[test]
     fn safe_names_are_the_js_ones() {
-        assert_eq!(safe_name(&json!({ "name": "Sample frame" })), "Sample frame");
-        assert_eq!(safe_name(&json!({ "name": "a/b:\\c" })), "a-b-c");
-        assert_eq!(safe_name(&json!({ "name": "a//b" })), "a-b");
-        assert_eq!(safe_name(&json!({ "name": "  " })), "model");
-        assert_eq!(safe_name(&json!({})), "model");
-        assert_eq!(safe_name(&json!({ "name": "x".repeat(100) })).len(), 80);
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({ "name": "Sample frame" }))), "Sample frame");
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({ "name": "a/b:\\c" }))), "a-b-c");
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({ "name": "a//b" }))), "a-b");
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({ "name": "  " }))), "model");
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({}))), "model");
+        assert_eq!(safe_name(&cc_detail::store::State::from_value(json!({ "name": "x".repeat(100) }))).len(), 80);
     }
 
     #[test]

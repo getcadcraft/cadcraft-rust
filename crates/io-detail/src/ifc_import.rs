@@ -1052,7 +1052,12 @@ fn convert(f: &IfcFile, fallback_name: &str) -> R<Value> {
                         continue;
                     }
                 };
-                let m = cc_detail::js::arr(tx.s.get("members")).iter().find(|x| x.get("id") == Some(&mid2)).cloned().unwrap_or(Value::Null);
+                let m = tx
+                    .s
+                    .list("members")
+                    .iter()
+                    .find(|x| cc_detail::model::strict_eq(x.get("id"), Some(&mid2)))
+                    .map_or(Value::Null, cc_detail::jv::JVal::to_value);
                 let mp = cc_detail::js::s(m.get("profile")).to_string();
                 let custom_list = cc_detail::js::arr(tx.s.get("profiles")).to_vec();
                 let Some(pr) = get_profile_str(&mp, &custom_list) else { return Err("TypeError: Cannot read properties of null (reading 'depth')".into()) };

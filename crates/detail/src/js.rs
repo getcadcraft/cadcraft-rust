@@ -5,8 +5,43 @@
 
 use serde_json::{Map, Value};
 
-pub use cc_cad::js::{hypot, max, min, num_to_string, round, sign, slice16, str_to_number, to_js_string, to_number, trim};
-pub use cc_civil::js::{J, Obj, arr, as_str, is_integer, jnum, locale_compare, locale_compare_num, ord, sort_by};
+pub use crate::jv::Jsv;
+pub use cc_cad::js::{hypot, max, min, num_to_string, round, sign, slice16, str_to_number, trim};
+pub use cc_civil::js::{J, Obj, as_str, is_integer, jnum, locale_compare, locale_compare_num, ord, sort_by};
+
+/// `Array.isArray(v) ? v : []`.
+#[inline]
+pub fn arr<T: Jsv>(v: Option<&T>) -> &[T::Item] {
+    v.and_then(Jsv::js_arr).unwrap_or(&[])
+}
+/// `+v` (`Number(v)`).
+pub fn to_number<T: Jsv>(v: &T) -> f64 {
+    if v.js_null() {
+        0.0
+    } else if let Some(x) = v.js_f64() {
+        x
+    } else if let Some(t) = v.js_str() {
+        str_to_number(t)
+    } else if let Some(b) = v.js_bool() {
+        f64::from(u8::from(b))
+    } else {
+        cc_cad::js::to_number(&v.js_value())
+    }
+}
+/// `String(v)`.
+pub fn to_js_string<T: Jsv>(v: &T) -> String {
+    if let Some(t) = v.js_str() {
+        t.to_string()
+    } else if let Some(x) = v.js_f64() {
+        num_to_string(x)
+    } else if v.js_null() {
+        "null".into()
+    } else if let Some(b) = v.js_bool() {
+        b.to_string()
+    } else {
+        cc_cad::js::to_js_string(&v.js_value())
+    }
+}
 
 /// `Math.sin` / `Math.cos` (fdlibm, bit for bit with V8).
 #[inline]
@@ -103,45 +138,62 @@ pub fn min_of(xs: impl IntoIterator<Item = f64>) -> f64 {
 }
 
 /// `Number(v)` (undefined → NaN).
-pub fn num(v: Option<&Value>) -> f64 {
+pub fn num<T: Jsv>(v: Option<&T>) -> f64 {
     v.map_or(f64::NAN, to_number)
 }
 /// `Number(v) || 0`.
-pub fn num_or0(v: Option<&Value>) -> f64 {
+pub fn num_or0<T: Jsv>(v: Option<&T>) -> f64 {
     let x = num(v);
     if x == 0.0 || x.is_nan() { 0.0 } else { x }
 }
 /// A number field the model wrote itself (a number, else NaN).
-pub fn f(v: Option<&Value>) -> f64 {
-    v.and_then(Value::as_f64).unwrap_or(f64::NAN)
+pub fn f<T: Jsv>(v: Option<&T>) -> f64 {
+    v.and_then(Jsv::js_f64).unwrap_or(f64::NAN)
 }
 /// `x || d` for a number.
 pub fn or(x: f64, d: f64) -> f64 {
     if x == 0.0 || x.is_nan() { d } else { x }
 }
 /// JS truthiness of a JSON value (absent = falsy).
-pub fn truthy(v: Option<&Value>) -> bool {
-    cc_cad::js::truthy(v)
+pub fn truthy<T: Jsv>(v: Option<&T>) -> bool {
+    match v {
+        None => false,
+        Some(v) => {
+            if v.js_null() {
+                false
+            } else if let Some(t) = v.js_str() {
+                !t.is_empty()
+            } else if let Some(x) = v.js_f64() {
+                x != 0.0 && !x.is_nan()
+            } else if let Some(b) = v.js_bool() {
+                b
+            } else {
+                v.js_composite()
+            }
+        }
+    }
 }
 /// `String(v)` (undefined → "undefined").
-pub fn string_of(v: Option<&Value>) -> String {
+pub fn string_of<T: Jsv>(v: Option<&T>) -> String {
     v.map_or_else(|| "undefined".to_string(), to_js_string)
 }
 /// `String(v ?? '')`.
-pub fn string_or_empty(v: Option<&Value>) -> String {
+pub fn string_or_empty<T: Jsv>(v: Option<&T>) -> String {
     match v {
-        None | Some(Value::Null) => String::new(),
+        None => String::new(),
+        Some(x) if x.js_null() => String::new(),
         Some(x) => to_js_string(x),
     }
 }
 /// The text of a string value, else "".
-pub fn s(v: Option<&Value>) -> &str {
-    v.and_then(Value::as_str).unwrap_or("")
+pub fn s<T: Jsv>(v: Option<&T>) -> &str {
+    v.and_then(Jsv::js_str).unwrap_or("")
 }
 /// `v ?? d` (absent or null → d).
-pub fn nullish<'a>(v: Option<&'a Value>, d: &'a Value) -> &'a Value {
+pub fn nullish<'a, T: Jsv>(v: Option<&'a T>, d: &'a T) -> &'a T {
     match v {
-        None | Some(Value::Null) => d,
+        None => d,
+        Some(x) if x.js_null() => d,
         Some(x) => x,
     }
 }
@@ -155,17 +207,27 @@ pub fn strip_c0(s: &str) -> String {
     s.chars().filter(|&c| (c as u32) >= 0x20).collect()
 }
 /// `String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max)` — model.js `cleanText`.
-pub fn clean_text(v: Option<&Value>, max: usize) -> String {
+pub fn clean_text<T: Jsv>(v: Option<&T>, max: usize) -> String {
     // a word with nothing to strip, trim or cut is itself (controls are single bytes in UTF-8; a string of at most
     // `max` bytes has at most `max` UTF-16 units)
-    if let Some(Value::String(s)) = v
-        && s.len() <= max
-        && !s.bytes().any(|b| b < 0x20 || b == 0x7f)
-        && trim(s).len() == s.len()
+    if let Some(s) = v.and_then(Jsv::js_str)
+        && is_clean(s, max)
     {
-        return s.clone();
+        return s.to_string();
     }
     slice16(trim(&strip_controls(&string_or_empty(v))), max)
+}
+/// Whether `cleanText` leaves the text as it is (and so a word of the model's stays its static copy).
+#[inline]
+pub fn is_clean(s: &str, max: usize) -> bool {
+    s.len() <= max && !s.bytes().any(|b| b < 0x20 || b == 0x7f) && trim(s).len() == s.len()
+}
+/// `cleanText` of a JS value as a record's string (the value itself when nothing changes).
+pub fn clean_jstr<T: Jsv>(v: Option<&T>, max: usize) -> crate::jv::JStr {
+    match v.and_then(Jsv::js_str) {
+        Some(s) if is_clean(s, max) => crate::jv::JStr::new(s),
+        _ => crate::jv::JStr::from_string(clean_text(v, max)),
+    }
 }
 /// `cleanText` of a Rust string.
 pub fn clean_str(v: &str, max: usize) -> String {
@@ -188,47 +250,48 @@ pub fn stringify(v: &Value) -> String {
 }
 /// `JSON.stringify(v, null, indent)`.
 pub fn stringify_indent(v: &Value, indent: usize) -> String {
-    fn go(o: &mut cc_m3d::json::Out, v: &Value, depth: usize, pad: &str) {
-        let nl = |o: &mut cc_m3d::json::Out, d: usize| {
-            o.ch('\n');
-            for _ in 0..d {
-                o.raw(pad);
-            }
-        };
-        match v {
-            Value::Array(a) if !a.is_empty() && depth < 512 => {
-                o.ch('[');
-                for (i, x) in a.iter().enumerate() {
-                    if i > 0 {
-                        o.ch(',');
-                    }
-                    nl(o, depth.saturating_add(1));
-                    go(o, x, depth.saturating_add(1), pad);
-                }
-                nl(o, depth);
-                o.ch(']');
-            }
-            Value::Object(m) if !m.is_empty() && depth < 512 => {
-                o.ch('{');
-                for (i, (k, x)) in m.iter().enumerate() {
-                    if i > 0 {
-                        o.ch(',');
-                    }
-                    nl(o, depth.saturating_add(1));
-                    o.str(k);
-                    o.raw(": ");
-                    go(o, x, depth.saturating_add(1), pad);
-                }
-                nl(o, depth);
-                o.ch('}');
-            }
-            x => o.value(x),
-        }
-    }
     let pad = " ".repeat(indent.min(10));
     let mut o = cc_m3d::json::Out::new(false);
-    go(&mut o, v, 0, &pad);
+    write_indent(v, &mut o, 0, &pad);
     o.s
+}
+/// `JSON.stringify(v, null, indent)`'s text of a value at `depth`.
+pub fn write_indent(v: &Value, o: &mut cc_m3d::json::Out, depth: usize, pad: &str) {
+    let nl = |o: &mut cc_m3d::json::Out, d: usize| {
+        o.ch('\n');
+        for _ in 0..d {
+            o.raw(pad);
+        }
+    };
+    match v {
+        Value::Array(a) if !a.is_empty() && depth < 512 => {
+            o.ch('[');
+            for (i, x) in a.iter().enumerate() {
+                if i > 0 {
+                    o.ch(',');
+                }
+                nl(o, depth.saturating_add(1));
+                write_indent(x, o, depth.saturating_add(1), pad);
+            }
+            nl(o, depth);
+            o.ch(']');
+        }
+        Value::Object(m) if !m.is_empty() && depth < 512 => {
+            o.ch('{');
+            for (i, (k, x)) in m.iter().enumerate() {
+                if i > 0 {
+                    o.ch(',');
+                }
+                nl(o, depth.saturating_add(1));
+                o.str(k);
+                o.raw(": ");
+                write_indent(x, o, depth.saturating_add(1), pad);
+            }
+            nl(o, depth);
+            o.ch('}');
+        }
+        x => o.value(x),
+    }
 }
 /// `JSON.parse(text)` (an error for anything that is not JSON).
 pub fn parse(text: &str) -> Result<Value, String> {
@@ -249,7 +312,7 @@ pub fn obj(v: Option<&Value>) -> Option<&Map<String, Value>> {
     v.and_then(Value::as_object)
 }
 /// `Array.isArray(v) ? v : []`.
-pub fn list(v: Option<&Value>) -> &[Value] {
+pub fn list<T: Jsv>(v: Option<&T>) -> &[T::Item] {
     arr(v)
 }
 /// `{...a, ...b}` for two objects (non-objects spread nothing).
@@ -279,7 +342,7 @@ pub fn spread(a: Option<&Value>, b: Option<&Value>) -> Map<String, Value> {
     m
 }
 /// A point read as the model stores it (`[x, y, z]` numbers).
-pub fn p3_of(v: Option<&Value>) -> [f64; 3] {
+pub fn p3_of<T: Jsv>(v: Option<&T>) -> [f64; 3] {
     let a = arr(v);
     [f(a.first()), f(a.get(1)), f(a.get(2))]
 }
@@ -325,7 +388,7 @@ mod tests {
     #[test]
     fn texts() {
         assert_eq!(clean_text(Some(&Value::from(" a\u{0}b ")), 80), "ab");
-        assert_eq!(clean_text(None, 3), "");
+        assert_eq!(clean_text(None::<&Value>, 3), "");
         assert_eq!(stringify_indent(&serde_json::json!({"a": [1, 2.5], "b": {}}), 1), "{\n \"a\": [\n  1,\n  2.5\n ],\n \"b\": {}\n}");
         assert_eq!(fixed_num(1.005, 2), 1.0);
         let mut x = 0.123_456_789_f64;

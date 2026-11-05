@@ -5,8 +5,9 @@
 
 use crate::geom::{V3, dot, frame, sub, voff_for};
 use crate::js::{Obj, Res, arr, atan2, cos, f, hypot, jnum, max, min, num, num_or0, round, sin, string_of, truthy};
+use crate::jv::{JVal, Jsv};
 use crate::model::{Tx, strict_eq};
-use crate::profiles::{Profile, get_profile, plate_name};
+use crate::profiles::{Profile, plate_name};
 use crate::state::members_of_v;
 use serde_json::{Map, Value, json};
 use std::f64::consts::PI;
@@ -135,25 +136,26 @@ fn negate(v: Option<&Value>) -> Value {
     // `-h.y`
     jnum(-num(v))
 }
-pub fn transform_member(m: &Value, xf: &Xf, kind: Option<&str>) -> XfOut {
-    let (ms, me) = (crate::js::p3_of(m.get("start")), crate::js::p3_of(m.get("end")));
-    let fr = frame(ms, me, f(m.get("rotation")));
+pub fn transform_member<T: Jsv>(m: &T, xf: &Xf, kind: Option<&str>) -> XfOut {
+    let (ms, me) = (crate::js::p3_of(m.js_get("start")), crate::js::p3_of(m.js_get("end")));
+    let fr = frame(ms, me, f(m.js_get("rotation")));
     let mut start = apply_pt(xf, ms);
     let mut end = apply_pt(xf, me);
     let uu = apply_dir(xf, fr.u);
     let vv = apply_dir(xf, fr.v);
     let mut want_v = vv;
-    let mut position = m.get("position").cloned().unwrap_or(Value::Null);
-    let mut holes: Vec<Map<String, Value>> = arr(m.get("holes")).iter().map(|h| crate::js::spread(Some(h), None)).collect();
-    let mut cuts: Vec<Map<String, Value>> = arr(m.get("cuts")).iter().map(|c| crate::js::spread(Some(c), None)).collect();
+    let jv = |v: Option<&T::Item>| v.map_or(Value::Null, |v| v.js_value().into_owned());
+    let mut position = jv(m.js_get("position"));
+    let mut holes: Vec<Map<String, Value>> = arr(m.js_get("holes")).iter().map(|h| crate::js::spread(Some(&h.js_value()), None)).collect();
+    let mut cuts: Vec<Map<String, Value>> = arr(m.js_get("cuts")).iter().map(|c| crate::js::spread(Some(&c.js_value()), None)).collect();
     let mut note = None;
     if xf.det < 0.0 {
         if kind == Some("C") {
             want_v = neg(vv);
-            position = match m.get("position").and_then(Value::as_str) {
+            position = match m.js_get("position").and_then(Jsv::js_str) {
                 Some("top") => Value::from("bottom"),
                 Some("bottom") => Value::from("top"),
-                _ => m.get("position").cloned().unwrap_or(Value::Null),
+                _ => jv(m.js_get("position")),
             };
             for h in &mut holes {
                 match h.get("face").and_then(Value::as_str) {
@@ -176,7 +178,7 @@ pub fn transform_member(m: &Value, xf: &Xf, kind: Option<&str>) -> XfOut {
             }
         } else if kind == Some("L") {
             want_v = uu;
-            if m.get("position").and_then(Value::as_str) != Some("middle") {
+            if m.js_get("position").and_then(Jsv::js_str) != Some("middle") {
                 note = Some("angle-offset");
             }
         } else {
@@ -205,9 +207,9 @@ pub fn transform_member(m: &Value, xf: &Xf, kind: Option<&str>) -> XfOut {
         note,
     }
 }
-fn angle_shift(m: &Value, prof: &Profile, out: &mut XfOut, xf: &Xf) {
-    let fr = frame(crate::js::p3_of(m.get("start")), crate::js::p3_of(m.get("end")), f(m.get("rotation")));
-    let pos = crate::js::s(m.get("position"));
+fn angle_shift<T: Jsv>(m: &T, prof: &Profile, out: &mut XfOut, xf: &Xf) {
+    let fr = frame(crate::js::p3_of(m.js_get("start")), crate::js::p3_of(m.js_get("end")), f(m.js_get("rotation")));
+    let pos = crate::js::s(m.js_get("position"));
     let off = voff_for(pos, prof.depth);
     let want = apply_dir(xf, fr.v).map(|n| n * off);
     let nf = frame(out.start, out.end, out.rotation);
@@ -229,36 +231,35 @@ fn ids_of(refs: &[Value], kind: &str) -> Res<Vec<Value>> {
         .map(|r| r.get("id").cloned().unwrap_or(Value::Null))
         .collect())
 }
-fn has(ids: &[Value], v: Option<&Value>) -> bool {
+fn has<T: Jsv>(ids: &[Value], v: Option<&T>) -> bool {
     ids.iter().any(|x| strict_eq(Some(x), v))
 }
 
 /// `transformRefs(tx, state, refs, xf)`.
 /// What [`transform_refs`] reads of the state for `refs` (the custom profiles and the referenced members, footings and
 /// stairs, in their order): a small copy to pass while `tx` writes, instead of a copy of the whole state.
-pub fn refs_state(state: &Value, refs: &[Value]) -> Res<Value> {
+pub fn refs_state(state: &crate::store::State, refs: &[Value]) -> Res<crate::store::State> {
     let (m, f, s) = (ids_of(refs, "member")?, ids_of(refs, "footing")?, ids_of(refs, "stair")?);
-    let pick =
-        |k: &str, ids: &[Value]| -> Value { Value::Array(arr(state.get(k)).iter().filter(|x| has(ids, x.get("id"))).cloned().collect()) };
-    Ok(json!({
-        "profiles": state.get("profiles").cloned().unwrap_or(Value::Null),
-        "members": pick("members", &m),
-        "footings": pick("footings", &f),
-        "stairs": pick("stairs", &s),
-    }))
+    let pick = |k: &str, ids: &[Value]| -> Vec<JVal> { state.list(k).iter().filter(|x| has(ids, x.get("id"))).cloned().collect() };
+    let mut out = crate::store::State::new();
+    out.insert("profiles", state.get("profiles").cloned().unwrap_or(Value::Null));
+    out.set_records("members", pick("members", &m));
+    out.set_records("footings", pick("footings", &f));
+    out.insert("stairs", Value::Array(arr(state.get("stairs")).iter().filter(|x| has(&s, x.get("id"))).cloned().collect()));
+    Ok(out)
 }
 
-pub fn transform_refs(tx: &mut Tx, state: &Value, refs: &[Value], xf: &Xf) -> Res<Value> {
+pub fn transform_refs(tx: &mut Tx, state: &crate::store::State, refs: &[Value], xf: &Xf) -> Res<Value> {
     let member_ids = ids_of(refs, "member")?;
     let footing_ids = ids_of(refs, "footing")?;
     let stair_ids = ids_of(refs, "stair")?;
     let custom = arr(state.get("profiles")).to_vec();
     let (mut n, mut nf, mut ns) = (0usize, 0usize, 0usize);
-    for m in arr(state.get("members")) {
+    for m in state.list("members") {
         if !has(&member_ids, m.get("id")) {
             continue;
         }
-        let prof = get_profile(m.get("profile").unwrap_or(&Value::Null), &custom);
+        let prof = m.get("profile").and_then(JVal::as_str).and_then(|p| crate::profiles::get_profile_str(p, &custom));
         let mut out = transform_member(m, xf, prof.as_ref().map(|p| p.kind.as_str()));
         if out.note == Some("angle-offset")
             && let Some(p) = &prof
@@ -269,10 +270,10 @@ pub fn transform_refs(tx: &mut Tx, state: &Value, refs: &[Value], xf: &Xf) -> Re
             "start": crate::js::p3v(out.start), "end": crate::js::p3v(out.end), "rotation": jnum(out.rotation), "position": out.position,
             "holes": out.holes, "cuts": out.cuts,
         });
-        tx.update_member(m.get("id"), Some(&patch))?;
+        tx.update_member(m.get("id").map(JVal::to_value).as_ref(), Some(&patch))?;
         n = n.saturating_add(1);
     }
-    for fv in arr(state.get("footings")) {
+    for fv in state.list("footings") {
         if !has(&footing_ids, fv.get("id")) {
             continue;
         }
@@ -283,7 +284,10 @@ pub fn transform_refs(tx: &mut Tx, state: &Value, refs: &[Value], xf: &Xf) -> Re
         } else if xf.kind == "mirror" {
             rotation = norm360(2.0 * xf.phi.unwrap_or(f64::NAN) - rotation);
         }
-        tx.update_footing(fv.get("id"), Some(&json!({ "x": jnum(p[0]), "y": jnum(p[1]), "top": jnum(p[2]), "rotation": jnum(rotation) })))?;
+        tx.update_footing(
+            fv.get("id").map(JVal::to_value).as_ref(),
+            Some(&json!({ "x": jnum(p[0]), "y": jnum(p[1]), "top": jnum(p[2]), "rotation": jnum(rotation) })),
+        )?;
         nf = nf.saturating_add(1);
     }
     for x in arr(state.get("stairs")) {
@@ -301,7 +305,7 @@ pub fn transform_refs(tx: &mut Tx, state: &Value, refs: &[Value], xf: &Xf) -> Re
         ns = ns.saturating_add(1);
     }
     let mut split = 0usize;
-    for c in arr(tx.s.get("connections")) {
+    for c in tx.s.list("connections") {
         let parts = members_of_v(c);
         let moved = parts.iter().filter(|id| has(&member_ids, **id)).count();
         if moved > 0 && moved < parts.len() {
@@ -333,16 +337,16 @@ pub fn stair_outline(x: &Value) -> Vec<[V3; 2]> {
 }
 
 /// `ghostLines(state, refs, base)`.
-pub fn ghost_lines(state: &Value, refs: &[Value], base: V3) -> Res<Vec<[V3; 2]>> {
+pub fn ghost_lines(state: &crate::store::State, refs: &[Value], base: V3) -> Res<Vec<[V3; 2]>> {
     let ids = ref_keys(refs)?;
     let rel = |p: V3| -> V3 { [p[0] - base[0], p[1] - base[1], p[2] - base[2]] };
     let mut out = Vec::new();
-    for m in arr(state.get("members")) {
+    for m in state.list("members") {
         if ids.contains(&format!("member:{}", string_of(m.get("id")))) {
             out.push([rel(crate::js::p3_of(m.get("start"))), rel(crate::js::p3_of(m.get("end")))]);
         }
     }
-    for fv in arr(state.get("footings")) {
+    for fv in state.list("footings") {
         if !ids.contains(&format!("footing:{}", string_of(fv.get("id")))) {
             continue;
         }
@@ -370,7 +374,7 @@ pub fn ghost_lines(state: &Value, refs: &[Value], base: V3) -> Res<Vec<[V3; 2]>>
 }
 
 /// `selectionCenter(state, refs)`.
-pub fn selection_center(state: &Value, refs: &[Value]) -> Res<Option<V3>> {
+pub fn selection_center(state: &crate::store::State, refs: &[Value]) -> Res<Option<V3>> {
     let ids = ref_keys(refs)?;
     let (mut x0, mut y0, mut z0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
     let mut take = |p: V3| {
@@ -380,13 +384,13 @@ pub fn selection_center(state: &Value, refs: &[Value]) -> Res<Option<V3>> {
         x1 = max(x1, p[0]);
         y1 = max(y1, p[1]);
     };
-    for m in arr(state.get("members")) {
+    for m in state.list("members") {
         if ids.contains(&format!("member:{}", string_of(m.get("id")))) {
             take(crate::js::p3_of(m.get("start")));
             take(crate::js::p3_of(m.get("end")));
         }
     }
-    for fv in arr(state.get("footings")) {
+    for fv in state.list("footings") {
         if ids.contains(&format!("footing:{}", string_of(fv.get("id")))) {
             take([num(fv.get("x")), num(fv.get("y")), num(fv.get("top"))]);
         }
@@ -461,20 +465,20 @@ pub fn snap_offset(
 pub const MANY_FIELDS: [&str; 6] = ["profile", "plateT", "plateW", "material", "position", "rotation"];
 
 /// `manyPatchable(state, ids)`.
-pub fn many_patchable(state: &Value, ids: &[Value]) -> Value {
+pub fn many_patchable(state: &crate::store::State, ids: &[Value]) -> Value {
     let custom = arr(state.get("profiles")).to_vec();
-    let mem: Vec<&Value> = arr(state.get("members")).iter().filter(|m| has(ids, m.get("id"))).collect();
-    let is_plate = |m: &Value| m.get("type").and_then(Value::as_str) == Some("plate");
-    let plate_dim = |m: &Value, k: &str| -> Option<f64> {
-        let p = get_profile(m.get("profile").unwrap_or(&Value::Null), &custom)?;
+    let mem: Vec<&JVal> = state.list("members").iter().filter(|m| has(ids, m.get("id"))).collect();
+    let is_plate = |m: &JVal| m.get("type").and_then(JVal::as_str) == Some("plate");
+    let plate_dim = |m: &JVal, k: &str| -> Option<f64> {
+        let p = crate::profiles::get_profile_str(m.get("profile").and_then(JVal::as_str)?, &custom)?;
         match k {
             "t" => p.t,
             _ => p.b,
         }
     };
     let mut out = Map::new();
-    let mut gather = |field: &str, ok: &dyn Fn(&Value) -> bool, get: &dyn Fn(&Value) -> Option<Value>| {
-        let use_: Vec<&&Value> = mem.iter().filter(|m| ok(m)).collect();
+    let mut gather = |field: &str, ok: &dyn Fn(&JVal) -> bool, get: &dyn Fn(&JVal) -> Option<Value>| {
+        let use_: Vec<&&JVal> = mem.iter().filter(|m| ok(m)).collect();
         let mut vals: Vec<Option<Value>> = Vec::new();
         for m in &use_ {
             let v = get(m).map(|v| match v.as_f64() {
@@ -500,32 +504,32 @@ pub fn many_patchable(state: &Value, ids: &[Value]) -> Value {
         }
         out.insert(field.to_string(), o.done());
     };
-    gather("profile", &|m| !is_plate(m), &|m| m.get("profile").cloned());
+    gather("profile", &|m| !is_plate(m), &|m| m.get("profile").map(JVal::to_value));
     gather("plateT", &|m| is_plate(m), &|m| plate_dim(m, "t").map(jnum));
     gather("plateW", &|m| is_plate(m), &|m| plate_dim(m, "b").map(jnum));
-    gather("material", &|_| true, &|m| m.get("material").cloned());
-    gather("position", &|m| !is_plate(m), &|m| m.get("position").cloned());
-    gather("rotation", &|_| true, &|m| m.get("rotation").cloned());
+    gather("material", &|_| true, &|m| m.get("material").map(JVal::to_value));
+    gather("position", &|m| !is_plate(m), &|m| m.get("position").map(JVal::to_value));
+    gather("rotation", &|_| true, &|m| m.get("rotation").map(JVal::to_value));
     Value::Object(out)
 }
 
 /// `applyToMany(tx, state, ids, field, value)`.
-pub fn apply_to_many(tx: &mut Tx, state: &Value, ids: &[Value], field: &str, value: Option<&Value>) -> Res<Value> {
+pub fn apply_to_many(tx: &mut Tx, state: &crate::store::State, ids: &[Value], field: &str, value: Option<&Value>) -> Res<Value> {
     if !MANY_FIELDS.contains(&field) {
         return Err("unknown-field".into());
     }
     let custom = arr(state.get("profiles")).to_vec();
     let (mut changed, mut skipped) = (0usize, 0usize);
     let v = value.cloned().unwrap_or(Value::Null);
-    for m in arr(state.get("members")) {
+    for m in state.list("members") {
         if !has(ids, m.get("id")) {
             continue;
         }
-        let plate = m.get("type").and_then(Value::as_str) == Some("plate");
+        let plate = m.get("type").and_then(JVal::as_str) == Some("plate");
         let patch = if field == "profile" && !plate {
             Some(json!({ "profile": v }))
         } else if (field == "plateT" || field == "plateW") && plate {
-            let p = get_profile(m.get("profile").unwrap_or(&Value::Null), &custom);
+            let p = m.get("profile").and_then(JVal::as_str).and_then(|p| crate::profiles::get_profile_str(p, &custom));
             let tk = if field == "plateT" { num(value) } else { p.as_ref().and_then(|p| p.t).unwrap_or(20.0) };
             let w = if field == "plateW" { num(value) } else { p.as_ref().and_then(|p| p.b).unwrap_or(200.0) };
             if !(tk > 0.0 && w > 0.0) {
@@ -545,16 +549,16 @@ pub fn apply_to_many(tx: &mut Tx, state: &Value, ids: &[Value], field: &str, val
             skipped = skipped.saturating_add(1);
             continue;
         };
-        tx.update_member(m.get("id"), Some(&patch))?;
+        tx.update_member(m.get("id").map(JVal::to_value).as_ref(), Some(&patch))?;
         changed = changed.saturating_add(1);
     }
     Ok(json!({ "changed": changed, "skipped": skipped }))
 }
 
 /// `worldSection(m, prof, x)`.
-pub fn world_section(m: &Value, prof: &Profile, x: f64) -> Vec<V3> {
-    let fr = frame(crate::js::p3_of(m.get("start")), crate::js::p3_of(m.get("end")), f(m.get("rotation")));
-    let voff = voff_for(crate::js::s(m.get("position")), prof.depth);
+pub fn world_section<T: Jsv>(m: &T, prof: &Profile, x: f64) -> Vec<V3> {
+    let fr = frame(crate::js::p3_of(m.js_get("start")), crate::js::p3_of(m.js_get("end")), f(m.js_get("rotation")));
+    let voff = voff_for(crate::js::s(m.js_get("position")), prof.depth);
     let first = prof.loops.first().map_or(&[][..], Vec::as_slice);
     first
         .iter()

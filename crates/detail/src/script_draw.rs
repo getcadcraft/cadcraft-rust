@@ -179,7 +179,7 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 let o = c.arg(3);
                 let fm: Option<Vec<(String, String)>> = match o.and_then(|o| o.get("footings")) {
                     Some(v) if crate::js::truthy(Some(v)) => {
-                        Some(mark_footings(arr(st.get("footings")), v.get("perPhase").is_some_and(|x| crate::js::truthy(Some(x)))))
+                        Some(mark_footings(st.list("footings"), v.get("perPhase").is_some_and(|x| crate::js::truthy(Some(x)))))
                     }
                     _ => None,
                 };
@@ -234,7 +234,7 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 let b = built_arg(reg, c.raw(1))?;
                 let m = marks_arg(reg, c.raw(2))?;
                 let fm = if c.arg(3).is_some_and(|v| crate::js::truthy(Some(v))) {
-                    Some(mark_footings(arr(st.get("footings")), false))
+                    Some(mark_footings(st.list("footings"), false))
                 } else {
                     None
                 };
@@ -246,7 +246,7 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 let st = state_arg(reg, c.raw(0))?;
                 let b: &Built = built_arg(reg, c.raw(1))?;
                 let m = marks_arg(reg, c.raw(2))?;
-                let fs: Vec<crate::rebar::Footing> = arr(st.get("footings")).iter().map(crate::rebar::Footing::from_value).collect();
+                let fs: Vec<crate::rebar::Footing> = st.list("footings").iter().map(crate::rebar::Footing::from_value).collect();
                 let sch = crate::rebar::bending_schedule(&fs);
                 let rep = report::phase_report(&st, b, m, &sch);
                 let j = report::report_json(&rep);
@@ -382,7 +382,7 @@ mod bench {
         let (st, _) = read_model(&Value::String(text)).unwrap();
         let b = build(&st).unwrap();
         let m = marks::mark_parts(&b, 1.0, false);
-        let fm = marks::mark_footings(crate::js::arr(st.get("footings")), false);
+        let fm = marks::mark_footings(st.list("footings"), false);
         let now = pdf::Utc { year: 2026, month: 10, day: 13, hour: 0, minute: 0, second: 0 };
         let (mut best_set, mut best_pdf) = (f64::INFINITY, f64::INFINITY);
         let mut size = 0;

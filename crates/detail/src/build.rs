@@ -131,7 +131,7 @@ fn null_name() -> String {
     "Cannot read properties of null (reading 'name')".into()
 }
 
-pub fn build(state: &Value) -> Res<Built> {
+pub fn build(state: &crate::store::State) -> Res<Built> {
     let custom = crate::js::arr(state.get("profiles"));
     let members = crate::state::members(state);
     let conns = crate::state::conns(state);
@@ -388,7 +388,7 @@ pub fn build(state: &Value) -> Res<Built> {
             }
         }
     }
-    for fv in crate::js::arr(state.get("footings")) {
+    for fv in state.list("footings") {
         let f = Footing::from_value(fv);
         let bars = footing_bars(&f);
         let probs = footing_problems(&f);
@@ -496,6 +496,6 @@ pub fn built_json(b: &Built) -> Value {
 }
 
 /// The `Conn` views a build reads (for callers that hold a state).
-pub fn conns_of(state: &Value) -> Vec<Conn> {
+pub fn conns_of(state: &crate::store::State) -> Vec<Conn> {
     crate::state::conns(state)
 }

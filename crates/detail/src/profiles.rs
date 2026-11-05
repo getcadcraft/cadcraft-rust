@@ -363,8 +363,12 @@ fn shape_of_custom(c: &Map<String, Value>, kind_override: Option<&str>) -> Shape
 }
 
 /// `getProfile(name, custom)`: null for anything unknown (or a name that is not a string).
-pub fn get_profile(name: &Value, custom: &[Value]) -> Option<P> {
-    get_profile_str(name.as_str()?, custom)
+pub fn get_profile<T: crate::jv::Jsv>(name: &T, custom: &[Value]) -> Option<P> {
+    get_profile_str(name.js_str()?, custom)
+}
+/// `getProfile(v, custom)` of a field that may be absent.
+pub fn get_profile_opt<T: crate::jv::Jsv>(name: Option<&T>, custom: &[Value]) -> Option<P> {
+    get_profile_str(name?.js_str()?, custom)
 }
 /// `getProfile` for a string name.
 pub fn get_profile_str(name: &str, custom: &[Value]) -> Option<P> {

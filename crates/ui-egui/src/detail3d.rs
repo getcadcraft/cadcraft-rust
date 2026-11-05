@@ -424,7 +424,7 @@ fn num(v: Option<&Value>) -> f64 {
 }
 
 /// Build the scene of a model: `hidden` phases are left out (view3d.js `hiddenPhases`), bolts only when `bolts`.
-pub fn build(state: &Value, built: &Built, _marks: &Marks, id: u64, hidden: &[f64], bolts: bool) -> DetailScene {
+pub fn build(state: &cc_detail::store::State, built: &Built, _marks: &Marks, id: u64, hidden: &[f64], bolts: bool) -> DetailScene {
     let shown = |ph: f64| {
         let ph = if ph == 0.0 || ph.is_nan() { 1.0 } else { ph };
         !hidden.contains(&ph)
@@ -674,7 +674,7 @@ pub fn pick_footing_where(list: &[FootBox], o: [f64; 3], d: [f64; 3], keep: &dyn
 mod tests {
     use super::*;
 
-    fn sample() -> (Value, Built, Marks) {
+    fn sample() -> (cc_detail::store::State, Built, Marks) {
         let m = cc_detail::sample::sample_model("Sample frame").unwrap();
         let b = cc_detail::build::build(&m.state).unwrap();
         let k = cc_detail::marks::mark_parts(&b, 1.0, true);

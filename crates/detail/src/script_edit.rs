@@ -240,7 +240,7 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 let model = match c.raw(0) {
                     Some(Value::String(x)) if x == "sample" => crate::sample::sample_model("Sample frame")?,
                     None => crate::sample::sample_model("Sample frame")?,
-                    Some(st) => crate::model::Model::new(st.clone()),
+                    Some(st) => crate::model::Model::new(crate::store::State::from_value(st.clone())),
                 };
                 keep(reg, c, crate::agents::AgentApp::new(model));
                 crate::script::undef()
@@ -252,7 +252,7 @@ pub fn handle(reg: &mut Registry, c: &Call) -> R {
                 match c.op {
                     "agent.run" => app.run(c.str(0), c.raw(1).unwrap_or(&json!({})))?,
                     "agent.state" => json!({
-                        "state": app.model.state, "selected": app.selected, "saves": app.saves, "exported": app.exported,
+                        "state": app.model.state.to_value(), "selected": app.selected, "saves": app.saves, "exported": app.exported,
                         "undo": app.model.undo_stack.iter().map(|s| s.label.clone()).collect::<Vec<_>>(), "dirty": app.model.dirty(),
                     }),
                     "agent.change" => {

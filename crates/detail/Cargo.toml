@@ -16,6 +16,10 @@ layer = 3
 [lints]
 workspace = true
 
+[features]
+# the model before S.16 (one JSON value), for the tests and fuzz targets that check the state against it
+reference = []
+
 [dependencies]
 cc-lang.workspace = true
 cc-cad.workspace = true

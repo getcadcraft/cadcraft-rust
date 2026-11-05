@@ -29,7 +29,7 @@ cc-io-markup = { path = "../crates/io-markup" }
 cc-bim = { path = "../crates/bim" }
 cc-civil = { path = "../crates/civil" }
 cc-io-civil = { path = "../crates/io-civil" }
-cc-detail = { path = "../crates/detail" }
+cc-detail = { path = "../crates/detail", features = ["reference"] }
 cc-io-detail = { path = "../crates/io-detail" }
 cc-part = { path = "../crates/part" }
 cc-mcp = { path = "../crates/mcp" }
@@ -291,6 +291,13 @@ bench = false
 [[bin]]
 name = "detail_model"
 path = "fuzz_targets/detail_model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "detail_state"
+path = "fuzz_targets/detail_state.rs"
 test = false
 doc = false
 bench = false

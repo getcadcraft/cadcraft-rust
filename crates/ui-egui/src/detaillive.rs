@@ -5,7 +5,10 @@
 //! never sent: every window works them out. Each person's new ids come from their own range (client c: c × 1e6 + n).
 //! The session, the commands `detail.live.*` and the Live window are live.rs's.
 
-use cc_detail::js::{parse, stringify};
+use cc_detail::js::parse;
+#[cfg(test)]
+use cc_detail::js::stringify;
+use cc_detail::store::State;
 use cc_live::doc::{Adapter, TouchReq};
 use cc_live::msgpack::Value as Mp;
 use serde_json::Value as J;
@@ -148,18 +151,21 @@ pub struct DcAdapter<'a> {
 
 impl Adapter for DcAdapter<'_> {
     fn apply(&mut self, ops: &Mp, _origin: &str) -> Result<(), String> {
-        CORE.apply(&mut self.model.state, &ops_json(ops));
+        // the state's JSON is the boundary: the ops are paths into it
+        let mut st = self.model.state.to_value();
+        CORE.apply(&mut st, &ops_json(ops));
+        self.model.state = State::from_value(st);
         self.model.version = self.model.version.saturating_add(1);
         Ok(())
     }
     fn invert(&mut self, ops: &Mp) -> Result<Mp, String> {
-        Ok(Mp::Arr(CORE.invert(&self.model.state, &ops_json(ops)).iter().map(to_mp).collect()))
+        Ok(Mp::Arr(CORE.invert(&self.model.state.to_value(), &ops_json(ops)).iter().map(to_mp).collect()))
     }
     fn touched(&self, ops: &Mp) -> Vec<TouchReq> {
         CORE.touched(&ops_json(ops))
     }
     fn snapshot(&mut self) -> Vec<u8> {
-        let v = Mp::map(vec![("v", Mp::from(SCHEMA)), ("state", Mp::Str(stringify(&self.model.state)))]);
+        let v = Mp::map(vec![("v", Mp::from(SCHEMA)), ("state", Mp::Str(self.model.state.stringify()))]);
         cc_live::msgpack::pack(&v).unwrap_or_default()
     }
     fn load(&mut self, bytes: &[u8], _q: u64) -> Result<(), String> {
@@ -177,14 +183,14 @@ impl Adapter for DcAdapter<'_> {
             o.insert("seq".into(), seq);
         }
         claim_ids(&mut st, self.c);
-        self.model.state = st;
+        self.model.state = State::from_value(st);
         self.model.undo_stack.clear();
         self.model.redo_stack.clear();
         self.model.version = self.model.version.saturating_add(1);
         Ok(())
     }
     fn validate(&mut self, ops: &Mp) -> Option<String> {
-        let mut s = self.model.state.clone();
+        let mut s = self.model.state.to_value();
         CORE.apply(&mut s, &ops_json(ops));
         let ids: Vec<String> = s
             .get("members")
@@ -223,10 +229,14 @@ impl crate::live::LiveView for DetailView {
         f(&mut DcAdapter { model: &mut self.model, c });
     }
     fn claim_ids(&mut self, c: u64) {
-        claim_ids(&mut self.model.state, c);
+        let mut st = self.model.state.to_value();
+        claim_ids(&mut st, c);
+        self.model.state = State::from_value(st);
     }
     fn release_ids(&mut self) {
-        release_ids(&mut self.model.state);
+        let mut st = self.model.state.to_value();
+        release_ids(&mut st);
+        self.model.state = State::from_value(st);
         self.model.undo_stack.clear();
         self.model.redo_stack.clear();
     }
@@ -272,7 +282,7 @@ impl DetailView {
             let Some(s) = self.live.as_mut() else { return };
             let Some(before) = self.model.undo_stack.last().and_then(|t| parse(&t.json).ok()) else { return };
             let g = s.next_group();
-            if let Some((ops, inverse)) = CORE.step(&g, &before, &self.model.state) {
+            if let Some((ops, inverse)) = CORE.step(&g, &before, &self.model.state.to_value()) {
                 crate::live::local_change(self, label, ops, inverse);
             }
         }
@@ -315,21 +325,21 @@ mod tests {
     use crate::livestate::to_json;
 
     fn sample_state() -> J {
-        cc_detail::sample::sample_model("Sample frame").expect("sample").state
+        cc_detail::sample::sample_model("Sample frame").expect("sample").state.to_value()
     }
 
     #[test]
     fn diff_applies_and_inverts_back() {
         let a = sample_state();
-        let mut m = cc_detail::model::Model::new(a.clone());
+        let mut m = cc_detail::model::Model::new(State::from_value(a.clone()));
         m.change("edit", |tx| {
-            let id = tx.s.get("members").and_then(J::as_array).and_then(|l| l.get(6)).and_then(|x| x.get("id")).cloned().unwrap_or(J::Null);
+            let id = tx.s.list("members").get(6).and_then(|x| x.get("id")).map_or(J::Null, cc_detail::jv::JVal::to_value);
             tx.update_member(Some(&id), Some(&serde_json::json!({"profile": "W18x35"})))?;
             tx.set_name(Some(&J::from("Changed")));
             Ok(())
         })
         .expect("change");
-        let b = m.state.clone();
+        let b = m.state.to_value();
         let ops = diff(&a, &b);
         assert!(!ops.is_empty());
         let mut x = a.clone();

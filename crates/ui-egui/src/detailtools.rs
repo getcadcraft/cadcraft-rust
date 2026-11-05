@@ -27,7 +27,7 @@ pub struct Node {
 }
 
 /// model.js `nodes(state)`.
-pub fn all_nodes(state: &Value) -> Vec<Node> {
+pub fn all_nodes(state: &cc_detail::store::State) -> Vec<Node> {
     cc_detail::model::nodes(state)
         .iter()
         .map(|n| Node {
@@ -40,7 +40,7 @@ pub fn all_nodes(state: &Value) -> Vec<Node> {
 }
 
 /// A node from "gy/gx/level" (labels and the level's name) or "x,y,z" (mm, one of the nodes).
-pub fn node_at(state: &Value, spec: &str) -> Result<Node, String> {
+pub fn node_at(state: &cc_detail::store::State, spec: &str) -> Result<Node, String> {
     let nums: Vec<f64> = spec.split(',').map(|s| str_to_number(s.trim())).collect();
     if nums.len() == 3 && nums.iter().all(|v| v.is_finite()) {
         return all_nodes(state)
@@ -899,11 +899,16 @@ impl DetailView {
     }
 
     fn connection(&self, id: &str) -> Option<Value> {
-        arr(self.model.state.get("connections")).iter().find(|c| c.get("id").and_then(Value::as_str) == Some(id)).cloned()
+        self.model
+            .state
+            .list("connections")
+            .iter()
+            .find(|c| c.get("id").and_then(cc_detail::jv::JVal::as_str) == Some(id))
+            .map(cc_detail::jv::JVal::to_value)
     }
 
     /// How many places "Apply to similar" would add the selected connection (detailcraft.js `connProps`' count).
-    pub fn similar_count(&self, cv: &Value) -> usize {
+    pub fn similar_count(&self, cv: &cc_detail::jv::JVal) -> usize {
         let c = cc_detail::state::Conn::from_value(cv);
         let (ms, cs) = (self.mems(), self.conns());
         match c.kind.as_str() {
@@ -918,7 +923,7 @@ impl DetailView {
     pub fn apply_similar(&mut self) {
         let Some(Ref::Conn(id)) = self.sel.clone() else { return };
         let Some(cv) = self.connection(&id) else { return };
-        let c = cc_detail::state::Conn::from_value(&cv);
+        let c = cc_detail::state::Conn::from_json(&cv);
         let params = cv.get("params").cloned().unwrap_or(Value::Null);
         let (ms, cs) = (self.mems(), self.conns());
         let add_all = |this: &mut DetailView, label: &str, list: Vec<Value>| {
@@ -985,16 +990,23 @@ impl DetailView {
         }
         let s = &self.model.state;
         let hidden = &self.hidden_phases;
-        let vis = |x: &Value| !hidden.contains(&cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0));
-        let id = |x: &Value| string_of(x.get("id"));
-        let mem: Vec<Ref> = arr(s.get("members")).iter().filter(|x| vis(x)).map(|x| Ref::Member(id(x))).collect();
-        let foot: Vec<Ref> = arr(s.get("footings")).iter().filter(|x| vis(x)).map(|x| Ref::Footing(id(x))).collect();
-        let conns: Vec<Ref> = arr(s.get("connections"))
+        use cc_detail::jv::Jsv;
+        fn ph<T: Jsv>(x: &T) -> f64 {
+            cc_detail::js::or(cc_detail::js::f(x.js_get("phase")), 1.0)
+        }
+        fn id<T: Jsv>(x: &T) -> String {
+            string_of(x.js_get("id"))
+        }
+        let vis = |p: f64| !hidden.contains(&p);
+        let mem: Vec<Ref> = s.list("members").iter().filter(|x| vis(ph(*x))).map(|x| Ref::Member(id(x))).collect();
+        let foot: Vec<Ref> = s.list("footings").iter().filter(|x| vis(ph(*x))).map(|x| Ref::Footing(id(x))).collect();
+        let conns: Vec<Ref> = s
+            .list("connections")
             .iter()
             .filter(|c| !hidden.contains(&cc_detail::model::conn_phase(s, c)))
             .map(|x| Ref::Conn(id(x)))
             .collect();
-        let sts: Vec<Ref> = arr(s.get("stairs")).iter().filter(|x| vis(x)).map(|x| Ref::Stair(id(x))).collect();
+        let sts: Vec<Ref> = arr(s.get("stairs")).iter().filter(|x| vis(ph(*x))).map(|x| Ref::Stair(id(x))).collect();
         let counts = json!({ "members": mem.len(), "connections": conns.len(), "footings": foot.len(), "stairs": sts.len() });
         let refs: Vec<Ref> = mem.into_iter().chain(conns).chain(foot).chain(sts).collect();
         if refs.is_empty() {
@@ -1496,7 +1508,7 @@ impl DetailView {
         }
         let s = &self.model.state;
         let phase_of = |r: &Ref| -> f64 {
-            let find = |k: &str| arr(s.get(k)).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(r.id())).cloned();
+            let find = |k: &str| s.find_value(k, r.id());
             match r {
                 Ref::Conn(_) => find("connections").map_or(1.0, |c| cc_detail::model::conn_phase(s, &c)),
                 Ref::Member(_) => find("members").map_or(1.0, |x| cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0)),
@@ -1603,7 +1615,7 @@ impl DetailView {
     /// `detail.set` on a footing ("f1.L=2400", "f1.mat.barX=#6"), a stair ("s1.tread.t=8") or a connection's parameter
     /// ("j2.tp=25"): one undo step each, as the Properties' fields make them. None: the id is none of those.
     pub fn set_other(&mut self, id: &str, field: &str, value: &str) -> Option<Result<(), String>> {
-        let has = |k: &str| arr(self.model.state.get(k)).iter().any(|x| x.get("id").and_then(Value::as_str) == Some(id));
+        let has = |k: &str| self.model.state.has_id(k, id);
         let kind = ["footings", "stairs", "connections"].into_iter().find(|k| has(k))?;
         let number = || -> Result<f64, String> {
             let v = str_to_number(value);
@@ -1817,20 +1829,20 @@ mod tests {
         assert_eq!(v.message, t0("app.place.same"));
         let b = node_at(&v.model.state, "A/2/Level 2").unwrap();
         v.place_at(&b);
-        assert_eq!(arr(v.model.state.get("members")).len(), 1);
+        assert_eq!(v.model.state.list("members").len(), 1);
         assert_eq!(v.model.undo_stack.len(), 1);
         assert!(v.message.starts_with("Beam W16x26"), "{}", v.message);
         // a column from a level with nothing above is refused, nothing changes
         v.set_tool("column").unwrap();
         v.place_at(&b);
-        assert_eq!(arr(v.model.state.get("members")).len(), 1);
+        assert_eq!(v.model.state.list("members").len(), 1);
         v.place_at(&node_at(&v.model.state, "A/1/Level 1").unwrap());
-        assert_eq!(arr(v.model.state.get("members")).len(), 2);
+        assert_eq!(v.model.state.list("members").len(), 2);
         v.set_tool("footing").unwrap();
         v.place_at(&node_at(&v.model.state, "A/1/Level 1").unwrap());
         v.set_tool("stair").unwrap();
         v.place_at(&node_at(&v.model.state, "B/2/Level 1").unwrap());
-        assert_eq!(arr(v.model.state.get("footings")).len(), 1);
+        assert_eq!(v.model.state.list("footings").len(), 1);
         assert_eq!(arr(v.model.state.get("stairs")).len(), 1);
         assert_eq!(v.model.undo_stack.len(), 4);
     }
@@ -1854,7 +1866,7 @@ mod tests {
     #[test]
     fn copy_paste_duplicate_and_transforms_are_single_steps() {
         let mut v = DetailView::sample().unwrap();
-        let n0 = arr(v.model.state.get("members")).len();
+        let n0 = v.model.state.list("members").len();
         v.act("paste");
         assert_eq!(v.message, t0("app.paste.empty"));
         v.select_all();
@@ -1862,16 +1874,16 @@ mod tests {
         v.act("copy");
         assert!(v.tools.clip.is_some());
         v.act("duplicate");
-        assert_eq!(arr(v.model.state.get("members")).len(), 2 * n0);
+        assert_eq!(v.model.state.list("members").len(), 2 * n0);
         assert_eq!(v.model.undo_stack.len(), 1);
         v.undo();
         v.start_paste(false);
         assert_eq!(v.tools.tool, "paste");
         v.place_at(&node_at(&v.model.state, "A/1/Level 1").unwrap_or_else(|_| all_nodes(&v.model.state).remove(0)));
         assert_eq!(v.tools.tool, "select");
-        assert_eq!(arr(v.model.state.get("members")).len(), 2 * n0);
+        assert_eq!(v.model.state.list("members").len(), 2 * n0);
         v.undo();
-        let beam = arr(v.model.state.get("members")).iter().find(|m| m["type"] == "beam").unwrap()["id"].as_str().unwrap().to_string();
+        let beam = v.model.state.list("members").iter().find(|m| m["type"] == "beam").unwrap()["id"].as_str().unwrap().to_string();
         v.set_selection(vec![Ref::Member(beam.clone())]);
         v.xf_form("move:0,0,100").unwrap();
         assert!(v.message.starts_with(
@@ -1898,12 +1910,12 @@ mod tests {
         let ids = v.edit("x", |tx| Ok(vec![tx.add_member(Some(&c1))?, tx.add_member(Some(&c2))?, tx.add_member(Some(&b))?])).unwrap();
         v.set_selection(vec![Ref::Member(ids[2].as_str().unwrap().into())]);
         v.add_end_plates();
-        assert_eq!(arr(v.model.state.get("connections")).len(), 2, "{}", v.message);
+        assert_eq!(v.model.state.list("connections").len(), 2, "{}", v.message);
         assert!(matches!(v.sel, Some(Ref::Conn(_))));
         v.set_selection(vec![Ref::Member(ids[0].as_str().unwrap().into())]);
         v.add_base_plate();
         v.apply_similar();
-        assert_eq!(arr(v.model.state.get("connections")).len(), 4, "{}", v.message);
+        assert_eq!(v.model.state.list("connections").len(), 4, "{}", v.message);
         v.set_selection(vec![Ref::Member(ids[0].as_str().unwrap().into())]);
         v.add_base_plate();
         assert_eq!(v.message, t0("app.baseplate.has"));

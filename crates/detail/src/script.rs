@@ -108,10 +108,10 @@ pub fn keep<T: 'static>(reg: &mut Registry, c: &Call, v: T) {
     }
 }
 /// A state argument: a kept model's state (by name), or a state given inline.
-pub fn state_arg(reg: &Registry, v: Option<&Value>) -> Result<Value, String> {
+pub fn state_arg(reg: &Registry, v: Option<&Value>) -> Result<crate::store::State, String> {
     match v {
         Some(Value::String(n)) => reg.get::<Model>(n).map(|m| m.state.clone()).ok_or_else(|| format!("no model {n}")),
-        Some(x) => Ok(x.clone()),
+        Some(x) => Ok(crate::store::State::from_value(x.clone())),
         None => Err("no state".into()),
     }
 }
@@ -243,16 +243,18 @@ fn model_ops(reg: &mut Registry, c: &Call) -> R {
         Ok(match c.op {
             "model.new" => {
                 let st = match c.arg(0) {
-                    Some(v) => v.clone(),
+                    Some(v) => crate::store::State::from_value(v.clone()),
                     None => md::starter_state(&t0("model.name.untitled")),
                 };
                 keep(reg, c, Model::new(st));
                 undef()
             }
             "model.starterState" => {
-                md::starter_state(&c.arg(0).map_or_else(|| t0("model.name.untitled"), |v| crate::js::string_of(Some(v))))
+                md::starter_state(&c.arg(0).map_or_else(|| t0("model.name.untitled"), |v| crate::js::string_of(Some(v)))).to_value()
             }
-            "model.emptyState" => md::empty_state(&c.arg(0).map_or_else(|| t0("model.name.untitled"), |v| crate::js::string_of(Some(v)))),
+            "model.emptyState" => {
+                md::empty_state(&c.arg(0).map_or_else(|| t0("model.name.untitled"), |v| crate::js::string_of(Some(v)))).to_value()
+            }
             "model.change" => {
                 let label = c.str(0).to_string();
                 let ops = arr(c.arg(1)).to_vec();
@@ -282,7 +284,7 @@ fn model_ops(reg: &mut Registry, c: &Call) -> R {
                     Ok(Value::Array(res))
                 })?
             }
-            "model.state" => get::<Model>(reg, c.this)?.state.clone(),
+            "model.state" => get::<Model>(reg, c.this)?.state.to_value(),
             "model.toJSON" => Value::from(get::<Model>(reg, c.this)?.to_json()),
             "model.info" => model_info(get::<Model>(reg, c.this)?),
             "model.undo" => {
@@ -302,7 +304,7 @@ fn model_ops(reg: &mut Registry, c: &Call) -> R {
             }
             "model.readModel" => {
                 let (state, warnings) = md::read_model(c.raw(0).unwrap_or(&Value::Null))?;
-                json!({ "state": state, "warnings": warnings })
+                json!({ "state": state.to_value(), "warnings": warnings })
             }
             "model.gridsFromSpacings" => md::grids_from_spacings(c.str(0), c.str(1), c.str(2), c.str(3))?,
             "model.spacingsOf" => Value::from(md::spacings_of(arr(c.arg(0)))),
@@ -389,14 +391,14 @@ fn marks_ops(reg: &mut Registry, c: &Call) -> R {
                 )
             }
             "marks.markFootings" => {
-                let fs = match c.raw(0) {
-                    Some(Value::String(_)) => state_arg(reg, c.raw(0))?.get("footings").cloned().unwrap_or(Value::Null),
-                    Some(v) => v.clone(),
-                    None => Value::Null,
+                let fs: Vec<crate::jv::JVal> = match c.raw(0) {
+                    Some(Value::String(_)) => state_arg(reg, c.raw(0))?.list("footings").to_vec(),
+                    Some(v) => arr(Some(v)).iter().map(crate::jv::JVal::from_value).collect(),
+                    None => Vec::new(),
                 };
                 let pp = c.arg(1).and_then(|o| o.get("perPhase")).is_some_and(|v| crate::js::truthy(Some(v)));
                 let mut o = serde_json::Map::new();
-                for (k, v) in mark_footings(arr(Some(&fs)), pp) {
+                for (k, v) in mark_footings(&fs, pp) {
                     o.insert(k, Value::from(v));
                 }
                 Value::Object(o)
@@ -413,7 +415,7 @@ fn marks_ops(reg: &mut Registry, c: &Call) -> R {
 fn conn_ops(reg: &mut Registry, c: &Call) -> R {
     use crate::connections as cn;
     let st = match c.op {
-        "conn.dg1Row" | "conn.defaults" => Value::Null,
+        "conn.dg1Row" | "conn.defaults" => crate::store::State::from_value(Value::Null),
         _ => match state_arg(reg, c.raw(0)) {
             Ok(s) => s,
             Err(e) => return Some(Err(e)),

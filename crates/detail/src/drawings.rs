@@ -915,20 +915,27 @@ pub struct Raw {
     pub rods: Option<Value>,
 }
 
-fn grids(state: &Value, k: &str) -> Vec<(String, f64)> {
+fn grids(state: &crate::store::State, k: &str) -> Vec<(String, f64)> {
     crate::js::arr(state.get("grids").and_then(|g| g.get(k)))
         .iter()
         .map(|g| (crate::js::string_of(g.get("label")), crate::js::num(g.get("at"))))
         .collect()
 }
-fn levels_sorted(state: &Value) -> Vec<(String, f64)> {
+fn levels_sorted(state: &crate::store::State) -> Vec<(String, f64)> {
     let mut lv: Vec<(String, f64)> =
         crate::js::arr(state.get("levels")).iter().map(|l| (crate::js::string_of(l.get("name")), crate::js::num(l.get("z")))).collect();
     lv.sort_by(|a, b| crate::js::ord(a.1 - b.1));
     lv
 }
 
-fn plan_sheet(ctx: &Ctx, state: &Value, built: &Built, marks: &Marks, fm: Option<&FootingMarks>, level: &(String, f64)) -> Option<Raw> {
+fn plan_sheet(
+    ctx: &Ctx,
+    state: &crate::store::State,
+    built: &Built,
+    marks: &Marks,
+    fm: Option<&FootingMarks>,
+    level: &(String, f64),
+) -> Option<Raw> {
     let lv = levels_sorted(state);
     let k = lv.iter().position(|l| l.0 == level.0);
     let below = match k {
@@ -1017,7 +1024,7 @@ fn plan_sheet(ctx: &Ctx, state: &Value, built: &Built, marks: &Marks, fm: Option
 
 fn elevation_sheet(
     ctx: &Ctx,
-    state: &Value,
+    state: &crate::store::State,
     built: &Built,
     marks: &Marks,
     fm: Option<&FootingMarks>,
@@ -1625,10 +1632,10 @@ struct Grp<'a> {
     top: f64,
 }
 
-fn anchor_sheet(ctx: &Ctx, state: &Value, built: &Built, marks: &Marks) -> Option<Raw> {
+fn anchor_sheet(ctx: &Ctx, state: &crate::store::State, built: &Built, marks: &Marks) -> Option<Raw> {
     let mut groups: Vec<Grp> = Vec::new();
-    for cv in crate::js::arr(state.get("connections")) {
-        if cv.get("type").and_then(Value::as_str) != Some("baseplate") {
+    for cv in state.list("connections") {
+        if cv.get("type").and_then(crate::jv::JVal::as_str) != Some("baseplate") {
             continue;
         }
         let c = Conn::from_value(cv);
@@ -1944,8 +1951,8 @@ fn crc_hex(v: &Value) -> String {
     format!("{:08X}", crate::zip::crc32(crate::js::stringify(v).as_bytes()))
 }
 /// `modelRef(state)`.
-pub fn model_ref(state: &Value) -> String {
-    crc_hex(state)
+pub fn model_ref(state: &crate::store::State) -> String {
+    format!("{:08X}", crate::zip::crc32(state.stringify().as_bytes()))
 }
 
 fn content_hash(items: &[Item]) -> String {
@@ -1968,7 +1975,7 @@ fn content_hash(items: &[Item]) -> String {
 
 /// `partPrints(built, marks)` → (detail, ga) maps by key, in insertion order.
 pub fn part_prints(
-    state: &Value,
+    state: &crate::store::State,
     built: &Built,
     marks: &Marks,
     fm: Option<&FootingMarks>,
@@ -1999,10 +2006,12 @@ pub fn part_prints(
         g.push(Value::from(tag));
         set(&mut ga, format!("part:{}", p.id), crc_hex(&Value::Array(g)));
     }
-    let sf = crate::js::arr(state.get("footings"));
+    let sf = state.list("footings");
     for (i, bf) in built.footings.iter().enumerate() {
-        let mut f = sf.get(i).and_then(Value::as_object).cloned().unwrap_or_else(|| bf.f.fields());
+        let mut f =
+            sf.get(i).and_then(crate::jv::JVal::as_object).cloned().unwrap_or_else(|| crate::jv::JObj::from_map_owned(bf.f.fields()));
         f.shift_remove("id");
+        let f = f.to_map();
         let id = bf.f.id.clone();
         let v = crc_hex(&json!([Value::Object(f), fmark(fm, &id).filter(|m| !m.is_empty()).unwrap_or("")]));
         set(&mut detail, format!("footing:{id}"), v.clone());
@@ -2181,7 +2190,7 @@ pub struct Set {
 
 /// `drawingSet(state, built, marks, { date, paper, hiddenLines })` (footing marks: `marks.footingMark`).
 pub fn drawing_set(
-    state: &Value,
+    state: &crate::store::State,
     built: &Built,
     marks: &Marks,
     fm: Option<&FootingMarks>,

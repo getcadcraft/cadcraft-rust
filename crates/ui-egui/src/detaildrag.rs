@@ -71,9 +71,7 @@ impl DetailView {
     /// The held part's points that snap (detailcraft.js `dragParts.start`): a member's ends, a footing's top centre,
     /// a stair's start.
     fn drag_points(&self, r: &Ref) -> Vec<[f64; 3]> {
-        let find = |key: &str, id: &str| {
-            cc_detail::js::arr(self.model.state.get(key)).iter().find(|x| x.get("id").and_then(Value::as_str) == Some(id)).cloned()
-        };
+        let find = |key: &str, id: &str| self.model.state.find_value(key, id);
         let p3 = |v: Option<&Value>| [0, 1, 2].map(|i| num(v.and_then(|a| a.get(i))));
         match r {
             Ref::Member(i) => find("members", i).map(|m| vec![p3(m.get("start")), p3(m.get("end"))]).unwrap_or_default(),
@@ -247,10 +245,13 @@ mod tests {
     #[test]
     fn a_drag_moves_the_selection_in_one_step_and_esc_puts_it_back() {
         let mut dv = DetailView::sample().expect("sample");
-        let id = cc_detail::js::arr(dv.model.state.get("members"))
+        let id = dv
+            .model
+            .state
+            .list("members")
             .iter()
-            .find(|m| m.get("type").and_then(Value::as_str) == Some("beam"))
-            .and_then(|m| m.get("id").and_then(Value::as_str))
+            .find(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str) == Some("beam"))
+            .and_then(|m| m.get("id").and_then(cc_detail::jv::JVal::as_str))
             .expect("a beam")
             .to_string();
         let before = dv.member(&id).cloned();
@@ -263,11 +264,11 @@ mod tests {
         assert_eq!(dv.message, t0("drag.cancel"));
         dv.drag_cmd(&format!("member:{id}:1234,0,0")).expect("cmd");
         let after = dv.member(&id).cloned().expect("still there");
-        let x0 = num(before.as_ref().and_then(|m| m.get("start")).and_then(|s| s.get(0)));
-        assert_eq!(num(after.get("start").and_then(|s| s.get(0))), x0 + 1230.0);
+        let x0 = num(before.as_ref().and_then(|m| m.get("start")).and_then(|s| s.as_array()).and_then(|a| a.first()));
+        assert_eq!(num(after.get("start").and_then(|s| s.as_array()).and_then(|a| a.first())), x0 + 1230.0);
         dv.undo();
         let back = dv.member(&id).cloned().expect("still there");
-        assert_eq!(num(back.get("start").and_then(|s| s.get(0))), x0);
+        assert_eq!(num(back.get("start").and_then(|s| s.as_array()).and_then(|a| a.first())), x0);
         assert!(dv.drag_cmd("member:x:nan,0,0").is_err());
     }
 }

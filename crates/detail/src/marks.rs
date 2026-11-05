@@ -546,8 +546,8 @@ pub fn bom_tables(marks: &Marks, bolts: &[crate::connections::Bolt]) -> Bom {
 }
 
 /// `markFootings(footings, {perPhase})` (stored footings) → [(id, mark)] in the order marks were given.
-pub fn mark_footings(footings: &[Value], per_phase: bool) -> Vec<(String, String)> {
-    let phase = |f: &Value| or(crate::js::f(f.get("phase")), 1.0);
+pub fn mark_footings(footings: &[crate::jv::JVal], per_phase: bool) -> Vec<(String, String)> {
+    let phase = |f: &crate::jv::JVal| or(crate::js::f(f.get("phase")), 1.0);
     let phased = per_phase && {
         let mut seen: Vec<f64> = Vec::new();
         for f in footings {
@@ -558,7 +558,7 @@ pub fn mark_footings(footings: &[Value], per_phase: bool) -> Vec<(String, String
         }
         seen.len() > 1
     };
-    let mut list: Vec<&Value> = footings.iter().collect();
+    let mut list: Vec<&crate::jv::JVal> = footings.iter().collect();
     if phased {
         list.sort_by(|a, b| crate::js::ord(phase(a) - phase(b)));
     }
@@ -568,8 +568,21 @@ pub fn mark_footings(footings: &[Value], per_phase: bool) -> Vec<(String, String
     let mut count: HashMap<String, f64> = HashMap::new();
     for f in list {
         let pre = if phased { format!("{}-", num_to_string(phase(f))) } else { String::new() };
-        let g = |k: &str| f.get(k).cloned().unwrap_or(Value::Null);
-        let k = format!("{pre}{}", stringify(&Value::Array(vec![g("L"), g("B"), g("H"), g("concrete"), g("mat"), g("starters")])));
+        // JSON.stringify([f.L, f.B, f.H, f.concrete, f.mat, f.starters])
+        let mut o = cc_m3d::json::Out::new(false);
+        o.raw(&pre);
+        o.ch('[');
+        for (i, key) in ["L", "B", "H", "concrete", "mat", "starters"].into_iter().enumerate() {
+            if i > 0 {
+                o.ch(',');
+            }
+            match f.get(key) {
+                Some(v) => v.write(&mut o),
+                None => o.raw("null"),
+            }
+        }
+        o.ch(']');
+        let k = o.s;
         if !seen.contains_key(&k) {
             let n = count.get(&pre).copied().unwrap_or(0.0) + 1.0;
             count.insert(pre.clone(), n);

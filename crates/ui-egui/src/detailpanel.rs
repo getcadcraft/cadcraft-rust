@@ -39,7 +39,9 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
     let tool = dv.tools.tool;
     let picked = dv.selected();
     let sel_type = match &dv.sel {
-        Some(Ref::Member(id)) => dv.member(id).map(|m| m.get("type").and_then(Value::as_str).unwrap_or("").to_string()).unwrap_or_default(),
+        Some(Ref::Member(id)) => {
+            dv.member(id).map(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str).unwrap_or("").to_string()).unwrap_or_default()
+        }
         _ => String::new(),
     };
     let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
@@ -135,12 +137,16 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
 pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, groups: &[crate::shell::ToolGroup]) {
     let picked = dv.selected();
     let sel_type = match &dv.sel {
-        Some(Ref::Member(id)) => dv.member(id).map(|m| m.get("type").and_then(Value::as_str).unwrap_or("").to_string()).unwrap_or_default(),
+        Some(Ref::Member(id)) => {
+            dv.member(id).map(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str).unwrap_or("").to_string()).unwrap_or_default()
+        }
         _ => String::new(),
     };
     let has_type = |tys: &[&str]| {
         picked.iter().any(|r| match r {
-            Ref::Member(i) => dv.member(i).is_some_and(|m| tys.contains(&m.get("type").and_then(Value::as_str).unwrap_or(""))),
+            Ref::Member(i) => {
+                dv.member(i).is_some_and(|m| tys.contains(&m.get("type").and_then(cc_detail::jv::JVal::as_str).unwrap_or("")))
+            }
             _ => false,
         })
     };
@@ -148,9 +154,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
     let sel_conn = matches!(dv.sel, Some(Ref::Conn(_)));
     let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
     let can_paste = dv.tools.clip.is_some();
-    let any = dv.model.state.get("members").and_then(Value::as_array).map_or(0, Vec::len)
-        + dv.model.state.get("footings").and_then(Value::as_array).map_or(0, Vec::len)
-        > 0;
+    let any = dv.model.state.list("members").len() + dv.model.state.list("footings").len() > 0;
     let app_c = tk.app("detailcraft");
     let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));
     for (id, resp) in crate::shell::toolbar(ui, tk, app_c, "dc-tb", groups) {
@@ -266,9 +270,10 @@ pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     }
     ui.add_space(6.0);
     crate::shell::h3(ui, tk, &t0("app.k.members"));
-    let members = cc_detail::js::arr(dv.model.state.get("members"));
+    let members = dv.model.state.list("members");
     for kind in cc_detail::model::MEMBER_TYPES {
-        let list: Vec<&Value> = members.iter().filter(|m| m.get("type").and_then(Value::as_str) == Some(kind)).collect();
+        let list: Vec<&cc_detail::jv::JVal> =
+            members.iter().filter(|m| m.get("type").and_then(cc_detail::jv::JVal::as_str) == Some(kind)).collect();
         if list.is_empty() {
             continue;
         }
@@ -288,7 +293,7 @@ pub fn left(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
                 }
             });
     }
-    let footings = cc_detail::js::arr(dv.model.state.get("footings"));
+    let footings = dv.model.state.list("footings");
     if !footings.is_empty() {
         egui::CollapsingHeader::new(format!("{} ({})", t0("app.k.footings"), footings.len())).id_salt("detail_footings").show(ui, |ui| {
             for f in footings {
@@ -335,7 +340,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     let mark = dv.marks.part_mark(id).map(|x| format!(" {x}")).unwrap_or_default();
     crate::shell::h(ui, tk, &format!("{}{mark}", type_name(&kind)));
     let s = |k: &str| cc_detail::js::string_of(m.get(k));
-    let n = |k: &str| m.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let n = |k: &str| m.get(k).and_then(cc_detail::jv::JVal::as_f64).unwrap_or(0.0);
     let set = |acts: &mut Vec<Act>, field: &str, v: String| acts.push(Act::Run("detail.set", format!("{id}.{field}={v}")));
     row(ui, tk, &t0("app.f.name"), |ui, lid| {
         if let Some(v) = text_field(dv, ui, &format!("{id}.name"), &s("name"), 160.0, lid) {
@@ -344,7 +349,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     });
     let custom = cc_detail::js::arr(dv.model.state.get("profiles")).to_vec();
     if kind == "plate" {
-        let pr = cc_detail::profiles::get_profile(m.get("profile").unwrap_or(&Value::Null), &custom);
+        let pr = cc_detail::profiles::get_profile_opt(m.get("profile"), &custom);
         let (thick, w) = (pr.as_ref().and_then(|p| p.t).unwrap_or(20.0), pr.as_ref().and_then(|p| p.b).unwrap_or(200.0));
         for (field, label, v) in [("thickness", "app.f.thickness", thick), ("width", "app.f.width", w)] {
             row(ui, tk, &t0(label), |ui, lid| {
@@ -498,7 +503,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
 pub(crate) fn model_summary(dv: &DetailView, ui: &mut Ui, tk: &Tokens) {
     crate::shell::h(ui, tk, &t0("app.props.model"));
     let st = &dv.model.state;
-    let len = |k: &str| cc_detail::js::arr(st.get(k)).len();
+    let len = |k: &str| st.len_of(k);
     let steel: f64 = dv.built.parts.iter().fold(0.0, |s, p| s + p.weight);
     let bars: f64 = dv.schedule.rows.iter().fold(0.0, |s, r| s + r.total_weight);
     let gx = cc_detail::js::arr(st.get("grids").and_then(|g| g.get("x"))).len();
