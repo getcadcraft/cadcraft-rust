@@ -199,6 +199,51 @@ pub type ReadDropped = Box<dyn FnMut(Arc<dyn egui::DroppedFile + Send + Sync>)>;
 /// a write; web: a download).
 pub type SaveFile = Box<dyn FnMut(&str, Vec<u8>) -> Result<Option<String>, String>>;
 
+/// Small text values every window of this user shares, as 0.5 keeps them in the browser's localStorage (DetailCraft's
+/// clipboard `detailcraft.clipboard`, so another window pastes it): desktop, a folder in the config dir
+/// (`cc_recovery::dir::DirKv`); web, localStorage. Only `Get`, `Put` and `Delete` are asked of it. Every value read
+/// back is hostile (another window, another version, a person's edits).
+#[derive(Clone)]
+pub struct SharedStore(pub std::rc::Rc<std::cell::RefCell<cc_recovery::Service>>);
+
+/// localStorage's quota (5 MB): a value bigger than this is refused, as `setItem` throws there.
+pub const SHARED_STORE_MAX: usize = 5 << 20;
+
+impl SharedStore {
+    pub fn new(service: cc_recovery::Service) -> SharedStore {
+        SharedStore(std::rc::Rc::new(std::cell::RefCell::new(service)))
+    }
+    /// localStorage `getItem(key)`: None when missing, unreadable or too big.
+    pub fn get(&self, key: &str) -> Option<String> {
+        let mut s = self.0.try_borrow_mut().ok()?;
+        let bytes = (*s)(cc_recovery::RecoveryOp::Get(key.to_string())).ok().flatten()?;
+        if bytes.len() > SHARED_STORE_MAX {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&bytes).into_owned())
+    }
+    /// localStorage `setItem(key, value)`; an error when it is refused (too big, the store failed).
+    pub fn set(&self, key: &str, value: &str) -> Result<(), String> {
+        if value.len() > SHARED_STORE_MAX {
+            return Err("quota: too big for the shared storage".into());
+        }
+        let mut s = self.0.try_borrow_mut().map_err(|_| "the shared storage is busy".to_string())?;
+        (*s)(cc_recovery::RecoveryOp::Put(key.to_string(), value.as_bytes().to_vec())).map(|_| ())
+    }
+    /// localStorage `removeItem(key)`.
+    pub fn remove(&self, key: &str) {
+        if let Ok(mut s) = self.0.try_borrow_mut() {
+            let _ = (*s)(cc_recovery::RecoveryOp::Delete(key.to_string()));
+        }
+    }
+}
+
+impl std::fmt::Debug for SharedStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SharedStore")
+    }
+}
+
 /// Platform services, injected by the host (the UI never touches files or dialogs itself).
 #[derive(Default)]
 pub struct Services {
@@ -241,6 +286,8 @@ pub struct Services {
     /// `fetched`. None = this host cannot fetch.
     pub fetch: Option<Fetch>,
     pub fetched: Option<Arc<Mutex<Vec<Fetched>>>>,
+    /// values shared with this user's other windows (see [`SharedStore`]); None = this window keeps them to itself
+    pub store: Option<SharedStore>,
 }
 
 /// A folder the browser picked (see `Services::pick_folder_async`): its name, every file in it ("a/b.dwg" paths) and,

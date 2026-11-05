@@ -244,6 +244,9 @@ pub fn deep_set(o: &mut Value, path: &str, v: Value) {
     }
 }
 
+/// Where a copy is kept for this user's other windows (clipboard.js `CLIP_KEY`).
+pub const CLIP_KEY: &str = "detailcraft.clipboard";
+
 /// The tool state of the open model (detailcraft.js `tool`, `pending`, `opts`, `curPhase`, the clipboard, `moveRefs`).
 #[derive(Clone, Debug)]
 pub struct Tools {
@@ -261,8 +264,16 @@ pub struct Tools {
     pub move_refs: Option<Vec<Ref>>,
     /// the grid intersection under the pointer while placing
     pub hover: Option<Node>,
-    /// a copy's text for the system clipboard (another DetailCraft window can paste it)
+    /// a copy's text for the system clipboard (another DetailCraft window can paste it), when there is no shared store
     pub clip_out: Option<String>,
+    /// the stored text the clip came from (detailcraft.js `clipRaw`)
+    pub clip_raw: Option<String>,
+    /// where copies are kept for this user's other windows (detailcraft.js: localStorage `detailcraft.clipboard`)
+    pub store: Option<crate::SharedStore>,
+    /// is a copy stored (another window's, maybe): (when it was looked at, ms; the answer); the bar's Paste
+    pub clip_seen: (f64, bool),
+    /// Paste is on in the bar (set each frame from [`DetailView::can_paste`])
+    pub paste_ok: bool,
 }
 
 impl Default for Tools {
@@ -277,6 +288,10 @@ impl Default for Tools {
             move_refs: None,
             hover: None,
             clip_out: None,
+            clip_raw: None,
+            store: None,
+            clip_seen: (f64::NEG_INFINITY, false),
+            paste_ok: false,
         }
     }
 }
@@ -545,7 +560,7 @@ impl DetailView {
         let mut tool = tool;
         self.tools.tool = tool;
         self.tools.pending = None;
-        self.tools.paste_clip = if tool == "paste" { self.tools.clip.clone() } else { None };
+        self.tools.paste_clip = if tool == "paste" { self.current_clip(true) } else { None };
         if tool == "paste" && self.tools.paste_clip.is_none() {
             tool = "select";
             self.tools.tool = tool;
@@ -1063,6 +1078,44 @@ impl DetailView {
 
     // ------------------------------------------------------------------------------------------ clipboard
 
+    /// detailcraft.js `clipStored()`: is there a copy in the shared store?
+    pub fn clip_stored(&self) -> bool {
+        self.tools.store.as_ref().is_some_and(|s| s.get(CLIP_KEY).is_some())
+    }
+
+    /// The bar's Paste: this window's copy, or one stored (looked at twice a second at most; detailcraft.js redraws the
+    /// bar on the `storage` event).
+    pub fn can_paste(&mut self) -> bool {
+        if self.tools.clip.is_some() {
+            return true;
+        }
+        let now = cc_clock::now_ms();
+        if now - self.tools.clip_seen.0 >= 500.0 || now.is_nan() {
+            self.tools.clip_seen = (now, self.clip_stored());
+        }
+        self.tools.clip_seen.1
+    }
+
+    /// detailcraft.js `currentClip(say)`: the newest copy, another window's (read as untrusted) when it changed since,
+    /// else this window's.
+    pub fn current_clip(&mut self, say: bool) -> Option<Value> {
+        let raw = self.tools.store.as_ref().and_then(|s| s.get(CLIP_KEY));
+        if let Some(raw) = raw.filter(|r| !r.is_empty() && self.tools.clip_raw.as_deref() != Some(r.as_str())) {
+            match cc_detail::clipboard::read_clip(&Value::String(raw.clone())) {
+                Ok(c) => {
+                    self.tools.clip = Some(c);
+                    self.tools.clip_raw = Some(raw);
+                }
+                Err(e) => {
+                    if say && self.tools.clip.is_none() {
+                        self.say(t("app.paste.bad", &[("error", F::S(e))]));
+                    }
+                }
+            }
+        }
+        self.tools.clip.clone()
+    }
+
     /// detailcraft.js `takeCopy()`.
     fn take_copy(&mut self) -> Option<Value> {
         let refs = self.selected();
@@ -1092,7 +1145,20 @@ impl DetailView {
         match cc_detail::clipboard::read_clip(r.get("clip").unwrap_or(&Value::Null)) {
             Ok(c) => {
                 self.tools.clip = Some(c);
-                self.tools.clip_out = r.get("clip").map(cc_detail::js::stringify);
+                let raw = r.get("clip").map(cc_detail::js::stringify);
+                match (&self.tools.store, raw) {
+                    (Some(st), Some(raw)) => {
+                        // too big or refused: this window still has it
+                        if st.set(CLIP_KEY, &raw).is_ok() {
+                            self.tools.clip_raw = Some(raw);
+                        } else {
+                            self.tools.clip_raw = None;
+                            st.remove(CLIP_KEY);
+                        }
+                    }
+                    (None, raw) => self.tools.clip_out = raw,
+                    (Some(_), None) => {}
+                }
             }
             Err(e) => {
                 self.say(e);
@@ -1118,8 +1184,10 @@ impl DetailView {
 
     /// detailcraft.js `startPaste(inPlace)`.
     pub fn start_paste(&mut self, in_place: bool) {
-        let Some(c) = self.tools.clip.clone() else {
-            self.say(t0("app.paste.empty"));
+        let Some(c) = self.current_clip(true) else {
+            if !self.clip_stored() {
+                self.say(t0("app.paste.empty"));
+            }
             return;
         };
         if in_place {
@@ -1861,6 +1929,40 @@ mod tests {
         assert!(o.set("footing.mat.hooks=maybe").is_err());
         let e = Opts::new("eu");
         assert_eq!((e.beam.profile.as_str(), e.footing["concrete"].as_str()), ("IPE300", Some("C30/37")));
+    }
+
+    #[test]
+    fn a_copy_in_one_window_pastes_in_another_through_the_shared_store() {
+        let (svc, mem) = cc_recovery::memory();
+        let store = crate::SharedStore::new(svc);
+        let mut a = DetailView::sample().unwrap();
+        let mut b = DetailView::empty();
+        a.tools.store = Some(store.clone());
+        b.tools.store = Some(store.clone());
+        assert!(!b.can_paste());
+        b.act("paste");
+        assert_eq!(b.message, t0("app.paste.empty"));
+        a.select_all();
+        a.act("copy");
+        assert!(store.get(CLIP_KEY).is_some_and(|r| r.contains("detailcraft-clip")));
+        // b had no copy of its own: it pastes a's, in place, as one step
+        b.tools.clip_seen.0 = f64::NEG_INFINITY;
+        assert!(b.can_paste());
+        let n = arr(a.model.state.get("members")).len();
+        b.act("paste-in-place");
+        assert_eq!(arr(b.model.state.get("members")).len(), n);
+        assert_eq!(b.model.undo_stack.len(), 1);
+        // a damaged copy in the store: said once, nothing pasted, the window's own copy kept
+        let mut c = DetailView::empty();
+        c.tools.store = Some(store.clone());
+        store.set(CLIP_KEY, "{\"format\":\"nope\"}").unwrap();
+        c.act("paste");
+        assert_eq!(c.message, t("app.paste.bad", &[("error", F::S(t0("clip.err.not-parts")))]));
+        b.act("paste-in-place");
+        assert_eq!(arr(b.model.state.get("members")).len(), 2 * n, "b still has the copy it read");
+        // too big for the store (localStorage's quota): this window keeps it, the store forgets the old one
+        store.set(CLIP_KEY, &"x".repeat(crate::SHARED_STORE_MAX + 1)).unwrap_err();
+        drop(mem);
     }
 
     #[test]

@@ -184,6 +184,12 @@ fn shot(args: &[String]) -> Result<(), String> {
         app.recovery.clock = Some(now);
     }
     app.services.recovery = Some(cc_recovery::memory_on(std::rc::Rc::clone(&store)));
+    // --store-dir DIR: the storage this user's windows share (0.5's localStorage: DetailCraft's clipboard), a folder
+    // two runs can use one after the other as two windows
+    if let Some(dir) = arg(args, "--store-dir") {
+        let kv = cc_recovery::dir::DirKv::open(std::path::Path::new(&dir))?;
+        app.services.store = Some(cc_ui_egui::SharedStore::new(kv.into_service()));
+    }
     match arg(args, "--theme").as_deref() {
         Some("light") => app.run("theme.toggle", &Params::default())?,
         // the other looks by their Settings name (medium-dark, medium-light, contrast)

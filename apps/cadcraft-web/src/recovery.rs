@@ -158,3 +158,24 @@ pub fn service() -> Service {
         }
     })
 }
+
+/// What this user's tabs share (`Services::store`): the browser's localStorage, as 0.5 keeps DetailCraft's
+/// `detailcraft.clipboard` there (another tab of this site pastes it). Only Get, Put and Delete; a refused write
+/// (storage full, a private window) is an error, as `setItem` throws.
+pub fn local_store() -> Service {
+    let storage = || web_sys::window().and_then(|w| w.local_storage().ok().flatten()).ok_or_else(|| "no localStorage".to_string());
+    Box::new(move |op| match op {
+        RecoveryOp::Ready => Ok(Some(Vec::new())),
+        RecoveryOp::Get(k) => Ok(storage()?.get_item(&k).map_err(|e| js_err(&e))?.map(String::into_bytes)),
+        RecoveryOp::Put(k, v) => {
+            let text = String::from_utf8(v).map_err(|_| "not text".to_string())?;
+            storage()?.set_item(&k, &text).map_err(|e| js_err(&e))?;
+            Ok(None)
+        }
+        RecoveryOp::Delete(k) => {
+            storage()?.remove_item(&k).map_err(|e| js_err(&e))?;
+            Ok(None)
+        }
+        _ => Ok(None),
+    })
+}

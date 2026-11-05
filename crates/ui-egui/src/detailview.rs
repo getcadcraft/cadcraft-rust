@@ -1426,6 +1426,8 @@ pub fn install(app: &mut UiApp, dv: DetailView) {
     let before = dv.settings.clone();
     dv.settings = crate::detailexport::Settings::load(&app.dc_prefs);
     dv.settings_loaded(&before);
+    // the clipboard this user's other windows share (detailcraft.js: localStorage)
+    dv.tools.store = app.services.store.clone();
     app.detail = Some(dv);
 }
 
@@ -1666,8 +1668,11 @@ fn keys(dv: &mut DetailView, ui: &egui::Ui, acts: &mut Vec<crate::detailpanel::A
             egui::Event::Copy if !typing => run(acts, "detail.act", "copy"),
             egui::Event::Cut if !typing => run(acts, "detail.act", "cut"),
             egui::Event::Paste(text) if !typing => {
-                // a copy from another DetailCraft window reads back as untrusted as a file (clipboard.js readClip)
-                if let Ok(c) = cc_detail::clipboard::read_clip(&Value::String(text)) {
+                // no shared store: a copy from another DetailCraft window comes through the system clipboard, read back
+                // as untrusted as a file (clipboard.js readClip); with one, Paste reads the store (detailcraft.js)
+                if dv.tools.store.is_none()
+                    && let Ok(c) = cc_detail::clipboard::read_clip(&Value::String(text))
+                {
                     dv.tools.clip = Some(c);
                 }
                 run(acts, "detail.act", "paste");
@@ -1725,6 +1730,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
     if let Some(dv) = app.detail.as_mut() {
         dv.recompute();
         keys(dv, ui, &mut acts);
+        dv.tools.paste_ok = dv.can_paste();
         let groups = crate::detailpanel::bar_groups(dv);
         let h = crate::shell::toolbar_height(ui, &groups, ui.available_width());
         egui::Panel::top("detail_bar")

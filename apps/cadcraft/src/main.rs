@@ -32,6 +32,14 @@ fn recovery_service() -> Option<cc_recovery::Service> {
     })
 }
 
+/// What this user's windows share (0.5's localStorage: DetailCraft's clipboard): `storage/` in the config folder, a file
+/// per key written atomically. Not locked: every window reads and writes it.
+fn shared_store() -> Option<cc_ui_egui::SharedStore> {
+    let dir = cc_mcp::token::config_dir()?.join("storage");
+    let kv = cc_recovery::dir::DirKv::open(&dir).ok()?;
+    Some(cc_ui_egui::SharedStore::new(kv.into_service()))
+}
+
 /// The start screen's recent files, kept in `recent.json` in the config folder between runs.
 fn recent_path() -> Option<std::path::PathBuf> {
     cc_mcp::token::config_dir().map(|d| d.join("recent.json"))
@@ -453,6 +461,7 @@ fn main() -> eframe::Result {
                 read_path: Some(Box::new(|p: &str| read_path(std::path::Path::new(p)))),
                 list_dir: Some(Box::new(list_dir)),
                 recovery: recovery_service(),
+                store: shared_store(),
                 ..Default::default()
             };
             // big parts rebuild on a thread in the window (PartCraft; headless runs rebuild in place)

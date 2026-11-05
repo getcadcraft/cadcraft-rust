@@ -308,6 +308,7 @@ mod web {
                             })),
                             folder_picked: Some(std::rc::Rc::clone(&folder_slot)),
                             recovery: Some(crate::recovery::service()),
+                            store: Some(cc_ui_egui::SharedStore::new(crate::recovery::local_store())),
                             // CivilCraft's map layers (gis-map-ui.js FETCH_OPTS: cors, no credentials, no referrer)
                             fetch: Some(Box::new(move |url: &str| {
                                 let out = Arc::clone(&fetch_out);

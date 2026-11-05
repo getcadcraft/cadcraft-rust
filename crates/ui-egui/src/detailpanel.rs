@@ -104,7 +104,7 @@ pub fn bar_groups(dv: &DetailView) -> Vec<crate::shell::ToolGroup> {
                     .enabled(copyable),
                 Tool::new("act:paste", "clipboard-plus", t0("page.tool.paste"))
                     .tip(t("page.tool.paste.title", &[("key", F::S("Ctrl+V".into()))]))
-                    .enabled(dv.tools.clip.is_some()),
+                    .enabled(dv.tools.paste_ok),
                 Tool::new("menu:edit", "three-dots", t0("page.edit.more")).tip(t0("page.edit.more.title")),
             ],
         },
@@ -153,7 +153,7 @@ pub fn bar(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>, g
     let (splice_ok, gusset_ok) = (has_type(&["beam", "column"]), has_type(&["brace"]));
     let sel_conn = matches!(dv.sel, Some(Ref::Conn(_)));
     let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
-    let can_paste = dv.tools.clip.is_some();
+    let can_paste = dv.tools.paste_ok;
     let any = dv.model.state.list("members").len() + dv.model.state.list("footings").len() > 0;
     let app_c = tk.app("detailcraft");
     let run = |acts: &mut Vec<Act>, id: &'static str, name: String| acts.push(Act::Run(id, name));

@@ -1367,7 +1367,7 @@ pub fn tool_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
     .on_hover_text(t0("tool.conn.more.title"));
     ui.separator();
     let copyable = picked.iter().any(|r| !matches!(r, Ref::Conn(_)));
-    let can_paste = dv.tools.clip.is_some();
+    let can_paste = dv.tools.paste_ok;
     if ui
         .add_enabled(copyable, crate::shell::Btn::new(t0("page.tool.copy")))
         .on_hover_text(t("page.tool.copy.title", &[("key", F::S("Ctrl+C".into()))]))
