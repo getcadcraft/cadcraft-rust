@@ -103,8 +103,9 @@ pub fn field_label(ix: &Index, id: &str) -> String {
 /// A dropdown with its label above it (the panel is narrow), the label naming it for accessibility.
 fn labelled_combo(ui: &mut egui::Ui, id: &str, label: &str, selected: String, add: impl FnOnce(&mut egui::Ui)) {
     let l = ui.label(RichText::new(label).small());
-    let w = ui.available_width().clamp(80.0, 220.0);
-    let _ = egui::ComboBox::from_id_salt(id).selected_text(selected).width(w).show_ui(ui, add).response.labelled_by(l.id);
+    // fills the panel's column (0.7's selects: width 100%)
+    let w = crate::shell::width_in(ui, crate::shell::FILL);
+    let _ = egui::ComboBox::from_id_salt(id).selected_text(selected).width(w).truncate().show_ui(ui, add).response.labelled_by(l.id);
 }
 
 /// A field to choose: (id, label).
@@ -241,7 +242,11 @@ impl BimTools {
                     }
                 });
                 if !matches!(r.op.as_str(), "has" | "hasnot") {
-                    ui.add(crate::shell::field(&mut r.value).hint_text(bt("find.value", &[])).desired_width(170.0));
+                    ui.add(
+                        crate::shell::field(&mut r.value)
+                            .hint_text(bt("find.value", &[]))
+                            .desired_width(crate::shell::width_in(ui, crate::shell::FILL)),
+                    );
                 }
             });
             ui.add_space(4.0);

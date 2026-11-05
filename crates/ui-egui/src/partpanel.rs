@@ -43,7 +43,9 @@ pub(crate) fn field(
     hint: &str,
 ) -> Option<String> {
     let mut text = edits.get(key).cloned().unwrap_or_else(|| shown.to_string());
-    let resp = ui.add_sized([width, 18.0], crate::shell::field(&mut text).id_salt(("pc-field", key))).on_hover_text(hint);
+    let resp = ui
+        .add_sized([crate::shell::width_in(ui, width), 18.0], crate::shell::field(&mut text).id_salt(("pc-field", key)))
+        .on_hover_text(hint);
     if resp.has_focus() {
         edits.insert(key.to_string(), text.clone());
     }
@@ -544,13 +546,16 @@ pub(crate) fn combo(ui: &mut egui::Ui, id: String, label: &str, cur: &str, opts:
     let shown = opts.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
     let mut out = None;
     ui.label(label);
-    egui::ComboBox::new(id, "").selected_text(shown).show_ui(ui, |ui| {
-        for (v, l) in opts {
-            if ui.selectable_label(v == cur, l).clicked() && v != cur {
-                out = Some(v.clone());
+    egui::ComboBox::from_id_salt(id).width(crate::shell::width_in(ui, crate::shell::FILL)).truncate().selected_text(shown).show_ui(
+        ui,
+        |ui| {
+            for (v, l) in opts {
+                if ui.selectable_label(v == cur, l).clicked() && v != cur {
+                    out = Some(v.clone());
+                }
             }
-        }
-    });
+        },
+    );
     ui.end_row();
     out
 }
@@ -565,7 +570,7 @@ pub(crate) fn num_row(ui: &mut egui::Ui, pv: &mut PartView, id: &str, field_name
         Some(e) => trv("ui.params.field.driven", &[("expr", e)]),
         None => tr("ui.params.field.plain"),
     };
-    if let Some(text) = field(ui, &mut pv.edits, &key, &show_num(v), 90.0, &hint) {
+    if let Some(text) = field(ui, &mut pv.edits, &key, &show_num(v), crate::shell::FILL, &hint) {
         *act = cmd("part.set", format!("{id}:{field_name}={text}"));
     }
     ui.end_row();
@@ -599,7 +604,9 @@ fn dims_block(ui: &mut egui::Ui, pv: &mut PartView, sid: &str, title_key: &str, 
             let label = format!("{}{}", cc_part::sketch::label_of(ty).unwrap_or_default(), if ty == "angle" { " (°)" } else { "" });
             ui.label(label);
             let key = format!("{sid}.{cid}");
-            if let Some(text) = field(ui, &mut pv.edits, &key, &show_num(jv::n(c, "value")), 90.0, &tr("ui.params.field.plain")) {
+            if let Some(text) =
+                field(ui, &mut pv.edits, &key, &show_num(jv::n(c, "value")), crate::shell::FILL, &tr("ui.params.field.plain"))
+            {
                 *act = cmd("part.dim", format!("{sid}:{cid}={text}"));
             }
             ui.end_row();
@@ -989,7 +996,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
                     let label = tg.label.strip_prefix(&prefix).unwrap_or(&tg.label).to_string();
                     ui.label(label);
                     let v = PP::target_value(&pv.part, tg);
-                    if let Some(text) = field(ui, &mut pv.edits, key, &show_num(v), 90.0, &tr("ui.params.field.plain")) {
+                    if let Some(text) = field(ui, &mut pv.edits, key, &show_num(v), crate::shell::FILL, &tr("ui.params.field.plain")) {
                         *act = cmd("part.param", format!("{key}={text}"));
                     }
                     ui.end_row();
@@ -1035,7 +1042,7 @@ fn feature_block(ui: &mut egui::Ui, pv: &mut PartView, f: &Value, t: &Tokens, ac
     ui.horizontal(|ui| {
         ui.label(tr("app.props.name"));
         let key = format!("name:{id}");
-        if let Some(text) = field(ui, &mut pv.edits, &key, &fname, 140.0, "") {
+        if let Some(text) = field(ui, &mut pv.edits, &key, &fname, crate::shell::FILL, "") {
             *act = cmd("part.set", format!("{id}:name={text}"));
         }
     });
@@ -1232,9 +1239,14 @@ fn parameters(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
             let label = targets.get(&l.target).map_or_else(|| l.target.clone(), |tg| tg.label.clone());
             ui.label(RichText::new(&label).color(t.text));
             let key = format!("eq:{}", l.target);
-            if let Some(text) =
-                field(ui, &mut pv.edits, &key, &format!("={}", l.expr), 110.0, &trv("ui.params.eq.of", &[("label", label.clone())]))
-            {
+            if let Some(text) = field(
+                ui,
+                &mut pv.edits,
+                &key,
+                &format!("={}", l.expr),
+                crate::shell::FILL,
+                &trv("ui.params.eq.of", &[("label", label.clone())]),
+            ) {
                 let text = if text.starts_with('=') { text } else { format!("={text}") };
                 *act = cmd("part.param", format!("{}={text}", l.target));
             }

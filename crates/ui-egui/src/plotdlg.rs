@@ -355,7 +355,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                     ("window", t("ui.a_window")),
                                 ];
                                 let cur = areas.iter().find(|(k, _)| *k == p.area).map(|(_, l)| l.clone()).unwrap_or_default();
-                                egui::ComboBox::new("plot_area", "")
+                                egui::ComboBox::from_id_salt("plot_area")
                                     .width(if p.area == "window" { COMBO_W - 48.0 } else { COMBO_W })
                                     .selected_text(cur)
                                     .show_ui(ui, |ui| {
@@ -372,7 +372,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             ui.end_row();
                             ui.label(t("ui.paper"));
                             let cur = cc_io_cad::plot::paper_by_key(&p.paper).map(|x| paper_label(x, &t)).unwrap_or_default();
-                            egui::ComboBox::new("plot_paper", "").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
+                            egui::ComboBox::from_id_salt("plot_paper").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
                                 for x in &PAPERS {
                                     if ui.selectable_label(x.key == p.paper, paper_label(x, &t)).clicked() {
                                         act.push(("paper".into(), x.key.into()));
@@ -381,7 +381,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             });
                             ui.end_row();
                             ui.label(t("ui.orientation"));
-                            egui::ComboBox::new("plot_orient", "")
+                            egui::ComboBox::from_id_salt("plot_orient")
                                 .width(COMBO_W)
                                 .selected_text(t(if p.portrait { "ui.portrait" } else { "ui.landscape" }))
                                 .show_ui(ui, |ui| {
@@ -399,7 +399,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                 None => t("app.fit_paper"),
                                 Some(n) => list.iter().find(|x| x.n == n).map_or_else(|| format!("1:{}", fmt(n)), |x| x.label.clone()),
                             };
-                            egui::ComboBox::new("plot_scale", "").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
+                            egui::ComboBox::from_id_salt("plot_scale").width(COMBO_W).selected_text(cur).show_ui(ui, |ui| {
                                 if ui.selectable_label(p.scale.is_none(), t("app.fit_paper")).clicked() {
                                     act.push(("scale".into(), String::new()));
                                 }
@@ -417,7 +417,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     crate::shell::sec_break_in(ui, &tok);
                     egui::Grid::new("plot_ink").num_columns(2).spacing([10.0, 6.0]).show(ui, |ui| {
                         ui.label(t("ui.ink"));
-                        egui::ComboBox::new("plot_inkc", "")
+                        egui::ComboBox::from_id_salt("plot_inkc")
                             .width(COMBO_W)
                             .selected_text(t(if p.mono { "ui.black_monochrome" } else { "ui.drawing_colours" }))
                             .show_ui(ui, |ui| {
@@ -430,7 +430,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             });
                         ui.end_row();
                         ui.label(t("ui.line_weight"));
-                        egui::ComboBox::new("plot_pen", "")
+                        egui::ComboBox::from_id_salt("plot_pen")
                             .width(COMBO_W)
                             .selected_text(format!("{} mm", cc_cad::js::to_fixed(p.pen, 2)))
                             .show_ui(ui, |ui| {
@@ -444,7 +444,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         ui.label(t("ui.plot.pictures"));
                         let dpi_label =
                             |d: u32| if d == 0 { t("ui.plot.pictures.own") } else { tv("ui.plot.dpi", &[("n", d.to_string())]) };
-                        egui::ComboBox::new("plot_dpi", "").width(COMBO_W).selected_text(dpi_label(p.dpi)).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("plot_dpi").width(COMBO_W).selected_text(dpi_label(p.dpi)).show_ui(ui, |ui| {
                             for d in [0u32, 600, 300, 150] {
                                 if ui.selectable_label(p.dpi == d, dpi_label(d)).clicked() {
                                     act.push(("dpi".into(), d.to_string()));

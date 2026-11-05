@@ -1207,7 +1207,7 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
             ui.separator();
             egui::Grid::new("cv_terrain_set").num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                 ui.label(t0("tui.l.area"));
-                egui::ComboBox::new("cv_terrain_area", "").selected_text(t0(&format!("tui.area.{}", d.area))).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("cv_terrain_area").selected_text(t0(&format!("tui.area.{}", d.area))).show_ui(ui, |ui| {
                     for a in ["extents", "view", "all"] {
                         let on = a == "all" || has_ext;
                         if ui.add_enabled(on, egui::Button::selectable(d.area == a, t0(&format!("tui.area.{a}")))).clicked() {
@@ -1230,7 +1230,7 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
                 ui.end_row();
                 if lidar {
                     ui.label(t0("tui.l.keep"));
-                    egui::ComboBox::new("cv_terrain_keep", "").selected_text(t0(&format!("tui.keep.{}", d.mode))).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("cv_terrain_keep").selected_text(t0(&format!("tui.keep.{}", d.mode))).show_ui(ui, |ui| {
                         for m in ["nearest", "lowest", "average"] {
                             if ui.selectable_label(d.mode == m, t0(&format!("tui.keep.{m}"))).clicked() {
                                 acts.push(("civil.terrain", format!("mode={m}")));
@@ -1246,7 +1246,7 @@ pub fn terrain_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts
                     "ftUS" => t0("cad.ui.unit.ft-us"),
                     _ => t0("tui.choose"),
                 };
-                egui::ComboBox::new("cv_terrain_z", "").selected_text(zl(d.z_unit.as_deref().unwrap_or(""))).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("cv_terrain_z").selected_text(zl(d.z_unit.as_deref().unwrap_or(""))).show_ui(ui, |ui| {
                     for u in UNITS {
                         if ui.selectable_label(d.z_unit.as_deref() == Some(u), zl(u)).clicked() {
                             acts.push(("civil.terrain", format!("z={u}")));
@@ -1499,17 +1499,16 @@ pub fn geotiff_section(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts:
     if has_eg {
         ui.horizontal(|ui| {
             ui.label(t0("tui.l.surface"));
-            egui::ComboBox::new("cv_gt_surface", "").selected_text(t0(if d.which == "fg" { "surface.fg" } else { "surface.eg" })).show_ui(
-                ui,
-                |ui| {
+            egui::ComboBox::from_id_salt("cv_gt_surface")
+                .selected_text(t0(if d.which == "fg" { "surface.fg" } else { "surface.eg" }))
+                .show_ui(ui, |ui| {
                     if ui.selectable_label(d.which == "eg", t0("surface.eg")).clicked() {
                         acts.push(("civil.geotiff", "surface=eg".into()));
                     }
                     if has_fg && ui.selectable_label(d.which == "fg", t0("surface.fg")).clicked() {
                         acts.push(("civil.geotiff", "surface=fg".into()));
                     }
-                },
-            );
+                });
         });
         ui.horizontal(|ui| {
             let l = ui.label(tr!("tui.l.cell", unit = cv.u_word()));

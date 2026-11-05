@@ -338,7 +338,7 @@ pub fn card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
     });
     ui.horizontal(|ui| {
         ui.label(tr("analysis.show"));
-        egui::ComboBox::new("pc-analysis-mode", "").selected_text(tr(&format!("analysis.mode.{}", a.mode))).width(170.0).show_ui(
+        egui::ComboBox::from_id_salt("pc-analysis-mode").selected_text(tr(&format!("analysis.mode.{}", a.mode))).width(170.0).show_ui(
             ui,
             |ui| {
                 for m in MODES {
@@ -399,7 +399,7 @@ pub fn card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd) {
                 ui.label(tr("draft.pull"));
                 let shown = |k: &str| tr(&format!("draft.pull.{}", k.replace('+', "p").replace('-', "m")));
                 let cur = if a.key == "face" { tr("draft.pull.face") } else { shown(&a.key) };
-                egui::ComboBox::new("pc-draft-pull", "").selected_text(cur).width(140.0).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("pc-draft-pull").selected_text(cur).width(140.0).show_ui(ui, |ui| {
                     for (k, _) in PULLS {
                         if ui.selectable_label(a.key == k, shown(k)).clicked() {
                             *act = cmd("part.analysis", format!("pull:{k}"));

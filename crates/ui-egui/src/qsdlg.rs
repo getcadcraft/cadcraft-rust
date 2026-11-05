@@ -278,7 +278,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
 
 fn combo(ui: &mut egui::Ui, id: &str, cur: &str, items: &[(String, String)], out: &mut Option<String>) {
     let shown = items.iter().find(|(k, _)| k == cur).map(|(_, l)| l.clone()).unwrap_or_default();
-    egui::ComboBox::new(id, "").selected_text(shown).width(220.0).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(id).selected_text(shown).width(220.0).show_ui(ui, |ui| {
         for (k, l) in items {
             if ui.selectable_label(k == cur, l).clicked() {
                 *out = Some(k.clone());

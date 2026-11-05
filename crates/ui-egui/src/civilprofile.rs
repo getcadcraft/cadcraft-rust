@@ -562,7 +562,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         let cur = a.as_ref().map(|x| string_of(x.get("id"))).unwrap_or_default();
         let cur_name = als.iter().find(|x| x.0 == cur).map(|x| x.1.clone()).unwrap_or_default();
         ui.add_enabled_ui(als.len() >= 2, |ui| {
-            egui::ComboBox::new("civil_prof_al", "").selected_text(cur_name).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("civil_prof_al").selected_text(cur_name).show_ui(ui, |ui| {
                 for (id, name) in &als {
                     if ui.selectable_label(*id == cur, name).clicked() {
                         acts.push(ProfAct::Run("civil.profile.al", id.clone()));

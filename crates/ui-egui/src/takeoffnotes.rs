@@ -211,7 +211,7 @@ impl TakeoffMode {
         let mut edit: Option<String> = None;
         let st = s(n.get("status"));
         let l = ui.label(RichText::new(t("note.f.status")).small());
-        egui::ComboBox::new("tk_n_status", "")
+        egui::ComboBox::from_id_salt("tk_n_status")
             .selected_text(t(&format!("note.status.{st}")))
             .show_ui(ui, |ui| {
                 for k in ["open", "answered", "closed"] {
@@ -593,7 +593,7 @@ impl TakeoffMode {
                 Some(c) => areas.iter().find(|a| s(a.get("id")) == *c).map_or_else(|| t("area.none"), |a| s(a.get("name"))),
             };
             let l = ui.label(RichText::new(t("props.area")).small());
-            egui::ComboBox::new("tk_m_area", "")
+            egui::ComboBox::from_id_salt("tk_m_area")
                 .selected_text(shown)
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(cur.as_deref() == Some(""), t("area.none")).clicked() {
@@ -619,7 +619,7 @@ impl TakeoffMode {
             Some(c) => groups.iter().find(|g| s(g.get("id")) == *c).map_or_else(|| t("group.none"), opt),
         };
         let l = ui.label(RichText::new(t("props.group")).small()).on_hover_text(t("group.field.title"));
-        egui::ComboBox::new("tk_m_group", "")
+        egui::ComboBox::from_id_salt("tk_m_group")
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 if ui.selectable_label(cur.as_deref() == Some(""), t("group.none")).clicked() {

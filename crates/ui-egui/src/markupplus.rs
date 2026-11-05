@@ -321,7 +321,7 @@ impl PdfView {
             set = Some(("due", e.1.clone()));
         }
         let l = ui.label(RichText::new(t0("punch.item_status")).small());
-        egui::ComboBox::new(format!("mc-punch-st-{}", m.id), "")
+        egui::ComboBox::from_id_salt(format!("mc-punch-st-{}", m.id))
             .selected_text(cc_markup::model::punch_status_name(&p.status))
             .show_ui(ui, |ui| {
                 for st in PUNCH_STATUSES {
@@ -412,7 +412,7 @@ impl PdfView {
             None => t0("link.none"),
         };
         let l = ui.label(RichText::new(t0("props.link")).small());
-        egui::ComboBox::new("mc-p-link", "")
+        egui::ComboBox::from_id_salt("mc-p-link")
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 if ui.selectable_label(m.link.is_empty(), t0("link.none")).clicked() && !m.link.is_empty() {
@@ -443,7 +443,7 @@ impl PdfView {
             }
             let scope = m.legend.clone().unwrap_or_default();
             let l = ui.label(RichText::new(t0("legend.scope")).small());
-            egui::ComboBox::new("mc-p-scope", "")
+            egui::ComboBox::from_id_salt("mc-p-scope")
                 .selected_text(t0(if scope == "set" { "legend.scope.set" } else { "legend.scope.sheet" }))
                 .show_ui(ui, |ui| {
                     for (v, k) in [("sheet", "legend.scope.sheet"), ("set", "legend.scope.set")] {

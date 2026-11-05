@@ -443,7 +443,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 });
                 ui.horizontal(|ui| {
                     ui.label(t("tv.mode", &[]));
-                    egui::ComboBox::new("civil_tv_mode", "")
+                    egui::ComboBox::from_id_salt("civil_tv_mode")
                         .selected_text(t(if f.mode == "angles" { "tv.mode.angles" } else { "tv.mode.bearings" }, &[]))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut f.mode, "angles".to_string(), t("tv.mode.angles", &[]));
@@ -458,7 +458,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 }
                 ui.horizontal(|ui| {
                     ui.label(t("tv.ends", &[]));
-                    egui::ComboBox::new("civil_tv_ends", "")
+                    egui::ComboBox::from_id_salt("civil_tv_ends")
                         .selected_text(t(if f.ends == "loop" { "tv.ends.loop" } else { "tv.ends.pt" }, &[]))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut f.ends, "loop".to_string(), t("tv.ends.loop", &[]));

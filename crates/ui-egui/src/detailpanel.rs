@@ -242,7 +242,7 @@ pub fn left_head(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
     let head = crate::shell::h(ui, tk, &t0("page.left.model"));
     let name = st.get("name").and_then(Value::as_str).unwrap_or("").to_string();
     let key = "model.name".to_string();
-    if let Some(v) = text_field(dv, ui, &key, &name, 200.0, head.id) {
+    if let Some(v) = text_field(dv, ui, &key, &name, crate::shell::FILL, head.id) {
         acts.push(Act::Run("detail.set", format!("model.name={v}")));
     }
     crate::shell::note(ui, tk, &t0("page.left.model.note"));
@@ -315,7 +315,9 @@ pub(crate) fn text_field(dv: &mut DetailView, ui: &mut Ui, key: &str, current: &
         Some((k, v)) if k == key => v.clone(),
         _ => current.to_string(),
     };
-    let r = ui.add(crate::shell::field(&mut text).desired_width(width).id_salt(("detail_field", key))).labelled_by(label);
+    let r = ui
+        .add(crate::shell::field(&mut text).desired_width(crate::shell::width_in(ui, width)).id_salt(("detail_field", key)))
+        .labelled_by(label);
     if r.has_focus() || r.changed() {
         dv.editing = Some((key.to_string(), text.clone()));
     }
@@ -343,7 +345,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     let n = |k: &str| m.get(k).and_then(cc_detail::jv::JVal::as_f64).unwrap_or(0.0);
     let set = |acts: &mut Vec<Act>, field: &str, v: String| acts.push(Act::Run("detail.set", format!("{id}.{field}={v}")));
     row(ui, tk, &t0("app.f.name"), |ui, lid| {
-        if let Some(v) = text_field(dv, ui, &format!("{id}.name"), &s("name"), 160.0, lid) {
+        if let Some(v) = text_field(dv, ui, &format!("{id}.name"), &s("name"), crate::shell::FILL, lid) {
             set(acts, "name", v);
         }
     });
@@ -353,7 +355,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
         let (thick, w) = (pr.as_ref().and_then(|p| p.t).unwrap_or(20.0), pr.as_ref().and_then(|p| p.b).unwrap_or(200.0));
         for (field, label, v) in [("thickness", "app.f.thickness", thick), ("width", "app.f.width", w)] {
             row(ui, tk, &t0(label), |ui, lid| {
-                if let Some(x) = text_field(dv, ui, &format!("{id}.{field}"), &cc_detail::js::num_to_string(v), 80.0, lid) {
+                if let Some(x) = text_field(dv, ui, &format!("{id}.{field}"), &cc_detail::js::num_to_string(v), crate::shell::FILL, lid) {
                     set(acts, field, x);
                 }
             });
@@ -362,9 +364,10 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
         let cur = s("profile");
         row(ui, tk, &t0("app.f.profile"), |ui, lid| {
             let mut pick = cur.clone();
-            egui::ComboBox::new(("detail_profile", id), "")
+            egui::ComboBox::from_id_salt(("detail_profile", id))
                 .selected_text(&cur)
-                .width(160.0)
+                .width(crate::shell::width_in(ui, crate::shell::FILL))
+                .truncate()
                 .height(360.0)
                 .show_ui(ui, |ui| {
                     for g in cc_detail::profiles::catalog_groups(&custom) {
@@ -384,9 +387,10 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
     let cur = s("material");
     row(ui, tk, &t0("app.f.material"), |ui, lid| {
         let mut pick = cur.clone();
-        egui::ComboBox::new(("detail_material", id), "")
+        egui::ComboBox::from_id_salt(("detail_material", id))
             .selected_text(&cur)
-            .width(160.0)
+            .width(crate::shell::width_in(ui, crate::shell::FILL))
+            .truncate()
             .show_ui(ui, |ui| {
                 for mat in cc_detail::model::MATERIALS {
                     ui.selectable_value(&mut pick, mat.to_string(), mat);
@@ -402,9 +406,10 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
         let cur = s("position");
         row(ui, tk, &t0("app.f.position"), |ui, lid| {
             let mut pick = cur.clone();
-            egui::ComboBox::new(("detail_position", id), "")
+            egui::ComboBox::from_id_salt(("detail_position", id))
                 .selected_text(t0(&format!("app.pos.{cur}")))
-                .width(160.0)
+                .width(crate::shell::width_in(ui, crate::shell::FILL))
+                .truncate()
                 .show_ui(ui, |ui| {
                     for p in ["top", "middle", "bottom"] {
                         ui.selectable_value(&mut pick, p.to_string(), t0(&format!("app.pos.{p}")));
@@ -418,7 +423,9 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
         });
     }
     row(ui, tk, &t0("app.f.rotation"), |ui, lid| {
-        if let Some(v) = text_field(dv, ui, &format!("{id}.rotation"), &cc_detail::js::num_to_string(n("rotation")), 80.0, lid) {
+        if let Some(v) =
+            text_field(dv, ui, &format!("{id}.rotation"), &cc_detail::js::num_to_string(n("rotation")), crate::shell::FILL, lid)
+        {
             set(acts, "rotation", v);
         }
     });
@@ -428,7 +435,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
         let cur = if n("phase") > 0.0 { n("phase") } else { 1.0 };
         row(ui, tk, &t0("phase.prop"), |ui, lid| {
             let mut pick = cur;
-            egui::ComboBox::new(("detail_phase", id), "")
+            egui::ComboBox::from_id_salt(("detail_phase", id))
                 .selected_text(t("phase.default", &[("n", F::N(cur))]))
                 .show_ui(ui, |ui| {
                     for p in &phases {
@@ -453,7 +460,7 @@ pub(crate) fn member_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: 
                 cc_detail::js::num_to_string(p[1]),
                 cc_detail::js::num_to_string(p[2])
             );
-            if let Some(v) = text_field(dv, ui, &format!("{id}.{end}"), &cur, 160.0, lid) {
+            if let Some(v) = text_field(dv, ui, &format!("{id}.{end}"), &cur, crate::shell::FILL, lid) {
                 set(acts, end, v);
             }
         });

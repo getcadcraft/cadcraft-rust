@@ -604,7 +604,7 @@ impl ModelView {
                         ui.add_enabled_ui(!running, |ui| {
                             egui::Grid::new("mc-render-form").num_columns(2).spacing([8.0, 6.0]).show(ui, |ui| {
                                 ui.label(mt("render.mode", &[]));
-                                egui::ComboBox::new("mc-render-mode", "")
+                                egui::ComboBox::from_id_salt("mc-render-mode")
                                     .selected_text(mt(&format!("render.mode.{}", s.mode), &[]))
                                     .show_ui(ui, |ui| {
                                         for k in looks::MODES {
@@ -616,7 +616,7 @@ impl ModelView {
                                     ui.label(mt("render.limit", &[]));
                                     let ml = |m: f64| // 0.5 asks for a key its catalog lacks (render.minutes): plain words here
                                     if m > 0.0 { format!("{} min", cc_m3d::js::num_str(m)) } else { mt("render.minutes.none", &[]) };
-                                    egui::ComboBox::new("mc-render-minutes", "").selected_text(ml(s.minutes)).show_ui(ui, |ui| {
+                                    egui::ComboBox::from_id_salt("mc-render-minutes").selected_text(ml(s.minutes)).show_ui(ui, |ui| {
                                         for m in looks::MINUTES {
                                             ui.selectable_value(&mut s.minutes, m, ml(m));
                                         }
@@ -628,7 +628,7 @@ impl ModelView {
                                     let z = looks::size_for(&Settings { size: k.into(), ..Settings::default() }, vw, vh);
                                     mt(&format!("render.size.{k}"), &[("w", &z.0.to_string()), ("h", &z.1.to_string())])
                                 };
-                                egui::ComboBox::new("mc-render-size", "").selected_text(lab(&s.size)).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("mc-render-size").selected_text(lab(&s.size)).show_ui(ui, |ui| {
                                     for k in looks::SIZES {
                                         ui.selectable_value(&mut s.size, k.to_string(), lab(k));
                                     }
@@ -636,21 +636,20 @@ impl ModelView {
                                 ui.end_row();
                                 ui.label(mt("render.quality", &[]));
                                 let ql = |k: &str| mt(&format!("render.quality.{k}"), &[("n", &looks::quality(k).to_string())]);
-                                egui::ComboBox::new("mc-render-quality", "").selected_text(ql(&s.quality)).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("mc-render-quality").selected_text(ql(&s.quality)).show_ui(ui, |ui| {
                                     for (k, _) in looks::QUALITY {
                                         ui.selectable_value(&mut s.quality, k.to_string(), ql(k));
                                     }
                                 });
                                 ui.end_row();
                                 ui.label(mt("render.sky", &[]));
-                                egui::ComboBox::new("mc-render-sky", "").selected_text(mt(&format!("render.sky.{}", s.sky), &[])).show_ui(
-                                    ui,
-                                    |ui| {
+                                egui::ComboBox::from_id_salt("mc-render-sky")
+                                    .selected_text(mt(&format!("render.sky.{}", s.sky), &[]))
+                                    .show_ui(ui, |ui| {
                                         for k in looks::SKIES.map(|x| x.key) {
                                             ui.selectable_value(&mut s.sky, k.to_string(), mt(&format!("render.sky.{k}"), &[]));
                                         }
-                                    },
-                                );
+                                    });
                                 ui.end_row();
                             });
                             ui.label(
@@ -677,7 +676,7 @@ impl ModelView {
                             }
                             if let Some((mut m, mut dd, mut h)) = s.sun {
                                 ui.horizontal(|ui| {
-                                    egui::ComboBox::new("mc-render-month", "")
+                                    egui::ComboBox::from_id_salt("mc-render-month")
                                         .selected_text(MONTHS.get((m as usize).saturating_sub(1)).copied().unwrap_or(""))
                                         .show_ui(ui, |ui| {
                                             for (k, name) in MONTHS.iter().enumerate() {
@@ -718,7 +717,7 @@ impl ModelView {
                                             ui.label(&name).on_hover_text(faces.to_string());
                                             let cur = s.look_of(key).unwrap_or("matte").to_string();
                                             let mut pick = cur.clone();
-                                            egui::ComboBox::new(("mc-render-look", key.as_str()), "")
+                                            egui::ComboBox::from_id_salt(("mc-render-look", key.as_str()))
                                                 .selected_text(mt(&format!("render.look.{cur}"), &[]))
                                                 .show_ui(ui, |ui| {
                                                     for (k, ..) in looks::LOOKS {

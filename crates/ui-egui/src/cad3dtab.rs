@@ -935,7 +935,7 @@ pub fn cube_draw(
     }
     let wcs = Rect::from_center_size(wcs_at(rect), egui::vec2(72.0, 20.0));
     let mut menu_ui = ui.new_child(egui::UiBuilder::new().max_rect(wcs));
-    egui::ComboBox::new(menu_id, "")
+    egui::ComboBox::from_id_salt(menu_id)
         .selected_text(egui::RichText::new("WCS").small())
         .width(60.0)
         .wrap_mode(egui::TextWrapMode::Extend)

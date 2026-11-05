@@ -545,23 +545,27 @@ impl TakeoffMode {
         let mut pick: Option<String> = None;
         // the label above the picker: a long word (es-MX "Área de licitación") leaves the picker its width
         ui.label(egui::RichText::new(t("area.label")).small());
-        egui::ComboBox::new("tk_area", "").selected_text(cur).width(ui.available_width().clamp(80.0, 260.0)).show_ui(ui, |ui| {
-            if ui.selectable_label(self.cur_area.is_none(), t("area.none")).clicked() {
-                pick = Some(String::new());
-            }
-            for a in &areas {
-                let id = s(a.get("id"));
-                if ui.selectable_label(self.cur_area.as_deref() == Some(id.as_str()), label(a)).clicked() {
-                    pick = Some(id);
+        egui::ComboBox::from_id_salt("tk_area")
+            .selected_text(cur)
+            .width(crate::shell::width_in(ui, crate::shell::FILL))
+            .truncate()
+            .show_ui(ui, |ui| {
+                if ui.selectable_label(self.cur_area.is_none(), t("area.none")).clicked() {
+                    pick = Some(String::new());
                 }
-            }
-            if ui.selectable_label(false, t("area.new")).clicked() {
-                self.area_dialog = Some(String::new());
-            }
-            if !areas.is_empty() && ui.selectable_label(false, t("area.manage")).clicked() {
-                self.manage_areas = true;
-            }
-        });
+                for a in &areas {
+                    let id = s(a.get("id"));
+                    if ui.selectable_label(self.cur_area.as_deref() == Some(id.as_str()), label(a)).clicked() {
+                        pick = Some(id);
+                    }
+                }
+                if ui.selectable_label(false, t("area.new")).clicked() {
+                    self.area_dialog = Some(String::new());
+                }
+                if !areas.is_empty() && ui.selectable_label(false, t("area.manage")).clicked() {
+                    self.manage_areas = true;
+                }
+            });
         if let Some(p) = pick {
             let _ = self.area_edit(&format!("cur:{p}"));
         }
@@ -622,7 +626,7 @@ impl TakeoffMode {
                         }
                         let alt = a.get("alt").and_then(Value::as_str).unwrap_or("").to_string();
                         let shown = if alt.is_empty() { t("alt.base") } else { t(&format!("alt.{alt}.long")) };
-                        egui::ComboBox::new(format!("tk_alt_{id}"), "").selected_text(shown).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(format!("tk_alt_{id}")).selected_text(shown).show_ui(ui, |ui| {
                             for v in ["", "add", "deduct"] {
                                 let l = if v.is_empty() { t("alt.base") } else { t(&format!("alt.{v}.long")) };
                                 if ui.selectable_label(alt == v, l).on_hover_text(t("alt.title")).clicked() {
@@ -678,7 +682,7 @@ impl TakeoffMode {
         let n_marks = self.tk.marks().iter().filter(|m| s(m.get("item")) == id && s(m.get("kind")) == ty).count();
         ui.add_enabled_ui(n_marks == 0, |ui| {
             let l = ui.label(RichText::new(t("item.f.type")).small());
-            egui::ComboBox::new("tk_i_type", "")
+            egui::ComboBox::from_id_salt("tk_i_type")
                 .selected_text(type_label(&ty))
                 .show_ui(ui, |ui| {
                     for k in TYPES {
@@ -712,7 +716,7 @@ impl TakeoffMode {
             let nm = U::unit(u).map(|x| t(x.name_key)).unwrap_or_default();
             tf("unit.option", &[("unit", F::S(U::unit_label(u))), ("name", F::S(nm))])
         };
-        egui::ComboBox::new("tk_i_unit", "")
+        egui::ComboBox::from_id_salt("tk_i_unit")
             .selected_text(unit_text(&unit))
             .show_ui(ui, |ui| {
                 for u in U::units_for(&ty) {
@@ -742,7 +746,7 @@ impl TakeoffMode {
                 }
                 if let Some(c) = c {
                     let cu = s(c.get("unit"));
-                    egui::ComboBox::new(format!("tk_cu_{k}"), "").selected_text(U::unit_label(&cu)).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt(format!("tk_cu_{k}")).selected_text(U::unit_label(&cu)).show_ui(ui, |ui| {
                         for u in U::units_for(k) {
                             if ui.selectable_label(cu == *u, U::unit_label(u)).clicked() && cu != *u {
                                 set.push((format!("cond-unit:{k}"), (*u).to_string()));
@@ -804,7 +808,7 @@ impl TakeoffMode {
             if ty == "linear" {
                 let sl = it.get("slope").and_then(Value::as_str).unwrap_or("flat").to_string();
                 let l = ui.label(RichText::new(t("slope.label")).small());
-                egui::ComboBox::new("tk_i_slope", "")
+                egui::ComboBox::from_id_salt("tk_i_slope")
                     .selected_text(t(&format!("slope.{sl}")))
                     .show_ui(ui, |ui| {
                         for k in ["flat", "rake", "hip"] {
@@ -1016,7 +1020,7 @@ impl TakeoffMode {
         crate::shell::h(ui, tok, &t("mark.h"));
         let items: Vec<Value> = self.tk.items().iter().filter(|i| kinds_of(Some(i)).contains(&kind)).cloned().collect();
         let l = ui.label(RichText::new(t("mark.f.item")).small());
-        egui::ComboBox::new("tk_m_item", "")
+        egui::ComboBox::from_id_salt("tk_m_item")
             .selected_text(s(it.get("name")))
             .show_ui(ui, |ui| {
                 for i in &items {
@@ -1109,7 +1113,7 @@ impl TakeoffMode {
                                 t(&format!("slope.{v}"))
                             }
                         };
-                        egui::ComboBox::new(format!("tk_sl_{i}"), "").selected_text(opt(&own)).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(format!("tk_sl_{i}")).selected_text(opt(&own)).show_ui(ui, |ui| {
                             for v in ["", "flat", "rake", "hip"] {
                                 if ui.selectable_label(own == v, opt(v)).clicked() && own != v {
                                     set.push((format!("sl:{i}"), v.into()));

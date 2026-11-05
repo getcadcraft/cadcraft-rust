@@ -611,7 +611,7 @@ fn field(app: &mut UiApp, ui: &mut egui::Ui, key: &str, current: &str, label: eg
         Some((k, v)) if k == key => v.clone(),
         _ => current.to_string(),
     };
-    let w = ui.available_width().max(80.0);
+    let w = crate::shell::width_in(ui, crate::shell::FILL);
     let r = ui.add(crate::shell::field(&mut text).desired_width(w).id_salt(("bim_field", key))).labelled_by(label);
     if r.has_focus() || r.changed() {
         app.bimh.editing = Some((key.to_string(), text.clone()));

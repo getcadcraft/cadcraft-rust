@@ -1694,6 +1694,9 @@ impl UiApp {
                 if let Some(p) = self.pdf.as_mut() {
                     p.zone = zone;
                 }
+                if let Some(ed) = self.editor.as_mut() {
+                    ed.eng.set_zone(Some(zone));
+                }
             }
             "file.open" => {
                 if let Some(p) = self.services.pick_open.as_mut() {
@@ -1778,9 +1781,6 @@ impl UiApp {
             "view.projection" => {
                 if let Some((_, view)) = self.scene3.as_mut() {
                     view.cam.persp = !view.cam.persp;
-                }
-                if let Some(ed) = self.editor.as_mut() {
-                    ed.eng.set_zone(Some(zone));
                 }
             }
             "file.export" => {

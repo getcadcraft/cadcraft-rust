@@ -5,6 +5,7 @@
 //! left panel's grids, levels, phases and custom profiles, and the Settings window (settings.inc). Panels only read
 //! the view and hand back [`Act`]s; every change is a `detail.*` command.
 
+use crate::shell::FILL;
 use cc_detail::i18n::{F, t, t0};
 use cc_detail::js::{arr, num_to_string, round, string_of};
 use egui::{RichText, Ui};
@@ -58,9 +59,11 @@ fn combo(
 ) -> Option<String> {
     let shown = options.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
     let mut pick = cur.to_string();
-    egui::ComboBox::new(id, "")
+    egui::ComboBox::from_id_salt(id)
         .selected_text(shown)
-        .width(width)
+        .width(crate::shell::width_in(ui, width))
+        // the text clipped at the field's edge (a select's text never widens it)
+        .truncate()
         .height(360.0)
         .show_ui(ui, |ui| {
             for (v, l) in options {
@@ -74,7 +77,7 @@ fn combo(
 
 /// A plain text box bound to a form field (no command until a button).
 fn form_text(ui: &mut Ui, v: &mut String, width: f32, lid: egui::Id) {
-    ui.add(crate::shell::field(v).desired_width(width)).labelled_by(lid);
+    ui.add(crate::shell::field(v).desired_width(crate::shell::width_in(ui, width))).labelled_by(lid);
 }
 
 /// A head inside the properties (`.dc-sub`: 13 px bold, ink-2, .55rem over it).
@@ -273,7 +276,7 @@ fn tool_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
     if tool == "plate" {
         for (f, label, v) in [("t", "app.f.thickness", o.plate_t), ("w", "app.f.width", o.plate_w)] {
             row(ui, tk, &t0(label), |ui, lid| {
-                if let Some(x) = text_field(dv, ui, &format!("opt.plate.{f}"), &num_to_string(v), 80.0, lid) {
+                if let Some(x) = text_field(dv, ui, &format!("opt.plate.{f}"), &num_to_string(v), FILL, lid) {
                     opt(acts, f, x);
                 }
             });
@@ -281,25 +284,25 @@ fn tool_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
     } else if let Some(m) = o.member(tool) {
         let opts = profile_options(dv, None);
         row(ui, tk, &t0("app.f.profile"), |ui, lid| {
-            if let Some(v) = combo(ui, ("dc_opt_profile", tool), lid, &m.profile, &opts, 150.0) {
+            if let Some(v) = combo(ui, ("dc_opt_profile", tool), lid, &m.profile, &opts, FILL) {
                 opt(acts, "profile", v);
             }
         });
     }
     row(ui, tk, &t0("app.f.material"), |ui, lid| {
-        if let Some(v) = combo(ui, ("dc_opt_mat", tool), lid, &material, &material_options(), 150.0) {
+        if let Some(v) = combo(ui, ("dc_opt_mat", tool), lid, &material, &material_options(), FILL) {
             opt(acts, "material", v);
         }
     });
     if tool != "plate" {
         row(ui, tk, &t0("app.f.position"), |ui, lid| {
-            if let Some(v) = combo(ui, ("dc_opt_pos", tool), lid, &position, &position_options(), 150.0) {
+            if let Some(v) = combo(ui, ("dc_opt_pos", tool), lid, &position, &position_options(), FILL) {
                 opt(acts, "position", v);
             }
         });
     }
     row(ui, tk, &t0("app.f.rotation"), |ui, lid| {
-        if let Some(x) = text_field(dv, ui, &format!("opt.{tool}.rotation"), &num_to_string(rotation), 80.0, lid) {
+        if let Some(x) = text_field(dv, ui, &format!("opt.{tool}.rotation"), &num_to_string(rotation), FILL, lid) {
             opt(acts, "rotation", x);
         }
     });
@@ -307,7 +310,7 @@ fn tool_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
         let mut lv = vec![(String::new(), t0("app.f.up-to.next"))];
         lv.extend(opts_of(&level_names(dv)));
         row(ui, tk, &t0("app.f.up-to"), |ui, lid| {
-            if let Some(v) = combo(ui, "dc_opt_to", lid, &o.column_to, &lv, 150.0) {
+            if let Some(v) = combo(ui, "dc_opt_to", lid, &o.column_to, &lv, FILL) {
                 opt(acts, "to", v);
             }
         });
@@ -356,7 +359,7 @@ fn by_grid_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
         };
         let cur = dv.forms.by_grid.get(i).cloned().unwrap_or_default();
         row(ui, tk, &t0(labels.get(i).copied().unwrap_or("")), |ui, lid| {
-            if let Some(v) = combo(ui, ("dc_bg", i), lid, &cur, list, 120.0)
+            if let Some(v) = combo(ui, ("dc_bg", i), lid, &cur, list, FILL)
                 && let Some(slot) = dv.forms.by_grid.get_mut(i)
             {
                 *slot = v;
@@ -388,7 +391,7 @@ fn footing_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
         let cur = g(field);
         row(ui, tk, &t0(label), |ui, lid| {
             let text = cur.as_f64().map_or_else(|| string_of(Some(&cur)), num_to_string);
-            if let Some(x) = text_field(dv, ui, &format!("{key}.{field}"), &text, 80.0, lid) {
+            if let Some(x) = text_field(dv, ui, &format!("{key}.{field}"), &text, FILL, lid) {
                 set(acts, field, x);
             }
         });
@@ -403,7 +406,7 @@ fn footing_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
     }
     let concrete = string_of(f.get("concrete"));
     row(ui, tk, &t0("app.foot.concrete"), |ui, lid| {
-        if let Some(x) = text_field(dv, ui, &format!("{key}.concrete"), &concrete, 120.0, lid) {
+        if let Some(x) = text_field(dv, ui, &format!("{key}.concrete"), &concrete, FILL, lid) {
             set(acts, "concrete", x);
         }
     });
@@ -425,7 +428,7 @@ fn footing_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
         if is_bar {
             let cur = string_of(Some(&g(field)));
             row(ui, tk, &t0(label), |ui, lid| {
-                if let Some(v) = combo(ui, (&key, field), lid, &cur, &bars, 130.0) {
+                if let Some(v) = combo(ui, (&key, field), lid, &cur, &bars, FILL) {
                     set(acts, field, v);
                 }
             });
@@ -439,7 +442,7 @@ fn footing_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Ac
     if g("starters.on").as_bool() == Some(true) {
         let cur = string_of(Some(&g("starters.bar")));
         row(ui, tk, &t0("app.foot.bar"), |ui, lid| {
-            if let Some(v) = combo(ui, (&key, "starters.bar"), lid, &cur, &bars, 130.0) {
+            if let Some(v) = combo(ui, (&key, "starters.bar"), lid, &cur, &bars, FILL) {
                 set(acts, "starters.bar", v);
             }
         });
@@ -484,7 +487,7 @@ fn stair_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
     for (field, label) in &fields {
         let cur = num_to_string(g(field));
         row(ui, tk, label, |ui, lid| {
-            if let Some(v) = text_field(dv, ui, &format!("{key}.{field}"), &cur, 80.0, lid) {
+            if let Some(v) = text_field(dv, ui, &format!("{key}.{field}"), &cur, FILL, lid) {
                 set(acts, field, v);
             }
         });
@@ -492,21 +495,21 @@ fn stair_form(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
     let strs = profile_options(dv, Some(&["C", "PL"]));
     let cur = string_of(x.get("stringer"));
     row(ui, tk, &t0("app.stair.stringer"), |ui, lid| {
-        if let Some(v) = combo(ui, (&key, "stringer"), lid, &cur, &strs, 130.0) {
+        if let Some(v) = combo(ui, (&key, "stringer"), lid, &cur, &strs, FILL) {
             set(acts, "stringer", v);
         }
     });
     for (field, label) in [("tread.t", "app.stair.tread-t"), ("tread.nosing", "app.stair.nosing")] {
         let cur = num_to_string(g(field));
         row(ui, tk, &t0(label), |ui, lid| {
-            if let Some(v) = text_field(dv, ui, &format!("{key}.{field}"), &cur, 80.0, lid) {
+            if let Some(v) = text_field(dv, ui, &format!("{key}.{field}"), &cur, FILL, lid) {
                 set(acts, field, v);
             }
         });
     }
     let cur = string_of(x.get("material"));
     row(ui, tk, &t0("app.f.material"), |ui, lid| {
-        if let Some(v) = combo(ui, (&key, "material"), lid, &cur, &material_options(), 130.0) {
+        if let Some(v) = combo(ui, (&key, "material"), lid, &cur, &material_options(), FILL) {
             set(acts, "material", v);
         }
     });
@@ -556,7 +559,7 @@ fn paste_options(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
     for (i, (label, list)) in [("app.grid.letter", &gy), ("app.grid.number", &gx), ("app.grid.level", &lv)].into_iter().enumerate() {
         let cur = dv.forms.paste_at.get(i).cloned().unwrap_or_default();
         row(ui, tk, &t0(label), |ui, lid| {
-            if let Some(v) = combo(ui, ("dc_pat", i), lid, &cur, list, 120.0)
+            if let Some(v) = combo(ui, ("dc_pat", i), lid, &cur, list, FILL)
                 && let Some(slot) = dv.forms.paste_at.get_mut(i)
             {
                 *slot = v;
@@ -576,7 +579,7 @@ fn phase_field(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
         opts.insert(0, (String::new(), t0("many.varies")));
     }
     row(ui, tk, &t0("phase.prop"), |ui, lid| {
-        if let Some(v) = combo(ui, "dc_phase_of", lid, &cur, &opts, 150.0)
+        if let Some(v) = combo(ui, "dc_phase_of", lid, &cur, &opts, FILL)
             && !v.is_empty()
         {
             run(acts, "detail.phases", format!("of:{v}"));
@@ -683,7 +686,7 @@ fn many_editor(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
                     opts.insert(0, (String::new(), t0("many.varies")));
                 }
                 row(ui, tk, &label, |ui, lid| {
-                    if let Some(v) = combo(ui, ("dc_many", key), lid, &cur, &opts, 150.0)
+                    if let Some(v) = combo(ui, ("dc_many", key), lid, &cur, &opts, FILL)
                         && !v.is_empty()
                     {
                         set(acts, v);
@@ -693,7 +696,7 @@ fn many_editor(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
             _ => {
                 let cur = if varies { String::new() } else { value.as_f64().map(num_to_string).unwrap_or_default() };
                 row(ui, tk, &label, |ui, lid| {
-                    if let Some(v) = text_field(dv, ui, &format!("many.{key}"), &cur, 80.0, lid) {
+                    if let Some(v) = text_field(dv, ui, &format!("many.{key}"), &cur, FILL, lid) {
                         set(acts, v);
                     }
                 });
@@ -733,10 +736,10 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
             nodes.push((format!("{gy}/{gx}"), format!("{gy}/{gx}")));
         }
     }
-    row(ui, tk, &t0("xf.rotate.angle"), |ui, lid| form_text(ui, &mut dv.forms.xf_deg, 60.0, lid));
+    row(ui, tk, &t0("xf.rotate.angle"), |ui, lid| form_text(ui, &mut dv.forms.xf_deg, FILL, lid));
     let about = dv.forms.xf_about.clone();
     row(ui, tk, &t0("xf.rotate.about"), |ui, lid| {
-        if let Some(v) = combo(ui, "dc_xf_about", lid, &about, &nodes, 150.0) {
+        if let Some(v) = combo(ui, "dc_xf_about", lid, &about, &nodes, FILL) {
             dv.forms.xf_about = v;
         }
     });
@@ -751,7 +754,7 @@ fn xf_block(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
         ui.label(RichText::new(t0("xf.mirror.sub")).color(tk.text_dim));
         let cur = dv.forms.xf_line.clone();
         row(ui, tk, &t0("xf.mirror.line"), |ui, lid| {
-            if let Some(v) = combo(ui, "dc_xf_line", lid, &cur, &lines, 150.0) {
+            if let Some(v) = combo(ui, "dc_xf_line", lid, &cur, &lines, FILL) {
                 dv.forms.xf_line = v;
             }
         });
@@ -797,14 +800,14 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         let fo: Vec<(String, String)> = faces.iter().map(|f| (f.to_string(), face_name(f))).collect();
         let cur = dv.forms.hole[0].clone();
         row(ui, tk, &t0("app.holes.face"), |ui, lid| {
-            if let Some(v) = combo(ui, "dc_hole_face", lid, &cur, &fo, 120.0) {
+            if let Some(v) = combo(ui, "dc_hole_face", lid, &cur, &fo, FILL) {
                 dv.forms.hole[0] = v;
             }
         });
         for (i, label) in [(1, "app.holes.x"), (2, "app.holes.y"), (3, "app.holes.d")] {
             row(ui, tk, &t0(label), |ui, lid| {
                 if let Some(v) = dv.forms.hole.get_mut(i) {
-                    form_text(ui, v, 70.0, lid);
+                    form_text(ui, v, FILL, lid);
                 }
             });
         }
@@ -841,7 +844,7 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         for (i, label, list) in [(0, "app.copes.end", &ends), (1, "app.copes.side", &sides)] {
             let cur = dv.forms.cope.get(i).cloned().unwrap_or_default();
             row(ui, tk, &t0(label), |ui, lid| {
-                if let Some(v) = combo(ui, ("dc_cope", i), lid, &cur, list, 120.0)
+                if let Some(v) = combo(ui, ("dc_cope", i), lid, &cur, list, FILL)
                     && let Some(slot) = dv.forms.cope.get_mut(i)
                 {
                     *slot = v;
@@ -851,7 +854,7 @@ fn member_extras(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
         for (i, label) in [(2, "app.copes.length"), (3, "app.copes.depth")] {
             row(ui, tk, &t0(label), |ui, lid| {
                 if let Some(v) = dv.forms.cope.get_mut(i) {
-                    form_text(ui, v, 70.0, lid);
+                    form_text(ui, v, FILL, lid);
                 }
             });
         }
@@ -933,13 +936,13 @@ fn conn_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>
                 let opts: Vec<(String, String)> =
                     choices.iter().map(|n| (num_to_string(*n), t0(&format!("app.conn.choice.{k}.{}", num_to_string(*n))))).collect();
                 let cur = cc_detail::js::to_js_string(v);
-                let r = combo(ui, ("dc_conn_choice", k), lid, &cur, &opts, 150.0);
+                let r = combo(ui, ("dc_conn_choice", k), lid, &cur, &opts, FILL);
                 if let Some(val) = r {
                     set(acts, val);
                 }
             } else {
                 let cur = cc_detail::js::to_js_string(v);
-                if let Some(val) = text_field(dv, ui, &format!("{id}.{k}"), &cur, 90.0, lid) {
+                if let Some(val) = text_field(dv, ui, &format!("{id}.{k}"), &cur, FILL, lid) {
                     set(acts, val);
                 }
             }
@@ -1034,7 +1037,7 @@ fn footing_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<A
     let ph = cc_detail::js::or(cc_detail::js::f(f.get("phase")), 1.0);
     row(ui, tk, &t0("phase.prop"), |ui, lid| {
         let opts = phase_options(dv);
-        if let Some(v) = combo(ui, "dc_foot_phase", lid, &num_to_string(ph), &opts, 150.0) {
+        if let Some(v) = combo(ui, "dc_foot_phase", lid, &num_to_string(ph), &opts, FILL) {
             run(acts, "detail.set", format!("{id}.phase={v}"));
         }
     });
@@ -1102,7 +1105,7 @@ fn stair_props(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act
     let ph = cc_detail::js::or(cc_detail::js::f(x.get("phase")), 1.0);
     row(ui, tk, &t0("phase.prop"), |ui, lid| {
         let opts = phase_options(dv);
-        if let Some(v) = combo(ui, "dc_stair_phase", lid, &num_to_string(ph), &opts, 150.0) {
+        if let Some(v) = combo(ui, "dc_stair_phase", lid, &num_to_string(ph), &opts, FILL) {
             run(acts, "detail.set", format!("{id}.phase={v}"));
         }
     });
@@ -1149,7 +1152,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
         {
             row(ui, tk, &t0(label), |ui, lid| {
                 if let Some(v) = form.get_mut(i)
-                    && ui.add(crate::shell::field(v).desired_width(130.0)).labelled_by(lid).changed()
+                    && ui.add(crate::shell::field(v).desired_width(crate::shell::width_in(ui, FILL))).labelled_by(lid).changed()
                 {
                     touched = true;
                 }
@@ -1182,10 +1185,17 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
         for (i, (n, z)) in rows.iter_mut().enumerate() {
             ui.horizontal(|ui| {
                 let l = ui.label(RichText::new((i + 1).to_string()).color(tk.text_dim)).on_hover_text(t0("app.levels.name"));
+                // 0.7's `.dc-levels li`: the name fills, the height 5.5rem, the × 1.6rem
+                let sp = ui.spacing().item_spacing.x;
+                let name_w = (ui.available_width() - 88.0 - 26.0 - 2.0 * sp).max(40.0);
                 touched |=
-                    ui.add(crate::shell::field(n).desired_width(104.0)).labelled_by(l.id).on_hover_text(t0("app.levels.name")).changed();
-                touched |= ui.add(crate::shell::field(z).desired_width(64.0)).labelled_by(l.id).on_hover_text(t0("app.levels.z")).changed();
-                if ui.small_button("×").on_hover_text(t("app.levels.remove", &[("n", F::N((i + 1) as f64))])).clicked() {
+                    ui.add(crate::shell::field(n).desired_width(name_w)).labelled_by(l.id).on_hover_text(t0("app.levels.name")).changed();
+                touched |= ui.add(crate::shell::field(z).desired_width(88.0)).labelled_by(l.id).on_hover_text(t0("app.levels.z")).changed();
+                if ui
+                    .add_sized([26.0, 22.0], egui::Button::new("×").small())
+                    .on_hover_text(t("app.levels.remove", &[("n", F::N((i + 1) as f64))]))
+                    .clicked()
+                {
                     remove = Some(i);
                 }
             });
@@ -1230,11 +1240,23 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
                 let l = ui
                     .label(RichText::new(num_to_string(n)).monospace().strong().family(crate::theme::bold_family()))
                     .on_hover_text(t("phase.name", &[("n", F::N(n))]));
-                if let Some(v) = text_field(dv, ui, &format!("phase.{n}"), &nm, 100.0, l.id) {
+                // 0.7's `.dc-phases li`: the name fills between the number and the count
+                let count_text = RichText::new(t("phase.count", &[("n", F::N(count(n) as f64))])).color(tk.text_dim);
+                let count_w = egui::WidgetText::from(count_text.clone())
+                    .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Body)
+                    .size()
+                    .x;
+                let sp = ui.spacing().item_spacing.x;
+                let name_w = (ui.available_width() - count_w - 26.0 - 2.0 * sp).max(40.0);
+                if let Some(v) = text_field(dv, ui, &format!("phase.{n}"), &nm, name_w, l.id) {
                     run(acts, "detail.phases", format!("rename:{}={v}", num_to_string(n)));
                 }
-                ui.label(RichText::new(t("phase.count", &[("n", F::N(count(n) as f64))])).color(tk.text_dim));
-                if ui.small_button("×").on_hover_text(t("phase.remove", &[("phase", F::S(dv.phase_name(n)))])).clicked() {
+                ui.label(count_text);
+                if ui
+                    .add_sized([26.0, 22.0], egui::Button::new("×").small())
+                    .on_hover_text(t("phase.remove", &[("phase", F::S(dv.phase_name(n)))]))
+                    .clicked()
+                {
                     run(acts, "detail.phases", format!("remove:{}", num_to_string(n)));
                 }
             });
@@ -1244,7 +1266,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
         }
         let opts = phase_options(dv);
         row(ui, tk, &t0("phase.current"), |ui, lid| {
-            if let Some(v) = combo(ui, "dc_phase_cur", lid, &num_to_string(dv.tools.cur_phase), &opts, 130.0) {
+            if let Some(v) = combo(ui, "dc_phase_cur", lid, &num_to_string(dv.tools.cur_phase), &opts, FILL) {
                 run(acts, "detail.phases", format!("current:{v}"));
             }
         });
@@ -1258,14 +1280,14 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
         if dv.forms.pkind.is_empty() {
             dv.forms.pkind = "I".into();
         }
-        row(ui, tk, &t0("page.left.profile.name"), |ui, lid| form_text(ui, &mut dv.forms.pname, 120.0, lid));
+        row(ui, tk, &t0("page.left.profile.name"), |ui, lid| form_text(ui, &mut dv.forms.pname, FILL, lid));
         let kinds: Vec<(String, String)> = [("I", "i"), ("C", "c"), ("L", "l"), ("RHS", "rhs"), ("CHS", "chs"), ("FLAT", "flat")]
             .iter()
             .map(|(k, l)| (k.to_string(), t0(&format!("page.left.profile.shape.{l}"))))
             .collect();
         let cur = dv.forms.pkind.clone();
         row(ui, tk, &t0("page.left.profile.shape"), |ui, lid| {
-            if let Some(v) = combo(ui, "dc_pkind", lid, &cur, &kinds, 130.0) {
+            if let Some(v) = combo(ui, "dc_pkind", lid, &cur, &kinds, FILL) {
                 dv.forms.pkind = v;
             }
         });
@@ -1291,7 +1313,7 @@ pub fn left_setup(dv: &mut DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<
             ));
             row(ui, tk, &label, |ui, lid| {
                 if let Some((_, v)) = dv.forms.pdims.iter_mut().find(|(a, _)| a == k) {
-                    form_text(ui, v, 70.0, lid);
+                    form_text(ui, v, FILL, lid);
                 }
             });
         }
@@ -1422,7 +1444,7 @@ pub fn view_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
         if dv.mode == ViewMode::Plan {
             let lv = opts_of(&level_names(dv));
             let l = ui.label(RichText::new(t0("page.view.level")).color(tk.text_dim));
-            if let Some(v) = combo(ui, "dc_vlevel", l.id, &dv.vlevel, &lv, 120.0) {
+            if let Some(v) = combo(ui, "dc_vlevel", l.id, &dv.vlevel, &lv, FILL) {
                 run(acts, "detail.view", format!("plan:{v}"));
             }
         }
@@ -1430,7 +1452,7 @@ pub fn view_bar(dv: &DetailView, ui: &mut Ui, tk: &Tokens, acts: &mut Vec<Act>) 
             let gy: Vec<(String, String)> =
                 grid_labels(dv, "y").into_iter().map(|g| (g.clone(), t("app.view.grid", &[("label", F::S(g))]))).collect();
             let l = ui.label(RichText::new(t0("page.view.grid")).color(tk.text_dim));
-            if let Some(v) = combo(ui, "dc_vgrid", l.id, &dv.vgrid, &gy, 120.0) {
+            if let Some(v) = combo(ui, "dc_vgrid", l.id, &dv.vgrid, &gy, FILL) {
                 run(acts, "detail.view", format!("elevation:{v}"));
             }
         }
@@ -1512,7 +1534,7 @@ pub fn settings_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, ac
                 let papers: Vec<(String, String)> =
                     cc_detail::paper::PAPER_KEYS.iter().map(|k| (k.to_string(), cc_detail::paper::paper_label(k))).collect();
                 row(ui, tk, &t0("set.paper.label"), |ui, lid| {
-                    if let Some(v) = combo(ui, "dc_set_paper", lid, &s.paper, &papers, 150.0) {
+                    if let Some(v) = combo(ui, "dc_set_paper", lid, &s.paper, &papers, FILL) {
                         set(acts, format!("paper={v}"));
                     }
                 });

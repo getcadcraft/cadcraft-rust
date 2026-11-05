@@ -2977,7 +2977,7 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                         ui.separator();
                         // site-view3d.js: the surface colour (elevation bands, one colour, the map layers draped)
                         let col = if cv.gis3.color3d.is_empty() { "bands".to_string() } else { cv.gis3.color3d.clone() };
-                        egui::ComboBox::new("civil_color3d", "")
+                        egui::ComboBox::from_id_salt("civil_color3d")
                             .selected_text(t0(&format!("v3d.color.{col}")))
                             .width(120.0)
                             .show_ui(ui, |ui| {
@@ -2990,11 +2990,14 @@ pub fn ui(app: &mut UiApp, ui: &mut egui::Ui) {
                             .response
                             .on_hover_text(t0("v3d.color.title"));
                         let mut ex = cv.exag;
-                        egui::ComboBox::new("civil_exag", "").selected_text(tr!("v3d.exag.opt", x = ex)).width(104.0).show_ui(ui, |ui| {
-                            for e in cc_civil::site3d::EXAGGERATIONS {
-                                ui.selectable_value(&mut ex, e, tr!("v3d.exag.opt", x = e));
-                            }
-                        });
+                        egui::ComboBox::from_id_salt("civil_exag").selected_text(tr!("v3d.exag.opt", x = ex)).width(104.0).show_ui(
+                            ui,
+                            |ui| {
+                                for e in cc_civil::site3d::EXAGGERATIONS {
+                                    ui.selectable_value(&mut ex, e, tr!("v3d.exag.opt", x = e));
+                                }
+                            },
+                        );
                         if ex != cv.exag {
                             cmd.push(("civil.exag", Params { factor: Some(ex), ..Default::default() }));
                         }

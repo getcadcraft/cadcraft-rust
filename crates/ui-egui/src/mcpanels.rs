@@ -16,7 +16,7 @@ use crate::theme::Tokens;
 /// the old text back. `id` keeps the typed text between frames.
 pub(crate) fn text_box(ui: &mut egui::Ui, boxes: &mut HashMap<String, String>, id: &str, current: &str, width: f32) -> Option<String> {
     let buf = boxes.entry(id.to_string()).or_insert_with(|| current.to_string());
-    let r = ui.add(crate::shell::field(buf).desired_width(width).id_salt(("mcbox", id)));
+    let r = ui.add(crate::shell::field(buf).desired_width(crate::shell::width_in(ui, width)).id_salt(("mcbox", id)));
     if r.lost_focus() {
         let v = boxes.remove(id).unwrap_or_default();
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
@@ -314,7 +314,7 @@ impl ModelView {
             tag_picker(ui, model, &[inst.tag.clone().unwrap_or_default()], acts);
             ui.end_row();
             ui.label(RichText::new(mt("app.info.name", &[])).color(t.text_dim));
-            if let Some(v) = text_box(ui, boxes, &format!("defname:{}", d.id), &d.name, 140.0) {
+            if let Some(v) = text_box(ui, boxes, &format!("defname:{}", d.id), &d.name, crate::shell::FILL) {
                 acts.push(format!("info-name:{v}"));
             }
             ui.end_row();
@@ -401,7 +401,9 @@ impl ModelView {
                     }
                     ui.label(RichText::new(mt("app.info.dim.show", &[])).color(t.text_dim));
                     let mut k = kind.clone();
-                    egui::ComboBox::new("mc-dimkind", "")
+                    egui::ComboBox::from_id_salt("mc-dimkind")
+                        .width(crate::shell::width_in(ui, crate::shell::FILL))
+                        .truncate()
                         .selected_text(mt(if dia { "app.info.diameter" } else { "app.info.radius" }, &[]))
                         .show_ui(ui, |ui| {
                             ui.selectable_value(&mut k, "rad".to_string(), mt("app.info.radius", &[]));
@@ -433,11 +435,15 @@ impl ModelView {
                     ui.label(RichText::new(mt("app.info.dim.moves", &[])).color(t.text_dim));
                     let mut k = mv.clone();
                     let word = |x: &str| mt(&format!("app.info.dim.{x}"), &[]);
-                    egui::ComboBox::new("mc-dimmove", "").selected_text(word(&k)).show_ui(ui, |ui| {
-                        for x in ["b", "a", "both"] {
-                            ui.selectable_value(&mut k, x.to_string(), word(x));
-                        }
-                    });
+                    egui::ComboBox::from_id_salt("mc-dimmove")
+                        .width(crate::shell::width_in(ui, crate::shell::FILL))
+                        .truncate()
+                        .selected_text(word(&k))
+                        .show_ui(ui, |ui| {
+                            for x in ["b", "a", "both"] {
+                                ui.selectable_value(&mut k, x.to_string(), word(x));
+                            }
+                        });
                     if k != *mv {
                         acts.push(format!("dim-move:{k}"));
                     }
@@ -451,7 +457,7 @@ impl ModelView {
             let Some(id) = sel.first().map(|s| s.id) else { return heading };
             if let Some(sp) = model.sections.get(id) {
                 ui.label(RichText::new(mt("app.info.name", &[])).color(t.text_dim));
-                if let Some(v) = text_box(ui, boxes, "secname", &sp.name, 140.0) {
+                if let Some(v) = text_box(ui, boxes, "secname", &sp.name, crate::shell::FILL) {
                     acts.push(format!("sec-name:{v}"));
                 }
                 ui.end_row();
@@ -536,9 +542,11 @@ impl ModelView {
             if root.insts.len() >= 2 || !self.tree_filter.is_empty() {
                 let cur = self.tree_filter.clone();
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("⌕").color(t.text_dim)).on_hover_text(mt("ui.outliner.search", &[]));
+                    // the magnifier drawn (Archivo has no ⌕)
+                    let (r, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    crate::ribbon::paint_icon(ui.painter(), r, "search", t.text_dim);
                     let buf = boxes.entry("tree-filter".into()).or_insert_with(|| cur.clone());
-                    let r = ui.add(crate::shell::field(buf).hint_text(mt("ui.outliner.search", &[])).desired_width(170.0));
+                    let r = ui.add(crate::shell::field(buf).hint_text(mt("ui.outliner.search", &[])).desired_width(crate::shell::FILL));
                     if r.changed() {
                         acts.push(format!("tree-filter:{buf}"));
                     }
@@ -640,7 +648,8 @@ impl ModelView {
                 if renaming.as_deref() == Some(d.id.as_str()) {
                     ui.label(icon);
                     let r = ui.add(
-                        crate::shell::field(boxes.entry(format!("rename:{}", d.id)).or_insert_with(|| d.name.clone())).desired_width(150.0),
+                        crate::shell::field(boxes.entry(format!("rename:{}", d.id)).or_insert_with(|| d.name.clone()))
+                            .desired_width(crate::shell::FILL),
                     );
                     if !r.has_focus() && !r.lost_focus() {
                         r.request_focus();
@@ -825,11 +834,15 @@ impl ModelView {
                 ui.label(RichText::new(mt("ui.style.faces", &[])).color(t.text_dim));
                 let mut mode = self.mode.clone();
                 let word = |m: &str| mt(&format!("ui.style.mode.{m}"), &[]);
-                egui::ComboBox::new("mc-mode", "").selected_text(word(&mode)).show_ui(ui, |ui| {
-                    for m in ["shaded", "hidden", "wire", "xray"] {
-                        ui.selectable_value(&mut mode, m.to_string(), word(m));
-                    }
-                });
+                egui::ComboBox::from_id_salt("mc-mode")
+                    .width(crate::shell::width_in(ui, crate::shell::FILL))
+                    .truncate()
+                    .selected_text(word(&mode))
+                    .show_ui(ui, |ui| {
+                        for m in ["shaded", "hidden", "wire", "xray"] {
+                            ui.selectable_value(&mut mode, m.to_string(), word(m));
+                        }
+                    });
                 if mode != self.mode {
                     acts.push(format!("style:{mode}"));
                 }
@@ -854,7 +867,7 @@ impl ModelView {
                     ui.label(RichText::new(mt("ui.sun.date", &[])).color(t.text_dim));
                     ui.horizontal(|ui| {
                         let mut month = sun[0] as i32;
-                        egui::ComboBox::new("mc-sun-month", "").selected_text(mt(&format!("ui.sun.month.{month}"), &[])).show_ui(
+                        egui::ComboBox::from_id_salt("mc-sun-month").selected_text(mt(&format!("ui.sun.month.{month}"), &[])).show_ui(
                             ui,
                             |ui| {
                                 for k in 1..=12 {
@@ -1036,20 +1049,23 @@ fn tag_picker(ui: &mut egui::Ui, model: &cc_m3d::model::Model, tags: &[String], 
         Some("") => mt("app.tag.untagged", &[]),
         Some(n) => n.to_string(),
     };
-    egui::ComboBox::new("mc-tag", "").selected_text(shown).show_ui(ui, |ui| {
-        if ui.selectable_label(cur == Some(""), mt("app.tag.untagged", &[])).clicked() {
-            acts.push("tag-set:".into());
-        }
-        for g in &model.tags {
-            let label = if g.hidden { mt("app.info.tag.hidden", &[("name", &g.name)]) } else { g.name.clone() };
-            if ui.selectable_label(cur == Some(g.name.as_str()), label).clicked() {
-                acts.push(format!("tag-set:{}", g.name));
+    egui::ComboBox::from_id_salt("mc-tag").width(crate::shell::width_in(ui, crate::shell::FILL)).truncate().selected_text(shown).show_ui(
+        ui,
+        |ui| {
+            if ui.selectable_label(cur == Some(""), mt("app.tag.untagged", &[])).clicked() {
+                acts.push("tag-set:".into());
             }
-        }
-        if ui.selectable_label(false, mt("app.info.tag.new", &[])).clicked() {
-            acts.push("tag-set-new".into());
-        }
-    });
+            for g in &model.tags {
+                let label = if g.hidden { mt("app.info.tag.hidden", &[("name", &g.name)]) } else { g.name.clone() };
+                if ui.selectable_label(cur == Some(g.name.as_str()), label).clicked() {
+                    acts.push(format!("tag-set:{}", g.name));
+                }
+            }
+            if ui.selectable_label(false, mt("app.info.tag.new", &[])).clicked() {
+                acts.push("tag-set-new".into());
+            }
+        },
+    );
 }
 
 /// softenRow: the angle box with Soften and Harden all.
@@ -1083,7 +1099,7 @@ fn len_box(
     act: &str,
 ) {
     ui.label(RichText::new(label).color(t.text_dim));
-    if let Some(v) = text_box(ui, boxes, id, &cc_m3d::units::format_length(meters, u), 110.0) {
+    if let Some(v) = text_box(ui, boxes, id, &cc_m3d::units::format_length(meters, u), crate::shell::FILL) {
         acts.push(format!("{act}{v}"));
     }
     ui.end_row();
@@ -1123,8 +1139,8 @@ fn part_rules(
             mt("app.dyn.rule.auto", &[("rule", &mt(&format!("app.dyn.rule.{}", cc_m3d_tools::dynamic::rule_of(&bare, k, &bb)), &[]))]);
         let word = |r: &str| if r == "auto" { auto.clone() } else { mt(&format!("app.dyn.rule.{r}"), &[]) };
         let l = ui.label(RichText::new(mt(&format!("app.dyn.axis.{ax}"), &[])).color(t.text_dim));
-        egui::ComboBox::new(format!("mc-rule-{ax}"), "")
-            .width(150.0)
+        egui::ComboBox::from_id_salt(format!("mc-rule-{ax}"))
+            .width(crate::shell::width_in(ui, crate::shell::FILL))
             .truncate()
             .selected_text(word(&cur))
             .show_ui(ui, |ui| {
@@ -1145,7 +1161,9 @@ fn part_rules(
             });
             let w = sp.unwrap_or((part.bx.max.get(k).copied().unwrap_or(0.0) - part.bx.min.get(k).copied().unwrap_or(0.0)) * 2.0);
             ui.label(RichText::new(mt("app.dyn.spacing", &[])).color(t.text_dim));
-            if let Some(v) = text_box(ui, boxes, &format!("rule-sp:{}:{ax}", ns(iid)), &cc_m3d::units::format_length(w, u), 90.0) {
+            if let Some(v) =
+                text_box(ui, boxes, &format!("rule-sp:{}:{ax}", ns(iid)), &cc_m3d::units::format_length(w, u), crate::shell::FILL)
+            {
                 acts.push(format!("rule-spacing:{}:{ax}={v}", ns(iid)));
             }
             ui.end_row();

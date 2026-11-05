@@ -83,12 +83,14 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     // civilcraft.js ui.name / ui.units: one undo step each
     egui::Grid::new("cv_site").num_columns(2).spacing([10.0, 3.0]).show(ui, |ui| {
         let l = ui.label(RichText::new(t0("ui.site.name")).color(tk.text_dim));
-        if let Some(v) = cell_l(cv, ui, "site:name", &name, 150.0, Some(l.id)) {
+        if let Some(v) = cell_l(cv, ui, "site:name", &name, crate::shell::width_in(ui, crate::shell::FILL), Some(l.id)) {
             acts.push(Act::Run("civil.prop", format!("project.name={v}")));
         }
         ui.end_row();
         ui.label(RichText::new(t0("ui.site.units")).color(tk.text_dim));
-        egui::ComboBox::new("cv_site_units", "")
+        egui::ComboBox::from_id_salt("cv_site_units")
+            .width(crate::shell::width_in(ui, crate::shell::FILL))
+            .truncate()
             .selected_text(cc_civil::units::unit_of(&units).name())
             .show_ui(ui, |ui| {
                 for k in ["ft", "m"] {
@@ -130,9 +132,10 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
                 ui.label(RichText::new(g).color(tk.text));
                 ui.label(RichText::new(grouped(*count as f64, 0)).color(tk.text));
                 let mut u = use_.clone();
-                egui::ComboBox::new(format!("cv_group_{g}"), "")
+                egui::ComboBox::from_id_salt(format!("cv_group_{g}"))
                     .selected_text(t0(&format!("codes.use.{u}")))
-                    .width(96.0)
+                    .width(crate::shell::width_in(ui, crate::shell::FILL))
+                    .truncate()
                     .show_ui(ui, |ui| {
                         for k in ["points", "breakline", "off"] {
                             ui.selectable_value(&mut u, k.to_string(), t0(&format!("codes.use.{k}")));
@@ -220,14 +223,15 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     }
     ui.horizontal(|ui| {
         let mut sel = iv;
-        egui::ComboBox::new("cv_interval", t0("ui.display.interval")).selected_text(format!("{iv} {u_short}")).width(80.0).show_ui(
-            ui,
-            |ui| {
+        egui::ComboBox::new("cv_interval", t0("ui.display.interval"))
+            .selected_text(format!("{iv} {u_short}"))
+            .width(crate::shell::width_before_label(ui, &t0("ui.display.interval")))
+            .truncate()
+            .show_ui(ui, |ui| {
                 for v in &ivs {
                     ui.selectable_value(&mut sel, *v, format!("{v} {u_short}"));
                 }
-            },
-        );
+            });
         if sel != iv {
             acts.push(Act::Display(format!("interval={sel}")));
         }
@@ -235,11 +239,15 @@ pub fn left(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<A
     ui.horizontal(|ui| {
         let mj = numf(d.get("major"));
         let mut sel = mj;
-        egui::ComboBox::new("cv_major", t0("ui.display.major")).selected_text(format!("{mj}")).width(60.0).show_ui(ui, |ui| {
-            for v in [2.0, 4.0, 5.0, 10.0] {
-                ui.selectable_value(&mut sel, v, t0(&format!("ui.display.major.{v}")));
-            }
-        });
+        egui::ComboBox::new("cv_major", t0("ui.display.major"))
+            .selected_text(format!("{mj}"))
+            .width(crate::shell::width_before_label(ui, &t0("ui.display.major")))
+            .truncate()
+            .show_ui(ui, |ui| {
+                for v in [2.0, 4.0, 5.0, 10.0] {
+                    ui.selectable_value(&mut sel, v, t0(&format!("ui.display.major.{v}")));
+                }
+            });
         if sel != mj {
             acts.push(Act::Display(format!("major={sel}")));
         }
@@ -288,11 +296,15 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
         btn(ui, &t0("ui.tb.dwg"), &t0("ui.tb.dwg.title"), "dwg");
         let year = |v: &str| crate::civilexport::DWG_YEAR.iter().find(|(k, _)| *k == v).map_or("", |(_, y)| *y).to_string();
         let mut v = cv.export.dwg.clone();
-        egui::ComboBox::new("cv_dwg_format", t0("ui.dwg.format")).selected_text(year(&v)).width(70.0).show_ui(ui, |ui| {
-            for (k, y) in crate::civilexport::DWG_YEAR {
-                ui.selectable_value(&mut v, k.to_string(), y);
-            }
-        });
+        egui::ComboBox::new("cv_dwg_format", t0("ui.dwg.format"))
+            .selected_text(year(&v))
+            .width(crate::shell::width_before_label(ui, &t0("ui.dwg.format")))
+            .truncate()
+            .show_ui(ui, |ui| {
+                for (k, y) in crate::civilexport::DWG_YEAR {
+                    ui.selectable_value(&mut v, k.to_string(), y);
+                }
+            });
         cv.export.dwg = v;
     });
     ui.horizontal(|ui| {
@@ -300,7 +312,8 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
         let mut mono = cv.export.mono;
         egui::ComboBox::new("cv_plot_ink", t0("ui.plot.ink"))
             .selected_text(t0(if mono { "ui.plot.mono" } else { "ui.plot.color" }))
-            .width(96.0)
+            .width(crate::shell::width_before_label(ui, &t0("ui.plot.ink")))
+            .truncate()
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut mono, false, t0("ui.plot.color"));
                 ui.selectable_value(&mut mono, true, t0("ui.plot.mono"));
@@ -309,14 +322,15 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
     });
     let paper = cv.export.paper.clone().unwrap_or_else(|| if units == "m" { "a3".into() } else { "tabloid".into() });
     let mut pk = paper.clone();
-    egui::ComboBox::new("cv_plot_paper", t0("ui.plot.paper")).selected_text(plot::paper_name(&plot::paper_by(&pk))).width(170.0).show_ui(
-        ui,
-        |ui| {
+    egui::ComboBox::new("cv_plot_paper", t0("ui.plot.paper"))
+        .selected_text(plot::paper_name(&plot::paper_by(&pk)))
+        .width(crate::shell::width_before_label(ui, &t0("ui.plot.paper")))
+        .truncate()
+        .show_ui(ui, |ui| {
             for p in plot::PAPERS {
                 ui.selectable_value(&mut pk, p.key.to_string(), plot::paper_name(&p));
             }
-        },
-    );
+        });
     if pk != paper {
         cv.export.paper = Some(pk.clone());
         cv.export.scale = None;
@@ -324,7 +338,8 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
     let mut area_view = cv.export.area_view;
     egui::ComboBox::new("cv_plot_area", t0("ui.plot.area"))
         .selected_text(t0(if area_view { "ui.plot.view" } else { "ui.plot.all" }))
-        .width(170.0)
+        .width(crate::shell::width_before_label(ui, &t0("ui.plot.area")))
+        .truncate()
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut area_view, false, t0("ui.plot.all"));
             ui.selectable_value(&mut area_view, true, t0("ui.plot.view"));
@@ -339,11 +354,15 @@ fn export_group(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut V
     let cur = cv.export.scale.clone().unwrap_or_else(|| fit.clone());
     let shown = |l: &str| if l == fit { tr!("cv.plot.fits", scale = l) } else { l.to_string() };
     let mut sel = cur.clone();
-    egui::ComboBox::new("cv_plot_scale", t0("ui.plot.scale")).selected_text(shown(&cur)).width(170.0).show_ui(ui, |ui| {
-        for s in plot::scales_for(&units) {
-            ui.selectable_value(&mut sel, s.label.clone(), shown(&s.label));
-        }
-    });
+    egui::ComboBox::new("cv_plot_scale", t0("ui.plot.scale"))
+        .selected_text(shown(&cur))
+        .width(crate::shell::width_before_label(ui, &t0("ui.plot.scale")))
+        .truncate()
+        .show_ui(ui, |ui| {
+            for s in plot::scales_for(&units) {
+                ui.selectable_value(&mut sel, s.label.clone(), shown(&s.label));
+            }
+        });
     if sel != cur {
         cv.export.scale = if sel == fit { None } else { Some(sel) };
     }
@@ -573,7 +592,7 @@ fn network(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, acts: &mut Vec<Ac
     let sanitary = n.get("type").and_then(Value::as_str) == Some("sanitary");
     egui::Grid::new("cv_net").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
         ui.label(RichText::new(t0("cv.net.type")).color(tk.text_dim));
-        egui::ComboBox::new("cv_net_type", "")
+        egui::ComboBox::from_id_salt("cv_net_type")
             .selected_text(t0(if sanitary { "cv.net.sanitary" } else { "cv.net.storm" }))
             .show_ui(ui, |ui| {
                 for (k, key) in [("storm", "cv.net.storm"), ("sanitary", "cv.net.sanitary")] {
@@ -659,10 +678,17 @@ fn alignment(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, a: &Value, acts
         ui.label(RichText::new(t0("why.minr")).color(tk.text_dim));
         let mr = numf(a.get("minR"));
         let shown = if mr > 0.0 { cc_civil::js::num_to_string(mr) } else { String::new() };
-        if let Some(v) = cell_a(cv, ui, &format!("al:{aid0}:minR"), &shown, 70.0, &t0("why.minr")) {
+        // the field fills the row up to the unit (0.7's `.cv-row`)
+        let unit = RichText::new(&u).color(tk.text_dim);
+        let uw = egui::WidgetText::from(unit.clone())
+            .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Body)
+            .size()
+            .x;
+        let w = crate::shell::width_to_edge(ui, uw + ui.spacing().item_spacing.x);
+        if let Some(v) = cell_a(cv, ui, &format!("al:{aid0}:minR"), &shown, w, &t0("why.minr")) {
             acts.push(Act::Run("civil.prop", format!("minR={v}")));
         }
-        ui.label(RichText::new(&u).color(tk.text_dim));
+        ui.label(unit);
     });
     let why = cv.why_of(a);
     let mut wacts = Vec::new();
@@ -1063,10 +1089,28 @@ pub(crate) fn prop_row(
     acts: &mut Vec<Act>,
 ) {
     let l = ui.label(RichText::new(label).color(tk.text_dim));
-    if let Some(v) = cell_l(cv, ui, key, shown, 110.0, Some(l.id)) {
-        acts.push(Act::Run("civil.prop", format!("{field}={v}")));
-    }
-    ui.label(RichText::new(unit).color(tk.text_dim));
+    // 0.7's `.cv-props`: the field fills the value column up to its unit (`.cv-row`: input 100%, then the unit)
+    let sp = ui.spacing().item_spacing.x;
+    let unit_text = RichText::new(unit).color(tk.text_dim);
+    let unit_w = if unit.is_empty() {
+        0.0
+    } else {
+        egui::WidgetText::from(unit_text.clone())
+            .into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Body)
+            .size()
+            .x
+            + sp
+    };
+    // no third cell: an empty one still takes egui's 40 px minimum and the row would end past the edge
+    let w = crate::shell::width_to_edge(ui, unit_w);
+    ui.horizontal(|ui| {
+        if let Some(v) = cell_l(cv, ui, key, shown, w, Some(l.id)) {
+            acts.push(Act::Run("civil.prop", format!("{field}={v}")));
+        }
+        if !unit.is_empty() {
+            ui.label(unit_text);
+        }
+    });
     ui.end_row();
 }
 
@@ -1250,7 +1294,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
     egui::Grid::new("cv_fl").num_columns(3).spacing([8.0, 3.0]).show(ui, |ui| {
         prop_row(cv, ui, tk, &format!("fl:{id}:name"), &t0("fl.props.name"), &fl.name, "", "name", acts);
         ui.label(RichText::new(t0("fl.props.use")).color(tk.text_dim));
-        egui::ComboBox::new(("cv_fl_use", id.as_str()), "")
+        egui::ComboBox::from_id_salt(("cv_fl_use", id.as_str()))
             .selected_text(t0(&format!("fl.use.{}", fl.use_)))
             .show_ui(ui, |ui| {
                 for k in cc_civil::featureline::USES {
@@ -1328,7 +1372,7 @@ fn feature(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: 
         ui.add(crate::shell::field(&mut dist).desired_width(70.0)).labelled_by(l.id);
         ui.end_row();
         ui.label(RichText::new(t0("fl.offset.how")).color(tk.text_dim));
-        egui::ComboBox::new(("cv_fl_how", id.as_str()), "")
+        egui::ComboBox::from_id_salt(("cv_fl_how", id.as_str()))
             .selected_text(t0(if how == "slope" { "fl.offset.by.slope" } else { "fl.offset.by.dz" }))
             .show_ui(ui, |ui| {
                 ui.selectable_value(&mut how, "dz".to_string(), t0("fl.offset.by.dz"));
@@ -1391,7 +1435,7 @@ fn parcel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, f: &Value, acts: &
                 acts.push(Act::Run("civil.prop", format!("r={i}:{v}")));
             }
             let left = turn == Some(1.0);
-            egui::ComboBox::new(("cv_pc_turn", id.as_str(), i), "")
+            egui::ComboBox::from_id_salt(("cv_pc_turn", id.as_str(), i))
                 .selected_text(t0(if left { "pc.left" } else { "pc.right" }))
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(!left, t0("pc.right")).clicked() {

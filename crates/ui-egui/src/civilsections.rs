@@ -267,7 +267,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         let cur = a.as_ref().map(|x| string_of(x.get("id"))).unwrap_or_default();
         let cur_name = als.iter().find(|x| x.0 == cur).map(|x| x.1.clone()).unwrap_or_default();
         ui.add_enabled_ui(als.len() >= 2, |ui| {
-            egui::ComboBox::new("civil_sec_al", "").selected_text(cur_name).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("civil_sec_al").selected_text(cur_name).show_ui(ui, |ui| {
                 for (id, name) in &als {
                     if ui.selectable_label(*id == cur, name).clicked() {
                         acts.push(SecAct::Run("civil.sections.al", id.clone()));
@@ -280,7 +280,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
         }
         let shown = set.as_ref().and_then(|s| s.sections.get(idx)).map_or(String::new(), |s| format_station(s.sta, &units, None));
         ui.add_enabled_ui(n > 0, |ui| {
-            egui::ComboBox::new("civil_sec_sta", "").selected_text(shown).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("civil_sec_sta").selected_text(shown).show_ui(ui, |ui| {
                 if let Some(s) = &set {
                     for (i, x) in s.sections.iter().enumerate() {
                         if ui.selectable_label(i == idx, format_station(x.sta, &units, None)).clicked() {
@@ -294,7 +294,7 @@ pub fn panel(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, pal: &Palette, 
             acts.push(SecAct::Run("civil.sections.go", "next".into()));
         }
         let ve_name = |v: f64| if v == 0.0 { t("sec.ve.fit", &[]) } else { format!("{}×", cc_civil::js::num_to_string(v)) };
-        egui::ComboBox::new("civil_sec_ve", "").selected_text(ve_name(cv.sections.ve)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("civil_sec_ve").selected_text(ve_name(cv.sections.ve)).show_ui(ui, |ui| {
             for v in VES {
                 if ui.selectable_label(cv.sections.ve == v, ve_name(v)).clicked() {
                     acts.push(SecAct::Run("civil.sections.ve", cc_civil::js::num_to_string(v)));

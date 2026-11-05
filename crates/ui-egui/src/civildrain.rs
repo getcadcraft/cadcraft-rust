@@ -697,7 +697,7 @@ pub fn props(cv: &mut CivilView, ui: &mut egui::Ui, tk: &Tokens, c: &Value, acts
             .iter()
             .find(|s| s.get("id").and_then(Value::as_str) == Some(to.as_str()))
             .map_or_else(|| t0("dr.c.to.none"), |s| string_of(s.get("name")));
-        egui::ComboBox::new(("cv_dr_to", id.as_str()), "").selected_text(shown).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(("cv_dr_to", id.as_str())).selected_text(shown).show_ui(ui, |ui| {
             if ui.selectable_label(to.is_empty(), t0("dr.c.to.none")).clicked() {
                 acts.push(Act::Run("civil.prop", "to=".into()));
             }

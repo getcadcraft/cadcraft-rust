@@ -429,7 +429,7 @@ impl crate::pdfview::PdfView {
                 return;
             }
             let l = ui.label(RichText::new(t0("props.status")).small());
-            egui::ComboBox::new("mc-p-status", "")
+            egui::ComboBox::from_id_salt("mc-p-status")
                 .selected_text(cc_markup::model::status_name(&m.status))
                 .show_ui(ui, |ui| {
                     for st in STATUSES {
@@ -447,7 +447,7 @@ impl crate::pdfview::PdfView {
                 let v = m.fields.get(&c.key).cloned().unwrap_or_default();
                 if c.kind == "choice" {
                     let l = ui.label(RichText::new(&c.name).small());
-                    egui::ComboBox::new(("mc-p-col", c.key.as_str()), "")
+                    egui::ComboBox::from_id_salt(("mc-p-col", c.key.as_str()))
                         .selected_text(if v.is_empty() { "—".to_string() } else { v.clone() })
                         .show_ui(ui, |ui| {
                             if ui.selectable_label(v.is_empty(), "—").clicked() && !v.is_empty() {
@@ -467,7 +467,7 @@ impl crate::pdfview::PdfView {
             }
             let l = ui.label(RichText::new(t0("props.layer")).small());
             let shown = if m.layer.is_empty() { t0("layer.none") } else { m.layer.clone() };
-            egui::ComboBox::new("mc-p-layer", "")
+            egui::ComboBox::from_id_salt("mc-p-layer")
                 .selected_text(shown)
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(m.layer.is_empty(), t0("layer.none")).clicked() && !m.layer.is_empty() {
@@ -493,7 +493,7 @@ impl crate::pdfview::PdfView {
             }
             if m.kind == "stamp" {
                 let l = ui.label(RichText::new(t0("stamp.label")).small());
-                egui::ComboBox::new("mc-p-stamp", "")
+                egui::ComboBox::from_id_salt("mc-p-stamp")
                     .selected_text(cc_markup::model::stamp_label(&m.label))
                     .show_ui(ui, |ui| {
                         for s in cc_markup::model::stamps() {
@@ -547,7 +547,7 @@ impl crate::pdfview::PdfView {
             if let Some(first) = ed.first() {
                 let common = ed.iter().all(|m| m.status == first.status).then(|| first.status.clone());
                 let l = ui.label(RichText::new(t0("props.status")).small());
-                egui::ComboBox::new("mc-p-status-n", "")
+                egui::ComboBox::from_id_salt("mc-p-status-n")
                     .selected_text(common.as_deref().map_or_else(|| t0("multi.mixed"), cc_markup::model::status_name))
                     .show_ui(ui, |ui| {
                         for st in STATUSES {
@@ -590,7 +590,7 @@ impl crate::pdfview::PdfView {
                     s => cc_markup::model::stamp_label(s),
                 };
                 let l = ui.label(RichText::new(t0("stamp.label")).small());
-                egui::ComboBox::new("mc-t-stamp", "")
+                egui::ComboBox::from_id_salt("mc-t-stamp")
                     .selected_text(cur.clone())
                     .show_ui(ui, |ui| {
                         for s in cc_markup::model::stamps() {

@@ -298,7 +298,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                 egui::Grid::new("civil_xs_grid").num_columns(2).spacing([10.0, 4.0]).show(ui, |ui| {
                     ui.label(t("pp.ui.paper", &[]));
                     let cur = plot::PAPERS.iter().find(|p| p.key == d.paper).map(plot::paper_name).unwrap_or_default();
-                    egui::ComboBox::new("civil_xs_paper", "")
+                    egui::ComboBox::from_id_salt("civil_xs_paper")
                         .selected_text(cur)
                         .width(200.0)
                         .show_ui(ui, |ui| {
@@ -312,7 +312,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                         .on_hover_text(t("pp.ui.paper", &[]));
                     ui.end_row();
                     ui.label(t("pp.ui.scale", &[]));
-                    egui::ComboBox::new("civil_xs_scale", "")
+                    egui::ComboBox::from_id_salt("civil_xs_scale")
                         .selected_text(d.scale.clone())
                         .width(200.0)
                         .show_ui(ui, |ui| {
@@ -326,7 +326,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, dark: bool, ac
                         .on_hover_text(t("pp.ui.scale", &[]));
                     ui.end_row();
                     ui.label(t("pp.ui.vex", &[]));
-                    egui::ComboBox::new("civil_xs_vex", "")
+                    egui::ComboBox::from_id_salt("civil_xs_vex")
                         .selected_text(format!("{}×", num_to_string(d.vex)))
                         .width(200.0)
                         .show_ui(ui, |ui| {

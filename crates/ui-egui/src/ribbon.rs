@@ -2405,7 +2405,7 @@ pub fn bar(app: &mut UiApp, ui: &mut egui::Ui) {
 /// The style chooser at the end of the bar (0.5 has it in Settings › Menus, keys and mouse; there too here).
 fn style_picker(ui: &mut egui::Ui, tk: &crate::theme::Tokens, styles: &[(String, String)], cur: &str, click: &mut Option<Click>) {
     let name = styles.iter().find(|(id, _)| id == cur).map(|(_, n)| n.clone()).unwrap_or_default();
-    egui::ComboBox::new("cc-in-style", "")
+    egui::ComboBox::from_id_salt("cc-in-style")
         .selected_text(RichText::new(name).size(11.0).color(tk.text))
         .width(120.0)
         .show_ui(ui, |ui| {

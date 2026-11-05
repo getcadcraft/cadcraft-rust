@@ -264,7 +264,7 @@ pub fn show(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &mut Vec
                 ui.label(RichText::new(&d.name).color(tk.text));
                 ui.end_row();
                 let l = ui.label(RichText::new(t0("ui.imp.columns")).color(tk.text_dim));
-                egui::ComboBox::new("cv_imp_format", "")
+                egui::ComboBox::from_id_salt("cv_imp_format")
                     .selected_text(format_label(&d.format))
                     .width(330.0)
                     .show_ui(ui, |ui| {

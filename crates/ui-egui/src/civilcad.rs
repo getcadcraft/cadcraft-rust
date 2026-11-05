@@ -573,7 +573,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                                         .ok()
                                         .and_then(|i| ch.get(i))
                                         .map_or_else(|| t0("cad.ui.use.none"), |c| string_of(c.get("label")));
-                                    egui::ComboBox::new(("cv_cad_use", key.clone()), "").selected_text(sel).width(220.0).show_ui(
+                                    egui::ComboBox::from_id_salt(("cv_cad_use", key.clone())).selected_text(sel).width(220.0).show_ui(
                                         ui,
                                         |ui| {
                                             if ui.selectable_label(u < 0, t0("cad.ui.use.none")).clicked() {
@@ -605,7 +605,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                             }
                         };
                         let cur = UNIT_CHOICES.iter().find(|c| c.1 == d.unit_code).map_or("", |c| c.0);
-                        egui::ComboBox::new("cv_cad_units", "").selected_text(label(cur)).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("cv_cad_units").selected_text(label(cur)).show_ui(ui, |ui| {
                             for (k, _) in UNIT_CHOICES {
                                 if ui.selectable_label(cur == k, label(k)).clicked() {
                                     acts.push(("civil.cad", format!("units={k}")));
@@ -677,7 +677,7 @@ pub fn cad_window(cv: &mut CivilView, ctx: &egui::Context, tk: &Tokens, acts: &m
                             };
                             ui.horizontal(|ui| {
                                 ui.label(t0(label));
-                                egui::ComboBox::new(("cv_cad_how", k), "").selected_text(show(cur)).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt(("cv_cad_how", k)).selected_text(show(cur)).show_ui(ui, |ui| {
                                     for (v, l) in &fixed {
                                         if ui.selectable_label(cur == v, l).clicked() {
                                             acts.push(("civil.cad", format!("{k}={v}")));

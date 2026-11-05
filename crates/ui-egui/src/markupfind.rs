@@ -637,7 +637,7 @@ impl PdfView {
             let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             ui.horizontal_wrapped(|ui| {
                 let scope = if self.find.sheet_only { t0("find.scope.sheet") } else { t0("find.scope.all") };
-                egui::ComboBox::new("mc-find-scope", "").selected_text(scope).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("mc-find-scope").selected_text(scope).show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.find.sheet_only, false, t0("find.scope.all"));
                     ui.selectable_value(&mut self.find.sheet_only, true, t0("find.scope.sheet"));
                 });
@@ -819,7 +819,7 @@ impl PdfView {
                     egui::Grid::new("mc-cols").num_columns(4).show(ui, |ui| {
                         for (i, (c, ch)) in cols.iter_mut().zip(choices.iter_mut()).enumerate() {
                             ui.add(crate::shell::field(&mut c.name).hint_text(t0("col.name")).desired_width(150.0));
-                            egui::ComboBox::new(("mc-col-type", i), "").selected_text(t0(&format!("col.type.{}", c.kind))).show_ui(
+                            egui::ComboBox::from_id_salt(("mc-col-type", i)).selected_text(t0(&format!("col.type.{}", c.kind))).show_ui(
                                 ui,
                                 |ui| {
                                     for ty in cc_markup::columns::TYPES_OF_COLUMN {

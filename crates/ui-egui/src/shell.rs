@@ -748,6 +748,47 @@ pub fn bar_toggle(ui: &mut egui::Ui, t: &Tokens, label: &str, on: bool) -> Respo
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// A panel field's width that fills what is left of its row or column, as 0.7's `.dc-input`, `.cc-input` and the
+/// other apps' panel inputs (`width: 100%; min-width: 0`).
+pub const FILL: f32 = f32::INFINITY;
+
+/// `width`, or for [`FILL`] what is left of the row (never under 40 px). A select that fills is made with
+/// `ComboBox::from_id_salt` and `.truncate()`: `ComboBox::from_id_salt(id)` puts an empty label after the box with a gap
+/// before it, and an untruncated long choice widens the box; either makes it wider than the column, and a dock panel
+/// then grows frame after frame.
+pub fn width_in(ui: &egui::Ui, width: f32) -> f32 {
+    if width.is_finite() {
+        width
+    } else if ui.ctx().will_discard() {
+        // see [`width_to_edge`]
+        40.0
+    } else {
+        ui.available_width().max(40.0)
+    }
+}
+
+/// The width that takes a field from where the next widget goes to the right edge of the region it is in, keeping
+/// `reserve` for what follows it — also in a grid's middle column, whose cells egui sizes from the last frame.
+pub fn width_to_edge(ui: &egui::Ui, reserve: f32) -> f32 {
+    // a pass egui lays out again (a grid's first frame, when its columns are not known yet) sizes nothing: what it
+    // measured would be kept as the column's width and widen the panel
+    if ui.ctx().will_discard() {
+        return 40.0;
+    }
+    (ui.max_rect().right() - ui.cursor().left() - reserve).max(40.0)
+}
+
+/// The width a select with a label after it (`ComboBox::new(id, label)`) gets to fill its row: the label and the gap
+/// before it kept.
+pub fn width_before_label(ui: &egui::Ui, label: &str) -> f32 {
+    let w =
+        egui::WidgetText::from(label).into_galley(ui, Some(egui::TextWrapMode::Extend), f32::INFINITY, egui::TextStyle::Button).size().x;
+    if ui.ctx().will_discard() {
+        return 40.0;
+    }
+    (ui.available_width() - w - ui.spacing().item_spacing.x).max(40.0)
+}
+
 /// A one-line field as 0.7 draws them (`.cc-input`: the text centred in the box, 8 px in from the edge); every
 /// panel's text fields come through here (the theme gives the sheet fill and the 1 px line border).
 pub fn field(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
@@ -991,7 +1032,9 @@ pub fn foot_split<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right:
 /// [`foot_split`] right under what is above it (a body that fills the window to its foot).
 pub fn foot_flush_split<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), right: impl FnOnce(&mut egui::Ui) -> R) -> R {
     foot_line(ui);
-    // the buttons' width from the last frame puts them against the right edge (egui lays out left to right only)
+    // the buttons' width, measured, puts them against the right edge (egui lays out left to right only): when it changes
+    // (a new dialog, other words) the pass is laid out again before it is shown (`request_discard`), so even the first
+    // frame has them at the right
     let id = ui.next_auto_id().with("cc-foot-w");
     let was: f32 = ui.ctx().data(|d| d.get_temp(id)).unwrap_or(0.0);
     ui.horizontal(|ui| {
@@ -1008,7 +1051,7 @@ pub fn foot_flush_split<R>(ui: &mut egui::Ui, left: impl FnOnce(&mut egui::Ui), 
         let w = ui.cursor().left() - a - ui.spacing().item_spacing.x;
         if (w - was).abs() > 0.5 {
             ui.ctx().data_mut(|d| d.insert_temp(id, w));
-            ui.ctx().request_repaint();
+            ui.ctx().request_discard("a dialog foot's buttons measured");
         }
         let _ = used;
         r
@@ -1078,3 +1121,66 @@ forward!(
     auto_sized(),
     frame(f: egui::Frame),
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// item 12 of docs/gaps.md: panel fields and selects fill their row to its right edge and not past it (past it, a
+    /// dock panel grows frame after frame).
+    #[test]
+    fn filled_fields_and_selects_end_at_the_column_edge() {
+        let ctx = egui::Context::default();
+        crate::theme::Tokens::preset(crate::theme::Preset::Light).apply(&ctx, false);
+        let got = std::cell::RefCell::new(Vec::new());
+        for _ in 0..2 {
+            got.borrow_mut().clear();
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.allocate_ui(Vec2::new(300.0, 300.0), |ui| {
+                    ui.set_width(300.0);
+                    let right = ui.max_rect().right();
+                    ui.horizontal(|ui| {
+                        ui.add_sized([112.0, 18.0], egui::Label::new("Position"));
+                        let w = width_in(ui, FILL);
+                        let text = "Centered on the line, a long choice";
+                        let r = egui::ComboBox::from_id_salt("p").selected_text(text).width(w).truncate().show_ui(ui, |_| {});
+                        got.borrow_mut().push((right, r.response.rect.right()));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.add_sized([112.0, 18.0], egui::Label::new("Name"));
+                        let mut s = String::from("x");
+                        let r = ui.add(field(&mut s).desired_width(width_in(ui, FILL)));
+                        got.borrow_mut().push((right, r.rect.right()));
+                    });
+                    got.borrow_mut().push((right, ui.min_rect().right()));
+                });
+            });
+            out.textures_delta.clear();
+        }
+        for (right, at) in got.borrow().iter() {
+            assert!((at - right).abs() <= 0.5, "ends at {at}, the column at {right}: {:?}", got.borrow());
+        }
+    }
+
+    /// item 12 of docs/gaps.md: a dialog foot's buttons sit against the right edge in the very first frame (the pass is
+    /// laid out again once their width is known), Cancel then the main action, 12 px apart.
+    #[test]
+    fn a_dialog_foot_reaches_the_right_edge_in_its_first_frame() {
+        let ctx = egui::Context::default();
+        let got = std::cell::Cell::new((0.0f32, Rect::NOTHING, Rect::NOTHING));
+        let input = || egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))), ..Default::default() };
+        let mut out = ctx.run_ui(input(), |ui| {
+            ui.allocate_ui(Vec2::new(400.0, 200.0), |ui| {
+                ui.set_width(400.0);
+                let right = ui.max_rect().right();
+                let (a, b) = foot(ui, |ui| (ui.button("Cancel").rect, ui.button("Plot").rect));
+                got.set((right, a, b));
+            });
+        });
+        out.textures_delta.clear();
+        let (right, cancel, main) = got.get();
+        assert!((main.right() - right).abs() <= 1.5, "main action at {} of {right}", main.right());
+        assert!(cancel.right() < main.left());
+        assert!((main.left() - cancel.right() - 12.0).abs() < 0.5);
+    }
+}

@@ -339,7 +339,7 @@ pub fn shop_window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: 
             ui.horizontal(|ui| {
                 let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
                 let mut paper = dv.settings.paper.clone();
-                egui::ComboBox::new("dc_shop_paper", "")
+                egui::ComboBox::from_id_salt("dc_shop_paper")
                     .selected_text(cc_detail::paper::paper_label(&paper))
                     .show_ui(ui, |ui| {
                         for k in cc_detail::paper::PAPER_KEYS {
@@ -395,7 +395,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
             ui.horizontal_wrapped(|ui| {
                 let l = ui.label(RichText::new(t0("page.dlg.drawings.sheet")).color(tk.text_dim));
                 let mut pick = at;
-                egui::ComboBox::new("dc_dwg_sheet", "")
+                egui::ComboBox::from_id_salt("dc_dwg_sheet")
                     .selected_text(labels.get(at).cloned().unwrap_or_default())
                     .width(420.0)
                     .height(420.0)
@@ -411,7 +411,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
                 }
                 let pl = ui.label(RichText::new(t0("dwg.paper.label")).color(tk.text_dim));
                 let mut paper = d.set.paper.to_string();
-                egui::ComboBox::new("dc_dwg_paper", "")
+                egui::ComboBox::from_id_salt("dc_dwg_paper")
                     .selected_text(cc_detail::paper::paper_label(&paper))
                     .show_ui(ui, |ui| {
                         for k in cc_detail::paper::PAPER_KEYS {
@@ -480,7 +480,7 @@ pub fn window(dv: &mut DetailView, ctx: &egui::Context, tk: &Tokens, acts: &mut 
                     );
                     let fl = ui.label(RichText::new(t0("dwg.format.label")).color(tk.text_dim));
                     let mut f = dv_fmt.clone();
-                    egui::ComboBox::new("dc_dwg_format", "")
+                    egui::ComboBox::from_id_salt("dc_dwg_format")
                         .selected_text(crate::detailexport::format_name(&f).unwrap_or_default())
                         .show_ui(ui, |ui| {
                             for k in ["pdf", "dwg-AC1032", "dwg-AC1027", "dwg-AC1024", "dwg-AC1021", "dwg-AC1018", "dwg-AC1015", "dxf"] {

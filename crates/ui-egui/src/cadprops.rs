@@ -893,7 +893,8 @@ fn row(ui: &mut egui::Ui, t: &crate::theme::Tokens, label: &str, tip: Option<Str
         if let Some(tip) = tip {
             lab.clone().on_hover_text(tip);
         }
-        let w = (ui.available_width() - 8.0).max(40.0);
+        // the control fills the rest of the row (0.7's inputs and selects: width 100%)
+        let w = crate::shell::width_in(ui, crate::shell::FILL);
         add(ui, lab.id, w);
     });
 }
@@ -947,7 +948,7 @@ fn combo(
 ) -> Option<String> {
     let mut out = None;
     ui.add_enabled_ui(enabled, |ui| {
-        egui::ComboBox::new(egui::IdSalt::new(id), "").width((w - 16.0).max(30.0)).selected_text(current).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(egui::IdSalt::new(id)).width(w).truncate().selected_text(current).show_ui(ui, |ui| {
             for (k, lab) in choices {
                 if ui.selectable_label(key.is_some_and(|x| k.eq_ignore_ascii_case(x)), lab).clicked() {
                     out = Some(k.clone());
@@ -1262,7 +1263,7 @@ fn body(app: &mut UiApp, ui: &mut egui::Ui, asks: &mut Asks) {
         .unwrap_or_default();
     if groups.len() > 1 {
         let cur_label = groups.iter().find(|g| g.key == gkey).map(|g| group_label(g, &l)).unwrap_or_default();
-        egui::ComboBox::new("props_group", "").selected_text(cur_label).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("props_group").selected_text(cur_label).show_ui(ui, |ui| {
             for g in &groups {
                 if ui.selectable_label(g.key == gkey, group_label(g, &l)).clicked() {
                     asks.group = Some(g.key.clone());
@@ -1848,7 +1849,7 @@ fn quick(app: &mut UiApp, ctx: &egui::Context, asks: &mut Asks) {
         .constrain(true)
         .show(ctx, |ui| {
             if groups.len() > 1 {
-                egui::ComboBox::new("qp_group", "").selected_text(group_label(g, &l)).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("qp_group").selected_text(group_label(g, &l)).show_ui(ui, |ui| {
                     for x in &groups {
                         if ui.selectable_label(x.key == g.key, group_label(x, &l)).clicked() {
                             asks.group = Some(x.key.clone());

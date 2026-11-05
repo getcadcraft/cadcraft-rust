@@ -893,7 +893,7 @@ impl PdfView {
             let shown =
                 opts.iter().find(|(v, _)| v == cur).map_or_else(|| opts.first().map(|o| o.1.clone()).unwrap_or_default(), |o| o.1.clone());
             let l = ui.label(RichText::new(label).small());
-            egui::ComboBox::new(id, "")
+            egui::ComboBox::from_id_salt(id)
                 .selected_text(shown)
                 .show_ui(ui, |ui| {
                     for (v, l) in &opts {

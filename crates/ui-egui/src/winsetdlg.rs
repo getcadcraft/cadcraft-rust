@@ -432,7 +432,7 @@ fn cmp_window(app: &mut UiApp, ctx: &egui::Context) {
         .show(ctx, |ui| {
             let combo =
                 |ui: &mut egui::Ui, id: &str, cur: String, items: &[(String, String)], key: &str, acts: &mut Vec<(&str, String)>| {
-                    egui::ComboBox::new(id, "").selected_text(cur).width(200.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt(id).selected_text(cur).width(200.0).show_ui(ui, |ui| {
                         for (v, l) in items {
                             if ui.selectable_label(false, l).clicked() {
                                 acts.push(("cmp.set", format!("{key}={v}")));

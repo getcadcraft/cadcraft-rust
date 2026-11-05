@@ -1059,7 +1059,7 @@ fn plane_slot(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, index: Opt
     ui.label(label);
     ui.horizontal(|ui| {
         let shown = opts.iter().find(|(v, _)| *v == val).map_or_else(String::new, |(_, l)| l.clone());
-        egui::ComboBox::new(salt, "").selected_text(shown).width(130.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(salt).selected_text(shown).width(130.0).show_ui(ui, |ui| {
             for (v, l) in &opts {
                 if ui.selectable_label(*v == val, l).clicked() && *v != val && !v.is_empty() && v != "cur" {
                     set_cmd(act, id, &field, v.clone());
@@ -1130,7 +1130,7 @@ fn dir_slot(ui: &mut egui::Ui, pv: &PartView, f: &Value, key: &str, label: &str,
     ui.label(label);
     ui.horizontal(|ui| {
         let shown = opts.iter().find(|(v, _)| *v == val).map_or_else(String::new, |(_, l)| l.clone());
-        egui::ComboBox::new(format!("pc-ds-{id}-{key}"), "").selected_text(shown).width(130.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt(format!("pc-ds-{id}-{key}")).selected_text(shown).width(130.0).show_ui(ui, |ui| {
             for (v, l) in &opts {
                 if ui.selectable_label(*v == val, l).clicked() && *v != val && v != "cur" {
                     set_cmd(act, id, key, v.clone());

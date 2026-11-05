@@ -920,7 +920,7 @@ fn measure_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd)
             let mats = materials();
             let cur = pv.measure.density;
             let shown = mats.iter().find(|m| Some(m.1) == cur).map_or_else(|| tr("ui.measure.no_material"), |m| material_option(&m.0, m.1));
-            egui::ComboBox::new("pc-measure-material", "").selected_text(shown).width(190.0).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt("pc-measure-material").selected_text(shown).width(190.0).show_ui(ui, |ui| {
                 if ui.selectable_label(cur.is_none(), tr("ui.measure.no_material")).clicked() {
                     *act = cmd("part.measure", "density:");
                 }
@@ -957,7 +957,7 @@ fn section_card(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cmd)
     ui.horizontal(|ui| {
         ui.label(RichText::new(tr("section.plane")).small());
         let shown = tr(&format!("section.base.{}", pv.section.base));
-        egui::ComboBox::new("pc-section-plane", "").selected_text(shown).width(130.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("pc-section-plane").selected_text(shown).width(130.0).show_ui(ui, |ui| {
             for k in ["front", "top", "right"] {
                 if ui.selectable_label(pv.section.base == k, tr(&format!("section.base.{k}"))).clicked() {
                     *act = cmd("part.section", k);

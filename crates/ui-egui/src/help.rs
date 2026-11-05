@@ -730,7 +730,7 @@ fn ctx_line(ui: &mut egui::Ui, h: &Help, t: &crate::theme::Tokens) -> Option<(&'
             let Some((dim, keys)) = DIMS.get(d) else { continue };
             ui.label(RichText::new(s(key)).small().color(t.text_dim));
             let now = cur.get(d);
-            egui::ComboBox::new(("help_ctx", d), "").selected_text(ctx_label(dim, now, true)).show_ui(ui, |ui| {
+            egui::ComboBox::from_id_salt(("help_ctx", d)).selected_text(ctx_label(dim, now, true)).show_ui(ui, |ui| {
                 for k in *keys {
                     if ui.selectable_label(*k == now, ctx_label(dim, k, true)).clicked() {
                         act = Some(("help.ctx", p(format!("{dim}={k}"))));

@@ -672,7 +672,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             ("ft", "lib.files.units.ft"),
                         ];
                         let cur = units.iter().find(|u| u.0 == lib.units).map_or(String::new(), |u| bt(u.1, &[]));
-                        egui::ComboBox::new("bim_lib_units", "").selected_text(cur).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("bim_lib_units").selected_text(cur).show_ui(ui, |ui| {
                             for (k, key) in units {
                                 if ui.selectable_label(lib.units == k, bt(key, &[])).clicked() {
                                     act.push(("bim.lib.units", k.into()));
@@ -681,7 +681,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                         });
                         let ups = [("", "lib.files.up.y"), ("z", "lib.files.up.z")];
                         let cur = ups.iter().find(|u| u.0 == lib.up).map_or(String::new(), |u| bt(u.1, &[]));
-                        egui::ComboBox::new("bim_lib_up", "").selected_text(cur).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt("bim_lib_up").selected_text(cur).show_ui(ui, |ui| {
                             for (k, key) in ups {
                                 if ui.selectable_label(lib.up == k, bt(key, &[])).clicked() {
                                     act.push(("bim.lib.up", k.into()));
@@ -710,7 +710,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                     typed = Some(q);
                 }
                 let cur = if lib.category.is_empty() { bt("lib.category.any", &[]) } else { cat_text(&lib.category) };
-                egui::ComboBox::new("bim_lib_cat", "").selected_text(cur).width(150.0).show_ui(ui, |ui| {
+                egui::ComboBox::from_id_salt("bim_lib_cat").selected_text(cur).width(150.0).show_ui(ui, |ui| {
                     if ui.selectable_label(lib.category.is_empty(), bt("lib.category.any", &[])).clicked() {
                         act.push(("bim.lib.category", String::new()));
                     }

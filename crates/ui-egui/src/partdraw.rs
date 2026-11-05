@@ -977,7 +977,7 @@ fn set(act: &mut Cmd, field: &str, v: impl Into<String>) {
 fn combo(ui: &mut egui::Ui, id: &str, label: &str, cur: &str, opts: &[(String, String)], field: &str, act: &mut Cmd) {
     ui.label(label);
     let shown = opts.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
-    egui::ComboBox::new(id, "").selected_text(shown).width(150.0).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(id).selected_text(shown).width(150.0).show_ui(ui, |ui| {
         for (v, l) in opts {
             if ui.selectable_label(v == cur, l).clicked() && v != cur {
                 set(act, field, v.clone());

@@ -753,7 +753,7 @@ pub fn text_field(ui: &mut egui::Ui, pv: &mut PartView, key: &str, shown: &str, 
 /// A choice (`selectInput`) sending `part.asm.set=<field>=<value>`.
 pub fn choice(ui: &mut egui::Ui, id: &str, cur: &str, opts: &[(String, String)], field: &str, act: &mut Cmd) {
     let shown = opts.iter().find(|(v, _)| v == cur).map_or_else(|| cur.to_string(), |(_, l)| l.clone());
-    egui::ComboBox::new(id, "").selected_text(shown).width(170.0).show_ui(ui, |ui| {
+    egui::ComboBox::from_id_salt(id).selected_text(shown).width(170.0).show_ui(ui, |ui| {
         for (v, l) in opts {
             if ui.selectable_label(v == cur, l).clicked() && v != cur {
                 *act = cmd("part.asm.set", format!("{field}={v}"));
@@ -1055,7 +1055,7 @@ pub fn inst_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
     let mut changed = false;
     egui::Grid::new("pc-asm-turn").num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
         ui.label(tr("ui.asm.turn.about"));
-        egui::ComboBox::new("pc-asm-turn-axis", "").selected_text(ax.to_uppercase()).width(80.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("pc-asm-turn-axis").selected_text(ax.to_uppercase()).width(80.0).show_ui(ui, |ui| {
             for a in ["x", "y", "z"] {
                 if ui.selectable_label(ax == a, a.to_uppercase()).clicked() {
                     ax = a.to_string();
@@ -1138,7 +1138,7 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         let mut opts = vec![(String::new(), tr("ui.asm.explode.none"))];
         opts.extend(views.iter().cloned());
         let shown = opts.iter().find(|(v, _)| *v == cur).map_or_else(String::new, |(_, l)| l.clone());
-        egui::ComboBox::new("pc-asm-views", "").selected_text(shown).width(170.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("pc-asm-views").selected_text(shown).width(170.0).show_ui(ui, |ui| {
             for (v, l) in &opts {
                 if ui.selectable_label(*v == cur, l).clicked() && *v != cur {
                     *act = cmd("part.asm", format!("explode-view:{v}"));
@@ -1219,7 +1219,7 @@ pub fn root_tools(ui: &mut egui::Ui, pv: &mut PartView, t: &Tokens, act: &mut Cm
         ui.label(tr("ui.asm.step.direction"));
         let opts = dir_labels();
         let shown = opts.iter().find(|(k, _)| *k == draft.dir).map_or_else(String::new, |(_, l)| l.clone());
-        egui::ComboBox::new("pc-asm-stepdir", "").selected_text(shown).width(120.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("pc-asm-stepdir").selected_text(shown).width(120.0).show_ui(ui, |ui| {
             for (k, l) in &opts {
                 if ui.selectable_label(*k == draft.dir, l).clicked() {
                     *act = cmd("part.asm", format!("step-dir:{k}"));

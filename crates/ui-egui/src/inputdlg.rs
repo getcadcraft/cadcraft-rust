@@ -795,7 +795,7 @@ fn keys_table(
                     } else {
                         let now = place_val(&c.id);
                         let shown = places.iter().find(|(v, _)| *v == now).map(|(_, l)| l.clone()).unwrap_or_default();
-                        egui::ComboBox::new(format!("input_place_{}", c.id), "").selected_text(shown).width(170.0).show_ui(ui, |ui| {
+                        egui::ComboBox::from_id_salt(format!("input_place_{}", c.id)).selected_text(shown).width(170.0).show_ui(ui, |ui| {
                             for (v, l) in &places {
                                 if ui.selectable_label(*v == now, l).clicked() && *v != now {
                                     act.push(("input.custom.place", Some(format!("{}={v}", c.id))));
@@ -846,7 +846,7 @@ fn mouse_pane(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Draft, act: &mut 
     ui.label(RichText::new(shell("shell.input.mouse.wheel", &[])).strong().family(crate::theme::bold_family()));
     ui.horizontal(|ui| {
         let word = |w: i8| shell(if w < 0 { "shell.input.mouse.wheel.flip" } else { "shell.input.mouse.wheel.normal" }, &[]);
-        egui::ComboBox::new("input_wheel", "").selected_text(word(m.wheel)).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("input_wheel").selected_text(word(m.wheel)).show_ui(ui, |ui| {
             for w in [1i8, -1] {
                 if ui.selectable_label(m.wheel == w, word(w)).clicked() && m.wheel != w {
                     set(act, format!("wheel={w}"));
@@ -887,7 +887,7 @@ fn mouse_pane(ui: &mut egui::Ui, t: &crate::theme::Tokens, d: &Draft, act: &mut 
             for (i, b) in ip::BUTTONS.iter().enumerate() {
                 let now = o.get(i).cloned().unwrap_or_default();
                 let lab = ui.label(shell(&format!("shell.input.mouse.{b}"), &[]));
-                egui::ComboBox::new(format!("input_3d_{b}"), "")
+                egui::ComboBox::from_id_salt(format!("input_3d_{b}"))
                     .selected_text(shell(&format!("shell.input.mouse.act.{now}"), &[]))
                     .show_ui(ui, |ui| {
                         for a in ip::ACTIONS_3D {

@@ -449,7 +449,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                             match sec.0.as_str() {
                                 "shell.settings.lang" => {
                                     let lab = ui.label(RichText::new(s("shell.settings.lang.label")).color(t.text));
-                                    egui::ComboBox::new("settings.lang", "").width(260.0).selected_text(lang_now.name()).show_ui(
+                                    egui::ComboBox::from_id_salt("settings.lang").width(260.0).selected_text(lang_now.name()).show_ui(
                                         ui,
                                         |ui| {
                                             for l in cc_lang::Locale::ALL {
@@ -489,7 +489,7 @@ pub fn window(app: &mut UiApp, ctx: &egui::Context) {
                                         .iter()
                                         .find(|(_, z)| (*z - zoom_now).abs() < 0.001)
                                         .map_or_else(|| format!("{:.0}%", zoom_now * 100.0), |(n, z)| word(n, *z));
-                                    egui::ComboBox::new("settings.zoom", "").width(260.0).selected_text(cur).show_ui(ui, |ui| {
+                                    egui::ComboBox::from_id_salt("settings.zoom").width(260.0).selected_text(cur).show_ui(ui, |ui| {
                                         for (n, z) in ZOOMS {
                                             if ui.selectable_label((z - zoom_now).abs() < 0.001, word(n, z)).clicked() {
                                                 act = Some(format!("zoom={z}"));

@@ -152,7 +152,7 @@ pub fn show(app: &mut UiApp, ui: &mut egui::Ui) {
         ui.add_space(6.0);
         ui.horizontal_wrapped(|ui| {
             let sel = head.choices.iter().find(|c| c.value == pick).map(|c| c.text.clone()).unwrap_or_default();
-            egui::ComboBox::new("equip_which", "")
+            egui::ComboBox::from_id_salt("equip_which")
                 .selected_text(sel)
                 .show_ui(ui, |ui| {
                     for c in &head.choices {

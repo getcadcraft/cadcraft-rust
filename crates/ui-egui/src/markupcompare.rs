@@ -510,7 +510,7 @@ impl PdfView {
         let mut pick = self.cmp_pick.clone();
         let shown = sheets.iter().find(|(k, _)| *k == pick).map_or_else(|| t0("choose_one"), |(_, l)| l.clone());
         let l = ui.label(egui::RichText::new(t0("compare.old")).small());
-        egui::ComboBox::new("mc-cmp-old", "")
+        egui::ComboBox::from_id_salt("mc-cmp-old")
             .selected_text(shown)
             .show_ui(ui, |ui| {
                 for (k, label) in &sheets {
@@ -561,7 +561,7 @@ impl PdfView {
                         act = Some(format!("nudge:{d}"));
                     }
                 }
-                egui::ComboBox::new("mc-cmp-step", "")
+                egui::ComboBox::from_id_salt("mc-cmp-step")
                     .selected_text(t("compare.step.pt", &[("n", Fill::S(cc_markup::js::ns(self.cmp.step)))]))
                     .show_ui(ui, |ui| {
                         for s in [0.25, 1.0, 5.0, 20.0] {
@@ -606,7 +606,7 @@ impl PdfView {
                 let shown = files.iter().find(|f| f.0 == cur).map(|f| f.1.clone()).unwrap_or_default();
                 let l = ui.label(egui::RichText::new(t0(label)).small());
                 let mut pickf = cur.clone();
-                egui::ComboBox::new(id, "")
+                egui::ComboBox::from_id_salt(id)
                     .selected_text(shown)
                     .show_ui(ui, |ui| {
                         for (fid, name) in &files {
