@@ -2,6 +2,85 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — the last 0.5 exceptions: Tile with several drawings open, pictures beyond 34, the film's inter frames, DetailCraft's clipboard between windows, local-time dates, words, the look (agent, work/closeb)
+
+- M4.63 several drawings open in CadCraft's window (doctabs.rs = doctabs.js): 0.5's Tile shows another open drawing in a
+  pane, so the window now holds several: the open one is the window's, every other waits in a `Slot` (its editor,
+  display, views, open space, hidden layers, file) and a switch trades them (doctabs.js swapContent). New and Open (and a
+  DWG / DXF dropped while editing) make a tab of their own unless the open drawing is untouched (`pristine`); the strip
+  over the drawing shows while two or more are open: tabs (● unsaved, × closes; unsaved asks Cancel / Close without
+  saving / Save a copy first, 0.5's words), New, Tile side by side, Tile stacked, Link views. Tile: up to four, the open
+  one kept active and in the panes, each pane fitted to its own drawing; a press into another drawing's pane opens that
+  drawing with the pane's view (keepView); a closed drawing's panes show the open one. Panes carry the drawing they show
+  (`Pane::doc`); the canvas's GPU cache now keeps the meshes of the four drawings drawn last (it kept only the one being
+  drawn, so a second drawing's pane lost them every frame). Recovery copies follow each tab: a drawing switched away is
+  parked and still written when due, a tab closed drops its copy. Commands `doctabs.new / switch / close / tile / info`.
+  Parity: new tools/doctabsdiff.mjs (doctabs.js + view.js headless as panediff does, vs `cadcraft-shot doctabcases`): 306
+  cases (6 by hand, 300 seeded), 2913 / 2913 states identical in en and es-MX (tabs, the open one, its space, the panes'
+  layout, dividers, active pane, each pane's drawing and space, what New says); fitted views are each side's own.
+  panediff 1268 / 1268. Screenshots `m463-tile-v.png`, `m463-tile-h-other.png` (after a press into the other drawing's
+  pane), `m463-close-ask-en.png`, `m463-close-ask-es-MX.png`.
+- M6.39 ModelCraft pictures beyond 34 a scene: the pictures have a texture array of their own (`mesh3d::PicArray`, a
+  second binding in the view's, the Fast render's and the High quality render's shaders; a vertex layer from 4096 on is
+  a picture), made per scene at what it needs: up to 256 layers (WebGPU's default maxTextureArrayLayers, so the web build
+  has them too), 1024 texels a picture for up to 12, 512 up to 48, else 256 (64 MB at most, bar the 256 floor at 89 MB);
+  a picture smaller than its layer is magnified by interpolation with wrap-round (0.5's RepeatWrapping + LinearFilter),
+  a bigger one box-filtered as before. Test `many_pictures_get_layers_of_their_own` (4 / 40 / 60 / 300 pictures);
+  fixture testfiles/generated/modelcraft/pictures60.modelcraft (LARGE-FILES.md). Screenshots
+  `m639-pictures60-old-new.png` (main: 34 shown, 26 grey; now all 60), `m639-render-fast-hq.png`.
+- M6.40 the film's VP8 inter frames (cc-video, pure Rust): a key frame every 2 s (60 frames, a WebM cluster from each),
+  between them frames predicted from the last one: a diamond search from the predicted, the neighbours' and the last
+  frame's vectors at even whole-pixel steps (chroma then moves whole pixels: no sub-pixel filter), each macroblock coded
+  ZEROMV / NEARESTMV / NEARMV / NEWMV against the decoder's own census of its neighbours (dixie find_near_mvs, RFC 6386
+  20.11), skipped when its residue quantizes to nothing (a dead zone from a third of the step), the default MV
+  probabilities. ffmpeg (oracle, run as a program) decodes 75 frames to the encoder's own reconstruction byte for byte
+  (`inter_frames_decode_as_the_encoder_reconstructs_them`, `CC_VIDEO_FFMPEG=1`). The sample's 5 s film at the view's
+  size: 2.90 MB → 0.65 MB; libvpx realtime at 0.5's MediaRecorder request (8 Mbit/s) makes 0.88 MB VP8, 1.4 MB VP9 of
+  the same frames. Screenshot `m640-film-frame80-old-new.png`.
+- M14.9 DetailCraft's clipboard between windows as 0.5 keeps it (localStorage "detailcraft.clipboard"): new
+  `Services::store` (`SharedStore`: Get / Put / Delete over a `cc_recovery::Service`; desktop: `storage/` in the config
+  folder, a file per key written atomically; web: localStorage; cadcraft-shot `--store-dir`), copy writes it (too big for
+  localStorage's 5 MB: this window keeps it, the store forgets the old one), paste reads it as untrusted and takes it
+  when it changed (currentClip), the bar's Paste looks at it twice a second; no store: the system clipboard as before.
+  New tools/dcclipdiff.mjs (windows one after the other on one store vs detailcraft.js's clipboard bodies on one
+  localStorage, 11 scenarios incl. damaged, not-JSON and newer-version copies): 73 / 73 en and es-MX.
+- M16.18 local-time dates: the sheet-set archive zip's dates, LISP CDATE and CivilCraft's Sun menu read the window's
+  zone (`app.tz`; they read the machine's before), APPLOAD's history shows its dates (appload.js `toLocaleString()`, the
+  en-US / es-MX forms, `cc_markup::js::locale_string`). Tests under UTC, America/Denver, Asia/Kolkata and
+  Pacific/Auckland against the frozen JS's expressions run by node under `TZ=` (`cdate_is_local_time_in_four_zones`,
+  `archive_zip_dates_in_four_zones`, `locale_strings_in_four_zones`). Not ported, no date yet: ModelCraft's paper print
+  caption, PartCraft's CraftScript `clock()`, BimCraft's folder listing, Studio's MCP activity log.
+- M3.11 words: CadCraft's save says app.save.written with the format's label (DWG (AutoCAD 2018), DXF R12, DXF 2000),
+  COUNT / PUBLISH / Library credits downloads count.saved, TakeoffCraft's exports file.written, MarkupCraft's save
+  save.done, ModelCraft's imports app.import.skp.done / app.import.dae(.comps) / app.import.site … with what was
+  converted and left out (modelcraft.js importFile; spec gap: the DWG note on dynamic blocks), the sheet view's status
+  nav.label.sheet · nav.zoom · hint.zoom. Plain English left (no 0.5 key): gaps.md item 9.
+- M17.20 the look: panel fields and selects fill their row or column as 0.7's `width: 100%` in every app's docks
+  (`shell::FILL`, `width_in`, `width_to_edge` for a grid's middle column, `width_before_label`); egui's empty combo label
+  made every select 6–8 px wider than asked and, filled, widened the dock frame after frame: selects are made with
+  `from_id_salt` and `.truncate()`, and a pass egui lays out again sizes nothing. Dialog feet: when the buttons' width
+  changes the pass is laid out again before it shows (`request_discard`), so even the first frame has them at the
+  right. Tests `a_dialog_foot_reaches_the_right_edge_in_its_first_frame`, `filled_fields_and_selects_end_at_the_column_edge`.
+  Screenshots `dc-after.png`, `cad-props.png`, `mc-after.png`, `cv-after.png`, `cv-al-cmp.png`, `pc-after.png`,
+  `bm-after.png` (all in lead/shots/closeb).
+- Parity sweep (this build): kdiff 5250 / 5250 (en, es-MX; UTC, Denver), mcuidiff-modelfin every flag 1320 / 1320 status
+  lines + 1285 / 1285 files (en UTC, en Denver, es-MX), cvtooldiff-civil3 156 / 156 projects, 4812 / 4812 status lines,
+  46 / 46 files (the same three), pcuidiff-partfin identical (the same three), bmuidiff-bimfin 2568 / 2568 steps + 418 / 418
+  IFC (the same three), recoverdiff 552 / 552 + 156 / 156 files in 4 zones, dcuidiff-detailfin place 100, all-conn 135,
+  all-edit 179, all-setup 144 (new model), drag 97, drawings 78 (sample) identical in en UTC and Denver, drag-es 97 /
+  97 and drawings 78 / 78 in es-MX (the en step files name "Level 1": the same counts on main), dcclipdiff 73 / 73,
+  doctabsdiff 2913 / 2913, panediff 1268 / 1268 (en, es-MX). Web build loads six ways in Chromium (none, ?sample, ?model,
+  ?detail=sample, ?new, ?sample&lang=es-MX): no errors.
+- Timings (Rust vs the frozen JS where there is one):
+
+  | what | 0.5 JS | Rust |
+  |---|---|---|
+  | doc tabs: switch / close / tile / pane press, 1,1xx ops in 306 cases (doctabsdiff) | 7.0–13.6 ms | 1.5–1.7 ms |
+  | a 1280 × 720 film frame: key / inter (moving scene, best of 30) | MediaRecorder (native) | 22 ms, 413 KB / 10.8 ms, 8 KB |
+  | the sample's 5 s film, the whole headless record | — | 23.9 s → 20.3 s, 2.90 MB → 0.65 MB |
+
+- Harnesses (new, in forks/tools): doctabsdiff.mjs, dcclipdiff.mjs with dcdiff/page-closeb.mjs (page-detailfin.mjs + the
+  clipboard's localStorage). No shared harness edited.
 ## 2026-11-05 — S.16–S.17 DetailCraft's state held as records; open + build at or above V8 at its best of 100 (agent, work/dettyped)
 
 - S.16 the state (cc-detail store.rs, jv.rs): model.js's plain object is now a `State`: members, connections and

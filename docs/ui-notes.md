@@ -150,5 +150,10 @@ each button shows the same picture idea; stroke ~1.3 px at 18 px.
 - No sub-pixel antialiasing of text; strokes are not hinted to the pixel grid the way the browser does for 1 px borders.
 - Bootstrap's icon font is not used (above): icons are close in idea and size, not identical in shape.
 - Native `<select>` arrows: egui's combo box draws its own ▾.
-- A dialog foot right-aligns its buttons with their width from the previous frame (egui lays rows out left to
-  right): the first frame of a new dialog has them at the left.
+- A dialog foot right-aligns its buttons with their measured width (egui lays rows out left to right): when the width
+  changes the pass is laid out again before it is shown (`request_discard`, M17.20), so the first frame has them right.
+- Panel fields and selects fill their row or column (0.7's `width: 100%`): `shell::FILL` / `width_in`, `width_to_edge`
+  for a grid's middle column, `width_before_label` for a select with its label after it. Selects are made with
+  `ComboBox::from_id_salt` (an empty label adds a gap after the box) and `.truncate()` (a long choice is cut with …); a
+  pass egui lays out again sizes nothing (a grid's first frame), or the column's width from it would widen the dock
+  panel (M17.20).
