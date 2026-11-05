@@ -1,6 +1,6 @@
 //! A WebM file (Matroska, EBML) holding one VP8 video track: the EBML header, Segment › Info (milliseconds, the
-//! duration, the writing app), Tracks (V_VP8, its size), Clusters of SimpleBlocks (a cluster a second or so, every frame
-//! a key frame) and Cues pointing at each cluster, so a player can seek.
+//! duration, the writing app), Tracks (V_VP8, its size), Clusters of SimpleBlocks (a cluster from each key frame, its
+//! SimpleBlock flagged as one) and Cues pointing at each cluster, so a player can seek.
 
 /// An EBML element: its id bytes, then its size as a variable-length integer, then the body.
 fn el(id: u32, body: &[u8]) -> Vec<u8> {
@@ -39,8 +39,9 @@ fn text(id: u32, s: &str) -> Vec<u8> {
     el(id, s.as_bytes())
 }
 
-/// Frames (each a VP8 key frame) at `fps` frames a second, `w` × `h` pixels, into a WebM file.
-pub fn mux(frames: &[Vec<u8>], w: u32, h: u32, fps: f64, app: &str) -> Vec<u8> {
+/// Frames (VP8 data, whether a key frame; the first one is) at `fps` frames a second, `w` × `h` pixels, into a WebM
+/// file.
+pub fn mux(frames: &[(Vec<u8>, bool)], w: u32, h: u32, fps: f64, app: &str) -> Vec<u8> {
     let fps = if fps.is_finite() && fps > 0.0 { fps } else { 30.0 };
     let ms = |i: usize| ((i as f64) * 1000.0 / fps).round() as u64;
     let header = el(
@@ -59,19 +60,25 @@ pub fn mux(frames: &[Vec<u8>], w: u32, h: u32, fps: f64, app: &str) -> Vec<u8> {
             .concat(),
     );
     let tracks = el(0x1654_AE6B, &track);
-    // clusters of up to a second's frames; their positions from the start of the segment's body for the cues
-    let per = (fps.ceil() as usize).max(1);
+    // a cluster from each key frame (and after 30 s, the SimpleBlocks' relative times being 16 bits); their positions
+    // from the start of the segment's body for the cues
+    let mut starts: Vec<usize> = Vec::new();
+    for (i, (_, key)) in frames.iter().enumerate() {
+        if i == 0 || *key || starts.last().is_some_and(|s| ms(i).saturating_sub(ms(*s)) > 30_000) {
+            starts.push(i);
+        }
+    }
     let mut body: Vec<u8> = [info, tracks].concat();
     let mut cues: Vec<u8> = Vec::new();
-    for (k, chunk) in frames.chunks(per).enumerate() {
-        let first = k * per;
+    for (k, first) in starts.iter().copied().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(frames.len());
         let t0 = ms(first);
         let mut c = uint(0xE7, t0);
-        for (j, f) in chunk.iter().enumerate() {
+        for (j, (f, key)) in frames.get(first..end).unwrap_or(&[]).iter().enumerate() {
             let rel = ms(first + j).saturating_sub(t0).min(32767) as i16;
             let mut b = vec![0x81];
             b.extend(rel.to_be_bytes());
-            b.push(0x80); // a key frame
+            b.push(if *key { 0x80 } else { 0x00 });
             b.extend_from_slice(f);
             c.extend(el(0xA3, &b));
         }
@@ -95,7 +102,7 @@ mod tests {
         assert_eq!(size_vint(127), vec![0x40, 0x7f]);
         assert_eq!(el(0xE7, &[5]), vec![0xE7, 0x81, 5]);
         assert_eq!(uint(0xD7, 1), vec![0xD7, 0x81, 1]);
-        let f = mux(&[vec![1, 2, 3]], 16, 16, 30.0, "t");
+        let f = mux(&[(vec![1, 2, 3], true)], 16, 16, 30.0, "t");
         assert_eq!(&f[..4], &[0x1A, 0x45, 0xDF, 0xA3]);
         assert!(f.windows(5).any(|w| w == b"V_VP8"));
     }

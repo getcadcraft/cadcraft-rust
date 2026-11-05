@@ -5,8 +5,8 @@
 //!
 //! 0.5 draws the view into a canvas and records it in real time with the browser's MediaRecorder (VP9 / VP8). Here each
 //! frame of the film is placed exactly (30 a second: the camera on 0.5's path at that instant), rendered by the view,
-//! read back from the GPU without blocking (WebGPU allows nothing else) and coded by `cc-video` (VP8 key frames in a
-//! WebM file, pure Rust); the file goes to the host's save (a save dialog on the desktop, a download on the web) as
+//! read back from the GPU without blocking (WebGPU allows nothing else) and coded by `cc-video` (VP8: a key frame every
+//! 2 s, inter frames between, in a WebM file, pure Rust); the file goes to the host's save (a save dialog on the desktop, a download on the web) as
 //! 0.5's download does. The film's length is the scenes' timing, whatever the machine's speed. The view's marks are not
 //! in it (0.5's presentation view hides them too).
 //!
