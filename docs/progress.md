@@ -2,6 +2,63 @@
 
 Newest first. One entry per working session: what was done, numbers, what is next.
 
+## 2026-11-05 — M6.36 a terrain grid's Fix out of memory; S.15 DetailCraft's model read typed (agent, work/fixfin)
+
+- M6.36 (cc-m3d edges.rs): mcuidiff-modelfin `--edit --terrain --starter --keys --lang es-MX`, arc.skp seed 3, had the
+  shot process killed: the walk places a terrain grid of 10′ × 250 cm at 0.05″ (200 × 164 cells, 65,600 faces) and runs
+  the solid checker's Fix on it. Fix re-faces the grid's plane (`reface`), which kept one id set per face cycle, and an
+  `IdSet`'s index is as long as the largest id in it (a dense array for ids under 2^20): 65,600 cycles × 245,000 ids ×
+  4 bytes asked for 78 GB (`memory allocation of 983384 bytes failed` under a 30 GB cap). 0.5 builds the same grid (its
+  `Set`s are sized by their contents) and its Fix takes 151 s; now each cycle's set is a hash set of its own vertices
+  (and the bridge check one of its edges): Fix 13.6 s, the whole walk 46 s at 0.76 GB, files and status lines as 0.5's.
+  The grid itself is 0.5's (capped at 200 × 200 cells by terrainGrid); nothing new is refused. Regression test
+  `reface_big_grid_with_high_ids` (cc-m3d tests/hostile.rs: a 150 × 150 grid with ids near 2^20, 94 GB before, aborts
+  under an 8 GB cap without the fix); new fuzz target `m3d_terrain` (cc_m3d_tools::fuzzterrain: grids of any size and
+  spacing, sculpted corners, ids renumbered near and past the dense range, Fix, problems, info, a re-face of the
+  ground) with seed `m636-fix-grid.bin` (4 GB before, under libFuzzer's 2 GB limit it aborts; now 44 MB).
+- S.15 DetailCraft's model read (cc-detail read_typed.rs, model.rs): a file's text is read typed: members and
+  connections go straight from the text into fixed slots for the fields readModel asks for (holes and copes too;
+  params by their number among the defaults' names), everything else of the file as JSON values as before; what is
+  not read is still parsed in full, so a text the typed read takes is one the JSON parse takes, and anything it refuses
+  goes the JSON way (same result or error). Both go through one `read_core` (generic over `Src` / `MemberSrc` /
+  `ConnSrc`). Test `typed_read_reads_as_the_json_does`: 20,000 files made from the sample (fields of every kind, lists
+  of the wrong kind, members and connections doubled or dropped, a third damaged as text: duplicated and escaped
+  keys, cut files, stray bytes, deep nesting, 1e400, lone surrogates, trailing text) give the same state and warnings
+  or the same error both ways, and the typed read took every object; the same 24,000 files gave byte-identical results
+  before and after the change (md5 of every result). New fuzz target `detail_read_typed` (the typed read against
+  `read_model_json`; 525,000 runs, 0 differences; one harness find on the way: a top-level JSON string is not text).
+- The read also copies less: `cleanText` returns a word with nothing to strip as is, ids are kept as numbers in an Fx
+  set (the seq scan made as they are kept), params are filled in place of the defaults' copy, a phase's `n` is looked
+  up beside it, footings are written straight into their object, maps start with their size. The build: a
+  connection's params are read once into a light list (names pointing at the defaults'), drafts and parts are found
+  through Fx maps, the lists made from the connections are sized at once, a parametric plate's profile is made once
+  per thread (`plate_profile`, capped at 4,096), and `par_map` (build and marks) works on this thread below 256 items
+  and in runs of 128 above (waking Rayon's threads cost more than the sample's whole build: 0.87 → 0.08 ms).
+- Timing as the JS is timed: `detail.bench=N` (new UI command) reads the model's own file and builds it N times in one
+  process after a warm-up, best of each step; tools/dcuibench-fixfin.mjs `--warm` uses it (adopt at merge). ms, Rust
+  best of 100 (before: best of 50) against the frozen JS best of 5 / 20 / 100 in one Node process:
+
+  | model | open before → after | build before → after | open + build after | JS open + build (5 / 20 / 100) | × (5 / 20 / 100) |
+  |---|---:|---:|---:|---:|---:|
+  | sample (JS sampleModel().toJSON()) | 0.19 → 0.09 | 0.81 → 0.06 | 0.15 | 0.54 / 0.28 / 0.11 | 3.6 / 1.9 / 0.73 |
+  | frames13 | 2.05 → 0.94 | 3.19 → 0.81 | 1.75 | 4.59 / 2.14 / 1.42–1.58 | 2.6 / 1.2 / 0.85 |
+  | grid10x6x4 | 4.01 → 1.75 | 7.36 → 2.33 | 4.1 | 7.06 / 5.70 / 3.7–3.9 | 1.7 / 1.4 / 0.92 |
+  | grid24x12x5 | 34.6 → 16.2 | 45.7 → 24.3 | 40.6 | 51.4 / 38.7 / 33.6–34.1 | 1.3 / 0.95 / 0.83 |
+
+  With marks and the bending schedule (dcuibench's total) every model is 1.3–3.9× the JS at every run count (frames13
+  3.2 vs 5.4–9.5 ms). In a fresh process (dcuibench without `--warm`) frames13's total went 13.5 → 10.6 ms (JS 8.7–9.3).
+- Left: at 100 runs V8 has the read and build fully compiled and stays 15–25 % ahead on open + build of the models
+  above the sample: what remains is serde_json's maps (SipHash keys, an allocation per key) for every member,
+  connection, footing and param in the state, which the rest of the app reads; typed footings in the read and a
+  state kept typed are the next steps.
+- Parity (0 differences): dcuidiff and dcuidiff-detailfin on the sample, frames13 and grid10x6x4 and every step file
+  (place, all-conn, all-edit, all-setup, drag, drawings), en and es-MX: 15 runs, 1,312 comparisons identical; dcdiff
+  seeds 1–8 exact, 44,589 calls (the engine harness speaks en only); mcuidiff-modelfin with every flag (`--edit
+  --lights --play --terrain --starter --keys`): en and es-MX 1320 / 1320 status lines and
+  1285 / 1285 files each; with the crash's flags (`--edit --terrain --starter --keys`) 1320 / 1320 and 1292 / 1292 each,
+  arc.skp seed 3 through in 45 s (0.5's intersect of that grid still throws its Set limit, the known case). The web edition built and loaded in Chromium (`?detail`,
+  `?sample`, no errors).
+
 ## 2026-11-05 — M17.16–M17.19 the 0.7 look, the rest of gaps item 12: section heads, dialogs, kept snap settings (agent, work/look07b)
 
 - M17.16 panel sections in every app as 0.5 / 0.7's CSS draws them (`.x-sec`, `.x-h`): `shell::h` (15 px bold at
