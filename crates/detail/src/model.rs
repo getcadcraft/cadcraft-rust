@@ -1467,7 +1467,7 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
     let mut dropped_c = 0usize;
     for c in list_of(j.get("connections"), 20000) {
         let ty = field(Some(c), "type").and_then(Value::as_str).unwrap_or("");
-        let base = field(Some(c), "type").and_then(Value::as_str).and_then(defaults_of);
+        let base = field(Some(c), "type").and_then(Value::as_str).and_then(crate::connections::defaults_ref);
         let Some(base) = base else {
             dropped_c = dropped_c.saturating_add(1);
             continue;

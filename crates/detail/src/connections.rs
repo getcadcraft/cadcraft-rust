@@ -39,6 +39,15 @@ pub fn defaults_of(kind: &str) -> Option<Value> {
     })
 }
 
+/// [`defaults_of`] made once per kind (S.16: a model's read copies them instead of building each one again).
+pub fn defaults_ref(kind: &str) -> Option<&'static Value> {
+    static KINDS: std::sync::OnceLock<Vec<(&'static str, Value)>> = std::sync::OnceLock::new();
+    let all = KINDS.get_or_init(|| {
+        ["endplate", "sheartab", "baseplate", "splice", "gusset"].into_iter().filter_map(|k| defaults_of(k).map(|v| (k, v))).collect()
+    });
+    all.iter().find(|(k, _)| *k == kind).map(|(_, v)| v)
+}
+
 /// AISC Design Guide 1, 2nd ed., Table 2.3: [rod, hole, min. washer, min. washer thickness] (in).
 pub const DG1_TABLE_2_3: [[f64; 4]; 8] = [
     [0.75, 1.0 + 5.0 / 16.0, 2.0, 0.25],

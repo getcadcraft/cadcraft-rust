@@ -34,6 +34,100 @@ Newest first. One entry per working session: what was done, numbers, what is nex
 - Shots: forks/lead/shots/look07b/{before,after,ref,sbs} (sbs/<app>.png: before | after | 0.7; sbs/dlg/*.png).
 - Plain English (no 0.5 key): Settings' "Global" tab.
 
+## 2026-11-05 — S.9–S.14 Speed: no operation left under the frozen 0.5 JS in the listed spots (agent, work/speedfin)
+
+- Method: perf (cpu-clock, frame pointers, `--profile profiling`, samples symbolised with speed2's prof.py / lines.py);
+  timings best of 3–20 on this workstation, "before" = a release build of main 05b7c97 run in the same session,
+  interleaved with "after" (the load moved between 3 and 15: compare within a row). Two things learnt on the way: a
+  process that has started threads runs glibc's allocator off its single-thread fast path (allocation-heavy steps
+  25–60 % slower), and Rayon's workers spin for a while after a parallel step, slowing what is timed right after it;
+  so the CLI and the headless shot start no threads up front (only the desktop window warms Rayon's pool, it has
+  threads anyway), and mcbench / mcacts wait for the open's background frees and 100 ms before timing edits.
+- S.9 CadCraft's display (cc-cad-geom display.rs): the full build checked stale objects by a scan per object (n²),
+  copied every object for the walk, hashed layer names with SipHash per object and walked layer by layer on one
+  thread. Now: one pass marks what is stale, the walk runs in runs of 32 objects on Rayon's threads (each run's
+  pieces and the cache's copies made there), each layer group's batches are merged on its own thread, the cache is
+  keyed with the id hasher and reserved, blocks whose object list the cache saw are compared by pointer
+  (`same_blocks`), and the walker's layer / linetype / block lookups no longer make a String per object. Test
+  `the_threaded_cache_draws_what_a_full_walk_draws` (3,000 objects, four layers, edits, undo).
+- S.10 the DWG view (BimCraft 0.5's Properties and equipment schedule): cc-cad `js::to_fixed` decides the tie of
+  half-up rounding from the binary exponent (|x|·10^f is a tie only when x = m·2^−(f+1), m odd) and otherwise formats
+  once with Rust's correctly rounded `{:.f}` (was 25 extra digits and a look at the tail); `Obj::get_at` (cc-io-dwg)
+  looks first where the key was in the previous object of the run (the reader writes a kind's keys in one order;
+  keys are unique, so it is the key `get` finds) for the schedule's and Properties' attributes; a reference's
+  visibility state is worked out once per (block, definition). Tests: to_fixed against the exact expansion with exact
+  halves at every place count added.
+- S.11 ModelCraft and CadCraft's 3D tab (cc-m3d, cc-ui-egui model3d / modelcraft, cc-engine): the view decodes a
+  model's pictures on Rayon's threads and shows them when they come in the window (`ImgCache::background`, as a
+  browser's image onload; headless shots and renders decode in the call), in runs no bigger than the layers left so
+  the same pictures get layers; the 256² box filter sums row slices (`picture_layer_rows_match_pixel_by_pixel`);
+  the scene's meshes are made in parallel (a definition's snapshot entry is now `Arc` + `OnceLock`, so `Def` is
+  Send + Sync, asserted); smooth normals are keyed by ids, not "fid|v" text; m3d's `to_fixed` / `toPrecision` skip
+  the 1100-digit expansion unless the binary exponent says tie (`fixed_and_precision_fast_paths_match_the_exact_
+  expansion`); the file's JSON tree is freed on a thread. The 3D tab (0.5's older model.js restores the whole model
+  from its snapshot string on every preview and abort): `def_of_view` reads a definition straight from its snapshot
+  part as defFromJSON reads its JSON (same definition or same first error: `def_of_view_reads_as_the_text_does`,
+  20,000 random and broken definitions × File / Plain), the preview's start is read from its Snap's parts, a string
+  read twice keeps what it gave, undo of structural parts goes the same way, and UNDO / REDO bring the tab's model
+  along at once (Model3D.onUndo) instead of at the next 3D step. `cadcraft-cli cmds --best N` runs a script N times
+  in one process (as the JS harness's runs share a Node process); tools/cad3dbench-speedfin.mjs uses it.
+- S.12 point clouds (cc-io-civil, cc-engine cloud.rs): colours by height / intensity in runs of 64k points on
+  Rayon's threads; a redraw of the same size clears only the rows the last picture touched, an empty pixel needs no
+  depth (so depths are never cleared), and fewer than 65,536 points draw on one thread. Test
+  `a_redraw_clears_what_the_last_picture_drew`.
+- S.13 BimCraft's residential tools: timed for the first time against the JS (tools/bmrestooldiff-speedfin.mjs
+  `--time R`: every step in the JS and in `cadcraft-cli bimdraw --time`, a second run in the process, best of R,
+  summed per tool). dropTree / dropProduct read a line's class and handles without making its attribute values
+  (`Api::line_refs`; a TIN's point list is thousands of them), relationships that name none of the dropped lines are
+  skipped unread, and lines about to be deleted are journaled without being made twice (`touch_only`).
+- S.14 DetailCraft: a model's read takes each connection's defaults from a table made once (small gain; see below).
+- Parity (0 differences, the bar): kdiff seeds 1, 7 (en), 1 (es-MX) 5250 / 5250 each and seeds 2–4 × 24 scripts
+  7490 / 7490 each (3D tab inputs included), the same report as main's build; idiff kit 78 files 0 differences;
+  plotdiff 1128 / 1128; dwgviewdiff 29 / 29 en and es-MX; mcuidiff-modelfin `--edit --lights --play` 1320 / 1320
+  status lines, 1250 / 1250 files; with `--terrain --starter --keys --lang es-MX` 1280 / 1280 and 1253 / 1253 (arc.skp
+  seed 3 is killed by the OOM killer on main's build too: a 0.05" terrain grid walk; reported, not fixed here); mdiff
+  640 / 640, cases 1247 / 1247; tdiff all sections; iodiff 801 / 801; bmuidiff 2568 / 2568 steps and 418 / 418 IFC
+  files, bmresdiff 296 / 296 and 61 / 61, bmrestooldiff 304 / 304 and 74 / 74, each in en and es-MX; cvtooldiff 156 /
+  156 projects, 4812 / 4812 status lines, 46 / 46 files; tkopsdiff 77 checks, 292 / 292 status lines; dcdiff seeds 1–2
+  11,149 calls 0 differ; pcbench clouds identical.
+- Timings, ms (before / after / frozen 0.5 JS, × = JS / after):
+
+  | spot | before | after | JS | × |
+  |---|---:|---:|---:|---:|
+  | CadCraft full display build, ar1all OVERALL PLAN (dashbench) | 91.7 | 26.7 | 46.8 | 1.75 (was 0.51) |
+  | … Carey Foodservice | 97.3 | 26.0 | 31.6 | 1.2 (was 0.32) |
+  | … kitchen sample | 2.78 | 1.52 | 2.3 | 1.5 (was 0.8) |
+  | … one edit, ar1all / Carey | 18.0 / 31.2 | 9.6 / 10.8 | 46.8 / 31.6 | 4.9 / 2.9 |
+  | DWG view Properties ×2000 picks, Carey (dwgviewbench) | 4.64 | 3.01 | 3.99 | 1.3 (was 0.86) |
+  | … ar1all | 6.05 | 2.94 | 4.98 | 1.7 (was 0.82) |
+  | … equipment schedule, Carey / its CSV | 8.25 / 7.22 | 6.58 / 6.56 | 9.02 / 8.77 | 1.4 / 1.3 |
+  | ModelCraft open pimeta.modelcraft, with the view's meshes (mcuidiff --bench) | 17.8 | 11.6 | 11.1 | 1.0 (was 0.6) |
+  | … its parse + load alone (what the JS times) | 8.3 | 8.0–8.5 | 10–11 | 1.3 |
+  | … capilla_quiroz_v17.skp | 7.4 | 1.8 | 4.6 | 2.6 (was 0.5) |
+  | … m3d-50k-faces / coedge SKP | 77.3 / 244 | 58.4 / 150 | 104 / 696 | 1.8 / 4.6 |
+  | 3D tab PRESSPULL, pick a face, type 3 (cad3dbench-speedfin, 400 solids) | 13.6 | 5.4 | 11.1 | 2.0 (was 0.6) |
+  | … MOVE @20,0 / COPY then 3x | 12.6 / 16.3 | 5.5 / 7.8 | 17.9 / 24.3 | 3.2 / 3.1 |
+  | … ZOOM after UNDO ×3 / UNDO ×3 | 2.0 / 0.0 | 0.5 / 0.8 | 0.9 / 10.5 | 1.8 / 12.5 |
+  | … open the tab | 1.1 | 1.1 | 1.1 | 1.0 |
+  | Point cloud colours by height, 10.6 M read (pcbench) | 22.9 | 3.7 | 20.3 | 5.3 (was 0.9) |
+  | … slice draw, 44k-point room scan | 1.2 | 0.2 | 0.8 | 3.3 (was 0.7) |
+  | … first draw in the process, room scan | 8.2 | 4.8 | 5.8 | 1.2 (was 0.7) |
+  | BimCraft removeTerrain (bmrestooldiff-speedfin --time 3) | — | 1.99 | 2.17 | 1.1 (was 0.6 when first timed) |
+  | … every other residential tool and op (52 kinds) | — | | | 1.5–12.7 |
+  | TakeoffCraft copy + paste in place, 251 marks (tkactbench) | 0.6 | 0.6 | 1.2 | 2.0 |
+  | MarkupCraft render at 2×, plan-set-200 (mkbench) | — | 84.2 | 91.9 | 1.1 (was 0.95) |
+
+- Slower than before, with the reason (CLAUDE.md §11): ModelCraft's panel edits timed right after an open run 25 %
+  slower than main's build (50k faces 25.6 → 31.8 ms, still 4.6× the JS): the open now builds meshes on worker
+  threads, which takes the process off glibc's single-thread allocator path; the desktop window is multi-threaded
+  from its start, so its edits are unchanged. DetailCraft open + build totals unchanged (grid24x12x5 1.1×).
+- Left under the JS: DetailCraft's model read is 4–5× the JS's (serde_json maps for every member and connection; a
+  typed reader is the fix), so the sample and frames13 open + build totals stay at 0.3× / 0.6× (they are also timed in
+  a fresh process against the JS warm); the DWG view's equipment scan of a drawing without equipment (ar1all) is
+  0.07 vs 0.06 ms (one cache miss per object on both sides); point cloud first draws and the 3D tab's open sit at
+  1.0–1.2×. Harness copies to adopt at merge: tools/bmrestooldiff-speedfin.mjs (`--time`), tools/cad3dbench-speedfin
+  .mjs (`--best`); new: tools/dwgviewbench-speedfin.mjs.
+
 ## 2026-11-04 — M16.17 Studio Live's last 0.5 pieces: host handoff, one-time codes, CadCraft's in-drawing extras, the same-file join (agent, work/livextras)
 
 - Host handoff in the Live window (every app, the shared core): the host's people list has Hand over… for each editor

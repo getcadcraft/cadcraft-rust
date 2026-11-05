@@ -122,6 +122,8 @@ under load, so ±30 %): m3d-50k-faces open 1,603 / 1,299, panel edits 1,893 / 20
 check 1,894 / 523 (3.6×); coedge_orientation_regression.skp (5.5 MB) open 13,217 / 6,091 (2.2×), edits 7,777 / 494
 (16×), save 1,077 / 190 (5.7×), print check 40,000 / 9,589 (4.2×); pimeta.modelcraft open 97 / 322 (0.3×: the app also
 builds the view's meshes and Tools, the JS timing is parse + load only), save 7.7 / 4.4, print check 7,091 / 1,497.
+S.11 (2026-11-05, workstation): pimeta open 11.1 / 11.6 with the view's meshes (1.0×; parse + load 1.3×), capilla
+4.6 / 1.8 (2.6×), the 50k-face model 104 / 58 (1.8×).
 
 **3D viewport (M6 groundwork)** — `cadcraft-shot demo3d`: 1,002,264 triangles / 83,522 instances at x = 500 000,
 y = 4 000 000 draw in 284–308 ms per orbit frame on this server's software rasteriser (no GPU here); the CPU side of an
@@ -129,6 +131,7 @@ orbit frame is one uniform write (instances uploaded once per scene).
 
 ## Progress log
 
+- 2026-11-05 S.9–S.14: the spots under the frozen 0.5 JS fixed: CadCraft's full display build 0.3–0.5× → 1.2–1.75× (threaded walk and merge), the DWG view's Properties 0.8× → 1.3–1.7×, ModelCraft small files 0.5–0.6× → 1.0–2.6× (pictures decoded aside, meshes in parallel), the 3D tab's PRESSPULL 0.6× → 2.0× (definitions read from snapshot parts without JSON), point cloud colours 0.9× → 5.3× and slices 0.7× → 3.3×, BimCraft's residential tools timed (1.1–12.7×); every harness at 0 differences in en and es-MX.
 - 2026-11-04 M14.5–M14.8, M16.12: DetailCraft edits on grid24x12x5 at 1.3–2× the JS (drag 0.9× → 1.6×, duplicate everything 72 s → 0.37 s; dcdiff 44,589 calls, 0 differences), bolts picked in 3D select their connection, the shop drawing dialog, `?detail` in the web build with a Chromium load test (and a stale-3D-scene fix), the Live window in 0.5 Studio's words.
 - 2026-11-04 M14.4, M16.9–M16.11: DetailCraft's drag, view cube, exact cuts, Drawings dialog with issue log, kept settings (1,124 comparisons, 0 differences); Studio Live's network side (session server, SPAKE2 + sealed frames, LAN WebSocket; 0.5's JS suites pass against it) and DetailCraft co-editing with the 0.5 page; view_screenshot and DetailCraft's live tools.
 - 2026-11-04 M7.20–M7.24: BimCraft's Build menu (roof plane, foundation, countertop, stair, railing, framing, terrain, pad, paving, section line, electrical), Sheets, Takeoff, IFC equipment schedule, Library credits; bmrestooldiff 304/304 steps, 74/74 IFC byte-identical, sheet and takeoff PDFs byte-identical, en and es-MX.
