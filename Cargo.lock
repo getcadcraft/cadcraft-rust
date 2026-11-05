@@ -510,6 +510,7 @@ dependencies = [
  "libm",
  "miniz_oxide 0.8.9",
  "rayon",
+ "serde",
  "serde_json",
 ]
 

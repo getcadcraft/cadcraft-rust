@@ -296,6 +296,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "detail_read_typed"
+path = "fuzz_targets/detail_read_typed.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "part_read"
 path = "fuzz_targets/part_read.rs"
 test = false

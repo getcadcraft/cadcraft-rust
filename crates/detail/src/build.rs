@@ -114,7 +114,7 @@ pub struct BuiltFooting {
 #[derive(Clone, Debug, Default)]
 pub struct Built {
     pub parts: Vec<Part>,
-    pub by_id: HashMap<String, usize>,
+    pub by_id: HashMap<String, usize, cc_m3d::omap::FxBuild>,
     pub bolts: Vec<Bolt>,
     pub welds: Vec<Weld>,
     pub footings: Vec<BuiltFooting>,
@@ -137,6 +137,8 @@ pub fn build(state: &Value) -> Res<Built> {
     let conns = crate::state::conns(state);
     let mut problems = Vec::new();
     let mut drafts = Drafts::default();
+    drafts.list.reserve(members.len());
+    drafts.by.reserve(members.len());
     for m in members {
         let Some(profile) = get_profile_str(&m.profile, custom) else {
             problems.push(BProblem {
@@ -163,11 +165,19 @@ pub fn build(state: &Value) -> Res<Built> {
         "gusset" => build_gusset(c, &drafts, &conns),
         _ => Made { built: false, problems: vec![t0("build.err.connection")], ..Made::default() },
     });
-    for (c, r) in conns.iter().zip(made) {
+    // room for what the connections made, at once
+    let total = |f: fn(&Made) -> usize| made.iter().filter(|r| r.built).map(f).sum::<usize>();
+    plates.reserve(total(|r| r.plates.len()));
+    world_holes.reserve(total(|r| r.holes.len()));
+    bolts.reserve(total(|r| r.bolts.len()));
+    welds.reserve(total(|r| r.welds.len()));
+    let mut spent = Vec::with_capacity(made.len());
+    for (c, mut r) in conns.iter().zip(made) {
         for text in &r.problems {
             problems.push(BProblem { r#ref: Some(c.id.clone()), text: text.clone(), hard: Some(!r.built) });
         }
         if !r.built {
+            spent.push(r);
             continue;
         }
         for s in &r.setbacks {
@@ -178,19 +188,21 @@ pub fn build(state: &Value) -> Res<Built> {
                 }
             }
         }
-        for p in r.plates {
+        for p in r.plates.drain(..) {
             plates.push((p, c.id.clone()));
         }
-        for h in r.holes {
+        for h in r.holes.drain(..) {
             world_holes.push((h, c.id.clone()));
         }
         let phase = drafts.get(c.main_of()).map_or(1.0, |d| d.m.phase1());
-        for mut b in r.bolts {
+        for mut b in r.bolts.drain(..) {
             b.phase = phase;
             bolts.push(b);
         }
-        welds.extend(r.welds);
+        welds.append(&mut r.welds);
+        spent.push(r);
     }
+    drop(spent);
 
     let mut out = Built::default();
     let finish = |out: &mut Built, part: Part| {

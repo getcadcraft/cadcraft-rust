@@ -230,7 +230,12 @@ impl Starters {
 impl Footing {
     /// The fields `cleanFooting` returns, in its order.
     pub fn fields(&self) -> Map<String, Value> {
-        let mut m = Map::new();
+        let mut m = Map::with_capacity(10);
+        self.fields_into(&mut m);
+        m
+    }
+    /// [`Footing::fields`] put into an object being made.
+    pub fn fields_into(&self, m: &mut Map<String, Value>) {
         for (k, v) in
             [("x", self.x), ("y", self.y), ("top", self.top), ("L", self.l), ("B", self.b), ("H", self.h), ("rotation", self.rotation)]
         {
@@ -239,7 +244,6 @@ impl Footing {
         m.insert("concrete".into(), Value::from(self.concrete.clone()));
         m.insert("mat".into(), self.mat.j());
         m.insert("starters".into(), self.starters.j());
-        m
     }
     /// A stored footing (validated by the model) read back.
     pub fn from_value(v: &Value) -> Footing {

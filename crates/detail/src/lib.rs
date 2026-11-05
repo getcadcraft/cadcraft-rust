@@ -47,6 +47,7 @@ pub mod nest;
 pub mod paper;
 pub mod pdf;
 pub mod profiles;
+pub mod read_typed;
 pub mod rebar;
 pub mod report;
 pub mod sample;

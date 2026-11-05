@@ -156,6 +156,15 @@ pub fn strip_c0(s: &str) -> String {
 }
 /// `String(s ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, max)` — model.js `cleanText`.
 pub fn clean_text(v: Option<&Value>, max: usize) -> String {
+    // a word with nothing to strip, trim or cut is itself (controls are single bytes in UTF-8; a string of at most
+    // `max` bytes has at most `max` UTF-16 units)
+    if let Some(Value::String(s)) = v
+        && s.len() <= max
+        && !s.bytes().any(|b| b < 0x20 || b == 0x7f)
+        && trim(s).len() == s.len()
+    {
+        return s.clone();
+    }
     slice16(trim(&strip_controls(&string_or_empty(v))), max)
 }
 /// `cleanText` of a Rust string.
@@ -289,13 +298,21 @@ pub fn g3<T: Copy + Default, const N: usize>(a: [T; N], i: usize) -> T {
 /// A thrown error's message.
 pub type Res<T> = Result<T, String>;
 
+/// The fewest items one of [`par_map`]'s threads takes.
+#[cfg(not(target_arch = "wasm32"))]
+const PAR_MIN: usize = 128;
 /// `items.map(f)` in order; on the desktop the items are worked on in parallel (rayon), in the browser one by one.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {
     use rayon::prelude::*;
     // the workers speak the caller's language (problem texts made on them)
+    // S.15: in runs of PAR_MIN or more, and on this thread when there are fewer than two runs (waking Rayon's
+    // threads for a small model took longer than the work: the sample's build 0.87 → 0.08 ms)
+    if items.len() < PAR_MIN.saturating_mul(2) {
+        return items.iter().map(f).collect();
+    }
     let l = cc_lang::locale();
-    items.par_iter().map(|x| cc_lang::with(l, || f(x))).collect()
+    items.par_iter().with_min_len(PAR_MIN).map(|x| cc_lang::with(l, || f(x))).collect()
 }
 #[cfg(target_arch = "wasm32")]
 pub fn par_map<T: Sync, R: Send>(items: &[T], f: impl Fn(&T) -> R + Sync + Send) -> Vec<R> {

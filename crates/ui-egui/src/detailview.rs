@@ -69,6 +69,12 @@ pub const COMMANDS: &[(&str, &str, &str, &str)] = &[
     ("detail.tab", "Report tab", "", "{name: problems|bom|clashes|phases|bending|nest}"),
     ("detail.camera", "3D view direction", "", "{name: iso|top|front|back|left|right}"),
     ("detail.timings", "Timings", "", "{} → the status line lists the last open / build / edit / select / scene times in ms"),
+    (
+        "detail.bench",
+        "Time open and build",
+        "",
+        "{factor?: runs (1…200, default 20)} → the model's own file read and built that many times after a warm-up, best of each step in ms (as the JS is timed: warm, in one process); the model is unchanged",
+    ),
     ("detail.tool", "Tool", "V B C R P F S M", "{name: select|beam|column|brace|plate|footing|stair|move|paste} → detailcraft.js setTool"),
     (
         "detail.node",
@@ -476,6 +482,40 @@ impl DetailView {
             Some(slot) => slot.1 = v,
             None => self.timings.push((k, v)),
         }
+    }
+
+    /// `detail.bench`: the model's file (toJSON) read (`Model.load`) and built (build → marks → footing marks →
+    /// bending schedule), a warm-up and then `runs` times, best of each step in ms. dcuibench times the JS so.
+    pub fn bench(&self, runs: usize) -> String {
+        let text = Value::String(self.model.to_json());
+        let mut best = [f64::INFINITY; 3];
+        for r in 0..=runs {
+            let t0 = web_time::Instant::now();
+            let mut m = Model::default();
+            if let Err(e) = m.load(&text) {
+                return e;
+            }
+            let t1 = web_time::Instant::now();
+            let built = cc_detail::build::build(&m.state).unwrap_or_default();
+            let t2 = web_time::Instant::now();
+            let st = &m.state;
+            let per_phase = st.get("numbering").and_then(|n| n.get("perPhase")) != Some(&Value::Bool(false));
+            let marks = cc_detail::marks::mark_parts(&built, 1.0, per_phase);
+            let footings = cc_detail::js::arr(st.get("footings"));
+            let fm = cc_detail::marks::mark_footings(footings, per_phase);
+            let typed: Vec<cc_detail::rebar::Footing> = footings.iter().map(cc_detail::rebar::Footing::from_value).collect();
+            let sched = cc_detail::rebar::bending_schedule(&typed);
+            let t3 = web_time::Instant::now();
+            drop((built, marks, fm, sched, m));
+            if r == 0 {
+                continue;
+            }
+            for (b, v) in best.iter_mut().zip([t1 - t0, t2 - t1, t3 - t2]) {
+                *b = b.min(v.as_secs_f64() * 1000.0);
+            }
+        }
+        let [o, b, k] = best;
+        format!("bench {runs}: open {o:.3} · build {b:.3} · marks {k:.3} · open+build {:.3} · total {:.3}", o + b, o + b + k)
     }
 
     pub fn timings_text(&self) -> String {
@@ -1575,6 +1615,13 @@ pub fn run(app: &mut UiApp, id: &str, params: &Params) -> Result<(), String> {
         "detail.timings" => {
             dv.sync_scene();
             dv.message = dv.timings_text();
+        }
+        "detail.bench" => {
+            let runs = params.factor.unwrap_or(20.0);
+            if !(1.0..=200.0).contains(&runs) {
+                return Err("detail.bench: factor = runs, 1…200".into());
+            }
+            dv.message = dv.bench(runs as usize);
         }
         "detail.save" | "detail.export" => {
             let spec = if id == "detail.save" { "project".to_string() } else { name };

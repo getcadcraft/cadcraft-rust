@@ -379,17 +379,42 @@ pub fn get_profile_str(name: &str, custom: &[Value]) -> Option<P> {
     if let Some((a, b)) = pl_match(trim(name)) {
         let (tk, w) = (str_to_number(&a), str_to_number(&b));
         if tk > 0.0 && w > 0.0 && tk <= 500.0 && w <= 5000.0 {
-            let mut p =
-                Shape { name: plate_name(tk, w), family: "PL".into(), kind: "PL".into(), source: "param".into(), ..Shape::default() };
-            p.t = Some(tk);
-            p.b = Some(w);
-            return Some(Arc::new(with_derived(p)));
+            return Some(plate_profile(tk, w));
         }
         return None;
     }
     let c = find()?;
     let flat = s(c.get("kind")) == "FLAT";
     Some(Arc::new(with_derived(shape_of_custom(c, if flat { Some("PL") } else { None }))))
+}
+
+/// A parametric plate `PL<t>x<w>` (S.15: made once per thread and size; a build asks for the same few plates for
+/// every connection, and its outline, area and mass depend on the two numbers alone).
+fn plate_profile(tk: f64, w: f64) -> P {
+    type Plates = HashMap<(u64, u64), P, cc_m3d::omap::FxBuild>;
+    thread_local! {
+        static PLATES: std::cell::RefCell<Plates> = std::cell::RefCell::new(Plates::default());
+    }
+    let make = || {
+        let mut p = Shape { name: plate_name(tk, w), family: "PL".into(), kind: "PL".into(), source: "param".into(), ..Shape::default() };
+        p.t = Some(tk);
+        p.b = Some(w);
+        Arc::new(with_derived(p))
+    };
+    let key = (tk.to_bits(), w.to_bits());
+    PLATES.with(|c| {
+        let mut c = c.borrow_mut();
+        if let Some(p) = c.get(&key) {
+            return p.clone();
+        }
+        // a cap on what one thread keeps
+        if c.len() >= 4096 {
+            c.clear();
+        }
+        let p = make();
+        c.insert(key, p.clone());
+        p
+    })
 }
 
 fn with_derived(p: Shape) -> Profile {

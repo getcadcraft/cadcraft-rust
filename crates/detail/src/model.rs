@@ -10,6 +10,7 @@ use crate::js::{
     stringify_indent, to_js_string, truthy, upper,
 };
 use crate::profiles::{clean_custom, get_profile};
+use crate::read_typed::{ConnSrc, MemberSrc, Src};
 use crate::rebar::{clean_footing, footing_defaults};
 use crate::stair::{clean_stair, stair_defaults};
 use crate::state::{is_beam_end_v, members_of_v};
@@ -225,16 +226,19 @@ pub fn clean_phase(v: Option<&Value>) -> Option<f64> {
 }
 fn with_used_phases(phases: &[Value], state: &Value) -> Vec<Value> {
     let mut out: Vec<Value> = phases.iter().map(|p| Value::Object(spread(Some(p), None))).collect();
+    // each phase's `n`, beside it (a member's phase is looked up in these, not in the objects' maps)
+    let mut ns: Vec<Option<Value>> = out.iter().map(|p| p.get("n").cloned()).collect();
     let all = arr(state.get("members")).iter().chain(arr(state.get("footings"))).chain(arr(state.get("stairs")));
     for x in all {
         let ph = x.get("phase");
-        if !out.iter().any(|p| strict_eq(p.get("n"), ph)) {
+        if !ns.iter().any(|n| strict_eq(n.as_ref(), ph)) {
             let mut o = Map::new();
             if let Some(v) = ph {
                 o.insert("n".into(), v.clone());
             }
             o.insert("name".into(), Value::from(""));
             out.push(Value::Object(o));
+            ns.push(ph.cloned());
         }
     }
     out.sort_by(|a, b| crate::js::ord(num(a.get("n")) - num(b.get("n"))));
@@ -473,7 +477,7 @@ fn vec3(p: Option<&Value>) -> Res<Value> {
         Some(Value::Array(a)) if a.len() == 3 => a,
         _ => return Err(t0("model.err.point")),
     };
-    let v: Vec<f64> = a.iter().map(|x| num(Some(x))).collect();
+    let v = [num(a.first()), num(a.get(1)), num(a.get(2))];
     if v.iter().any(|x| !x.is_finite() || x.abs() > 1e7) {
         return Err(t0("model.err.coords"));
     }
@@ -606,38 +610,47 @@ pub fn clean_issue(x: &Value) -> Option<Map<String, Value>> {
     Some(out)
 }
 fn clean_hole(h: Option<&Value>) -> Option<Map<String, Value>> {
-    let h = h.filter(|h| truthy(Some(h)))?;
-    if !includes(&["web", "top", "bottom", "plate"], field(Some(h), "face")) {
+    clean_hole_s(h?)
+}
+fn clean_hole_s<S: Src>(h: &S) -> Option<Map<String, Value>> {
+    if !h.truthy() {
         return None;
     }
-    let (x, y, d) = (num(field(Some(h), "x")), num(field(Some(h), "y")), num(field(Some(h), "d")));
+    if !includes(&["web", "top", "bottom", "plate"], h.get("face")) {
+        return None;
+    }
+    let (x, y, d) = (num(h.get("x")), num(h.get("y")), num(h.get("d")));
     if ![x, y, d].iter().all(|v| v.is_finite()) || d <= 0.0 || d > 200.0 || x.abs() > 1e6 || y.abs() > 1e4 {
         return None;
     }
     let mut o = Map::new();
-    o.insert("face".into(), field(Some(h), "face").cloned().unwrap_or(Value::Null));
+    o.insert("face".into(), h.get("face").cloned().unwrap_or(Value::Null));
     o.insert("x".into(), n(x));
     o.insert("y".into(), n(y));
     o.insert("d".into(), n(d));
     Some(o)
 }
 fn clean_cut(c: Option<&Value>) -> Option<Map<String, Value>> {
-    let c = c.filter(|c| truthy(Some(c)))?;
-    let co = Some(c);
-    if field(co, "kind").and_then(Value::as_str) != Some("cope")
-        || !includes(&["start", "end"], field(co, "end"))
-        || !includes(&["top", "bottom"], field(co, "side"))
+    clean_cut_s(c?)
+}
+fn clean_cut_s<S: Src>(c: &S) -> Option<Map<String, Value>> {
+    if !c.truthy() {
+        return None;
+    }
+    if c.get("kind").and_then(Value::as_str) != Some("cope")
+        || !includes(&["start", "end"], c.get("end"))
+        || !includes(&["top", "bottom"], c.get("side"))
     {
         return None;
     }
-    let (length, depth) = (num(field(co, "length")), num(field(co, "depth")));
+    let (length, depth) = (num(c.get("length")), num(c.get("depth")));
     if !(length > 0.0 && length < 1e5 && depth > 0.0 && depth < 5000.0) {
         return None;
     }
     let mut o = Map::new();
     o.insert("kind".into(), Value::from("cope"));
-    o.insert("end".into(), field(co, "end").cloned().unwrap_or(Value::Null));
-    o.insert("side".into(), field(co, "side").cloned().unwrap_or(Value::Null));
+    o.insert("end".into(), c.get("end").cloned().unwrap_or(Value::Null));
+    o.insert("side".into(), c.get("side").cloned().unwrap_or(Value::Null));
     o.insert("length".into(), n(length));
     o.insert("depth".into(), n(depth));
     Some(o)
@@ -1330,14 +1343,33 @@ impl Tx<'_> {
 
 /// `readModel(text)` → (state, warnings), or the refusal.
 pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
-    let parsed;
-    let j: &Value = match input {
-        Value::String(text) => {
-            parsed = parse(text).map_err(|_| t0("model.err.not-json"))?;
-            &parsed
-        }
-        v => v,
-    };
+    // S.15: a file's text is read typed (members and connections straight into their fields); text that is not a
+    // JSON object, or that the typed read refuses, is read as JSON below, which gives the same result or error
+    if let Value::String(text) = input
+        && let Some(f) = crate::read_typed::parse_file(text)
+    {
+        let j = Value::Object(f.rest);
+        return read_core(&j, &f.members.0, &f.connections.0);
+    }
+    match input {
+        Value::String(text) => read_model_json(text),
+        j => read_value(j),
+    }
+}
+
+/// readModel of a file's text through the JSON tree (the whole text parsed into values, then read): what the typed
+/// read is checked against (tests, fuzz target `detail_read_typed`), and the route for text it refuses.
+pub fn read_model_json(text: &str) -> Res<(Value, Vec<String>)> {
+    let j = parse(text).map_err(|_| t0("model.err.not-json"))?;
+    read_value(&j)
+}
+
+fn read_value(j: &Value) -> Res<(Value, Vec<String>)> {
+    read_core(j, list_of(j.get("members"), 20000), list_of(j.get("connections"), 20000))
+}
+
+/// readModel after the parse: `j` the file's fields (members and connections given apart, already capped).
+fn read_core<M: MemberSrc, C: ConnSrc>(j: &Value, members_in: &[M], conns_in: &[C]) -> Res<(Value, Vec<String>)> {
     if !truthy(Some(j)) || j.get("format").and_then(Value::as_str) != Some(FORMAT) {
         return Err(t0("model.err.not-model"));
     }
@@ -1383,76 +1415,80 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
             _ => warnings.push(t0("model.warn.profile")),
         }
     }
-    let mut ids: Vec<String> = Vec::new();
-    let mut id_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // the largest number after an id's letter (readModel's seq scan over the ids kept, made as they are kept)
+    let mut max_seq = 0.0;
+    // every kept id is a letter and digits (the check below, or made so): kept as a number, no copy of the text
+    let mut id_set: std::collections::HashSet<u128, cc_m3d::omap::FxBuild> = std::collections::HashSet::default();
+    id_set.reserve(members_in.len().saturating_add(conns_in.len()));
     let mut uid = |id: Option<&Value>, prefix: &str| -> String {
         let mut v = clean_text(id, 20);
-        let ok = {
-            let mut cs = v.chars();
-            cs.next().is_some_and(|c| c.is_ascii_lowercase()) && {
-                let rest: Vec<char> = cs.collect();
-                !rest.is_empty() && rest.iter().all(char::is_ascii_digit)
-            }
+        // /^[a-z]\d+$/ (a letter, then ASCII digits: bytes are enough)
+        let ok = match v.as_bytes() {
+            [c, rest @ ..] => c.is_ascii_lowercase() && !rest.is_empty() && rest.iter().all(u8::is_ascii_digit),
+            [] => false,
         };
-        if !ok || id_set.contains(&v) {
+        if !ok || id_key(&v).is_none_or(|k| id_set.contains(&k)) {
             v = format!("{prefix}{}", 100_000usize.saturating_add(id_set.len()));
         }
-        if id_set.insert(v.clone()) {
-            ids.push(v.clone());
+        if let Some(k) = id_key(&v)
+            && id_set.insert(k)
+        {
+            // every kept id starts with one ASCII letter
+            let rest = v.get(1..).unwrap_or("");
+            max_seq = crate::js::max(max_seq, crate::js::or(str_to_number(rest), 0.0));
         }
         v
     };
     let mut members: Vec<Value> = Vec::new();
     let mut dropped = 0usize;
-    for m in list_of(j.get("members"), 20000) {
-        if m.is_null() {
+    for m in members_in {
+        if Src::is_null(m) {
             dropped = dropped.saturating_add(1);
             continue;
         }
-        let mo = Some(m);
-        let mut mem = Map::new();
-        mem.insert("id".into(), Value::from(uid(field(mo, "id"), "m")));
-        let ty = if includes(&MEMBER_TYPES, field(mo, "type")) {
-            field(mo, "type").cloned().unwrap_or(Value::Null)
+        let mut mem = Map::with_capacity(12);
+        mem.insert("id".into(), Value::from(uid(Src::get(m, "id"), "m")));
+        let ty = if includes(&MEMBER_TYPES, Src::get(m, "type")) {
+            Src::get(m, "type").cloned().unwrap_or(Value::Null)
         } else {
             Value::from("beam")
         };
         mem.insert("type".into(), ty);
-        mem.insert("profile".into(), Value::from(clean_text(field(mo, "profile"), 40)));
-        let mat = clean_text(field(mo, "material"), 30);
+        mem.insert("profile".into(), Value::from(clean_text(Src::get(m, "profile"), 40)));
+        let mat = clean_text(Src::get(m, "material"), 30);
         mem.insert("material".into(), Value::from(if mat.is_empty() { "A992".to_string() } else { mat }));
-        let (Ok(start), Ok(end)) = (vec3(field(mo, "start")), vec3(field(mo, "end"))) else {
+        let (Ok(start), Ok(end)) = (vec3(Src::get(m, "start")), vec3(Src::get(m, "end"))) else {
             // the end's uid calls never happen when start or end throws
             dropped = dropped.saturating_add(1);
             continue;
         };
         mem.insert("start".into(), start);
         mem.insert("end".into(), end);
-        mem.insert("rotation".into(), n(num_or0(field(mo, "rotation"))));
-        let pos = if includes(&["top", "middle", "bottom"], field(mo, "position")) {
-            field(mo, "position").cloned().unwrap_or(Value::Null)
+        mem.insert("rotation".into(), n(num_or0(Src::get(m, "rotation"))));
+        let pos = if includes(&["top", "middle", "bottom"], Src::get(m, "position")) {
+            Src::get(m, "position").cloned().unwrap_or(Value::Null)
         } else {
             Value::from("middle")
         };
         mem.insert("position".into(), pos);
-        mem.insert("name".into(), Value::from(clean_text(field(mo, "name"), 40)));
+        mem.insert("name".into(), Value::from(clean_text(Src::get(m, "name"), 40)));
         let mut cuts = Vec::new();
-        for c in list_of(field(mo, "cuts"), 50) {
-            if let Some(mut k) = clean_cut(Some(c)) {
-                k.insert("id".into(), Value::from(uid(field(Some(c), "id"), "k")));
+        for c in m.list("cuts", 50) {
+            if let Some(mut k) = clean_cut_s(c) {
+                k.insert("id".into(), Value::from(uid(Src::get(c, "id"), "k")));
                 cuts.push(Value::Object(k));
             }
         }
         mem.insert("cuts".into(), Value::Array(cuts));
         let mut holes = Vec::new();
-        for h in list_of(field(mo, "holes"), 2000) {
-            if let Some(mut k) = clean_hole(Some(h)) {
-                k.insert("id".into(), Value::from(uid(field(Some(h), "id"), "h")));
+        for h in m.list("holes", 2000) {
+            if let Some(mut k) = clean_hole_s(h) {
+                k.insert("id".into(), Value::from(uid(Src::get(h, "id"), "h")));
                 holes.push(Value::Object(k));
             }
         }
         mem.insert("holes".into(), Value::Array(holes));
-        mem.insert("phase".into(), n(clean_phase(field(mo, "phase")).unwrap_or(1.0)));
+        mem.insert("phase".into(), n(clean_phase(Src::get(m, "phase")).unwrap_or(1.0)));
         match check_member(&mut mem, &profiles) {
             Ok(()) => members.push(Value::Object(mem)),
             Err(_) => dropped = dropped.saturating_add(1),
@@ -1461,68 +1497,69 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
     if dropped > 0 {
         warnings.push(t("model.warn.members", &[("n", F::N(dropped as f64))]));
     }
-    let member_ids: std::collections::HashSet<String> = members.iter().map(|m| s_(m.get("id")).to_string()).collect();
+    let member_ids: std::collections::HashSet<&str, cc_m3d::omap::FxBuild> = members.iter().map(|m| s_(m.get("id"))).collect();
     let has_member = |v: Option<&Value>| v.and_then(Value::as_str).is_some_and(|x| member_ids.contains(x));
     let mut conns = Vec::new();
     let mut dropped_c = 0usize;
-    for c in list_of(j.get("connections"), 20000) {
-        let ty = field(Some(c), "type").and_then(Value::as_str).unwrap_or("");
-        let base = field(Some(c), "type").and_then(Value::as_str).and_then(crate::connections::defaults_ref);
+    for c in conns_in {
+        let ty = Src::get(c, "type").and_then(Value::as_str).unwrap_or("");
+        let base = Src::get(c, "type").and_then(Value::as_str).and_then(crate::connections::defaults_ref);
         let Some(base) = base else {
             dropped_c = dropped_c.saturating_add(1);
             continue;
         };
-        if !members_of_v(c).iter().all(|id| has_member(*id))
-            || (ty == "splice" && strict_eq(c.get("a"), c.get("b")))
-            || (ty == "gusset" && strict_eq(c.get("brace"), c.get("support")))
+        if !members_of_s(c).iter().all(|id| has_member(*id))
+            || (ty == "splice" && strict_eq(Src::get(c, "a"), Src::get(c, "b")))
+            || (ty == "gusset" && strict_eq(Src::get(c, "brace"), Src::get(c, "support")))
         {
             dropped_c = dropped_c.saturating_add(1);
             continue;
         }
         let mut params = base.as_object().cloned().unwrap_or_default();
-        let given = field(Some(c), "params");
         if let Some(bo) = base.as_object() {
-            for (k, bv) in bo {
-                let Some(v) = field(given, k) else { continue };
+            // params is a copy of the defaults: the same keys in the same order
+            for ((k, bv), slot) in bo.iter().zip(params.values_mut()) {
+                let Some(v) = c.param(k) else { continue };
                 if bv.is_number() {
                     let x = num(Some(v));
                     if x.is_finite() && (0.0..=10000.0).contains(&x) {
-                        params.insert(k.clone(), n(x));
+                        *slot = n(x);
                     }
                 } else {
                     let cv = clean_text(Some(v), 30);
-                    params.insert(k.clone(), if cv.is_empty() { bv.clone() } else { Value::from(cv) });
+                    *slot = if cv.is_empty() { bv.clone() } else { Value::from(cv) };
                 }
             }
         }
-        let mut o = Map::new();
-        let end_of = |k: &str| Value::from(if c.get(k).and_then(Value::as_str) == Some("start") { "start" } else { "end" });
-        o.insert("id".into(), Value::from(uid(c.get("id"), "j")));
+        let mut o = Map::with_capacity(7);
+        let g = |k: &str| Src::get(c, k);
+        let end_of = |k: &str| Value::from(if g(k).and_then(Value::as_str) == Some("start") { "start" } else { "end" });
+        o.insert("id".into(), Value::from(uid(g("id"), "j")));
         match ty {
             "splice" => {
                 o.insert("type".into(), Value::from("splice"));
-                o.insert("a".into(), c.get("a").cloned().unwrap_or(Value::Null));
+                o.insert("a".into(), g("a").cloned().unwrap_or(Value::Null));
                 o.insert("aEnd".into(), end_of("aEnd"));
-                o.insert("b".into(), c.get("b").cloned().unwrap_or(Value::Null));
+                o.insert("b".into(), g("b").cloned().unwrap_or(Value::Null));
                 o.insert("params".into(), Value::Object(params));
             }
             "gusset" => {
                 o.insert("type".into(), Value::from("gusset"));
-                o.insert("brace".into(), c.get("brace").cloned().unwrap_or(Value::Null));
+                o.insert("brace".into(), g("brace").cloned().unwrap_or(Value::Null));
                 o.insert("end".into(), end_of("end"));
-                o.insert("support".into(), c.get("support").cloned().unwrap_or(Value::Null));
+                o.insert("support".into(), g("support").cloned().unwrap_or(Value::Null));
                 o.insert("params".into(), Value::Object(params));
             }
             _ => {
                 o.insert("type".into(), Value::from(ty));
-                if let Some(v) = c.get("column") {
+                if let Some(v) = g("column") {
                     o.insert("column".into(), v.clone());
                 }
                 o.insert("params".into(), Value::Object(params));
             }
         }
-        if is_beam_end_v(c) {
-            o.insert("beam".into(), c.get("beam").cloned().unwrap_or(Value::Null));
+        if is_beam_end_s(c) {
+            o.insert("beam".into(), g("beam").cloned().unwrap_or(Value::Null));
             o.insert("end".into(), end_of("end"));
         }
         conns.push(Value::Object(o));
@@ -1534,9 +1571,9 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
     for f in list_of(j.get("footings"), 5000) {
         match clean_footing(f) {
             Ok(r) => {
-                let mut o = Map::new();
+                let mut o = Map::with_capacity(12);
                 o.insert("id".into(), Value::from(uid(field(Some(f), "id"), "f")));
-                o.extend(r.fields());
+                r.fields_into(&mut o);
                 o.insert("phase".into(), n(clean_phase(field(Some(f), "phase")).unwrap_or(1.0)));
                 footings.push(Value::Object(o));
             }
@@ -1585,14 +1622,35 @@ pub fn read_model(input: &Value) -> Res<(Value, Vec<String>)> {
     let pp = field(j.get("numbering"), "perPhase").and_then(Value::as_bool) != Some(false);
     put(&mut s, "numbering", json!({ "perPhase": pp }));
     put(&mut s, "issues", Value::Array(list_of(j.get("issues"), 20000).iter().filter_map(clean_issue).map(Value::Object).collect()));
-    let mut max_seq = 0.0;
-    for id in &ids {
-        let rest: String = id.chars().skip(1).collect();
-        max_seq = crate::js::max(max_seq, crate::js::or(str_to_number(&rest), 0.0));
-    }
     let seq0 = crate::js::or(num(j.get("seq")), 1.0);
     put(&mut s, "seq", n(crate::js::max(seq0, max_seq + 1.0)));
     Ok((s, warnings))
+}
+
+/// An id of a letter and at most 19 digits as one number (the letter, the digit count, the digits), else `None`.
+fn id_key(v: &str) -> Option<u128> {
+    let (c, rest) = v.as_bytes().split_first()?;
+    if rest.is_empty() || rest.len() > 19 || !rest.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    let digits = rest.iter().try_fold(0u64, |a, d| a.checked_mul(10)?.checked_add(u64::from(d.checked_sub(b'0')?)))?;
+    let len = u128::try_from(rest.len()).ok()?;
+    Some((u128::from(*c) << 72) | (len << 64) | u128::from(digits))
+}
+
+/// `isBeamEnd(c)` of a connection being read.
+fn is_beam_end_s<S: Src>(c: &S) -> bool {
+    matches!(c.get("type").and_then(Value::as_str), Some("endplate" | "sheartab"))
+}
+/// `membersOf(c)` of a connection being read (as state.rs `members_of_v`).
+fn members_of_s<S: Src>(c: &S) -> Vec<Option<&Value>> {
+    let g = |k: &str| c.get(k);
+    match c.get("type").and_then(Value::as_str) {
+        Some("splice") => vec![g("a"), g("b")],
+        Some("gusset") => vec![g("support"), g("brace")],
+        _ if is_beam_end_s(c) => vec![g("beam"), g("column")],
+        _ => vec![g("column")],
+    }
 }
 
 fn s_(v: Option<&Value>) -> &str {
@@ -1625,5 +1683,228 @@ mod conn_index_tests {
         let mut ix = ConnIndex::of(&b);
         assert_eq!(Tx { s: &mut a }.add_connection(Some(&s)), Tx { s: &mut b }.add_connection_in(Some(&s), Some(&mut ix)));
         assert_eq!(eq_key(Some(&json!(-0.0))), eq_key(Some(&json!(0))));
+    }
+}
+/// S.15: the typed read of a file's text gives what the JSON read gives (same state and warnings, or the same error)
+/// on the sample and 20,000 files made from it: fields of members, holes, copes, connections and params replaced by
+/// values of every kind, dropped or added, lists of the wrong kind, members and connections duplicated or dropped,
+/// then a third of them damaged as text (duplicated and escaped keys, cut files, stray bytes, deep nesting, numbers
+/// out of range, lone surrogates, trailing text).
+#[cfg(test)]
+mod typed_read_tests {
+    use super::*;
+
+    #[test]
+    fn typed_read_reads_as_the_json_does() {
+        let mut typed = 0usize;
+        let mut ok = 0usize;
+        for t in corpus(20_000).iter().chain([r#""p""#.to_string(), "[]".into(), "{}".into(), "nul".into()].iter()) {
+            let (a, b) = (digest(t), digest_json(t));
+            assert_eq!(a, b, "{}", t.get(..t.len().min(400)).unwrap_or(""));
+            if parse(t).is_ok_and(|v| v.is_object()) {
+                assert!(crate::read_typed::parse_file(t).is_some(), "the typed read took every object");
+                typed += 1;
+            }
+            ok += usize::from(a.starts_with("ok"));
+        }
+        assert!(typed > 17_000 && ok > 15_000, "{typed} typed, {ok} read");
+    }
+
+    /// A small deterministic generator (xorshift64*).
+    struct Rng(u64);
+    impl Rng {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+        fn below(&mut self, n: usize) -> usize {
+            usize::try_from(self.next() % (n.max(1) as u64)).unwrap_or(0)
+        }
+        fn chance(&mut self, k: usize) -> bool {
+            self.below(k) == 0
+        }
+    }
+
+    /// A value of any kind, the kinds a hostile file puts where the reader expects a number, a word or a list.
+    fn junk(r: &mut Rng, depth: usize) -> Value {
+        match r.below(if depth > 3 { 9 } else { 12 }) {
+            0 => Value::Null,
+            1 => json!(true),
+            2 => json!(false),
+            3 => json!(0),
+            4 => json!(-0.0),
+            5 => json!(r.below(5000) as f64 - 500.0),
+            6 => json!(1.5e300),
+            7 => json!(["", "web", "top", "start", "end", "cope", "A36", " W14x90 ", "m1", "beam", "1e3", "\u{7}x"][r.below(12)]),
+            8 => json!(u64::MAX),
+            9 => json!([junk(r, depth + 1), junk(r, depth + 1)]),
+            10 => json!({ "x": junk(r, depth + 1) }),
+            _ => json!([1, 2, 3]),
+        }
+    }
+
+    /// The sample and the frames model, then fields of members, holes, copes, connections and their params replaced
+    /// by junk, dropped or added; lists of the wrong kind; members and connections of other kinds.
+    fn mutate(r: &mut Rng, base: &Value) -> Value {
+        let mut v = base.clone();
+        let n = 1 + r.below(12);
+        for _ in 0..n {
+            let list = ["members", "connections"][r.below(2)];
+            let Some(a) = v.get_mut(list).and_then(Value::as_array_mut) else { continue };
+            if a.is_empty() {
+                continue;
+            }
+            let i = r.below(a.len());
+            let Some(x) = a.get_mut(i) else { continue };
+            match r.below(10) {
+                0 => *x = junk(r, 0),
+                1 | 2 => {
+                    if let Some(o) = x.as_object_mut() {
+                        let keys: Vec<String> = o.keys().cloned().collect();
+                        if let Some(k) = keys.get(r.below(keys.len())) {
+                            if r.chance(3) {
+                                o.remove(k);
+                            } else {
+                                o.insert(k.clone(), junk(r, 0));
+                            }
+                        }
+                    }
+                }
+                3 => {
+                    if let Some(o) = x.as_object_mut() {
+                        let ks = [
+                            "id", "type", "profile", "material", "start", "end", "rotation", "position", "name", "phase", "cuts", "holes",
+                            "params", "a", "b", "aEnd", "beam", "column", "brace", "support", "zz",
+                        ];
+                        o.insert(ks[r.below(ks.len())].to_string(), junk(r, 0));
+                    }
+                }
+                4 => {
+                    // a hole or a cope changed
+                    for k in ["holes", "cuts"] {
+                        if let Some(h) = x.get_mut(k).and_then(Value::as_array_mut) {
+                            if r.chance(2) {
+                                h.push(junk(r, 0));
+                            }
+                            if let Some(e) = h.first_mut().and_then(Value::as_object_mut) {
+                                let ks = ["id", "face", "x", "y", "d", "kind", "end", "side", "length", "depth"];
+                                e.insert(ks[r.below(ks.len())].to_string(), junk(r, 0));
+                            }
+                        }
+                    }
+                    if let Some(o) = x.as_object_mut()
+                        && r.chance(3)
+                    {
+                        o.insert("holes".into(), json!([{ "face": "web", "x": 100, "y": 0, "d": 22, "id": "h7" }, null, 5]));
+                        o.insert("cuts".into(), json!([{ "kind": "cope", "end": "start", "side": "top", "length": 100, "depth": 30 }]));
+                    }
+                }
+                5 => {
+                    if let Some(p) = x.get_mut("params").and_then(Value::as_object_mut) {
+                        let keys: Vec<String> = p.keys().cloned().collect();
+                        if let Some(k) = keys.get(r.below(keys.len())) {
+                            p.insert(k.clone(), junk(r, 0));
+                        }
+                    } else if let Some(o) = x.as_object_mut() {
+                        o.insert("params".into(), junk(r, 0));
+                    }
+                }
+                6 => {
+                    let dup = x.clone();
+                    a.push(dup);
+                }
+                7 => {
+                    a.remove(i);
+                }
+                8 => {
+                    if let Some(o) = x.as_object_mut() {
+                        o.insert(
+                            "id".into(),
+                            [json!("m1"), json!("j1"), json!("x"), json!("m100000"), json!("k3"), json!(7)][r.below(6)].clone(),
+                        );
+                    }
+                }
+                _ => {
+                    if let Some(o) = x.as_object_mut() {
+                        o.insert(
+                            "type".into(),
+                            json!(
+                                ["beam", "column", "brace", "plate", "splice", "gusset", "endplate", "sheartab", "baseplate", "x"]
+                                    [r.below(10)]
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        if r.chance(20)
+            && let Some(o) = v.as_object_mut()
+        {
+            let k = ["members", "connections"][r.below(2)];
+            o.insert(k.into(), junk(r, 0));
+        }
+        v
+    }
+
+    /// Text-level damage: duplicated keys, escaped keys, cut files, a stray byte, deep nesting, a number too big.
+    fn damage(r: &mut Rng, text: String) -> String {
+        match r.below(14) {
+            0 => {
+                let cut = r.below(text.len());
+                let mut c = cut;
+                while !text.is_char_boundary(c) {
+                    c -= 1;
+                }
+                text[..c].to_string()
+            }
+            1 => text.replacen("\"members\"", "\"m\\u0065mbers\"", 1),
+            2 => text.replacen("{\"id\"", "{\"id\":\"m5\",\"id\"", 1 + r.below(3)),
+            3 => text.replacen("\"params\":{", "\"params\":{\"bolts\":3,\"bolts\":\"x\",", 1 + r.below(3)),
+            4 => text.replacen("\"members\":[", "\"members\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]],", 1),
+            5 => text.replacen("\"d\":22", "\"d\":1e400", 1),
+            6 => text.replacen("\"connections\":[", "\"connections\":[{\"zz\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}],", 1),
+            7 => {
+                let mut b = text.into_bytes();
+                let i = r.below(b.len());
+                if let Some(x) = b.get_mut(i) {
+                    *x = b"{}[],:\"\\ 0e-x"[r.below(13)];
+                }
+                String::from_utf8_lossy(&b).into_owned()
+            }
+            8 => format!("{text} x"),
+            9 => format!("[{text}]"),
+            10 => text.replacen("\"members\":", "\"members\":[],\"members\":", 1),
+            11 => text.replacen("\"name\":\"", "\"name\":\"\\ud800", 1),
+            _ => text,
+        }
+    }
+
+    pub(super) fn corpus(n: usize) -> Vec<String> {
+        let mut out = Vec::with_capacity(n);
+        let sample = parse(&crate::sample::sample_model("Sample frame").expect("sample").to_json()).expect("sample json");
+        let mut r = Rng(0x9e37_79b9_7f4a_7c15);
+        for i in 0..n {
+            let v = mutate(&mut r, &sample);
+            let t = if i % 3 == 0 { stringify_indent(&v, 1) } else { stringify(&v) };
+            out.push(if r.chance(3) { damage(&mut r, t) } else { t });
+        }
+        out
+    }
+
+    fn show(r: Res<(Value, Vec<String>)>) -> String {
+        match r {
+            Ok((s, w)) => format!("ok {} {}", stringify(&s), w.join("|")),
+            Err(e) => format!("err {e}"),
+        }
+    }
+    /// The typed read of the text.
+    pub(super) fn digest(text: &str) -> String {
+        show(read_model(&Value::String(text.to_string())))
+    }
+    /// The JSON read: the text parsed, then read as a value.
+    pub(super) fn digest_json(text: &str) -> String {
+        show(read_model_json(text))
     }
 }

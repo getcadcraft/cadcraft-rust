@@ -117,7 +117,51 @@ pub struct Conn {
     pub b: Option<String>,
     pub brace: Option<String>,
     pub support: Option<String>,
-    pub params: Map<String, Value>,
+    pub params: Params,
+}
+
+/// A connection's params as stored, for lookups by name (S.15: the names the connection kinds' defaults use are not
+/// copied, only pointed at; a build used to copy every connection's params map).
+#[derive(Clone, Debug, Default)]
+pub struct Params(Vec<(std::borrow::Cow<'static, str>, Value)>);
+impl Params {
+    /// The entries of a params object.
+    pub fn of(m: &Map<String, Value>) -> Params {
+        let names = param_name_index();
+        Params(
+            m.iter()
+                .map(|(k, v)| {
+                    let k = names.get(k.as_str()).map_or_else(|| k.clone().into(), |n| std::borrow::Cow::Borrowed(*n));
+                    (k, v.clone())
+                })
+                .collect(),
+        )
+    }
+    /// `p[k]`.
+    pub fn get(&self, k: &str) -> Option<&Value> {
+        self.0.iter().find(|(n, _)| n == k).map(|(_, v)| v)
+    }
+}
+/// [`param_names`] by name.
+fn param_name_index() -> &'static std::collections::HashMap<&'static str, &'static str, cc_m3d::omap::FxBuild> {
+    static INDEX: std::sync::OnceLock<std::collections::HashMap<&'static str, &'static str, cc_m3d::omap::FxBuild>> =
+        std::sync::OnceLock::new();
+    INDEX.get_or_init(|| param_names().iter().map(|n| (*n, *n)).collect())
+}
+/// Every param name of the connection kinds' defaults.
+pub(crate) fn param_names() -> &'static [&'static str] {
+    static NAMES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        let mut out: Vec<&'static str> = Vec::new();
+        for kind in ["endplate", "sheartab", "baseplate", "splice", "gusset"] {
+            for k in crate::connections::defaults_ref(kind).and_then(Value::as_object).into_iter().flat_map(|m| m.keys()) {
+                if !out.contains(&k.as_str()) {
+                    out.push(k.as_str());
+                }
+            }
+        }
+        out
+    })
 }
 impl Conn {
     pub fn from_value(v: &Value) -> Conn {
@@ -133,7 +177,7 @@ impl Conn {
             b: o("b"),
             brace: o("brace"),
             support: o("support"),
-            params: v.get("params").and_then(Value::as_object).cloned().unwrap_or_default(),
+            params: v.get("params").and_then(Value::as_object).map(Params::of).unwrap_or_default(),
         }
     }
     /// A numeric parameter (`p.k`; NaN when absent).

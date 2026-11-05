@@ -21,6 +21,7 @@ cc-lang.workspace = true
 cc-cad.workspace = true
 cc-civil.workspace = true
 cc-m3d.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 libm = "0.2.16"
 # Helvetica metrics (font.js) as CadCraft's drafting crate has them

@@ -184,7 +184,7 @@ pub struct Draft {
 #[derive(Default)]
 pub struct Drafts {
     pub list: Vec<Draft>,
-    pub by: HashMap<String, usize>,
+    pub by: HashMap<String, usize, cc_m3d::omap::FxBuild>,
 }
 impl Drafts {
     pub fn get(&self, id: Option<&str>) -> Option<&Draft> {
