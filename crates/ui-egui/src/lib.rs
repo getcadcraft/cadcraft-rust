@@ -405,6 +405,9 @@ pub struct UiApp {
     pub cv_prefs: serde_json::Value,
     /// Settings › DetailCraft kept between runs (detailcraft.js `detailcraft.settings`; in the app's settings file)
     pub dc_prefs: serde_json::Value,
+    /// TakeoffCraft's Snap and Snap to 45° (takeoffcraft.js `takeoffcraft.settings` snap / snap45: per viewer, kept
+    /// between runs): (snap on, 45° without Shift)
+    pub tk_snap: (bool, bool),
     /// the horizontal section cut of the 3D view: on, and its height as a fraction of the model's height
     pub cut3: (bool, f64),
     /// the instance clicked in the 3D view, and what the Properties panel shows for it
@@ -539,6 +542,7 @@ impl Default for UiApp {
             mc_prefs: serde_json::Value::Null,
             cv_prefs: serde_json::Value::Null,
             dc_prefs: serde_json::Value::Null,
+            tk_snap: (true, false),
             cut3: (false, 0.5),
             sel3: None,
             sel_props: Vec::new(),
@@ -717,6 +721,7 @@ impl UiApp {
                     self.ifc_groups.clear();
                     self.civil = None;
                     self.pdf = Some(v);
+                    self.seed_tk_snap();
                 }
                 Err(e) => self.error = Some(format!("{}: {e}", f.name)),
             }
@@ -2261,6 +2266,10 @@ impl UiApp {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let t0 = web_time::Instant::now();
         let ctx = ui.ctx().clone();
+        // what the open sheets' Snap / Snap to 45° are now is what is kept
+        if let Some(p) = self.pdf.as_ref() {
+            self.tk_snap = (!p.takeoff.snap.off, p.takeoff.snap.s45);
+        }
         if !self.held.is_empty() {
             ctx.request_repaint();
         }
@@ -4285,6 +4294,21 @@ mod tests {
             assert_eq!(log.iter().filter(|l| *l == ready).count(), 1);
             assert!(log.len() > 1);
         });
+    }
+
+    #[test]
+    fn takeoff_snap_is_kept_per_viewer() {
+        // takeoffcraft.js settings.snap / snap45: the defaults, then what was kept, then a damaged value
+        let mut a = UiApp::default();
+        assert_eq!(a.settings_json()["takeoffcraft"], serde_json::json!({"snap": true, "snap45": false}));
+        a.load_settings(&serde_json::json!({"takeoffcraft": {"snap": false, "snap45": true}}));
+        assert_eq!(a.tk_snap, (false, true));
+        let v = a.settings_json();
+        let mut b = UiApp::default();
+        b.load_settings(&v);
+        assert_eq!(b.tk_snap, (false, true));
+        b.load_settings(&serde_json::json!({"takeoffcraft": {"snap": "no", "snap45": 1}}));
+        assert_eq!(b.tk_snap, (true, false));
     }
 
     #[test]

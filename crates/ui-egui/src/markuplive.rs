@@ -608,6 +608,7 @@ impl MkLive<'_> {
                     }
                     p.live_on = true;
                     self.0.pdf = Some(p);
+                    self.0.seed_tk_snap();
                 }
                 Err(e) => self.0.message = e,
             }

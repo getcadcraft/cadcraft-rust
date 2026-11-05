@@ -108,6 +108,7 @@ impl UiApp {
             "helpCtx": self.help.saved,
             "cadcraftMyTools": crate::mytoolsdlg::prefs(self),
             "detailcraft": self.detail.as_ref().map_or_else(|| self.dc_prefs.clone(), |d| d.settings.json()),
+            "takeoffcraft": self.tk_prefs_json(),
         })
     }
 
@@ -147,6 +148,12 @@ impl UiApp {
         if let Some(p) = v.get("cadcraftMyTools") {
             crate::mytoolsdlg::load_prefs(self, p);
         }
+        if let Some(p) = v.get("takeoffcraft").filter(|p| p.is_object()) {
+            // takeoffcraft.js loadSettings: only booleans count
+            let b = |k: &str, d: bool| p.get(k).and_then(Value::as_bool).unwrap_or(d);
+            self.tk_snap = (b("snap", true), b("snap45", false));
+            self.seed_tk_snap();
+        }
         if let Some(p) = v.get("detailcraft").filter(|p| p.is_object()) {
             self.dc_prefs = p.clone();
             if let Some(d) = self.detail.as_mut() {
@@ -154,6 +161,21 @@ impl UiApp {
                 d.settings = crate::detailexport::Settings::load(p);
                 d.settings_loaded(&before);
             }
+        }
+    }
+
+    /// TakeoffCraft's kept settings (takeoffcraft.js's `snap`, `snap45`), from the open sheets when there are some.
+    fn tk_prefs_json(&self) -> Value {
+        let (snap, s45) = self.pdf.as_ref().map_or(self.tk_snap, |p| (!p.takeoff.snap.off, p.takeoff.snap.s45));
+        json!({"snap": snap, "snap45": s45})
+    }
+
+    /// The kept Snap / Snap to 45° handed to the sheets just opened.
+    pub(crate) fn seed_tk_snap(&mut self) {
+        let (snap, s45) = self.tk_snap;
+        if let Some(p) = self.pdf.as_mut() {
+            p.takeoff.snap.off = !snap;
+            p.takeoff.snap.s45 = s45;
         }
     }
 
